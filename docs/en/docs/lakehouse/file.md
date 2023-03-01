@@ -89,14 +89,6 @@ Besides Parquet, Doris supports analysis and auto column type inference of ORC, 
 
 <version since="dev"></version>
 
-在默认情况下，对 CSV 格式文件，所有列类型均为 String。可以通过 `csv_schema` 属性单独指定列名和列类型。Doris 会使用指定的列类型进行文件读取。格式如下：
-
-`name1:type1,name2:type2,...`
-
-对于格式不匹配的列（比如文件中为字符串，用户定义为 int），或缺失列（比如文件中有4列，用户定义了5列），则这些列将返回null。
-
-当前支持的列类型为：
-
 By default, for CSV format files, all columns are of type String. Column names and column types can be specified individually via the `csv_schema` attribute. Doris will use the specified column type for file reading. The format is as follows:
 
 `name1:type1;name2:type2;...`
