@@ -43,54 +43,6 @@ static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
-class RemoteFileSystemMock;
-class FileWriterMock;
-
-static io::FileSystemSPtr s_fs(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
-                                                       io::FileSystemType::S3));
-static io::FileWriterPtr s_writer(new FileWriterMock("test_path"));
-
-using io::Path;
-
-// remove DISABLED_ when need run this test
-// #define TabletCooldownTest DISABLED_TabletCooldownTest
-class TabletCooldownTest : public testing::Test {
-public:
-    static void SetUpTestSuite() {
-        StorageResource resource = {s_fs, 1};
-        put_storage_resource(kResourceId, resource);
-        auto storage_policy = std::make_shared<StoragePolicy>();
-        storage_policy->name = "TabletCooldownTest";
-        storage_policy->version = 1;
-        storage_policy->resource_id = kResourceId;
-        put_storage_policy(kStoragePolicyId, storage_policy);
-
-        constexpr uint32_t MAX_PATH_LEN = 1024;
-        char buffer[MAX_PATH_LEN];
-        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
-        config::storage_root_path = std::string(buffer) + "/" + kTestDir;
-        config::min_file_descriptor_number = 1000;
-
-        FileUtils::remove_all(config::storage_root_path);
-        FileUtils::create_dir(config::storage_root_path);
-
-        std::vector<StorePath> paths {{config::storage_root_path, -1}};
-
-        EngineOptions options;
-        options.store_paths = paths;
-        doris::StorageEngine::open(options, &k_engine);
-    }
-
-    static void TearDownTestSuite() {
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
-    }
-
-};
-
 class FileWriterMock : public io::FileWriter {
 public:
     FileWriterMock(Path path) : io::FileWriter(std::move(path)) {}
@@ -123,7 +75,7 @@ public:
 
     size_t bytes_appended() const override { return 0; }
 
-    FileSystemSPtr fs() const override { return fs; }
+    io::FileSystemSPtr fs() const override { return fs; }
 };
 
 class RemoteFileSystemMock : public io::RemoteFileSystem {
@@ -184,6 +136,51 @@ class RemoteFileSystemMock : public io::RemoteFileSystem {
     Status connect() override {
         return Status::OK();
     }
+};
+
+static io::FileSystemSPtr s_fs(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
+                                                       io::FileSystemType::S3));
+static io::FileWriterPtr s_writer(new FileWriterMock("test_path"));
+
+using io::Path;
+
+// remove DISABLED_ when need run this test
+// #define TabletCooldownTest DISABLED_TabletCooldownTest
+class TabletCooldownTest : public testing::Test {
+public:
+    static void SetUpTestSuite() {
+        StorageResource resource = {s_fs, 1};
+        put_storage_resource(kResourceId, resource);
+        auto storage_policy = std::make_shared<StoragePolicy>();
+        storage_policy->name = "TabletCooldownTest";
+        storage_policy->version = 1;
+        storage_policy->resource_id = kResourceId;
+        put_storage_policy(kStoragePolicyId, storage_policy);
+
+        constexpr uint32_t MAX_PATH_LEN = 1024;
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        config::storage_root_path = std::string(buffer) + "/" + kTestDir;
+        config::min_file_descriptor_number = 1000;
+
+        FileUtils::remove_all(config::storage_root_path);
+        FileUtils::create_dir(config::storage_root_path);
+
+        std::vector<StorePath> paths {{config::storage_root_path, -1}};
+
+        EngineOptions options;
+        options.store_paths = paths;
+        doris::StorageEngine::open(options, &k_engine);
+    }
+
+    static void TearDownTestSuite() {
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
+        }
+    }
+
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
