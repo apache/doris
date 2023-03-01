@@ -47,13 +47,11 @@ static constexpr int64_t kStoragePolicyId = 10002;
 // #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
 public:
-    class S3FileSystemMock : public io::RemoteFileSystem {
-        S3FileSystemMock() {}
-    };
-
     static void SetUpTestSuite() {
-        S3FileSystemMock s3_fs;
-        put_storage_resource(kResourceId, {s3_fs, 1});
+        io::FileSystemSPtr s3_fs(new io::S3FileSystemMock("test_path", "id",
+                                                          io::FileSystemType::S3));
+        StorageResource resource = {s3_fs, 1};
+        put_storage_resource(kResourceId, resource);
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
         storage_policy->version = 1;
