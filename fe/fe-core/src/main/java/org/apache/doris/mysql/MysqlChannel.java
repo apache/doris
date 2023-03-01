@@ -299,8 +299,9 @@ public class MysqlChannel {
                     tempBuffer.limit(tempBuffer.position() + packetLen);
                     readLen = readAll(tempBuffer, false);
                     result.put(tempBuffer);
+                    result.limit(result.position());
                 }
-                if (mysqlPacketLength != result.position()) {
+                if (mysqlPacketLength < result.position()) {
                     LOG.info("one SSL packet has multiple mysql packets.");
                     result.flip();
                     result.position(mysqlPacketLength);
@@ -341,6 +342,7 @@ public class MysqlChannel {
             tmp.put(result.array(), 0, result.position());
             result = tmp;
         }
+        result.limit(result.position() + packetLen);
         return result;
     }
 
