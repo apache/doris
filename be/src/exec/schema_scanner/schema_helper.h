@@ -39,6 +39,10 @@ public:
     static Status describe_table(const std::string& ip, const int32_t port,
                                  const TDescribeTableParams& desc_params,
                                  TDescribeTableResult* desc_result);
+    
+    static Status describe_tables(const std::string& ip, const int32_t port,
+                                 const TDescribeTablesParams& desc_params,
+                                 TDescribeTablesResult* desc_result);
 
     static Status show_variables(const std::string& ip, const int32_t port,
                                  const TShowVariableRequest& var_params,

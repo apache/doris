@@ -234,12 +234,18 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
 
 Status SchemaColumnsScanner::_get_new_desc() {
     SCOPED_TIMER(_get_describe_timer);
-    TDescribeTableParams desc_params;
+    TDescribeTablesParams desc_params;
     desc_params.__set_db(_db_result.dbs[_db_index - 1]);
     if (_db_result.__isset.catalogs) {
         desc_params.__set_catalog(_db_result.catalogs[_db_index - 1]);
     }
-    desc_params.__set_table_name(_table_result.tables[_table_index++]);
+    for (int i = 0; i < 100; ++i) {
+        if (_table_index >= _table_result.tables.size()) {
+            break;
+        }
+        desc_params.tables_name.push_back(_table_result.tables[_table_index++]);
+    }
+    LOG(WARNING) << "_get_new_desc tables_name size: " << desc_params.tables_name.size();
     if (nullptr != _param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
@@ -252,8 +258,8 @@ Status SchemaColumnsScanner::_get_new_desc() {
     }
 
     if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip), _param->port, desc_params,
-                                                     &_desc_result));
+        RETURN_IF_ERROR(SchemaHelper::describe_tables(*(_param->ip), _param->port, desc_params,
+                                                      &_desc_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
