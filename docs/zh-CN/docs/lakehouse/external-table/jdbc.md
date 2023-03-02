@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-推荐使用 [JDBC Catalog](../multi-catalog/jdbc) 访问 JDBC 外表。
+推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表。
 
 </version>
 
@@ -266,4 +266,4 @@ PROPERTIES (
 
 ## Q&A
 
-请参考 [JDBC Catalog](../multi-catalog/jdbc) 中的 常见问题一节。
+请参考 [JDBC Catalog](../multi-catalog/jdbc.md) 中的 常见问题一节。
