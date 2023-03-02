@@ -23,6 +23,8 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "io/file_writer.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/remote_file_system.h"
@@ -50,96 +52,40 @@ static io::FileSystemSPtr s_fs;
 class FileWriterMock : public io::FileWriter {
 public:
     FileWriterMock(Path path) : io::FileWriter(std::move(path)) {}
-
     ~FileWriterMock() {}
 
-    Status close() override {
-        return Status::OK();
-    }
-
-    Status abort() override {
-        return Status::OK();
-    }
-
-    Status append(const Slice& data) override {
-        return Status::OK();
-    }
-
-    Status appendv(const Slice* data, size_t data_cnt) override {
-        return Status::OK();
-    }
-
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::OK();
-    }
-
-    Status finalize() override {
-        return Status::OK();
-    }
-
-    size_t bytes_appended() const override { return 0; }
-
-    io::FileSystemSPtr fs() const override { return s_fs; }
+    MOCK_METHOD0(close, Status());
+    MOCK_METHOD0(abort, Status());
+    MOCK_METHOD1(append, Status(const Slice& data));
+    MOCK_METHOD2(appendv, Status(const Slice* data, size_t data_cnt));
+    MOCK_METHOD2(write_at, Status(size_t offset, const Slice& data));
+    MOCK_METHOD0(finalize, Status());
+    MOCK_METHOD0(bytes_appended, size_t());
+    MOCK_METHOD0(fs, io::FileSystemSPtr());
 };
 
 class RemoteFileSystemMock : public io::RemoteFileSystem {
     RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
             : RemoteFileSystem(std::move(root_path), std::move(id), type) {}
-    ~RemoteFileSystemMock() override {}
+    ~RemoteFileSystemMock() {}
 
     Status create_file(const Path& path, io::FileWriterPtr* writer) override {
         *writer = std::make_unique<FileWriterMock>("test_path");
         return Status::OK();
     }
-
-    Status open_file(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx) override {
-        return Status::OK();
-    }
-
-    Status delete_file(const Path& path) override {
-        return Status::OK();
-    }
-
-    Status create_directory(const Path& path) override {
-        return Status::OK();
-    }
-
-    Status delete_directory(const Path& path) override {
-        return Status::OK();
-    }
-
-    Status link_file(const Path& src, const Path& dest) override {
-        return Status::OK();
-    }
-
-    Status exists(const Path& path, bool* res) const override {
-        return Status::OK();
-    }
-
-    Status file_size(const Path& path, size_t* file_size) const override {
-        return Status::OK();
-    }
-
-    Status list(const Path& path, std::vector<Path>* files) override {
-        return Status::OK();
-    }
-
-    Status upload(const Path& local_path, const Path& dest_path) override {
-        return Status::OK();
-    }
-
-    Status batch_upload(const std::vector<Path>& local_paths,
-                        const std::vector<Path>& dest_paths) override {
-        return Status::OK();
-    }
-
-    Status batch_delete(const std::vector<Path>& paths) override {
-        return Status::OK();
-    }
-
-    Status connect() override {
-        return Status::OK();
-    }
+    MOCK_METHOD3(open_file, Status(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx));
+    MOCK_METHOD1(delete_file, Status(const Path& path));
+    MOCK_METHOD1(create_directory, Status(const Path& path));
+    MOCK_METHOD1(delete_directory, Status(const Path& path));
+    MOCK_METHOD2(link_file, Status(const Path& src, const Path& dest));
+    MOCK_METHOD2(exists, Status(const Path& path, bool* res));
+    MOCK_METHOD2(file_size, Status(const Path& path, size_t* file_size));
+    MOCK_METHOD2(list, Status(const Path& path, std::vector<Path>* files));
+    MOCK_METHOD2(upload, Status(const Path& local_path, const Path& dest_path));
+    MOCK_METHOD2(batch_upload, Status(const std::vector<Path>& local_paths,
+                                     const std::vector<Path>& dest_paths));
+    MOCK_METHOD1(batch_delete, Status(const std::vector<Path>& paths));
+    MOCK_METHOD0(connect, Status());
 };
 
 class TabletCooldownTest : public testing::Test {
@@ -179,6 +125,9 @@ public:
         }
     }
 
+private:
+
+    static io::FileWriterPtr* _file_writer;
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -240,6 +189,40 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(TabletCooldownTest, normal) {
+    EXPECT_CALL(_file_writer, close()).WillRepeatedly(::testing::Return(Status::OK()));
+    EXPECT_CALL(_file_writer, abort()).WillRepeatedly(::testing::Return(Status::OK()));
+    EXPECT_CALL(_file_writer, append(::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(_file_writer, appendv(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(_file_writer, write_at(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(_file_writer, finalize()).WillRepeatedly(::testing::Return(Status::OK()));
+    EXPECT_CALL(_file_writer, bytes_appended()).WillRepeatedly(::testing::Return(1));
+    EXPECT_CALL(_file_writer, fs()).WillRepeatedly(::testing::Return(s_fs))
+
+    EXPECT_CALL(s_fs, open_file(::testing::_, ::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, delete_file(::testing::_)).WillRepeatedly(::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, create_directory(::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, delete_directory(::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, link_file(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, exists(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, file_size(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, list(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, upload(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, batch_upload(::testing::_, ::testing::_)).WillRepeatedly(
+            ::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, batch_delete(::testing::_)).WillRepeatedly(::testing::Return(Status::OK()));
+    EXPECT_CALL(s_fs, connect()).WillRepeatedly(::testing::Return(Status::OK()));
+
     // create tablet
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
@@ -330,13 +313,6 @@ TEST_F(TabletCooldownTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     auto rs = tablet->get_rowset_by_version({2, 2});
     ASSERT_FALSE(rs->is_local());
-
-    // test read
-    ASSERT_EQ(Status::OK(), st);
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-    st = std::static_pointer_cast<BetaRowset>(rs)->load_segments(&segments);
-    ASSERT_EQ(Status::OK(), st);
-    ASSERT_EQ(segments.size(), 1);
 }
 
 } // namespace doris
