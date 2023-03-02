@@ -23,13 +23,13 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +57,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topJoin -> {
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
@@ -81,26 +82,26 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                         return null;
                     }
 
-                    // topJoin condition -> newBottomJoin condition, bottomJoin condition -> newTopJoin condition
-                    JoinReorderHelper helper = new JoinReorderHelper(bottomJoin.getHashJoinConjuncts(),
-                            bottomJoin.getOtherJoinConjuncts(), topJoin.getHashJoinConjuncts(),
-                            topJoin.getOtherJoinConjuncts(), projects, aProjects, bProjects);
-
                     // Add all slots used by OnCondition when projects not empty.
-                    helper.addSlotsUsedByOn(JoinReorderUtils.combineProjectAndChildExprId(a, helper.newLeftProjects),
-                            Collections.EMPTY_SET);
+                    Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
+                    Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
+                                    bottomJoin.getHashJoinConjuncts().stream(),
+                                    bottomJoin.getHashJoinConjuncts().stream())
+                            .flatMap(onExpr -> onExpr.getInputSlots().stream())
+                            .collect(Collectors.partitioningBy(
+                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 
                     bProjects.addAll(OuterJoinLAsscomProject.forceToNullable(c.getOutputSet()));
                     /* ********** new Plan ********** */
-                    LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(helper.newBottomHashConjuncts,
-                            helper.newBottomOtherConjuncts, b, c);
+                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(b, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
 
                     Plan left = JoinReorderUtils.projectOrSelf(aProjects, a);
                     Plan right = JoinReorderUtils.projectOrSelf(bProjects, newBottomJoin);
 
-                    LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(helper.newTopHashConjuncts,
-                            helper.newTopOtherConjuncts, left, right);
+                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
 
