@@ -30,7 +30,7 @@ Currently, Doris supports multiple import methods such as [broker load](../impor
 For scenarios similar to the import of cdc data, insert and delete in the data data generally appear interspersed. In this scenario, our current import method is not enough, even if we can separate insert and delete, it can solve the import problem , But still cannot solve the problem of deletion. Use the batch delete function to solve the needs of these scenarios.
 There are three ways to merge data import:
 1. APPEND: All data are appended to existing data
-2. DELETE: delete all rows with the same key column value as the imported data
+2. DELETE: delete all rows with the same key column value as the imported data(When there is a [`sequence`](sequence-column-manual.md) column in the table, the same primary key and the logic of the size of the sequence column must be satisfied at the same time to delete it correctly, see use case 4 below for details.)
 3. MERGE: APPEND or DELETE according to DELETE ON decision
 
 ## Fundamental
