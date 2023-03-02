@@ -28,10 +28,10 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
-#include "vec/exprs/vtuple_is_null_predicate.h"
+#include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/vtuple_is_null_predicate.h"
 
 namespace doris::vectorized {
 using doris::Status;
@@ -62,9 +62,18 @@ VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
+    ++context->_depth_num;
+    if (context->_depth_num > config::max_depth_of_expr_tree) {
+        return Status::InternalError(
+                fmt::format("The depth of the expression tree is too big, make it less than {}",
+                            config::max_depth_of_expr_tree));
+    }
+
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
     }
+
+    --context->_depth_num;
     return Status::OK();
 }
 
