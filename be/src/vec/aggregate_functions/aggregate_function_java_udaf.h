@@ -28,6 +28,7 @@
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
@@ -55,11 +56,15 @@ public:
         input_values_buffer_ptr.reset(new int64_t[num_args]);
         input_nulls_buffer_ptr.reset(new int64_t[num_args]);
         input_offsets_ptrs.reset(new int64_t[num_args]);
+        input_array_nulls_buffer_ptr.reset(new int64_t[num_args]);
+        input_array_string_offsets_ptrs.reset(new int64_t[num_args]);
         input_place_ptrs.reset(new int64_t);
         output_value_buffer.reset(new int64_t);
         output_null_value.reset(new int64_t);
         output_offsets_ptr.reset(new int64_t);
         output_intermediate_state_ptr.reset(new int64_t);
+        output_array_null_ptr.reset(new int64_t);
+        output_array_string_offsets_ptr.reset(new int64_t);
     }
 
     ~AggregateJavaUdafData() {
@@ -92,6 +97,11 @@ public:
             ctor_params.__set_input_offsets_ptrs((int64_t)input_offsets_ptrs.get());
             ctor_params.__set_input_buffer_ptrs((int64_t)input_values_buffer_ptr.get());
             ctor_params.__set_input_nulls_ptrs((int64_t)input_nulls_buffer_ptr.get());
+            ctor_params.__set_input_array_nulls_buffer_ptr(
+                    (int64_t)input_array_nulls_buffer_ptr.get());
+            ctor_params.__set_input_array_string_offsets_ptrs(
+                    (int64_t)input_array_string_offsets_ptrs.get());
+
             ctor_params.__set_output_buffer_ptr((int64_t)output_value_buffer.get());
             ctor_params.__set_input_places_ptr((int64_t)input_place_ptrs.get());
 
@@ -99,6 +109,9 @@ public:
             ctor_params.__set_output_offsets_ptr((int64_t)output_offsets_ptr.get());
             ctor_params.__set_output_intermediate_state_ptr(
                     (int64_t)output_intermediate_state_ptr.get());
+            ctor_params.__set_output_array_null_ptr((int64_t)output_array_null_ptr.get());
+            ctor_params.__set_output_array_string_offsets_ptr(
+                    (int64_t)output_array_string_offsets_ptr.get());
 
             jbyteArray ctor_params_bytes;
 
@@ -140,6 +153,30 @@ public:
             } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
                 input_values_buffer_ptr.get()[arg_idx] =
                         reinterpret_cast<int64_t>(data_col->get_raw_data().data);
+            } else if (data_col->is_column_array()) {
+                const ColumnArray* array_col = assert_cast<const ColumnArray*>(data_col);
+                input_offsets_ptrs.get()[arg_idx] = reinterpret_cast<int64_t>(
+                        array_col->get_offsets_column().get_raw_data().data);
+                const ColumnNullable& array_nested_nullable =
+                        assert_cast<const ColumnNullable&>(array_col->get_data());
+                auto data_column_null_map = array_nested_nullable.get_null_map_column_ptr();
+                auto data_column = array_nested_nullable.get_nested_column_ptr();
+                input_array_nulls_buffer_ptr.get()[arg_idx] = reinterpret_cast<int64_t>(
+                        check_and_get_column<ColumnVector<UInt8>>(data_column_null_map)
+                                ->get_data()
+                                .data());
+
+                //need pass FE, nullamp and offset, chars
+                if (data_column->is_column_string()) {
+                    const ColumnString* col = assert_cast<const ColumnString*>(data_column.get());
+                    input_values_buffer_ptr.get()[arg_idx] =
+                            reinterpret_cast<int64_t>(col->get_chars().data());
+                    input_array_string_offsets_ptrs.get()[arg_idx] =
+                            reinterpret_cast<int64_t>(col->get_offsets().data());
+                } else {
+                    input_values_buffer_ptr.get()[arg_idx] =
+                            reinterpret_cast<int64_t>(data_column->get_raw_data().data);
+                }
             } else {
                 return Status::InvalidArgument(
                         strings::Substitute("Java UDAF doesn't support type is $0 now !",
@@ -210,7 +247,7 @@ public:
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         chars.resize(buffer_size);                                                                 \
         *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                            \
         *output_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());                           \
@@ -219,7 +256,7 @@ public:
                                                         executor_result_id, to.size() - 1, place); \
         while (res != JNI_TRUE) {                                                                  \
             increase_buffer_size++;                                                                \
-            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
+            buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);               \
             chars.resize(buffer_size);                                                             \
             *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
             *output_intermediate_state_ptr = chars.size();                                         \
@@ -230,6 +267,63 @@ public:
         *output_value_buffer = reinterpret_cast<int64_t>(data_col.get_raw_data().data);            \
         env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,            \
                                          to.size() - 1, place);                                    \
+    } else if (data_col.is_column_array()) {                                                       \
+        ColumnArray& array_col = assert_cast<ColumnArray&>(data_col);                              \
+        ColumnNullable& array_nested_nullable =                                                    \
+                assert_cast<ColumnNullable&>(array_col.get_data());                                \
+        auto data_column_null_map = array_nested_nullable.get_null_map_column_ptr();               \
+        auto data_column = array_nested_nullable.get_nested_column_ptr();                          \
+        auto& offset_column = array_col.get_offsets_column();                                      \
+        int increase_buffer_size = 0;                                                              \
+        int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        *output_offsets_ptr = reinterpret_cast<int64_t>(offset_column.get_raw_data().data);        \
+        data_column_null_map->resize(buffer_size);                                                 \
+        auto& null_map_data =                                                                      \
+                assert_cast<ColumnVector<UInt8>*>(data_column_null_map.get())->get_data();         \
+        *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());                  \
+        *output_intermediate_state_ptr = buffer_size;                                              \
+        if (data_column->is_column_string()) {                                                     \
+            ColumnString* str_col = assert_cast<ColumnString*>(data_column.get());                 \
+            ColumnString::Chars& chars = assert_cast<ColumnString::Chars&>(str_col->get_chars());  \
+            ColumnString::Offsets& offsets =                                                       \
+                    assert_cast<ColumnString::Offsets&>(str_col->get_offsets());                   \
+            chars.resize(buffer_size);                                                             \
+            offsets.resize(buffer_size);                                                           \
+            *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
+            *output_array_string_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());          \
+            jboolean res = env->CallNonvirtualBooleanMethod(                                       \
+                    executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
+            while (res != JNI_TRUE) {                                                              \
+                increase_buffer_size++;                                                            \
+                buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+                null_map_data.resize(buffer_size);                                                 \
+                chars.resize(buffer_size);                                                         \
+                offsets.resize(buffer_size);                                                       \
+                *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
+                *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                    \
+                *output_array_string_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());      \
+                *output_intermediate_state_ptr = buffer_size;                                      \
+                res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                  \
+                                                       executor_result_id, to.size() - 1, place);  \
+            }                                                                                      \
+        } else {                                                                                   \
+            data_column->resize(buffer_size);                                                      \
+            *output_value_buffer = reinterpret_cast<int64_t>(data_column->get_raw_data().data);    \
+            jboolean res = env->CallNonvirtualBooleanMethod(                                       \
+                    executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
+            while (res != JNI_TRUE) {                                                              \
+                increase_buffer_size++;                                                            \
+                buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+                null_map_data.resize(buffer_size);                                                 \
+                data_column->resize(buffer_size);                                                  \
+                *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
+                *output_value_buffer =                                                             \
+                        reinterpret_cast<int64_t>(data_column->get_raw_data().data);               \
+                *output_intermediate_state_ptr = buffer_size;                                      \
+                res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                  \
+                                                       executor_result_id, to.size() - 1, place);  \
+            }                                                                                      \
+        }                                                                                          \
     } else {                                                                                       \
         return Status::InvalidArgument(strings::Substitute(                                        \
                 "Java UDAF doesn't support return type is $0 now !", result_type->get_name()));    \
@@ -286,11 +380,15 @@ private:
     std::unique_ptr<int64_t[]> input_values_buffer_ptr;
     std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
     std::unique_ptr<int64_t[]> input_offsets_ptrs;
+    std::unique_ptr<int64_t[]> input_array_nulls_buffer_ptr;
+    std::unique_ptr<int64_t[]> input_array_string_offsets_ptrs;
     std::unique_ptr<int64_t> input_place_ptrs;
     std::unique_ptr<int64_t> output_value_buffer;
     std::unique_ptr<int64_t> output_null_value;
     std::unique_ptr<int64_t> output_offsets_ptr;
     std::unique_ptr<int64_t> output_intermediate_state_ptr;
+    std::unique_ptr<int64_t> output_array_null_ptr;
+    std::unique_ptr<int64_t> output_array_string_offsets_ptr;
 
     int argument_size = 0;
     std::string serialize_data;
