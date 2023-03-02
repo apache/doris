@@ -21,6 +21,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+
 /**
  * Window function: Last_value()
  */
@@ -28,6 +32,12 @@ public class LastValue extends FirstOrLastValue {
 
     public LastValue(Expression child) {
         super("last_value", child);
+    }
+
+    @Override
+    public LastValue withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LastValue(children.get(0));
     }
 
     @Override
