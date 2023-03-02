@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to create TPC-DS tables
+# This script is used to run TPC-DS 99 queries
 ##############################################################
 
 set -eo pipefail
@@ -28,12 +28,13 @@ ROOT=$(
     pwd
 )
 
-CURDIR=${ROOT}
+CURDIR="${ROOT}"
+TPCDS_QUERIES_DIR="${CURDIR}/../queries"
 
 usage() {
     echo "
-This script is used to create TPC-DS tables, 
-will use mysql client to connect Doris server which is specified in doris-cluster.conf file.
+This script is used to run TPC-DS 99 queries, 
+will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
 Usage: $0 
   "
     exit 1
@@ -83,18 +84,50 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
+#shellcheck source=/dev/null
 source "${CURDIR}/../conf/doris-cluster.conf"
-export MYSQL_PWD=${PASSWORD}
+export MYSQL_PWD=${PASSWORD:-}
 
-echo "FE_HOST: ${FE_HOST}"
-echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
-echo "USER: ${USER}"
-echo "DB: ${DB}"
+echo "FE_HOST: ${FE_HOST:='127.0.0.1'}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT:='9030'}"
+echo "USER: ${USER:='root'}"
+echo "DB: ${DB:='tpcds'}"
+echo "Time Unit: ms"
 
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "DROP DATABASE IF EXISTS ${DB}"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}"
+run_sql() {
+    echo "$*"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+}
 
-echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables.sql"
-mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables.sql
+echo '============================================'
+run_sql "show variables;"
+echo '============================================'
+run_sql "show table status;"
+echo '============================================'
 
-echo "tpcds tables has been created"
+sum=0
+IFS=';'
+i=1
+query_strs=$(cat "${TPCDS_QUERIES_DIR}/tpcds_queries.sql")
+for query_str in ${query_strs}; do
+    # echo '============================================'
+    # echo "${query_str} "
+    # echo '============================================'
+    total=0
+    run=3
+    # Each query is executed ${run} times and takes the average time
+    for ((j = 0; j < run; j++)); do
+        # if [[ $i -lt 70 ]]; then continue; fi #########
+        start=$(date +%s%3N)
+        mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments -e"${query_str}" >/dev/null
+        end=$(date +%s%3N)
+        total=$((total + end - start))
+    done
+    cost=$((total / run))
+    echo "q${i}: ${cost} ms"
+    sum=$((sum + cost))
+    i=$((i + 1))
+done <"${TPCDS_QUERIES_DIR}/tpcds_queries.sql"
+echo "Total cost: ${sum} ms"
+
+echo 'Finish tpcds queries.'

@@ -17,8 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to load generated TPC-H data set into Doris.
-# for table lineitem, orders, partsupp, they will be loading in parallel
+# This script is used to load generated TPC-DS data set into Doris.
 ##############################################################
 
 set -eo pipefail
@@ -85,9 +84,9 @@ if [[ ${HELP} -eq 1 ]]; then
     usage
 fi
 
-# check if tpch-data exists
+# check if tpcds-data exists
 if [[ ! -d "${TPCDS_DATA_DIR}"/ ]]; then
-    echo "${TPCDS_DATA_DIR} does not exist. Run sh gen-tpch-data.sh first."
+    echo "${TPCDS_DATA_DIR} does not exist. Run sh gen-tpcds-data.sh first."
     exit 1
 fi
 
