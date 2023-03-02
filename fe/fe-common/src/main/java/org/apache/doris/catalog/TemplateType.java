@@ -78,8 +78,8 @@ public class TemplateType extends Type {
 
     @Override
     public boolean matchesType(Type t) {
-        // matches any type
-        return true;
+        // not matches any type
+        return false;
     }
 
     @Override

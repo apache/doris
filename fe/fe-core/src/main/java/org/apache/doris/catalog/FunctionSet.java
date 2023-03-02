@@ -1224,10 +1224,38 @@ public class FunctionSet<T> {
             return null;
         }
 
+        List<Function> normalFunctions = Lists.newArrayList();
+        List<Function> templateFunctions = Lists.newArrayList();
+        for (Function fn : fns) {
+            if (fn.hasTemplateType()) {
+                templateFunctions.add(fn);
+            } else {
+                normalFunctions.add(fn);
+            }
+        }
+
+        // try normal functions first
+        Function fn = getFunction(desc, mode, normalFunctions);
+        if (fn != null) {
+            return fn;
+        }
+
+        // then specialize template functions and try them
+        List<Function> specializedTemplateFunctions = Lists.newArrayList();
+        for (Function f : templateFunctions) {
+            f = FunctionSet.specializeTemplateFunction(f, desc);
+            if (f != null) {
+                specializedTemplateFunctions.add(f);
+            }
+        }
+        return getFunction(desc, mode, specializedTemplateFunctions);
+    }
+
+    private Function getFunction(Function desc, Function.CompareMode mode, List<Function> fns) {
         // First check for identical
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_IDENTICAL)) {
-                return FunctionSet.specializeTemplateFunction(f, desc);
+                return f;
             }
         }
         if (mode == Function.CompareMode.IS_IDENTICAL) {
@@ -1299,7 +1327,7 @@ public class FunctionSet<T> {
         } catch (TypeException e) {
             LOG.warn("specializeTemplateFunction exception", e);
             return null;
-        } 
+        }
     }
 
     /**

@@ -376,7 +376,7 @@ public class Function implements Writable {
             return false;
         }
         for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!this.argTypes[i].matchesType(o.argTypes[i])) {
+            if (!o.argTypes[i].matchesType(this.argTypes[i])) {
                 return false;
             }
         }
@@ -813,5 +813,15 @@ public class Function implements Writable {
         } catch (Throwable t) {
             throw new UserException("failed to serialize function: " + functionName(), t);
         }
+    }
+
+    public boolean hasTemplateType() {
+        for (Type t : getArgs()) {
+            if (t.hasTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
