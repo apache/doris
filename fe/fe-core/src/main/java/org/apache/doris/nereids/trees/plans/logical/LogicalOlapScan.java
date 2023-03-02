@@ -180,7 +180,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
                 "qualified", qualifiedName(),
-                "output", getOutput(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
                 "preAgg", preAggStatus
