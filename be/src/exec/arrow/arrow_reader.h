@@ -36,6 +36,7 @@
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/file_reader.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -58,7 +59,7 @@ struct Statistics {
 
 class ArrowFile : public arrow::io::RandomAccessFile {
 public:
-    ArrowFile(FileReader* file);
+    ArrowFile(io::FileReaderSPtr file_reader);
     virtual ~ArrowFile();
     arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
     arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
@@ -70,15 +71,16 @@ public:
     bool closed() const override;
 
 private:
-    FileReader* _file;
-    int64_t _pos = 0;
+    io::FileReaderSPtr _file_reader;
+    size_t _pos = 0;
 };
 
 // base of arrow reader
 class ArrowReaderWrap : public vectorized::GenericReader {
 public:
     ArrowReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
-                    FileReader* file_reader, int32_t num_of_columns_from_file, bool caseSensitive);
+                    io::FileReaderSPtr file_reader, int32_t num_of_columns_from_file,
+                    bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) = 0;

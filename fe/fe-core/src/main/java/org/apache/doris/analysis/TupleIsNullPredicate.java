@@ -134,7 +134,7 @@ public class TupleIsNullPredicate extends Predicate {
         // Assert that all tids are materialized.
         for (TupleId tid : tids) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
-            Preconditions.checkState(tupleDesc.getIsMaterialized());
+            Preconditions.checkState(tupleDesc.isMaterialized());
         }
         // Perform the wrapping.
         List<Expr> result = Lists.newArrayListWithCapacity(inputExprs.size());

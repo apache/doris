@@ -24,8 +24,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
@@ -44,6 +45,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
@@ -194,6 +197,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             Preconditions.checkArgument(deleteSlot != null);
             Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+                scan = scan.withPreAggStatus(PreAggStatus.off(
+                        Column.DELETE_SIGN + " is used as conjuncts."));
+            }
             return new LogicalFilter(Sets.newHashSet(conjunct), scan);
         }
         return scan;
@@ -215,7 +222,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
             case JDBC_EXTERNAL_TABLE:
                 return new LogicalJdbcScan(RelationUtil.newRelationId(),
-                    (ExternalTable) table, ImmutableList.of(dbName));
+                    (JdbcExternalTable) table, ImmutableList.of(dbName));
+            case ES_EXTERNAL_TABLE:
+                return new LogicalEsScan(RelationUtil.newRelationId(),
+                    (EsExternalTable) table, ImmutableList.of(dbName));
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }

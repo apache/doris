@@ -44,40 +44,44 @@ suite("test_clean_label") {
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table.call(testTable)
+        def label1 = "clean_label_test1" + UUID.randomUUID().toString().replaceAll("-", "")
+        def label2 = "clean_label_test2" + UUID.randomUUID().toString().replaceAll("-", "")
+        def label3 = "clean_label_test3" + UUID.randomUUID().toString().replaceAll("-", "")
+        def label4 = "clean_label_test4" + UUID.randomUUID().toString().replaceAll("-", "")
 
         test {
-            sql "insert into ${testTable} with label clean_label_test1 select 1, 2;"
+            sql "insert into ${testTable} with label ${label1} select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test2 select 1, 2;"
+            sql "insert into ${testTable} with label ${label2} select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test3 select 1, 2;"
+            sql "insert into ${testTable} with label ${label3} select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test4 select 1, 2;"
+            sql "insert into ${testTable} with label ${label4} select 1, 2;"
         }
 
         qt_select "select * from ${testTable} order by k1"
 
         test {
-            sql "insert into ${testTable} with label clean_label_test4 select 1, 2;"
+            sql "insert into ${testTable} with label ${label4} select 1, 2;"
             exception "errCode = 2, detailMessage = Label"
         }
 
         test {
-            sql "clean label clean_label_test4 from ${dbName};"
+            sql "clean label ${label4} from ${dbName};"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test4 select 1, 2;"
+            sql "insert into ${testTable} with label ${label4} select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test1 select 1, 2;"
+            sql "insert into ${testTable} with label ${label1} select 1, 2;"
             exception "errCode = 2, detailMessage = Label"
         }
 
@@ -86,19 +90,19 @@ suite("test_clean_label") {
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test1 select 1, 2;"
+            sql "insert into ${testTable} with label ${label1}  select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test2 select 1, 2;"
+            sql "insert into ${testTable} with label ${label2} select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test3 select 1, 2;"
+            sql "insert into ${testTable} with label ${label3} select 1, 2;"
         }
 
         test {
-            sql "insert into ${testTable} with label clean_label_test4 select 1, 2;"
+            sql "insert into ${testTable} with label ${label4} select 1, 2;"
         }
 
         qt_select "select * from ${testTable} order by k1;"

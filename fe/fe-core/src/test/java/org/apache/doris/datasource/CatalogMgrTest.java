@@ -44,6 +44,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
@@ -548,4 +549,61 @@ public class CatalogMgrTest extends TestWithFeService {
                 partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
     }
 
+    @Test
+    public void testInvalidCreateCatalogProperties() throws Exception {
+        String createCatalogSql = "CREATE CATALOG bad_hive1 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',\n"
+                + "    'dfs.client.failover.proxy.provider.your-nameservice'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        CreateCatalogStmt createStmt1 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Missing dfs.ha.namenodes.your-nameservice property",
+                () -> mgr.createCatalog(createStmt1));
+
+        createCatalogSql = "CREATE CATALOG bad_hive2 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',\n"
+                + "    'dfs.client.failover.proxy.provider.your-nameservice'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        CreateCatalogStmt createStmt2 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Missing dfs.namenode.rpc-address.your-nameservice.nn1 property",
+                () -> mgr.createCatalog(createStmt2));
+
+        createCatalogSql = "CREATE CATALOG good_hive PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'hadoop.username' = 'hive',\n"
+                + "    'dfs.nameservices'='your-nameservice',\n"
+                + "    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',\n"
+                + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007'\n"
+                + ");";
+        CreateCatalogStmt createStmt3 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Missing dfs.client.failover.proxy.provider.your-nameservice property",
+                () -> mgr.createCatalog(createStmt3));
+
+        createCatalogSql = "CREATE CATALOG bad_jdbc PROPERTIES (\n"
+                + "    \"type\"=\"jdbc\",\n"
+                + "    \"user\"=\"root\",\n"
+                + "    \"password\"=\"123456\",\n"
+                + "    \"jdbc_url\" = \"jdbc:mysql://127.0.0.1:3306/demo\",\n"
+                + "    \"driver_class\" = \"com.mysql.jdbc.Driver\"\n"
+                + ")";
+        CreateCatalogStmt createStmt4 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Required property 'driver_url' is missing",
+                () -> mgr.createCatalog(createStmt4));
+    }
 }

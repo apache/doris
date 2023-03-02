@@ -23,9 +23,12 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
-#include "io/broker_reader.h"
 #include "io/broker_writer.h"
+#include "io/file_factory.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_options.h"
 #include "olap/file_helper.h"
+#include "olap/iterators.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 
@@ -42,17 +45,31 @@ inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
 }
 #endif
 
+void BrokerStorageBackend::_init_file_description(const std::string& remote) {
+    _file_description.path = remote;
+    _file_description.start_offset = 0;
+    _file_description.file_size = 0;
+}
+
 BrokerStorageBackend::BrokerStorageBackend(ExecEnv* env, const TNetworkAddress& broker_addr,
                                            const std::map<std::string, std::string>& broker_prop)
         : _env(env), _broker_addr(broker_addr), _broker_prop(broker_prop) {}
 
 Status BrokerStorageBackend::download(const std::string& remote, const std::string& local) {
     // 1. open remote file for read
-    std::vector<TNetworkAddress> broker_addrs;
-    broker_addrs.push_back(_broker_addr);
-    std::unique_ptr<BrokerReader> broker_reader(
-            new BrokerReader(_env, broker_addrs, _broker_prop, remote, 0 /* offset */));
-    RETURN_IF_ERROR(broker_reader->open());
+    std::shared_ptr<io::FileSystem> file_system;
+    io::FileReaderSPtr broker_reader = nullptr;
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
+    IOContext io_ctx;
+    if (config::enable_file_cache && io_ctx.enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    }
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
+    _init_file_description(remote);
+    RETURN_IF_ERROR(FileFactory::create_broker_reader(_broker_addr, _broker_prop, _file_description,
+                                                      &file_system, &broker_reader, reader_options,
+                                                      &io_ctx));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local)) {
@@ -70,27 +87,23 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
     // 4. read remote and write to local
     VLOG(2) << "read remote file: " << remote << " to local: " << local;
     constexpr size_t buf_sz = 1024 * 1024;
-    char read_buf[buf_sz];
+    std::unique_ptr<uint8_t[]> read_buf(new uint8_t[buf_sz]);
     size_t write_offset = 0;
-    bool eof = false;
-    while (!eof) {
-        int64_t read_len = 0;
-        RETURN_IF_ERROR(
-                broker_reader->read(reinterpret_cast<uint8_t*>(read_buf), buf_sz, &read_len, &eof));
-
-        if (eof) {
-            continue;
+    size_t cur_offset = 0;
+    while (true) {
+        size_t read_len = 0;
+        Slice file_slice(read_buf.get(), buf_sz);
+        RETURN_IF_ERROR(broker_reader->read_at(cur_offset, file_slice, io_ctx, &read_len));
+        cur_offset += read_len;
+        if (read_len == 0) {
+            break;
         }
 
-        if (read_len > 0) {
-            ost = file_handler.pwrite(read_buf, read_len, write_offset);
-            if (!ost.ok()) {
-                return Status::InternalError("failed to write file: {}", local);
-            }
-
-            write_offset += read_len;
+        ost = file_handler.pwrite(read_buf.get(), read_len, write_offset);
+        if (!ost.ok()) {
+            return Status::InternalError("failed to write file: {}", local);
         }
-
+        write_offset += read_len;
     } // file_handler should be closed before calculating checksum
 
     return Status::OK();

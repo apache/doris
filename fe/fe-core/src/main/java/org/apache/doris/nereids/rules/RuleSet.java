@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
+import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
 import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFileScan;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
@@ -104,6 +106,7 @@ public class RuleSet {
             new PushdownFilterThroughRepeat(),
             new PushdownFilterThroughSetOperation(),
             new PushdownProjectThroughLimit(),
+            new PushdownAliasThroughJoin(),
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
@@ -119,6 +122,7 @@ public class RuleSet {
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
+            .add(new LogicalEsScanToPhysicalEsScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalWindowToPhysicalWindow())

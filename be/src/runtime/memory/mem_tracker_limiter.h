@@ -125,6 +125,8 @@ public:
     }
 
     static void refresh_global_counter();
+    static void refresh_all_tracker_profile();
+
     Snapshot make_snapshot() const;
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
@@ -215,7 +217,7 @@ private:
                 "failed alloc size {}, exceeded tracker:<{}>, limit {}, peak "
                 "used {}, current used {}",
                 print_bytes(bytes), exceed_tracker->label(), print_bytes(exceed_tracker->limit()),
-                print_bytes(exceed_tracker->_consumption->value()),
+                print_bytes(exceed_tracker->_consumption->peak_value()),
                 print_bytes(exceed_tracker->_consumption->current_value()));
     }
 

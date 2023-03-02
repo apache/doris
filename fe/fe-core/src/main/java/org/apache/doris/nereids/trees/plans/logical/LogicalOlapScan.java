@@ -180,7 +180,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
                 "qualified", qualifiedName(),
-                "output", getOutput(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
                 "preAgg", preAggStatus
@@ -241,6 +240,12 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+    }
+
+    public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, selectedTabletIds, true,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);

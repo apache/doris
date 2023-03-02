@@ -500,7 +500,11 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "100");
+
+// After full gc, no longer full gc and minor gc during sleep.
+// After minor gc, no minor gc during sleep, but full gc is possible.
+CONF_mInt32(memory_gc_sleep_time_s, "1");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -925,6 +929,9 @@ CONF_Int32(max_depth_in_bkd_tree, "32");
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "200");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");

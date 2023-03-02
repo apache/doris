@@ -585,3 +585,20 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `use_fix_replica`
 
     使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。默认为 false。
+
+    该参数可以用于测试返回大量数据集时，规避结果集传输的耗时，重点关注底层查询执行的耗时。
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```

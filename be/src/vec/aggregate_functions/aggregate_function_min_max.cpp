@@ -97,14 +97,9 @@ AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
 }
 
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("max", create_aggregate_function_max);
-    factory.register_function("min", create_aggregate_function_min);
-    factory.register_function("any", create_aggregate_function_any);
-
-    factory.register_function("max", create_aggregate_function_max, true);
-    factory.register_function("min", create_aggregate_function_min, true);
-    factory.register_function("any", create_aggregate_function_any, true);
-
+    factory.register_function_both("max", create_aggregate_function_max);
+    factory.register_function_both("min", create_aggregate_function_min);
+    factory.register_function_both("any", create_aggregate_function_any);
     factory.register_alias("any", "any_value");
 }
 

@@ -155,7 +155,6 @@ set(RUNTIME_TEST_FILES
     runtime/memory/chunk_allocator_test.cpp
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
-    runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES

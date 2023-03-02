@@ -82,13 +82,13 @@ github:
         required_approving_review_count: 1
   collaborators:
     - tinkerrrr
-    - luzhijing
     - spaces-X
     - zuochunwei
     - thomascai126
     - dataalive
     - LemonLiTree
     - zy-kkk
+    - Yukang-Lian
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

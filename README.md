@@ -39,7 +39,7 @@ All this makes Apache Doris an ideal tool for scenarios including report analysi
 
 🎉 Version 1.2.2 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.2.2) here. 
 
-🎉 Version 1.1.5 released now. It is a LTS(Long-term Suopport) release based on version 1.1. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.1.5) here. 
+🎉 Version 1.1.5 released now. It is a LTS(Long-term Support) release based on version 1.1. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.1.5) here. 
 
 👀 Have a look at the 🔗[Official Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
 
