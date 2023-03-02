@@ -112,10 +112,14 @@ for example:
     in[MAP_STRING_INT]   --> out[new MapType(Type.STRING,Type.INT)]
 """
 def generate_fe_datatype(str_type, template_types):
-    # process template
-    if str_type.strip() in template_types:
-        return 'new TemplateType("{}")'.format(str_type.strip())
+    # delete whitespace
+    str_type = str_type.replace(' ', '').replace('\t', '')
 
+    # process template
+    if str_type in template_types:
+        return 'new TemplateType("{}")'.format(str_type)
+
+    # process Array, Map, Struct template
     template_start = str_type.find('<')
     template_end  = str_type.rfind('>')
     if template_start >= 0 and template_end > 0:
@@ -129,6 +133,7 @@ def generate_fe_datatype(str_type, template_types):
             print("DEBUG: types = ", types)
             return 'new MapType({}, {})'.format(generate_fe_datatype(types[0], template_types), generate_fe_datatype(types[1], template_types))
 
+    # lagacy Array, Map syntax
     if str_type.startswith("ARRAY_"):
         vec_type = str_type.split('_', 1);
         if len(vec_type) > 1 and vec_type[0] == "ARRAY":
