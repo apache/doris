@@ -67,6 +67,15 @@ public class MasterInfo implements Writable {
     }
 
     @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("MasterInfo: ip=").append(ip)
+                .append(" httpPort=").append(httpPort)
+                .append(" rpcPort=").append(rpcPort);
+        return sb.toString();
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, ip);
         out.writeInt(httpPort);

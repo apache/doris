@@ -1323,6 +1323,7 @@ public class Env {
         this.masterHttpPort = Config.http_port;
         MasterInfo info = new MasterInfo(this.masterIp, this.masterHttpPort, this.masterRpcPort);
         editLog.logMasterInfo(info);
+        LOG.info("logMasterInfo:{}", info);
 
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
@@ -3617,6 +3618,8 @@ public class Env {
         this.masterIp = info.getIp();
         this.masterHttpPort = info.getHttpPort();
         this.masterRpcPort = info.getRpcPort();
+        LOG.info("setMaster MasterInfo:{}", info);
+
     }
 
     public boolean canRead() {
