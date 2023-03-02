@@ -80,7 +80,6 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     // variables names
     {
         StringRef strs[row_num];
-        std::vector<void*> datas;
         int idx = 0;
         for (auto& it : _var_result.variables) {
             strs[idx] = StringRef(it.first.c_str(), it.first.size());
@@ -92,7 +91,6 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     // value
     {
         StringRef strs[row_num];
-        std::vector<void*> datas;
         int idx = 0;
         for (auto& it : _var_result.variables) {
             strs[idx] = StringRef(it.second.c_str(), it.second.size());

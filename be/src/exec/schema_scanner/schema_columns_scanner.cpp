@@ -397,10 +397,11 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // DATA_TYPE
     {
+        std::string buffers[columns_num];
         StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            std::string buffer = _to_mysql_data_type_string(_desc_result.columns[i].columnDesc);
-            strs[i] = StringRef(buffer.c_str(), buffer.length());
+            buffers[i] = _to_mysql_data_type_string(_desc_result.columns[i].columnDesc);
+            strs[i] = StringRef(buffers[i].c_str(), buffers[i].length());
             datas[i] = strs + i;
         }
         fill_dest_column_for_range(block, 7, datas);
@@ -479,10 +480,11 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     { fill_dest_column_for_range(block, 14, null_datas); }
     // COLUMN_TYPE
     {
+        std::string buffers[columns_num];
         StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            std::string buffer = _type_to_string(_desc_result.columns[i].columnDesc);
-            strs[i] = StringRef(buffer.c_str(), buffer.length());
+            buffers[i] = _type_to_string(_desc_result.columns[i].columnDesc);
+            strs[i] = StringRef(buffers[i].c_str(), buffers[i].length());
             datas[i] = strs + i;
         }
         fill_dest_column_for_range(block, 15, datas);

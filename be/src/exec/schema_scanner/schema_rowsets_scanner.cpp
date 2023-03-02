@@ -112,11 +112,13 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // ROWSET_ID
     {
+        std::string rowset_ids[fill_rowsets_num];
         StringRef strs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            std::string rowset_id = rowset->rowset_id().to_string();
-            strs[i - fill_idx_begin] = StringRef(rowset_id.c_str(), rowset_id.size());
+            rowset_ids[i - fill_idx_begin] = rowset->rowset_id().to_string();
+            strs[i - fill_idx_begin] = StringRef(rowset_ids[i - fill_idx_begin].c_str(),
+                                                 rowset_ids[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs + i - fill_idx_begin;
         }
         fill_dest_column_for_range(block, 1, datas);

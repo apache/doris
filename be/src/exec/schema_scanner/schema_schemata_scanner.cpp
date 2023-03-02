@@ -98,8 +98,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         } else {
             StringRef strs[dbs_num];
             for (int i = 0; i < dbs_num; ++i) {
-                std::string catalog_name = _db_result.catalogs[i];
-                strs[i] = StringRef(catalog_name.c_str(), catalog_name.size());
+                strs[i] = StringRef(_db_result.catalogs[i].c_str(), _db_result.catalogs[i].size());
                 datas[i] = strs + i;
             }
             fill_dest_column_for_range(block, 0, datas);
@@ -107,10 +106,11 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // schema
     {
+        std::string db_names[dbs_num];
         StringRef strs[dbs_num];
         for (int i = 0; i < dbs_num; ++i) {
-            std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[i]);
-            strs[i] = StringRef(db_name.c_str(), db_name.size());
+            db_names[i] = SchemaHelper::extract_db_name(_db_result.dbs[i]);
+            strs[i] = StringRef(db_names[i].c_str(), db_names[i].size());
             datas[i] = strs + i;
         }
         fill_dest_column_for_range(block, 1, datas);
