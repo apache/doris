@@ -473,6 +473,7 @@ void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
                     // cur_pos is ", mark quoted finished
                     quoted = !quoted;
                 }
+                continue;
             } else if (_trim_double_quotes && quoted) {
                 // when use _trim_double_quotes option, prevent content from being splitted by delimiter
                 continue;
