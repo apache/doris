@@ -104,6 +104,7 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+    public static final double DEFAULT_AGGREGATE_RATIO = 0.2;
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -433,18 +434,42 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
-        // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.childStatistics(0);
-        Map<Id, ColumnStatistic> childSlotToColumnStats = childStats.getSlotIdToColumnStats();
-        double resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
-                .map(Slot::getExprId)
-                .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(s -> s.ndv)
-                .reduce(1d, (a, b) -> a * b);
-        if (resultSetCount <= 0) {
-            resultSetCount = 1L;
+        double resultSetCount = 1;
+        if (!groupByExpressions.isEmpty()) {
+            Map<Id, ColumnStatistic> childSlotToColumnStats = childStats.getSlotIdToColumnStats();
+            double inputRowCount = childStats.getRowCount();
+            if (inputRowCount == 0) {
+                //on empty relation, Agg output 1 tuple
+                resultSetCount = 1;
+            } else {
+                //TODO: add column correlation for agg estimation
+                // group by A1, A2
+                // currently, the estimated row count is min(ndv_A1, ndv_A2), but it should be less than the min
+                resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
+                        .map(Slot::getExprId)
+                        .filter(childSlotToColumnStats::containsKey)
+                        .map(childSlotToColumnStats::get)
+                        .map(s -> {
+                            double adjustedNdv = s.ndv;
+                            if (s.isUnKnown || s.ndv > inputRowCount) {
+                                adjustedNdv = inputRowCount;
+                            }
+                            return adjustedNdv;
+                        })
+                        .reduce(Double.MAX_VALUE, (a, b) -> Math.min(a, b));
+                if (resultSetCount == Double.MAX_VALUE) {
+                    //all column stats are unknown
+                    resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
+                }
+                if (resultSetCount > inputRowCount) {
+                    // avoid ndv error propagation
+                    resultSetCount = inputRowCount;
+                }
+            }
         }
-
+        //TODO: group by keys should be updated in another algorithm
         Map<Id, ColumnStatistic> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
@@ -453,7 +478,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
             builder.setNdv(Math.min(columnStat.ndv, resultSetCount));
-            slotToColumnStats.put(outputExpression.toSlot().getExprId(), columnStat);
+            slotToColumnStats.put(outputExpression.toSlot().getExprId(), builder.build());
         }
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, childStats.getWidth(),
                 childStats.getPenalty(), slotToColumnStats);

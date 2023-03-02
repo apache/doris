@@ -79,7 +79,7 @@ public class StatsDeriveResult {
     public double computeSize() {
         if (computeSize < 0) {
             computeSize = Math.max(1, slotIdToColumnStats.values().stream()
-                    .map(s -> s.dataSize).reduce(0D, Double::sum)
+                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum)
             ) * rowCount;
         }
         return computeSize;

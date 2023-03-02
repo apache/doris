@@ -135,5 +135,4 @@ public class PhysicalProperties {
         }
         return distributionSpec.toString() + " " + orderSpec.toString();
     }
-
 }

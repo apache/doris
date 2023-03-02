@@ -86,7 +86,7 @@ public class PhysicalUnion extends PhysicalSetOperation {
     @Override
     public PhysicalUnion withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
-        return new PhysicalUnion(qualifier, Optional.empty(),
+        return new PhysicalUnion(qualifier, groupExpression,
                 getLogicalProperties(), physicalProperties, statsDeriveResult, children);
     }
 }

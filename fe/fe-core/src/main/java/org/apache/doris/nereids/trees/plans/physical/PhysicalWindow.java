@@ -146,7 +146,7 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        StatsDeriveResult statsDeriveResult) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
                 getLogicalProperties(), physicalProperties, statsDeriveResult, child());
     }
 

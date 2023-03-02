@@ -151,7 +151,7 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
                 getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
     }
 

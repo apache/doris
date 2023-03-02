@@ -109,8 +109,14 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOlapScan",
+        String groupId = getGroupExpression().isPresent()
+                ? "#" + getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
+                : "";
+        return Utils.toSqlString("PhysicalOlapScan" + groupId,
                 "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
+                "group", getGroupExpression().isPresent()
+                        ? getGroupExpression().get().getOwnerGroup().getGroupId()
+                        : "",
                 "stats", statsDeriveResult
         );
     }
@@ -157,7 +163,7 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public PhysicalOlapScan withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, preAggStatus, Optional.empty(),
+                selectedPartitionIds, distributionSpec, preAggStatus, groupExpression,
                 getLogicalProperties(), physicalProperties, statsDeriveResult);
     }
 }

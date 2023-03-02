@@ -186,18 +186,13 @@ public class ColumnStatistic {
             return DEFAULT;
         }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
-        Double rowsAfterFilter = rowCount * selectivity;
         if (isAlmostUnique(ndv, rowCount)) {
             builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
         } else {
-            if (ndv > rowsAfterFilter) {
-                builder.setSelectivity(this.selectivity * rowsAfterFilter / ndv);
-                builder.setNdv(rowsAfterFilter);
-            } else {
-                builder.setSelectivity(this.selectivity);
-                builder.setNdv(this.ndv);
-            }
+            double newNdv = ndv * (1 - Math.pow(1 - selectivity, rowCount / ndv));
+            builder.setSelectivity(this.selectivity * newNdv / ndv);
+            builder.setNdv(newNdv);
         }
         builder.setNumNulls((long) Math.ceil(numNulls * selectivity));
         return builder.build();

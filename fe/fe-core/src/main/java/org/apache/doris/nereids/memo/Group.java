@@ -397,10 +397,6 @@ public class Group {
     @Override
     public String toString() {
         StringBuilder str = new StringBuilder("Group[" + groupId + "]\n");
-        str.append("logical expressions:\n");
-        for (GroupExpression logicalExpression : logicalExpressions) {
-            str.append("  ").append(logicalExpression).append("\n");
-        }
         str.append("physical expressions:\n");
         for (GroupExpression physicalExpression : physicalExpressions) {
             str.append("  ").append(physicalExpression).append("\n");

@@ -116,7 +116,7 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
-        return new PhysicalOneRowRelation(projects, buildUnionNode, Optional.empty(),
+        return new PhysicalOneRowRelation(projects, buildUnionNode, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
     }
 

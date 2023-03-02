@@ -120,7 +120,7 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalFilter<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
-        return new PhysicalFilter<>(conjuncts, Optional.empty(), getLogicalProperties(), physicalProperties,
+        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
                 statsDeriveResult, child());
     }
 }

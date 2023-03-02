@@ -34,6 +34,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.text.DecimalFormat;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -305,8 +306,10 @@ public class GroupExpression {
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
+        DecimalFormat decimalFormat = new DecimalFormat();
+        decimalFormat.setGroupingSize(3);
 
-        builder.append(" cost=").append((long) cost);
+        builder.append(" cost=").append(decimalFormat.format((long) cost));
 
         builder.append(" estRows=").append(estOutputRowCount);
         builder.append(" (plan=").append(plan.toString()).append(") children=[");

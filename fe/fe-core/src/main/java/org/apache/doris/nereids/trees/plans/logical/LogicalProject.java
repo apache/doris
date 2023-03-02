@@ -116,7 +116,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalProject",
+        String groupId = getGroupExpression().isPresent()
+                ? "#" + getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
+                : "";
+        return Utils.toSqlString("LogicalProject" + groupId,
                 "distinct", isDistinct,
                 "projects", projects,
                 "excepts", excepts,

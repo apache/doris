@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -51,7 +52,7 @@ import java.util.Map;
  */
 public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, EstimationContext> {
     public static final double DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY = 0.8;
-
+    public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.5;
     public static final double DEFAULT_EQUALITY_COMPARISON_SELECTIVITY = 0.1;
 
     private final StatsDeriveResult inputStats;
@@ -120,7 +121,17 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
     public StatsDeriveResult visitComparisonPredicate(ComparisonPredicate cp, EstimationContext context) {
         boolean isNot = (context != null) && context.isNot;
         Expression left = cp.left();
+        if (left instanceof SlotReference && ((SlotReference) left).getColumn().isPresent()) {
+            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) left).getColumn().get().getName())) {
+                return inputStats.copy();
+            }
+        }
         Expression right = cp.right();
+        if (right instanceof SlotReference && ((SlotReference) right).getColumn().isPresent()) {
+            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) right).getColumn().get().getName())) {
+                return inputStats.copy();
+            }
+        }
         ColumnStatistic statsForLeft = ExpressionEstimation.estimate(left, inputStats);
         ColumnStatistic statsForRight = ExpressionEstimation.estimate(right, inputStats);
         ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(statsForLeft);
@@ -431,6 +442,13 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         EstimationContext context = new EstimationContext();
         context.isNot = true;
         return not.child().accept(this, context);
+    }
+
+    @Override
+    public StatsDeriveResult visitLike(Like like, EstimationContext context) {
+        Expression leftExpr = like.left();
+        StatsDeriveResult leftStats = leftExpr.accept(this, null);
+        return leftStats.withSelectivity(DEFAULT_LIKE_COMPARISON_SELECTIVITY);
     }
 
     static class EstimationContext {

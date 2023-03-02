@@ -693,21 +693,29 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group).append("\n");
-            builder.append("  stats=").append(group.getStatistics()).append("\n");
+            builder.append("\n").append(group);
+            builder.append(" stats=").append(group.getStatistics()).append("\n");
             StatsDeriveResult stats = group.getStatistics();
+            //print column stats for scan node
             if (stats != null && !group.getLogicalExpressions().isEmpty()
                     && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
                 for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
             }
-            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
-            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
+
+            builder.append(" lowest Plan(cost, properties, plan)");
+            group.getAllProperties().forEach(
+                    prop -> {
+                        Optional<Pair<Double, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
+                        if (costAndGroupExpression.isPresent()) {
+                            builder.append("\n    " + costAndGroupExpression.get().first + " " + prop)
+                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                        }
+                    }
+            );
+            builder.append("\n");
+
         }
         return builder.toString();
     }

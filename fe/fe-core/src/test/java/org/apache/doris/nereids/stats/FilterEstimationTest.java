@@ -467,7 +467,7 @@ class FilterEstimationTest {
 
     //c>100
     // a is primary-key, a.ndv is reduced
-    // b is normal, b.ndv is not changed
+    // b is normal, b.ndv is smaller: newNdv = ndv * (1 - Math.pow(1 - selectivity, rowCount / ndv));
     // c.selectivity is still 1, but its range becomes half
     @Test
     public void test12() {
@@ -508,8 +508,8 @@ class FilterEstimationTest {
         Assertions.assertEquals(500, statsA.ndv);
         Assertions.assertEquals(0.5, statsA.selectivity);
         ColumnStatistic statsB = estimated.getColumnStatsBySlotId(b.getExprId());
-        Assertions.assertEquals(100, statsB.ndv);
-        Assertions.assertEquals(1.0, statsB.selectivity);
+        Assertions.assertTrue(100 > statsB.ndv);
+        Assertions.assertTrue(1.0 > statsB.selectivity);
         ColumnStatistic statsC = estimated.getColumnStatsBySlotId(c.getExprId());
         Assertions.assertEquals(50, statsC.ndv);
         Assertions.assertEquals(100, statsC.minValue);
@@ -521,7 +521,7 @@ class FilterEstimationTest {
      * test filter estimation, like 20>c>10, c in (0,40)
      * filter range has intersection with (c.min, c.max)
      *     a primary key, a.ndv reduced by 1/4, a.selectivity=0.25
-     *     b normal field, b.ndv not changed, b.selectivity=1.0
+     *     b normal field, b.ndv becomes less, b.selectivity < 1.0
      *     c.ndv = 10/40 * c.ndv, c.selectivity=1
      */
     @Test
@@ -571,10 +571,10 @@ class FilterEstimationTest {
         Assertions.assertEquals(100, statsA.maxValue);
 
         ColumnStatistic statsB = estimated.getColumnStatsBySlot(b);
-        Assertions.assertEquals(20, statsB.ndv);
+        Assertions.assertTrue(20 > statsB.ndv);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
-        Assertions.assertEquals(1.0, statsB.selectivity);
+        Assertions.assertTrue(1.0 > statsB.selectivity);
 
         ColumnStatistic statsC = estimated.getColumnStatsBySlot(c);
         Assertions.assertEquals(10, statsC.ndv);
@@ -651,7 +651,7 @@ class FilterEstimationTest {
      *
      * after
      * A: ndv 5, (0, 100),  selectivity=2/40,  primary-key
-     * B: ndv 5,  (0, 500),  selectivity=0.25,
+     * B: ndv < 5,  (0, 500),  selectivity<0.25,
      * C: ndv 2,  (10, 20),   selectivity=0.2,
      *
      * C.selectivity=0.2:
@@ -711,10 +711,10 @@ class FilterEstimationTest {
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
         Assertions.assertEquals(0.05, statsA.selectivity);
-        Assertions.assertEquals(5, statsB.ndv);
+        Assertions.assertTrue(5 > statsB.ndv);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
-        Assertions.assertEquals(0.25, statsB.selectivity);
+        Assertions.assertTrue(0.25 > statsB.selectivity);
         Assertions.assertEquals(2, statsC.ndv);
         Assertions.assertEquals(10, statsC.minValue);
         Assertions.assertEquals(20, statsC.maxValue);
@@ -732,7 +732,7 @@ class FilterEstimationTest {
      *
      * after
      * A: ndv 5, (0, 100),  selectivity=2/40,  primary-key
-     * B: ndv 5,  (0, 500),  selectivity=0.25,
+     * B: ndv 5,  (0, 500),  selectivity<0.25,
      * C: ndv 2,  (10, 15),  selectivity=0.4,
      *
      * c.selectivity=0.4:
@@ -791,10 +791,10 @@ class FilterEstimationTest {
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
         Assertions.assertEquals(0.05, statsA.selectivity);
-        Assertions.assertEquals(5, statsB.ndv);
+        Assertions.assertTrue(5 > statsB.ndv);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
-        Assertions.assertEquals(0.25, statsB.selectivity);
+        Assertions.assertTrue(0.25 > statsB.selectivity);
         Assertions.assertEquals(2, statsC.ndv);
         Assertions.assertEquals(10, statsC.minValue);
         Assertions.assertEquals(15, statsC.maxValue);
@@ -813,7 +813,7 @@ class FilterEstimationTest {
      * after
      * rows = 30
      * A: ndv 75, (0, 100),  selectivity= 30/40,  primary-key
-     * B: ndv 20,  (0, 500),  selectivity=1.0,
+     * B: ndv < 20,  (0, 500),  selectivity < 1.0,
      * C: ndv 30,  (10, 40),  selectivity=1.0,
      */
     @Test
@@ -866,10 +866,10 @@ class FilterEstimationTest {
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
         Assertions.assertEquals(0.75, statsA.selectivity);
-        Assertions.assertEquals(20, statsB.ndv);
+        Assertions.assertTrue(20 > statsB.ndv);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
-        Assertions.assertEquals(1.0, statsB.selectivity);
+        Assertions.assertTrue(1.0 > statsB.selectivity);
         Assertions.assertEquals(30, statsC.ndv);
         Assertions.assertEquals(10, statsC.minValue);
         Assertions.assertEquals(40, statsC.maxValue);

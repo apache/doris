@@ -125,7 +125,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public PhysicalTopN<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, Optional.empty(),
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
                 getLogicalProperties(), physicalProperties, statsDeriveResult, child());
     }
 

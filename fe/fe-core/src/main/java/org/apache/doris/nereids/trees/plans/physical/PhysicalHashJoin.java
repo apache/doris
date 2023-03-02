@@ -105,7 +105,11 @@ public class PhysicalHashJoin<
 
     @Override
     public String toString() {
-        List<Object> args = Lists.newArrayList("type", joinType,
+        String groupId = getGroupExpression().isPresent()
+                ? "#" + getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
+                : "";
+        List<Object> args = Lists.newArrayList(
+                "type", joinType,
                 "hashJoinCondition", hashJoinConjuncts,
                 "otherJoinCondition", otherJoinConjuncts,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
@@ -115,7 +119,7 @@ public class PhysicalHashJoin<
             args.add("hint");
             args.add(hint);
         }
-        return Utils.toSqlString("PhysicalHashJoin", args.toArray());
+        return Utils.toSqlString("PhysicalHashJoin" + groupId, args.toArray());
     }
 
     @Override
@@ -143,6 +147,6 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
+                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
     }
 }
