@@ -21,6 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,9 +31,13 @@ import java.io.IOException;
 
 public class MasterInfo implements Writable {
 
+    @SerializedName("ip")
     private String ip;
+    @SerializedName("hostName")
     private String hostName;
+    @SerializedName("httpPort")
     private int httpPort;
+    @SerializedName("rpcPort")
     private int rpcPort;
 
     public MasterInfo() {
@@ -81,19 +88,25 @@ public class MasterInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, ip);
-        out.writeInt(httpPort);
-        out.writeInt(rpcPort);
-        Text.writeString(out, hostName);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         ip = Text.readString(in);
         httpPort = in.readInt();
         rpcPort = in.readInt();
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_118) {
-            hostName = Text.readString(in);
+    }
+
+    public static MasterInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
+            MasterInfo masterInfo = new MasterInfo();
+            masterInfo.readFields(in);
+            return masterInfo;
         }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, MasterInfo.class);
     }
 
 }
