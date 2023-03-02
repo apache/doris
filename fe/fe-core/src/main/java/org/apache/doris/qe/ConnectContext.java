@@ -644,6 +644,11 @@ public class ConnectContext {
         executionTimeoutS = timeout;
     }
 
+    public long resetExecTimeoutByInsert() {
+        executionTimeoutS = Math.max(executionTimeoutS, sessionVariable.getInsertTimeoutS());
+        return executionTimeoutS;
+    }
+
     public int getExecTimeout() {
         return executionTimeoutS;
     }
