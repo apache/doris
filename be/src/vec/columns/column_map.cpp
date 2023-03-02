@@ -55,7 +55,9 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
     auto res = ColumnMap::create(get_keys().clone_empty(), get_values().clone_empty(),
                                  COffsets::create());
-    if (to_size == 0) return res;
+    if (to_size == 0) {
+        return res;
+    }
 
     size_t from_size = size();
 
@@ -73,7 +75,9 @@ MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
             offset = get_offsets().back();
         }
         res->get_offsets().resize(to_size);
-        for (size_t i = from_size; i < to_size; ++i) res->get_offsets()[i] = offset;
+        for (size_t i = from_size; i < to_size; ++i) {
+            res->get_offsets()[i] = offset;
+        }
     }
     return res;
 }
@@ -223,15 +227,18 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
 }
 
 void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    if (length == 0) return;
+    if (length == 0) {
+        return;
+    }
 
     const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
 
-    if (start + length > src_concrete.get_offsets().size())
+    if (start + length > src_concrete.get_offsets().size()) {
         LOG(FATAL) << "Parameter out of bound in ColumnMap::insert_range_from method. [start("
                    << std::to_string(start) << ") + length(" << std::to_string(length)
                    << ") > offsets.size(" << std::to_string(src_concrete.get_offsets().size())
                    << ")]";
+    }
 
     size_t nested_offset = src_concrete.offset_at(start);
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
@@ -250,8 +257,9 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
         size_t prev_max_offset = cur_offsets.back();
         cur_offsets.resize(old_size + length);
 
-        for (size_t i = 0; i < length; ++i)
+        for (size_t i = 0; i < length; ++i) {
             cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+        }
     }
 }
 
