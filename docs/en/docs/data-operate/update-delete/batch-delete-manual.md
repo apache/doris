@@ -224,3 +224,82 @@ After load:
 +--------+----------+----------+------+
 ```
 
+4. When the table has the sequence column, delete all data with the same key as the imported data
+
+```bash
+curl --location-trusted -u root: -H "column_separator:," -H "columns: name, gender, age" -H "function_column.sequence_col: age" -H "merge_type: DELETE"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
+```
+
+When the unique table has the sequence column, sequence column is used as the basis for the replacement order of the REPLACE aggregate function under the same key column, and the larger value can replace the smaller value.
+If you want delete some data, the imported data must have the same key and the sequence column must be larger or equal than before.
+
+for example, one table like this:
+```sql
+mysql> SET show_hidden_columns=true;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> DESC table1;
++------------------------+--------------+------+-------+---------+---------+
+| Field                  | Type         | Null | Key   | Default | Extra   |
++------------------------+--------------+------+-------+---------+---------+
+| name                   | VARCHAR(100) | No   | true  | NULL    |         |
+| gender                 | VARCHAR(10)  | Yes  | false | NULL    | REPLACE |
+| age                    | INT          | Yes  | false | NULL    | REPLACE |
+| __DORIS_DELETE_SIGN__  | TINYINT      | No   | false | 0       | REPLACE |
+| __DORIS_SEQUENCE_COL__ | INT          | Yes  | false | NULL    | REPLACE |
++------------------------+--------------+------+-------+---------+---------+
+4 rows in set (0.00 sec)
+```
+
+Before load:
+```text
++-------+--------+------+
+| name  | gender | age  |
++-------+--------+------+
+| li    | male   |   10 |
+| wang  | male   |   14 |
+| zhang | male   |   12 |
++-------+--------+------+
+```
+
+If you load data like this:
+```text
+li,male,10
+```
+
+After load:
+```text
++-------+--------+------+
+| name  | gender | age  |
++-------+--------+------+
+| wang  | male   |   14 |
+| zhang | male   |   12 |
++-------+--------+------+
+```
+
+You will find that the data is deleted.
+```text
+li,male,10
+```
+
+But if you load data like this:
+```text
+li,male,9
+```
+
+After load:
+```text
++-------+--------+------+
+| name  | gender | age  |
++-------+--------+------+
+| li    | male   |   10 |
+| wang  | male   |   14 |
+| zhang | male   |   12 |
++-------+--------+------+
+```
+
+You will find that the data is not deleted.
+```text
+li,male,10
+```
+This is because in the underlying dependencies, it will first judge the case of the same key, display the row data with a large value in the sequence column, and then check whether the `__DORIS_DELETE_SIGN__` value of the row is 1. If it is 1, it will not be displayed. If it is 0, it will still be read out.
