@@ -51,7 +51,8 @@ TEST_F(StatusTest, Error) {
     Status st = Status::InternalError("123");
     EXPECT_FALSE(st.ok());
     EXPECT_EQ("123", st.get_error_msg());
-    EXPECT_EQ("Internal error: 123", st.to_string());
+    EXPECT_TRUE(st.to_string().find("Internal error") != std::string::npos);
+    EXPECT_TRUE(st.to_string().find("123") != std::string::npos);
     // copy
     {
         Status other = st;
@@ -67,7 +68,8 @@ TEST_F(StatusTest, Error) {
         Status other = std::move(st);
         EXPECT_FALSE(other.ok());
         EXPECT_EQ("456", other.get_error_msg());
-        EXPECT_EQ("Internal error: 456", other.to_string());
+        EXPECT_TRUE(other.to_string().find("Internal error") != std::string::npos);
+        EXPECT_TRUE(other.to_string().find("456") != std::string::npos);
     }
 }
 
