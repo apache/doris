@@ -37,11 +37,6 @@
 
 namespace doris {
 
-using ::testing::_;
-using ::testing::DoAll;
-using ::testing::Return;
-using ::testing::SetArgPointee;
-
 static StorageEngine* k_engine = nullptr;
 
 static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
