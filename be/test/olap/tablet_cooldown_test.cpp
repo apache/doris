@@ -23,9 +23,11 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "io/file_writer.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_writer.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/remote_file_system.h"
+#include "io/fs/local_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -55,7 +57,7 @@ class TabletCooldownTest : public testing::Test {
     public:
         FileWriterMock(Path path) : io::FileWriter(std::move(path)) {
             _local_file_writer = std::make_unique<io::LocalFileWriter>(fmt::format(
-                    "{}/{}", kTestDir, _path.string()));
+                    "{}/{}", kTestDir, _path.string()), 0);
         }
 
         ~FileWriterMock() {}
