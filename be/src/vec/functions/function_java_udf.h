@@ -51,7 +51,7 @@ public:
         return nullptr;
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    size_t result, size_t input_rows_count, bool dry_run = false) override;

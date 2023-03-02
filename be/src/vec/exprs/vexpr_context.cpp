@@ -48,7 +48,6 @@ doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result
 doris::Status VExprContext::prepare(doris::RuntimeState* state,
                                     const doris::RowDescriptor& row_desc) {
     _prepared = true;
-    _pool.reset(new MemPool());
     return _root->prepare(state, row_desc, this);
 }
 
@@ -70,14 +69,6 @@ void VExprContext::close(doris::RuntimeState* state) {
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     _root->close(state, this, scope);
-
-    for (int i = 0; i < _fn_contexts.size(); ++i) {
-        _fn_contexts[i]->impl()->close();
-    }
-    // _pool can be NULL if Prepare() was never called
-    if (_pool != nullptr) {
-        _pool->free_all();
-    }
     _closed = true;
 }
 
@@ -87,9 +78,8 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     DCHECK(*new_ctx == nullptr);
 
     *new_ctx = state->obj_pool()->add(new VExprContext(_root));
-    (*new_ctx)->_pool.reset(new MemPool());
     for (auto& _fn_context : _fn_contexts) {
-        (*new_ctx)->_fn_contexts.push_back(_fn_context->impl()->clone((*new_ctx)->_pool.get()));
+        (*new_ctx)->_fn_contexts.push_back(_fn_context->impl()->clone());
     }
 
     (*new_ctx)->_is_clone = true;
@@ -101,15 +91,13 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
 
 void VExprContext::clone_fn_contexts(VExprContext* other) {
     for (auto& _fn_context : _fn_contexts) {
-        other->_fn_contexts.push_back(_fn_context->impl()->clone(other->_pool.get()));
+        other->_fn_contexts.push_back(_fn_context->impl()->clone());
     }
 }
 
 int VExprContext::register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                                const std::vector<FunctionContext::TypeDesc>& arg_types,
-                                int varargs_buffer_size) {
-    _fn_contexts.push_back(FunctionContextImpl::create_context(
-            state, _pool.get(), return_type, arg_types, varargs_buffer_size, false));
+                                const std::vector<FunctionContext::TypeDesc>& arg_types) {
+    _fn_contexts.push_back(FunctionContextImpl::create_context(state, return_type, arg_types));
     _fn_contexts.back()->impl()->set_check_overflow_for_decimal(
             state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
