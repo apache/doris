@@ -76,7 +76,7 @@ suite("test_segcompaction_unique_keys_mow") {
                 )
             UNIQUE KEY(`col_0`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
             PROPERTIES (
-                "replication_num" = "1",
+                "replication_num" = "1"
                 );
         """
         //      "enable_unique_key_merge_on_write" = "true"
