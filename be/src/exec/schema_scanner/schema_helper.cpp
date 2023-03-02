@@ -62,8 +62,8 @@ Status SchemaHelper::describe_table(const std::string& ip, const int32_t port,
 }
 
 Status SchemaHelper::describe_tables(const std::string& ip, const int32_t port,
-                                    const TDescribeTablesParams& request,
-                                    TDescribeTablesResult* result) {
+                                     const TDescribeTablesParams& request,
+                                     TDescribeTablesResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
                 client->describeTables(*result, request);
