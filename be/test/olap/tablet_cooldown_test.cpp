@@ -249,28 +249,6 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(TabletCooldownTest, normal) {
-    EXPECT_CALL(*_file_writer, close()).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*_file_writer, abort()).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*_file_writer, append(_)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*_file_writer, appendv(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*_file_writer, write_at(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*_file_writer, finalize()).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*_file_writer, bytes_appended()).WillRepeatedly(Return(1));
-    EXPECT_CALL(*_file_writer, fs()).WillRepeatedly(Return(s_fs))
-
-    EXPECT_CALL(*s_fs, open_file(_, _, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, delete_file(_)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, create_directory(_)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, delete_directory(_)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, link_file(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, exists(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, file_size(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, list(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, upload(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, batch_upload(_, _)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, batch_delete(_)).WillRepeatedly(Return(Status::OK()));
-    EXPECT_CALL(*s_fs, connect()).WillRepeatedly(Return(Status::OK()));
-
     // create tablet
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
