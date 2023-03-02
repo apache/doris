@@ -86,7 +86,8 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
     base->seek(fileOffset + start);
-    base->readBytes(b, len, false);
+    bool read_from_buffer = true;
+    base->readBytes(b, len, read_from_buffer);
 }
 
 CSIndexInput::~CSIndexInput() = default;
