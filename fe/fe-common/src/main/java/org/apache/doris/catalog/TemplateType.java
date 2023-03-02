@@ -38,30 +38,13 @@ public class TemplateType extends Type {
     @SerializedName(value = "name")
     private final String name;
 
-    @SerializedName(value = "deducedType")
-    private Type deducedType;
-
-    public TemplateType() {
-        this.name = null;
-        this.deducedType = null;
-    }
-
     public TemplateType(String name) {
         this.name = name;
-        this.deducedType = null;
     }
 
     @Override
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.TEMPLATE;
-    }
-
-    public Type getDeducedType() {
-        return deducedType;
-    }
-
-    public void setDeducedType(Type deducedType) {
-        this.deducedType = deducedType;
     }
 
     @Override
@@ -70,10 +53,7 @@ public class TemplateType extends Type {
             return false;
         }
         TemplateType o = (TemplateType) other;
-        return o.name.equals(name)
-                && ((o.deducedType == null && deducedType == null)
-                    || (o.deducedType != null && deducedType != null
-                        && o.deducedType.equals(deducedType)));
+        return o.name.equals(name);
     }
 
     @Override
@@ -151,6 +131,6 @@ public class TemplateType extends Type {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, deducedType);
+        return name.hashCode();
     }
 }

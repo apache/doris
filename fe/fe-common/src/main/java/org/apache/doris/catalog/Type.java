@@ -512,9 +512,15 @@ public abstract class Type {
         return false;
     }
 
+    // return a new type without template type, by specialize tempalte type in this type
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
-        throw new TypeException("specializeTemplateType not implemented");
+        if (hasTemplateType()) {
+            // throw exception by default, sub class should specialize tempalte type properly
+            throw new TypeException("specializeTemplateType not implemented");
+        } else {
+            return this;
+        }
     }
 
     /**
@@ -1575,7 +1581,7 @@ public abstract class Type {
                         || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT) {
                     continue;
                 }
-                // Preconditions.checkNotNull(compatibilityMatrix[i][j]);
+                Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }
     }

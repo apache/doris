@@ -72,9 +72,9 @@ public enum PrimitiveType {
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
+    TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
-    TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
 
 

@@ -1227,7 +1227,7 @@ public class FunctionSet<T> {
         List<Function> normalFunctions = Lists.newArrayList();
         List<Function> templateFunctions = Lists.newArrayList();
         for (Function fn : fns) {
-            if (fn.hasTemplateType()) {
+            if (fn.hasTemplateArg()) {
                 templateFunctions.add(fn);
             } else {
                 normalFunctions.add(fn);
@@ -1294,9 +1294,9 @@ public class FunctionSet<T> {
     public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction) {
         try {
             boolean hasTemplateType = false;
-            LOG.info("templateFunction signature: " + templateFunction.signatureString()
+            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
                         + "  return: " + templateFunction.getReturnType());
-            LOG.info("requestFunction signature: " + requestFunction.signatureString()
+            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
                         + "  return: " + requestFunction.getReturnType());
             Function specializedFunction = templateFunction;
             if (templateFunction instanceof ScalarFunction) {
@@ -1305,7 +1305,7 @@ public class FunctionSet<T> {
                                             f.getReturnType(), f.hasVarArgs(), f.getSymbolName(),f.getBinaryType(),
                                             f.isUserVisible(), f.isVectorized(), f.getNullableMode());
             } else {
-                // TODO
+                // TODO(xk)
             }
             Type[] args = specializedFunction.getArgs();
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
@@ -1321,7 +1321,7 @@ public class FunctionSet<T> {
                     specializedFunction.getReturnType().specializeTemplateType(
                     requestFunction.getReturnType(), specializedTypeMap, true));
             }
-            LOG.info("specializedFunction signature: " + specializedFunction.signatureString()
+            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
                         + "  return: " + specializedFunction.getReturnType());
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {

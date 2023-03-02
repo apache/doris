@@ -36,16 +36,16 @@ import java.util.Objects;
 public class MapType extends Type {
 
     @SerializedName(value = "keyType")
-    private Type keyType;
+    private final Type keyType;
 
     @SerializedName(value = "isKeyContainsNull")
-    private boolean isKeyContainsNull; // Now always true
+    private final boolean isKeyContainsNull; // Now always true
 
     @SerializedName(value = "valueType")
-    private Type valueType;
+    private final Type valueType;
 
     @SerializedName(value = "isValueContainsNull")
-    private boolean isValueContainsNull; // Now always true
+    private final boolean isValueContainsNull; // Now always true
 
     public MapType() {
         this.keyType = NULL;

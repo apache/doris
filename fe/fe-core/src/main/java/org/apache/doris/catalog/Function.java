@@ -815,7 +815,7 @@ public class Function implements Writable {
         }
     }
 
-    public boolean hasTemplateType() {
+    public boolean hasTemplateArg() {
         for (Type t : getArgs()) {
             if (t.hasTemplateType()) {
                 return true;

@@ -100,7 +100,6 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
 
     # map element
-    # [['element_at', '%element_extract%'], 'INT', ['MAP_STRING_INT', 'STRING'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],

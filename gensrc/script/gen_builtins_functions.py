@@ -95,7 +95,6 @@ def add_function(fn_meta_data, user_visible):
     # process template
     if len(fn_meta_data) >= 5:
         entry["template_types"] = fn_meta_data[4]
-        print("DEBUG template fn: ", fn_meta_data, "entry: ", entry)
     else:
         entry["template_types"] = []
 
@@ -125,12 +124,10 @@ def generate_fe_datatype(str_type, template_types):
     if template_start >= 0 and template_end > 0:
         # exclude <>
         template = str_type[template_start + 1 : template_end]
-        print("DEBUG: template = ", template)
         if str_type.startswith("ARRAY<"):
             return 'new ArrayType({})'.format(generate_fe_datatype(template, template_types))
         elif str_type.startswith("MAP<"):
             types = template.split(',', 2)
-            print("DEBUG: types = ", types)
             return 'new MapType({}, {})'.format(generate_fe_datatype(types[0], template_types), generate_fe_datatype(types[1], template_types))
 
     # lagacy Array, Map syntax
