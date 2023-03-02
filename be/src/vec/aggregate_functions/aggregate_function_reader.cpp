@@ -23,8 +23,8 @@ namespace doris::vectorized {
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {
     // add a suffix to the function name here to distinguish special functions of agg reader
     auto register_function = [&](const std::string& name, const AggregateFunctionCreator& creator) {
-        factory.register_function(name + AGG_READER_SUFFIX, creator, false);
-        factory.register_function(name + AGG_LOAD_SUFFIX, creator, false);
+        factory.register_function_both(name + AGG_READER_SUFFIX, creator);
+        factory.register_function_both(name + AGG_LOAD_SUFFIX, creator);
     };
 
     register_function("sum", create_aggregate_function_sum_reader);
