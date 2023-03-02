@@ -100,6 +100,9 @@ private:
 
     int _last_result_column_id;
 
+    /// The depth of expression-tree.
+    int _depth_num = 0;
+
     bool _stale;
 };
 } // namespace doris::vectorized

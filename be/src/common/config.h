@@ -930,6 +930,9 @@ CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
 
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "200");
+
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");
 
