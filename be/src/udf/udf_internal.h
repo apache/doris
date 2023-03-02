@@ -173,8 +173,6 @@ private:
     // Contains an AnyVal* for each argument of the function. If the AnyVal* is nullptr,
     // indicates that the corresponding argument is non-constant. Otherwise contains the
     // value of the argument.
-    std::vector<doris_udf::AnyVal*> _constant_args;
-
     std::vector<doris::ColumnPtrWrapper*> _constant_cols;
 
     bool _check_overflow_for_decimal = false;
