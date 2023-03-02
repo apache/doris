@@ -39,6 +39,7 @@
 #include "util/spinlock.h"
 #include "util/thread.h"
 #include "vec/columns/column.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -176,6 +177,7 @@ public:
 
     Status open_wait();
 
+    template <bool is_append>
     Status add_block(vectorized::Block* block,
                      const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
                                      std::vector<int64_t>>& payload);
@@ -436,6 +438,7 @@ private:
                             bool* stop_processing, fmt::memory_buffer& error_prefix,
                             vectorized::IColumn::Permutation* rows = nullptr);
 
+    Status _append_block_to_single_tablet(RuntimeState* state, vectorized::Block& block);
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);

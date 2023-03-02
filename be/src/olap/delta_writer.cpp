@@ -17,6 +17,7 @@
 
 #include "olap/delta_writer.h"
 
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
@@ -157,8 +158,18 @@ Status DeltaWriter::init() {
     return Status::OK();
 }
 
+Status DeltaWriter::append(const vectorized::Block* block) {
+    return write<true>(block, {});
+}
+
+template Status DeltaWriter::write<true>(const vectorized::Block* block,
+                                         const std::vector<int>& row_idxs);
+template Status DeltaWriter::write<false>(const vectorized::Block* block,
+                                          const std::vector<int>& row_idxs);
+
+template <bool is_append = false>
 Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
-    if (UNLIKELY(row_idxs.empty())) {
+    if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -176,8 +187,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::Error<ALREADY_CLOSED>();
     }
 
-    _total_received_rows += row_idxs.size();
-    _mem_table->insert(block, row_idxs);
+    if constexpr (is_append) {
+        _total_received_rows += block->rows();
+    } else {
+        _total_received_rows += row_idxs.size();
+    }
+    _mem_table->insert<is_append>(block, row_idxs);
 
     if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();

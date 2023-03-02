@@ -22,6 +22,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/logging.h"
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
@@ -36,9 +38,12 @@
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -404,10 +409,24 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
+template Status VNodeChannel::add_block<true>(
+        vectorized::Block* block,
+        const std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>&
+                payload);
+
+template Status VNodeChannel::add_block<false>(
+        vectorized::Block* block,
+        const std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>&
+                payload);
+
+template <bool is_append>
 Status VNodeChannel::add_block(vectorized::Block* block,
                                const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
                                                std::vector<int64_t>>& payload) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    if (payload.second.empty()) {
+        return Status::OK();
+    }
     // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -439,12 +458,29 @@ Status VNodeChannel::add_block(vectorized::Block* block,
         // this will align _cur_mutable_block with block and auto extends columns
         _cur_mutable_block->set_block_type(vectorized::BlockType::DYNAMIC);
     }
-    block->append_block_by_selector(_cur_mutable_block.get(), *(payload.first));
-    for (auto tablet_id : payload.second) {
-        _cur_add_block_request.add_tablet_ids(tablet_id);
+
+    if constexpr (is_append) {
+        // Do not split the data of the block by tablets but append it to a single delta writer.
+        // This is a faster way to send block than append_block_by_selector
+        // TODO: we could write to local delta writer if single_replica_load is true
+        std::vector<int64_t> tablets(block->rows(), payload.second[0]);
+        vectorized::MutableColumns& columns = _cur_mutable_block->mutable_columns();
+        columns.clear();
+        columns.reserve(block->columns());
+        // Hold the reference of block columns to avoid copying
+        for (auto column : block->get_columns()) {
+            columns.push_back(column->assume_mutable());
+        }
+        *_cur_add_block_request.mutable_tablet_ids() = {tablets.begin(), tablets.end()};
+        _cur_add_block_request.set_is_single_tablet_block(true);
+    } else {
+        block->append_block_by_selector(_cur_mutable_block.get(), *(payload.first));
+        for (auto tablet_id : payload.second) {
+            _cur_add_block_request.add_tablet_ids(tablet_id);
+        }
     }
 
-    if (_cur_mutable_block->rows() >= _batch_size ||
+    if (is_append || _cur_mutable_block->rows() >= _batch_size ||
         _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
         {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
@@ -1011,6 +1047,59 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
     return status;
 }
 
+Status VOlapTableSink::_append_block_to_single_tablet(RuntimeState* state,
+                                                      vectorized::Block& block) {
+    SCOPED_RAW_TIMER(&_send_data_ns);
+    // This is just for passing compilation.
+    bool stop_processing = false;
+    std::vector<std::unordered_map<
+            VNodeChannel*,
+            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
+            channel_to_payload;
+    channel_to_payload.resize(_channels.size());
+    const VOlapTablePartition* partition = nullptr;
+    uint32_t tablet_index;
+    bool is_continue = false;
+    RETURN_IF_ERROR(
+            find_tablet(state, &block, 0, &partition, tablet_index, stop_processing, is_continue));
+    for (int j = 0; j < partition->indexes.size(); ++j) {
+        auto tid = partition->indexes[j].tablets[tablet_index];
+        auto it = _channels[j]->_channels_by_tablet.find(tid);
+        DCHECK(it != _channels[j]->_channels_by_tablet.end())
+                << "unknown tablet, tablet_id=" << tablet_index;
+        for (const auto& channel : it->second) {
+            if (channel_to_payload[j].count(channel.get()) < 1) {
+                channel_to_payload[j].insert(
+                        {channel.get(), std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                                  std::vector<int64_t>> {
+                                                std::unique_ptr<vectorized::IColumn::Selector>(
+                                                        new vectorized::IColumn::Selector()),
+                                                std::vector<int64_t>()}});
+            }
+            channel_to_payload[j][channel.get()].first->resize_fill(block.rows(), 0);
+            channel_to_payload[j][channel.get()].second.assign(block.rows(), tid);
+        }
+        _number_output_rows += block.rows();
+    }
+    // Random pick a tablet and sink
+    for (size_t i = 0; i < _channels.size(); i++) {
+        for (const auto& entry : channel_to_payload[i]) {
+            // if this node channel is already failed, this add_row will be skipped
+            auto st = entry.first->add_block<true>(&block, entry.second);
+            if (!st.ok()) {
+                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
+                                             st.to_string());
+            }
+        }
+    }
+
+    // check intolerable failure
+    for (const auto& index_channel : _channels) {
+        RETURN_IF_ERROR(index_channel->check_intolerable_failure());
+    }
+    return Status::OK();
+}
+
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -1021,7 +1110,6 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     if (UNLIKELY(rows == 0)) {
         return status;
     }
-
     SCOPED_TIMER(_profile->total_time_counter());
     _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
@@ -1058,13 +1146,34 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         _convert_to_dest_desc_block(&block);
     }
 
+    // Load to single tablet
+    if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_SINK) {
+        if (filtered_rows > 0) {
+            // Filter block
+            auto filter = vectorized::ColumnUInt8::create(block.rows(), 0);
+            vectorized::UInt8* filter_data =
+                    static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data().data();
+            vectorized::IColumn::Filter& filter_col =
+                    static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data();
+            for (size_t i = 0; i < filter_col.size(); ++i) {
+                filter_data[i] = !_filter_bitmap.Get(i);
+            }
+            vectorized::Block::filter_block_internal(&block, filter_col, block.columns());
+        }
+        VLOG_DEBUG << "send block by append block";
+        RETURN_IF_ERROR(_append_block_to_single_tablet(state, block));
+        input_block->clear();
+        // recalcute tablet each time
+        _partition_to_tablet_map.clear();
+        return Status::OK();
+    }
+
     SCOPED_RAW_TIMER(&_send_data_ns);
-    // This is just for passing compilation.
-    bool stop_processing = false;
     if (findTabletMode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
         _partition_to_tablet_map.clear();
     }
-
+    // This is just for passing compilation.
+    bool stop_processing = false;
     std::vector<std::unordered_map<
             VNodeChannel*,
             std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
@@ -1106,7 +1215,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     for (size_t i = 0; i < _channels.size(); i++) {
         for (const auto& entry : channel_to_payload[i]) {
             // if this node channel is already failed, this add_row will be skipped
-            auto st = entry.first->add_block(&block, entry.second);
+            auto st = entry.first->add_block<false>(&block, entry.second);
             if (!st.ok()) {
                 _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
                                              st.to_string());
