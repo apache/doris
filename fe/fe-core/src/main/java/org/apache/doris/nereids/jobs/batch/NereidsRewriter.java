@@ -207,6 +207,7 @@ public class NereidsRewriter extends BatchRewriteJob {
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check", bottomUp(
                 new AdjustNullable(),
+                new ExpressionOptimization(),
                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                 new CheckAfterRewrite()
             ))

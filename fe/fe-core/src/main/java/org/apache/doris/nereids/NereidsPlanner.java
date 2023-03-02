@@ -29,8 +29,8 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
+import org.apache.doris.nereids.jobs.batch.NereidsCache;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
-import org.apache.doris.nereids.jobs.batch.NereidsCacheJobExecutor;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.CopyInResult;
@@ -181,15 +181,15 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
-            initMemo();
-
             cache();
             if (explainLevel == ExplainLevel.CACHED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-                cachedPlan = cascadesContext.getMemo().copyOut(false);
+                cachedPlan = cascadesContext.getRewritePlan();
                 if (explainLevel == ExplainLevel.CACHED_PLAN) {
                     return cachedPlan;
                 }
             }
+
+            initMemo();
 
             deriveStats();
 
@@ -239,7 +239,7 @@ public class NereidsPlanner extends Planner {
                     && connectContext.getSessionVariable().isEnableSqlCache();
         boolean isEnablePartitionCache = Config.cache_enable_partition_mode
                     && connectContext.getSessionVariable().isEnablePartitionCache();
-        Plan plan = cascadesContext.getMemo().copyOut(false);
+        Plan plan = cascadesContext.getRewritePlan();
         if (!isEnableSqlCache && !isEnablePartitionCache) {
             return;
         }
@@ -255,7 +255,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
         if (cacheContext.isEnableRewritePredicate()) {
-            new NereidsCacheJobExecutor(cascadesContext).execute();
+            new NereidsCache(cascadesContext).execute();
         }
     }
 

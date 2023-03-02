@@ -18,28 +18,31 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.RewriteJob;
 import org.apache.doris.nereids.rules.rewrite.logical.FetchCache;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitConjuncts;
 
-import com.google.common.collect.ImmutableList;
+import java.util.List;
 
 /**
  * Apply rules for cache.
  */
-public class NereidsCacheJobExecutor extends BatchRulesJob {
-    /**
-     * Constructor.
-     *
-     * @param cascadesContext context for applying rules.
-     */
-    public NereidsCacheJobExecutor(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
-                .add(bottomUpBatch(ImmutableList.of(new SplitConjuncts())))
-                .add(bottomUpBatch(ImmutableList.of(new FetchCache())))
-                .build();
+public class NereidsCache extends BatchRewriteJob {
+    private static final List<RewriteJob> CACHE_JOBS = jobs(
+            topic("Split Conjuncts", bottomUp(
+                new SplitConjuncts()
+            )),
+            topic("Fetch Cache", bottomUp(
+                new FetchCache()
+            ))
+    );
 
-        rulesJob.addAll(jobs);
+    public NereidsCache(CascadesContext cascadesContext) {
+        super(cascadesContext);
+    }
+
+    @Override
+    public List<RewriteJob> getJobs() {
+        return CACHE_JOBS;
     }
 }

@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCache;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -52,7 +51,7 @@ public class SplitConjuncts implements RewriteRuleFactory {
             RuleType.PARTITION_CACHE_REWRITE.build(
                 logicalFilter().thenApply(ctx -> {
                     CacheContext cacheContext = ctx.statementContext.getCacheContext();
-                    final LogicalFilter<GroupPlan> filter = ctx.root;
+                    final LogicalFilter<Plan> filter = ctx.root;
                     String columnName = cacheContext.getPartColumn().getName();
 
                     Map<Boolean, List<Expression>> splitConjunts = filter.getConjuncts().stream().collect(

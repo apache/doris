@@ -334,6 +334,14 @@ public class ExpressionUtils {
         return children.stream().allMatch(c -> c.getDataType().isNumericType());
     }
 
+    public static boolean matchDateLikeType(List<Expression> children) {
+        return children.stream().allMatch(c -> c.getDataType().isDateLikeType());
+    }
+
+    public static boolean matchRangeType(List<Expression> children) {
+        return matchNumericType(children) || matchDateLikeType(children);
+    }
+
     public static boolean hasNullLiteral(List<Expression> children) {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }

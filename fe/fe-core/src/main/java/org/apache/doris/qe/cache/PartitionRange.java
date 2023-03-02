@@ -602,12 +602,12 @@ public class PartitionRange {
             Literal newLiteral = (Literal) conjunct.child(1);
             if (conjunct instanceof GreaterThan) {
                 key.clone(begin.getCacheKey());
+                key.add(1);
             } else  if (conjunct instanceof GreaterThanEqual) {
                 key.clone(begin.getCacheKey());
-                key.add(-1);
             } else if (conjunct instanceof LessThan) {
                 key.clone(end.getCacheKey());
-                key.add(1);
+                key.add(-1);
             } else if (conjunct instanceof LessThanEqual) {
                 key.clone(end.getCacheKey());
             }

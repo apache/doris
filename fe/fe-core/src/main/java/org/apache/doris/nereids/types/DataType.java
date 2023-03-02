@@ -503,6 +503,10 @@ public abstract class DataType implements AbstractDataType {
         return isHllType() || isBitmapType() || isQuantileStateType();
     }
 
+    public boolean isRangeType() {
+        return isNumericType() || isDateLikeType() || isDateV2LikeType();
+    }
+
     public DataType promotion() {
         if (PROMOTION_MAP.containsKey(this.getClass())) {
             return PROMOTION_MAP.get(this.getClass()).get();

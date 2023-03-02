@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCache;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.qe.cache.PartitionCache;
@@ -47,14 +47,14 @@ public class FetchCache implements RewriteRuleFactory {
             RuleType.PARTITION_CACHE_FETCH.build(
                 logicalCache().thenApply(ctx -> {
                     CacheContext cacheContext = ctx.statementContext.getCacheContext();
-                    LogicalCache<GroupPlan> logicalCache = ctx.root;
+                    LogicalCache<Plan> logicalCache = ctx.root;
                     PartitionRange range = new PartitionRange(
                             logicalCache.getConjuncts(),
                             cacheContext.getLastOlapTable(),
                             (RangePartitionInfo) cacheContext.getLastOlapTable().getPartitionInfo());
                     Preconditions.checkArgument(cacheContext.getRange() == null, "exist partition range");
                     cacheContext.setRange(range);
-                    cacheContext.setCacheKey(ctx.cascadesContext.getMemo().copyOut(false).treeString());
+                    cacheContext.setCacheKey(ctx.cascadesContext.getRewritePlan().treeString());
 
                     if (PartitionCache.getCacheDataForNereids(cacheContext, range)) {
                         List<PartitionRange.PartitionSingle> rangeList = new ArrayList<>();

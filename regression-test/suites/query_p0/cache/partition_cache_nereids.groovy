@@ -48,7 +48,9 @@ suite("partition_cache_nereids") {
                     ("2023-05-28",0),
                     ("2023-05-29",0),
                     ("2023-05-30",0),
-                    ("2023-05-31",0),
+                    ("2023-05-31",0)
+        """
+    sql """ INSERT INTO ${tableName} VALUES 
                     ("2023-06-01",0),
                     ("2023-06-02",0)
         """
@@ -61,6 +63,7 @@ suite("partition_cache_nereids") {
 
     sql "set enable_partition_cache=true;"
 
+    // 1. test cache and explain
     def sql1 = """
                  select
                    k1,
@@ -78,9 +81,46 @@ suite("partition_cache_nereids") {
     qt_partition_cache """ ${sql1} """
     explain {
     	sql """ cached plan ${sql1} """
-        contains """2023-05-26"""
+        contains """>= 2023-05-01"""
+        contains """<= 2023-05-26"""
     }
     qt_partition_cache """ ${sql1} """
+
+
+    // 2. test view
+    def viewName = "${tableName}_view"
+
+    sql """ DROP VIEW IF EXISTS ${viewName} """
+    sql """ 
+	    CREATE VIEW ${viewName} as 
+            select
+                * 
+            from 
+                ${tableName} 
+	    where 
+                k1 between '2023-05-11' and '2023-05-27'
+	""" 
+
+    def sql2 = """
+                 select
+                   k1,
+                   sum(k2) as total_pv 
+                 from
+                   ${viewName} 
+                 where
+                   k1 between '2023-05-01' and '2023-05-31' 
+                 group by
+                   k1
+                 order by
+                   k1;
+              """
+    qt_partition_cache """ ${sql2} """
+    explain {
+    	sql """ cached plan ${sql2} """
+        contains """>= 2023-05-11"""
+        contains """<= 2023-05-26"""
+    }
+    qt_partition_cache """ ${sql2} """
     
    sql "set enable_partition_cache=false;"
 }
