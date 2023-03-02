@@ -22,6 +22,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
+import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -765,26 +767,27 @@ public class Memo {
             return res;
         }
 
-        double bestChildrenCost = 0;
         List<List<Pair<Long, Double>>> children = new ArrayList<>();
         for (int i = 0; i < inputProperties.size(); i++) {
             // To avoid reach a circle, we don't allow ranking the same group with the same physical properties.
             Preconditions.checkArgument(!groupExpression.child(i).equals(groupExpression.getOwnerGroup())
                     || !prop.equals(inputProperties.get(i)));
-            bestChildrenCost += groupExpression.children().get(i).getLowestCostPlan(inputProperties.get(i)).get().first;
             List<Pair<Long, Double>> idCostPair
                     = rankGroup(groupExpression.child(i), inputProperties.get(i));
             children.add(idCostPair);
         }
         List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
         permute(children, 0, childrenId, new ArrayList<>());
+        Cost cost = CostCalculator.calculateCost(groupExpression);
         for (Pair<Long, List<Integer>> c : childrenId) {
-            double childCost = 0;
+            Cost totalCost = cost;
             for (int i = 0; i < children.size(); i++) {
-                childCost += children.get(i).get(c.second.get(i)).second;
+                totalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                        totalCost,
+                        groupExpression.child(i).getLowestCostPlan(inputProperties.get(i)).get().first,
+                        i);
             }
-            res.add(Pair.of(c.first,
-                    childCost + groupExpression.getCostByProperties(prop) - bestChildrenCost));
+            res.add(Pair.of(c.first, totalCost.getValue()));
         }
         return res;
     }

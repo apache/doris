@@ -266,7 +266,7 @@ public class NereidsPlanner extends Planner {
         if (nthPlan <= 1) {
             cost = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
-                            + physicalProperties + ") doesn't exist in root group")).first;
+                            + physicalProperties + ") doesn't exist in root group")).first.getValue();
             return chooseBestPlan(rootGroup, physicalProperties);
         }
         Memo memo = cascadesContext.getMemo();
