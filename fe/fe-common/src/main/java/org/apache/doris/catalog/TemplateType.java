@@ -19,16 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
-import org.apache.doris.thrift.TTypeNodeType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Describes a TemplateType type.

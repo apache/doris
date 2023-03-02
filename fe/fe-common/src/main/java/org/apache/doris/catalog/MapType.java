@@ -137,11 +137,13 @@ public class MapType extends Type {
         MapType specificMapType = (MapType) specificType;
         Type newKeyType = keyType;
         if (keyType.hasTemplateType()) {
-            newKeyType = keyType.specializeTemplateType(specificMapType.keyType, specializedTypeMap, useSpecializedType);
+            newKeyType = keyType.specializeTemplateType(
+                specificMapType.keyType, specializedTypeMap, useSpecializedType);
         }
         Type newValueType = valueType;
         if (valueType.hasTemplateType()) {
-            newValueType = valueType.specializeTemplateType(specificMapType.valueType, specializedTypeMap, useSpecializedType);
+            newValueType = valueType.specializeTemplateType(
+                specificMapType.valueType, specializedTypeMap, useSpecializedType);
         }
 
         return new MapType(newKeyType, newValueType);

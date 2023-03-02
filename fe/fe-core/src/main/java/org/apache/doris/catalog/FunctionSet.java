@@ -27,7 +27,6 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -1302,7 +1301,7 @@ public class FunctionSet<T> {
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
                 specializedFunction = new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()),
-                                            f.getReturnType(), f.hasVarArgs(), f.getSymbolName(),f.getBinaryType(),
+                                            f.getReturnType(), f.hasVarArgs(), f.getSymbolName(), f.getBinaryType(),
                                             f.isUserVisible(), f.isVectorized(), f.getNullableMode());
             } else {
                 // TODO(xk)
@@ -1318,8 +1317,8 @@ public class FunctionSet<T> {
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
-                    specializedFunction.getReturnType().specializeTemplateType(
-                    requestFunction.getReturnType(), specializedTypeMap, true));
+                        specializedFunction.getReturnType().specializeTemplateType(
+                        requestFunction.getReturnType(), specializedTypeMap, true));
             }
             LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
                         + "  return: " + specializedFunction.getReturnType());
