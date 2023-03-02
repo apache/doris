@@ -23,8 +23,6 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "io/file_writer.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/remote_file_system.h"
@@ -49,6 +47,9 @@ static StorageEngine* k_engine = nullptr;
 static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
+static constexpr int64_t kTabletId = 10005;
+static constexpr int64_t kReplicaId = 10009;
+static constexpr int64_t kSchemaHash = 270068377;
 
 using io::Path;
 
@@ -251,8 +252,8 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 TEST_F(TabletCooldownTest, normal) {
     // create tablet
     TCreateTabletReq request;
-    create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    request.__set_replica_id(10009);
+    create_tablet_request_with_sequence_col(kTabletId, kSchemaHash, &request);
+    request.__set_replica_id(kReplicaId);
     Status st = k_engine->create_tablet(request);
     ASSERT_EQ(Status::OK(), st);
 
@@ -267,7 +268,7 @@ TEST_F(TabletCooldownTest, normal) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+    WriteRequest write_req = {kTabletId,   kSchemaHash,  WriteType::LOAD,        20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
@@ -331,7 +332,7 @@ TEST_F(TabletCooldownTest, normal) {
     tablet->set_storage_policy_id(kStoragePolicyId);
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_NE(Status::OK(), st);
-    tablet->update_cooldown_conf(1, 10009);
+    tablet->update_cooldown_conf(1, kReplicaId);
     // cooldown for upload node
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
