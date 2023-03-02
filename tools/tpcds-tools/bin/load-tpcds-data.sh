@@ -83,32 +83,31 @@ done
 
 if [[ ${HELP} -eq 1 ]]; then
     usage
-    exit
 fi
 
-echo "Parallelism: ${PARALLEL}"
-
 # check if tpch-data exists
-if [[ ! -d "${TPCH_DATA_DIR}"/ ]]; then
-    echo "${TPCH_DATA_DIR} does not exist. Run sh gen-tpch-data.sh first."
+if [[ ! -d "${TPCDS_DATA_DIR}"/ ]]; then
+    echo "${TPCDS_DATA_DIR} does not exist. Run sh gen-tpch-data.sh first."
     exit 1
 fi
 
 check_prerequest() {
     local CMD=$1
     local NAME=$2
-    if ! ${CMD}; then
+    if ! ${CMD} &>/dev/null; then
         echo "${NAME} is missing. This script depends on cURL to load data to Doris."
         exit 1
     fi
 }
 
 check_prerequest "curl --version" "curl"
+check_prerequest "jq --version" "jq"
 
 # load tables
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
+echo "Parallelism: ${PARALLEL}"
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
@@ -167,20 +166,26 @@ for table_name in ${!table_columns[*]}; do
     # 所有行读取完毕, 执行挂起, 直到管道再次有可读行
     # 因此实现了进程数量控制
     read -r -u3
+
+    # 要批量执行的命令放在大括号内, 后台运行
     {
-        for file in "${TPCDS_DATA_DIR}/${table_name}".dat*; do
-            curl \
+        for file in "${TPCDS_DATA_DIR}/${table_name}"*.dat; do
+            ret=$(curl \
                 --location-trusted \
                 -u "${USER}":"${PASSWORD:=}" \
                 -H "column_separator:|" \
                 -H "columns: ${table_columns[${table_name}]}" \
-                -T "${TPCDS_DATA_DIR}/${file}" \
-                http://"${FE_HOST}":"${FE_HTTP_PORT:=8030}"/api/"${DB}"/"${table_name}"/_stream_load
-            echo "----loaded ${file}"
-            sleep 2
-            # 归还令牌, 即进程结束后，再写入一行，使挂起的循环继续执行
-            echo >&3
+                -T "${file}" \
+                http://"${FE_HOST}":"${FE_HTTP_PORT:=8030}"/api/"${DB}"/"${table_name}"/_stream_load 2>/dev/null)
+            if [[ $(echo "${ret}" | jq ".Status") == '"Success"' ]]; then
+                echo "----loaded ${file}"
+            else
+                echo -e "\033[31m----load ${file} FAIL...\033[0m"
+            fi
         done
+        sleep 2
+        # 归还令牌, 即进程结束后，再写入一行，使挂起的循环继续执行
+        echo >&3
     } &
 done
 

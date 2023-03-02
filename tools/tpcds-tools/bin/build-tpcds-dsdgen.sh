@@ -37,7 +37,7 @@ TPCDS_DBGEN_DIR="${CURDIR}/DSGen-software-code-3.2.0rc1/tools"
 check_prerequest() {
     local CMD=$1
     local NAME=$2
-    if ! ${CMD}; then
+    if ! ${CMD} >/dev/null; then
         echo "${NAME} is missing. This script depends on unzip to extract files from TPC-DS_Tools_v3.2.0.zip"
         exit 1
     fi
@@ -45,10 +45,11 @@ check_prerequest() {
 
 check_prerequest "unzip -h" "unzip"
 
-# download tpcds tools pacage first
-if [[ -d ${TPCDS_DBGEN_DIR} ]]; then
-    echo "Dir ${TPCDS_DBGEN_DIR} already exists. No need to download."
-    echo "If you want to download TPC-DS_Tools_v3.2.0 again, please delete this dir first."
+# download tpcds tools package first
+if [[ -d "${CURDIR}/DSGen-software-code-3.2.0rc1" ]]; then
+    echo "If you want to rebuild TPC-DS_Tools_v3.2.0 again, please delete ${CURDIR}/DSGen-software-code-3.2.0rc1 first." && exit 1
+elif [[ -f "${CURDIR}/TPC-DS_Tools_v3.2.0.zip" ]]; then
+    unzip TPC-DS_Tools_v3.2.0.zip -d "${CURDIR}/"
 else
     wget "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/tools/TPC-DS_Tools_v3.2.0.zip"
     unzip TPC-DS_Tools_v3.2.0.zip -d "${CURDIR}/"

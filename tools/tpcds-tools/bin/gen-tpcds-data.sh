@@ -36,12 +36,12 @@ usage() {
 Usage: $0 <options>
   Optional options:
      -s             scale factor, default is 1
-     -c             parallelism to generate data of (lineitem, orders, partsupp) table, default is 1
+     -c             parallelism to generate data of (lineitem, orders, partsupp) table, default is 10
 
   Eg.
     $0              generate data using default value.
     $0 -s 100        generate data with scale factor 100.
-    $0 -s 100 -c 5   generate data with scale factor 100. And using 5 threads to generate data concurrently.
+    $0 -s 1000 -c 100   generate data with scale factor 1000. And using 1000 threads to generate data concurrently.
   "
     exit 1
 }
@@ -55,7 +55,7 @@ OPTS=$(getopt \
 eval set -- "${OPTS}"
 
 SCALE_FACTOR=1
-PARALLEL=1
+PARALLEL=10
 HELP=0
 
 if [[ $# == 0 ]]; then
@@ -91,7 +91,7 @@ if [[ ${HELP} -eq 1 ]]; then
     usage
 fi
 
-TPCDS_DATA_DIR="${CURDIR}/tpcds-data-sf${SCALE_FACTOR}"
+TPCDS_DATA_DIR="${CURDIR}/tpcds-data"
 echo "Scale Factor: ${SCALE_FACTOR}"
 echo "Parallelism: ${PARALLEL}"
 
@@ -109,10 +109,17 @@ fi
 mkdir "${TPCDS_DATA_DIR}"/
 
 # gen data
+echo "Begin to generate data..."
+date
 cd "${TPCDS_DBGEN_DIR}"
-echo "Begin to generate data"
-"${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -PARALLEL "${PARALLEL}" -TERMINATEN N -DIR "${TPCDS_DATA_DIR}"
+if [[ ${PARALLEL} -eq 1 ]] && "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}"; then
+    echo "data genarated."
+elif [[ ${PARALLEL} -gt 1 ]] && "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -PARALLEL "${PARALLEL}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}"; then
+    echo "data genarated."
+else
+    echo "ERROR occured." && exit 1
+fi
 cd -
-
+date
 # check data
 du -sh "${TPCDS_DATA_DIR}"/*.dat*
