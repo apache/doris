@@ -446,13 +446,15 @@ bool VExpr::is_constant() const {
     return true;
 }
 
-std::shared_ptr<ColumnPtrWrapper> VExpr::get_const_col(VExprContext* context) {
+Status VExpr::get_const_col(VExprContext* context,
+                            std::shared_ptr<ColumnPtrWrapper>* column_wrapper) {
     if (!is_constant()) {
-        return nullptr;
+        return Status::OK();
     }
 
     if (_constant_col != nullptr) {
-        return _constant_col;
+        *column_wrapper = _constant_col;
+        return Status::OK();
     }
 
     int result = -1;
@@ -460,11 +462,12 @@ std::shared_ptr<ColumnPtrWrapper> VExpr::get_const_col(VExprContext* context) {
     // If block is empty, some functions will produce no result. So we insert a column with
     // single value here.
     block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-    execute(context, &block, &result);
+    RETURN_IF_ERROR(execute(context, &block, &result));
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    return _constant_col;
+    *column_wrapper = _constant_col;
+    return Status::OK();
 }
 
 void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* context) {
@@ -484,7 +487,9 @@ Status VExpr::init_function_context(VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
         for (auto c : _children) {
-            constant_cols.push_back(c->get_const_col(context));
+            std::shared_ptr<ColumnPtrWrapper> const_col;
+            RETURN_IF_ERROR(c->get_const_col(context, &const_col));
+            constant_cols.push_back(const_col);
         }
         fn_ctx->impl()->set_constant_cols(constant_cols);
     }
