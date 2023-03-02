@@ -108,7 +108,7 @@ public class ArrayType extends Type {
         ArrayType o = (ArrayType) specificType;
         Type newItemType = itemType;
         if (itemType.hasTemplateType()) {
-            itemType = itemType.specializeTemplateType(o.itemType, specializedTypeMap, useSpecializedType);
+            newItemType = itemType.specializeTemplateType(o.itemType, specializedTypeMap, useSpecializedType);
         }
 
         return new ArrayType(newItemType);
