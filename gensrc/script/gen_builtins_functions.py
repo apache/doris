@@ -74,7 +74,7 @@ print(FE_PATH)
 
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data
-#   - fn_name, ret_type, args, symbol, sql_names
+#   - fn_name, ret_type, args, symbol, sql_names, template_types(optional)
 meta_data_entries = []
 
 # Read in the function and add it to the meta_data_entries map
