@@ -63,8 +63,44 @@ public class MysqlLoadManager {
 
     private final ThreadPoolExecutor mysqlLoadPool;
     private final TokenManager tokenManager;
-    private final Map<String, Boolean> finishedMap = new ConcurrentHashMap<>();
-    private final Map<String, HttpPut> requestMap = new ConcurrentHashMap<>();
+
+    private static class MySqlLoadContext {
+        private boolean finished;
+        private HttpPut request;
+        private boolean isCancelled;
+
+        public MySqlLoadContext() {
+            this.finished = false;
+            this.isCancelled = false;
+        }
+
+        public boolean isFinished() {
+            return finished;
+        }
+
+        public void setFinished(boolean finished) {
+            this.finished = finished;
+        }
+
+        public HttpPut getRequest() {
+            return request;
+        }
+
+        public void setRequest(HttpPut request) {
+            this.request = request;
+        }
+
+        public boolean isCancelled() {
+            return isCancelled;
+        }
+
+        public void setCancelled(boolean cancelled) {
+            isCancelled = cancelled;
+        }
+    }
+
+    private final Map<String, MySqlLoadContext> loadContextMap = new ConcurrentHashMap<>();
+
 
     public MysqlLoadManager(TokenManager tokenManager) {
         this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(
@@ -86,7 +122,9 @@ public class MysqlLoadManager {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file, loadId);
                 HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table, token);
-                requestMap.put(loadId, request);
+                MySqlLoadContext loadContext = new MySqlLoadContext();
+                loadContext.setRequest(request);
+                loadContextMap.put(loadId, loadContext);
                 try (final CloseableHttpResponse response = httpclient.execute(request)) {
                     String body = EntityUtils.toString(response.getEntity());
                     JsonObject result = JsonParser.parseString(body).getAsJsonObject();
@@ -101,7 +139,7 @@ public class MysqlLoadManager {
         } catch (Throwable t) {
             LOG.error("Execute mysql load failed", t);
             // drain the data from client conn util empty packet received, otherwise the connection will be reset
-            if (finishedMap.containsKey(loadId) && !finishedMap.get(loadId)) {
+            if (loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
                 LOG.warn("not drained yet, try reading left data from client connection.");
                 ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
@@ -110,19 +148,23 @@ public class MysqlLoadManager {
                 }
                 LOG.warn("Finished reading the left bytes.");
             }
-            throw t;
+            // make cancel message to user
+            if (loadContextMap.containsKey(loadId) && loadContextMap.get(loadId).isCancelled()) {
+                throw new LoadException("Cancelled");
+            } else {
+                throw t;
+            }
         } finally {
-            finishedMap.remove(context.getQueryIdentifier());
-            requestMap.remove(loadId);
+            loadContextMap.remove(loadId);
         }
         return loadResult;
     }
 
     public void cancelMySqlLoad(String loadId) {
-        if (requestMap.containsKey(loadId)) {
-            requestMap.get(loadId).abort();
+        if (loadContextMap.containsKey(loadId)) {
+            loadContextMap.get(loadId).setCancelled(true);
+            loadContextMap.get(loadId).getRequest().abort();
             LOG.info("Cancel MySqlLoad with id {}", loadId);
-            requestMap.remove(loadId);
         } else {
             LOG.info("Load id: {} may be already finished.", loadId);
         }
@@ -178,14 +220,15 @@ public class MysqlLoadManager {
         mysqlLoadPool.submit(() -> {
             ByteBuffer buffer;
             try {
-                finishedMap.put(loadId, false);
                 buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
                 while (buffer != null && buffer.limit() != 0) {
                     inputStream.fillByteBuffer(buffer);
                     buffer = context.getMysqlChannel().fetchOnePacket();
                 }
-                finishedMap.put(loadId, true);
+                if (loadContextMap.containsKey(loadId)) {
+                    loadContextMap.get(loadId).setFinished(true);
+                }
             } catch (IOException | InterruptedException e) {
                 LOG.warn("Failed fetch packet from mysql client", e);
                 throw new RuntimeException(e);

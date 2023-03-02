@@ -1009,9 +1009,7 @@ public class StmtExecutor implements ProfileWriter {
         if (coordRef != null) {
             coordRef.cancel();
         }
-        LOG.info("cancel1()");
         if (mysqlLoadId != null) {
-            LOG.info("cancel2()");
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
     }
