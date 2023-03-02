@@ -85,6 +85,49 @@ s3(
 
 目前支持对 Parquet、ORC、CSV、Json 格式进行分析和列类型推断。
 
+**CSV Schema**
+
+<version since="dev"></version>
+
+在默认情况下，对 CSV 格式文件，所有列类型均为 String。可以通过 `csv_schema` 属性单独指定列名和列类型。Doris 会使用指定的列类型进行文件读取。格式如下：
+
+`name1:type1;name2:type2;...`
+
+对于格式不匹配的列（比如文件中为字符串，用户定义为 int），或缺失列（比如文件中有4列，用户定义了5列），则这些列将返回null。
+
+当前支持的列类型为：
+
+| 名称 | 映射类型 |
+| --- | --- |
+|tinyint |tinyint |
+|smallint |smallint |
+|int |int |
+| bigint | bigint |
+| largeint | largeint |
+| float| float |
+| double| double|
+| decimal(p,s) | decimalv3(p,s) |
+| date | datev2 |
+| datetime | datetimev2 |
+| char |string |
+|varchar |string |
+|string|string |
+|boolean| boolean |
+
+示例：
+
+```
+s3 (
+    'URI' = 'https://bucket1/inventory.dat',
+    'ACCESS_KEY'= 'ak',
+    'SECRET_KEY' = 'sk',
+    'FORMAT' = 'csv',
+    'column_separator' = '|',
+    'csv_schema' = 'k1:int;k2:int;k3:int;k4:decimal(38,10)',
+    'use_path_style'='true'
+)
+```
+
 ### 查询分析
 
 你可以使用任意的 SQL 语句对这个文件进行分析

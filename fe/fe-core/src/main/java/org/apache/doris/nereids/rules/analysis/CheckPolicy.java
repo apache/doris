@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -39,15 +41,13 @@ public class CheckPolicy implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.CHECK_ROW_POLICY.build(
-                logicalCheckPolicy(logicalSubQueryAlias()).then(checkPolicy -> checkPolicy.child())
-            ),
-            RuleType.CHECK_ROW_POLICY.build(
-                    logicalCheckPolicy(logicalFilter()).then(checkPolicy -> checkPolicy.child())
-            ),
-            RuleType.CHECK_ROW_POLICY.build(
-                logicalCheckPolicy(logicalRelation()).thenApply(ctx -> {
-                    LogicalCheckPolicy<LogicalRelation> checkPolicy = ctx.root;
-                    LogicalRelation relation = checkPolicy.child();
+                logicalCheckPolicy(any().when(child -> !(child instanceof UnboundRelation))).thenApply(ctx -> {
+                    LogicalCheckPolicy<Plan> checkPolicy = ctx.root;
+                    Plan child = checkPolicy.child();
+                    if (!(child instanceof LogicalRelation)) {
+                        return child;
+                    }
+                    LogicalRelation relation = (LogicalRelation) child;
                     Optional<Expression> filter = checkPolicy.getFilter(relation, ctx.connectContext);
                     if (!filter.isPresent()) {
                         return relation;

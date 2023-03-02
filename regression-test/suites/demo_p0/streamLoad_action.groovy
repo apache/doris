@@ -19,6 +19,8 @@ suite("streamLoad_action") {
 
     def tableName = "test_streamload_action1"
 
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 id int,
@@ -104,4 +106,7 @@ suite("streamLoad_action") {
         ORDER BY subq_0.`c1`, subq_0.`c0` DESC
         LIMIT 5;
     """
+
+    sql """ DROP TABLE ${tableName} """
+    sql """ DROP TABLE B """
 }

@@ -49,8 +49,7 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
                                    const DataTypePtr& return_type)
         : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
 
-Status JavaFunctionCall::prepare(FunctionContext* context,
-                                 FunctionContext::FunctionStateScope scope) {
+Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {
@@ -311,7 +310,9 @@ Status JavaFunctionCall::close(FunctionContext* context,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.
-    jni_ctx->close();
+    if (jni_ctx) {
+        jni_ctx->close();
+    }
     return Status::OK();
 }
 } // namespace doris::vectorized

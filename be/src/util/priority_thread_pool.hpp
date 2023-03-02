@@ -87,6 +87,11 @@ public:
         return _work_queue.blocking_put(task);
     }
 
+    virtual bool try_offer(WorkFunction func) {
+        PriorityThreadPool::Task task = {0, func, 0};
+        return _work_queue.try_put(task);
+    }
+
     // Shuts the thread pool down, causing the work queue to cease accepting offered work
     // and the worker threads to terminate once they have processed their current work item.
     // Returns once the shutdown flag has been set, does not wait for the threads to

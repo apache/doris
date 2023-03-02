@@ -169,10 +169,6 @@ public class TupleDescriptor {
         return byteSize;
     }
 
-    public boolean getIsMaterialized() {
-        return isMaterialized;
-    }
-
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
     }

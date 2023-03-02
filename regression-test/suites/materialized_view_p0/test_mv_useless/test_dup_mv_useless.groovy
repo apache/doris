@@ -54,6 +54,7 @@ suite ("test_dup_mv_useless") {
     while (max_try_secs--) {
         String res = getJobState(testTable)
         if (res == "FINISHED") {
+            Thread.sleep(5000)
             break
         } else {
             Thread.sleep(2000)
@@ -68,6 +69,7 @@ suite ("test_dup_mv_useless") {
     while (max_try_secs--) {
         String res = getJobState(testTable)
         if (res == "FINISHED") {
+            Thread.sleep(5000)
             break
         } else {
             Thread.sleep(2000)
@@ -82,6 +84,7 @@ suite ("test_dup_mv_useless") {
     while (max_try_secs--) {
         String res = getJobState(testTable)
         if (res == "FINISHED") {
+            Thread.sleep(5000)
             break
         } else {
             Thread.sleep(2000)
@@ -96,6 +99,7 @@ suite ("test_dup_mv_useless") {
     while (max_try_secs--) {
         String res = getJobState(testTable)
         if (res == "FINISHED") {
+            Thread.sleep(5000)
             break
         } else {
             Thread.sleep(2000)

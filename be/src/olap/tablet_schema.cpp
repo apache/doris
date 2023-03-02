@@ -503,7 +503,12 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     // get column unique id by name
     std::vector<int32_t> col_unique_ids(index.columns.size());
     for (size_t i = 0; i < index.columns.size(); i++) {
-        col_unique_ids[i] = tablet_schema.column(index.columns[i]).unique_id();
+        auto column_idx = tablet_schema.field_index(index.columns[i]);
+        if (column_idx >= 0) {
+            col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
+        } else {
+            col_unique_ids[i] = -1;
+        }
     }
     _col_unique_ids = std::move(col_unique_ids);
 

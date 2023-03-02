@@ -27,7 +27,9 @@
 #include "common/utils.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
+#include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
+#include "runtime/message_body_sink.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "service/backend_options.h"
@@ -82,7 +84,7 @@ class MessageBodySink;
 
 class StreamLoadContext {
 public:
-    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env), _refs(0) {
+    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
     }
 
@@ -91,8 +93,6 @@ public:
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
         }
-
-        _exec_env->new_load_stream_mgr()->remove(id);
     }
 
     std::string to_json() const;
@@ -108,10 +108,6 @@ public:
     // return the brief info of this context.
     // also print the load source info if detail is set to true
     std::string brief(bool detail = false) const;
-
-    void ref() { _refs.fetch_add(1); }
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
 
 public:
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
@@ -136,6 +132,7 @@ public:
     int32_t timeout_second = -1;
     AuthInfo auth;
     bool two_phase_commit = false;
+    std::string load_comment;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.
@@ -164,6 +161,7 @@ public:
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
 
     std::shared_ptr<MessageBodySink> body_sink;
+    std::shared_ptr<io::StreamLoadPipe> pipe;
 
     TStreamLoadPutResult put_result;
 
@@ -211,7 +209,6 @@ public:
 
 private:
     ExecEnv* _exec_env;
-    std::atomic<int> _refs;
 };
 
 } // namespace doris

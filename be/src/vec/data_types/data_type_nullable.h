@@ -49,6 +49,10 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
+    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
+        return nested_data_type->is_value_unambiguously_represented_in_contiguous_memory_region();
+    }
+
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
     bool cannot_be_stored_in_tables() const override {
@@ -94,5 +98,6 @@ private:
 DataTypePtr make_nullable(const DataTypePtr& type);
 DataTypePtr remove_nullable(const DataTypePtr& type);
 DataTypes remove_nullable(const DataTypes& types);
+bool have_nullable(const DataTypes& types);
 
 } // namespace doris::vectorized

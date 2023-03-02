@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/file_factory.h"
 #include "util/storage_backend.h"
 
 namespace doris {
@@ -49,8 +50,11 @@ public:
     Status exist_dir(const std::string& path) override;
 
 private:
+    void _init_file_description(const std::string& remote);
+
     ExecEnv* _env;
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
+    FileDescription _file_description;
 };
 } // end namespace doris

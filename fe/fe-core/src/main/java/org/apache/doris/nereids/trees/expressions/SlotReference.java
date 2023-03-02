@@ -148,7 +148,8 @@ public class SlotReference extends Slot {
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
     @Override
     public int hashCode() {
-        return Objects.hash(exprId);
+        // direct return exprId to speed up
+        return exprId.asInt();
     }
 
     public Optional<Column> getColumn() {

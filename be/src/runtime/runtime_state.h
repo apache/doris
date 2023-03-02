@@ -295,6 +295,10 @@ public:
         return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
     }
 
+    bool skip_delete_bitmap() const {
+        return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
+    }
+
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
             return 0;

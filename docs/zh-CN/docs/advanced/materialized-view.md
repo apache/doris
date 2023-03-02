@@ -76,14 +76,21 @@ Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查
 
 具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 。
 
+
+<version since="2.0.0"></version>
+
+在`Doris 2.0`版本中我们对物化视图的做了一些增强(在本文的`最佳实践4`中有具体描述)。我们建议用户在正式的生产环境中使用物化视图前，先在测试环境中确认是预期中的查询能否命中想要创建的物化视图。
+
+如果不清楚如何验证一个查询是否命中物化视图，可以阅读本文的`最佳实践1`。
+
+与此同时，我们不建议用户在同一张表上建多个形态类似的物化视图，这可能会导致多个物化视图之间的冲突使得查询命中失败。（当然，这些可能出现的问题都可以在测试环境中验证）
+
 ### 支持聚合函数
 
 目前物化视图创建语句支持的聚合函数有：
 
 - SUM, MIN, MAX (Version 0.12)
 - COUNT, BITMAP_UNION, HLL_UNION (Version 0.13)
-- BITMAP_UNION 的形式必须为：`BITMAP_UNION(TO_BITMAP(COLUMN))` column 列的类型只能是整数（largeint也不支持), 或者 `BITMAP_UNION(COLUMN)` 且 base 表为 AGG 模型。
-- HLL_UNION 的形式必须为：`HLL_UNION(HLL_HASH(COLUMN))` column 列的类型不能是 DECIMAL , 或者 `HLL_UNION(COLUMN)` 且 base 表为 AGG 模型。
 
 ### 更新策略
 
@@ -108,7 +115,7 @@ Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查
 | bitmap_union | bitmap_union, bitmap_union_count, count(distinct)      |
 | hll_union    | hll_raw_agg, hll_union_agg, ndv, approx_count_distinct |
 
-其中 bitmap 和 hll 的聚合函数在查询匹配到物化视图后，查询的聚合算子会根据物化视图的表结构进行一个改写。详细见实例2。
+其中 bitmap 和 hll 的聚合函数在查询匹配到物化视图后，查询的聚合算子会根据物化视图的表结构进行改写。详细见实例2。
 
 ### 查询物化视图
 
@@ -163,10 +170,11 @@ MySQL [test]> desc mv_test all;
 **首先是第一步：创建物化视图**
 
 
-假设用户有一张销售记录明细表，存储了每个交易的交易id，销售员，售卖门店，销售时间，以及金额。建表语句为：
+假设用户有一张销售记录明细表，存储了每个交易的交易id，销售员，售卖门店，销售时间，以及金额。建表语句和插入数据语句为：
 
 ```sql
 create table sales_records(record_id int, seller_id int, store_id int, sale_date date, sale_amt bigint) distributed by hash(record_id) properties("replication_num" = "1");
+insert into sales_records values(1,1,1,"2020-02-02",1);
 ```
 
 这张 `sales_records` 的表结构如下：
@@ -233,71 +241,69 @@ SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id;
 
 ```sql
 EXPLAIN SELECT store_id, sum(sale_amt) FROM sales_records GROUP BY store_id;
-+-----------------------------------------------------------------------------+
-| Explain String                                                              |
-+-----------------------------------------------------------------------------+
-| PLAN FRAGMENT 0                                                             |
-|  OUTPUT EXPRS:<slot 2> `store_id` | <slot 3> sum(`sale_amt`)                |
-|   PARTITION: UNPARTITIONED                                                  |
-|                                                                             |
-|   RESULT SINK                                                               |
-|                                                                             |
-|   4:EXCHANGE                                                                |
-|                                                                             |
-| PLAN FRAGMENT 1                                                             |
-|  OUTPUT EXPRS:                                                              |
-|   PARTITION: HASH_PARTITIONED: <slot 2> `store_id`                          |
-|                                                                             |
-|   STREAM DATA SINK                                                          |
-|     EXCHANGE ID: 04                                                         |
-|     UNPARTITIONED                                                           |
-|                                                                             |
-|   3:AGGREGATE (merge finalize)                                              |
-|   |  output: sum(<slot 3> sum(`sale_amt`))                                  |
-|   |  group by: <slot 2> `store_id`                                          |
-|   |                                                                         |
-|   2:EXCHANGE                                                                |
-|                                                                             |
-| PLAN FRAGMENT 2                                                             |
-|  OUTPUT EXPRS:                                                              |
-|   PARTITION: RANDOM                                                         |
-|                                                                             |
-|   STREAM DATA SINK                                                          |
-|     EXCHANGE ID: 02                                                         |
-|     HASH_PARTITIONED: <slot 2> `store_id`                                   |
-|                                                                             |
-|   1:AGGREGATE (update serialize)                                            |
-|   |  STREAMING                                                              |
-|   |  output: sum(`sale_amt`)                                                |
-|   |  group by: `store_id`                                                   |
-|   |                                                                         |
-|   0:OlapScanNode                                                            |
-|      TABLE: sales_records                                                   |
-|      PREAGGREGATION: ON                                                     |
-|      partitions=1/1                                                         |
-|      rollup: store_amt                                                      |
-|      tabletRatio=10/10                                                      |
-|      tabletList=22038,22040,22042,22044,22046,22048,22050,22052,22054,22056 |
-|      cardinality=0                                                          |
-|      avgRowSize=0.0                                                         |
-|      numNodes=1                                                             |
-+-----------------------------------------------------------------------------+
-45 rows in set (0.006 sec)
++----------------------------------------------------------------------------------------------+
+| Explain String                                                                               |
++----------------------------------------------------------------------------------------------+
+| PLAN FRAGMENT 0                                                                              |
+|   OUTPUT EXPRS:                                                                              |
+|     <slot 4> `default_cluster:test`.`sales_records`.`mv_store_id`                            |
+|     <slot 5> sum(`default_cluster:test`.`sales_records`.`mva_SUM__`sale_amt``)               |
+|   PARTITION: UNPARTITIONED                                                                   |
+|                                                                                              |
+|   VRESULT SINK                                                                               |
+|                                                                                              |
+|   4:VEXCHANGE                                                                                |
+|      offset: 0                                                                               |
+|                                                                                              |
+| PLAN FRAGMENT 1                                                                              |
+|                                                                                              |
+|   PARTITION: HASH_PARTITIONED: <slot 4> `default_cluster:test`.`sales_records`.`mv_store_id` |
+|                                                                                              |
+|   STREAM DATA SINK                                                                           |
+|     EXCHANGE ID: 04                                                                          |
+|     UNPARTITIONED                                                                            |
+|                                                                                              |
+|   3:VAGGREGATE (merge finalize)                                                              |
+|   |  output: sum(<slot 5> sum(`default_cluster:test`.`sales_records`.`mva_SUM__`sale_amt``)) |
+|   |  group by: <slot 4> `default_cluster:test`.`sales_records`.`mv_store_id`                 |
+|   |  cardinality=-1                                                                          |
+|   |                                                                                          |
+|   2:VEXCHANGE                                                                                |
+|      offset: 0                                                                               |
+|                                                                                              |
+| PLAN FRAGMENT 2                                                                              |
+|                                                                                              |
+|   PARTITION: HASH_PARTITIONED: `default_cluster:test`.`sales_records`.`record_id`            |
+|                                                                                              |
+|   STREAM DATA SINK                                                                           |
+|     EXCHANGE ID: 02                                                                          |
+|     HASH_PARTITIONED: <slot 4> `default_cluster:test`.`sales_records`.`mv_store_id`          |
+|                                                                                              |
+|   1:VAGGREGATE (update serialize)                                                            |
+|   |  STREAMING                                                                               |
+|   |  output: sum(`default_cluster:test`.`sales_records`.`mva_SUM__`sale_amt``)               |
+|   |  group by: `default_cluster:test`.`sales_records`.`mv_store_id`                          |
+|   |  cardinality=-1                                                                          |
+|   |                                                                                          |
+|   0:VOlapScanNode                                                                            |
+|      TABLE: default_cluster:test.sales_records(store_amt), PREAGGREGATION: ON                |
+|      partitions=1/1, tablets=10/10, tabletList=50028,50030,50032 ...                         |
+|      cardinality=1, avgRowSize=1520.0, numNodes=1                                            |
++----------------------------------------------------------------------------------------------+
 ```
-
-其中最重要的就是 OlapScanNode 中的 rollup 属性。可以看到当前查询的 rollup 显示的是 `store_amt`。也就是说查询已经正确匹配到物化视图 `store_amt`, 并直接从物化视图中读取数据了。
+从最底部的`test.sales_records(store_amt)`可以表明这个查询命中了`store_amt`这个物化视图。值得注意的是，如果表中没有数据，那么可能不会命中物化视图。
 
 ## 最佳实践2 PV,UV
 
-业务场景: 计算广告的 UV，PV
+业务场景: 计算广告的 UV，PV。
 
 假设用户的原始广告点击数据存储在 Doris，那么针对广告 PV, UV 查询就可以通过创建 `bitmap_union` 的物化视图来提升查询速度。
 
 通过下面语句首先创建一个存储广告点击数据明细的表，包含每条点击的点击时间，点击的是什么广告，通过什么渠道点击，以及点击的用户是谁。
 
 ```sql
-MySQL [test]> create table advertiser_view_record(time date, advertiser varchar(10), channel varchar(10), user_id int) distributed by hash(time) properties("replication_num" = "1");
-Query OK, 0 rows affected (0.014 sec)
+create table advertiser_view_record(time date, advertiser varchar(10), channel varchar(10), user_id int) distributed by hash(time) properties("replication_num" = "1");
+insert into advertiser_view_record values("2020-02-02",'a','a',1);
 ```
 
 原始的广告点击数据表结构为：
@@ -371,117 +377,154 @@ MySQL [test]> desc advertiser_view_record;
    通过 EXPLAIN 命令可以检验到 Doris 是否匹配到了物化视图：
 
    ```sql
-   MySQL [test]> explain SELECT advertiser, channel, count(distinct user_id) FROM  advertiser_view_record GROUP BY advertiser, channel;
-   +-------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-   | Explain String                                                                                                                                                    |
-   +-------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-   | PLAN FRAGMENT 0                                                                                                                                                   |
-   |  OUTPUT EXPRS:<slot 7> `advertiser` | <slot 8> `channel` | <slot 9> bitmap_union_count(`default_cluster:test`.`advertiser_view_record`.`mv_bitmap_union_user_id`) |
-   |   PARTITION: UNPARTITIONED                                                                                                                                        |
-   |                                                                                                                                                                   |
-   |   RESULT SINK                                                                                                                                                     |
-   |                                                                                                                                                                   |
-   |   4:EXCHANGE                                                                                                                                                      |
-   |                                                                                                                                                                   |
-   | PLAN FRAGMENT 1                                                                                                                                                   |
-   |  OUTPUT EXPRS:                                                                                                                                                    |
-   |   PARTITION: HASH_PARTITIONED: <slot 4> `advertiser`, <slot 5> `channel`                                                                                          |
-   |                                                                                                                                                                   |
-   |   STREAM DATA SINK                                                                                                                                                |
-   |     EXCHANGE ID: 04                                                                                                                                               |
-   |     UNPARTITIONED                                                                                                                                                 |
-   |                                                                                                                                                                   |
-   |   3:AGGREGATE (merge finalize)                                                                                                                                    |
-   |   |  output: bitmap_union_count(<slot 6> bitmap_union_count(`default_cluster:test`.`advertiser_view_record`.`mv_bitmap_union_user_id`))                           |
-   |   |  group by: <slot 4> `advertiser`, <slot 5> `channel`                                                                                                          |
-   |   |                                                                                                                                                               |
-   |   2:EXCHANGE                                                                                                                                                      |
-   |                                                                                                                                                                   |
-   | PLAN FRAGMENT 2                                                                                                                                                   |
-   |  OUTPUT EXPRS:                                                                                                                                                    |
-   |   PARTITION: RANDOM                                                                                                                                               |
-   |                                                                                                                                                                   |
-   |   STREAM DATA SINK                                                                                                                                                |
-   |     EXCHANGE ID: 02                                                                                                                                               |
-   |     HASH_PARTITIONED: <slot 4> `advertiser`, <slot 5> `channel`                                                                                                   |
-   |                                                                                                                                                                   |
-   |   1:AGGREGATE (update serialize)                                                                                                                                  |
-   |   |  STREAMING                                                                                                                                                    |
-   |   |  output: bitmap_union_count(`default_cluster:test`.`advertiser_view_record`.`mv_bitmap_union_user_id`)                                                        |
-   |   |  group by: `advertiser`, `channel`                                                                                                                            |
-   |   |                                                                                                                                                               |
-   |   0:OlapScanNode                                                                                                                                                  |
-   |      TABLE: advertiser_view_record                                                                                                                                |
-   |      PREAGGREGATION: ON                                                                                                                                           |
-   |      partitions=1/1                                                                                                                                               |
-   |      rollup: advertiser_uv                                                                                                                                        |
-   |      tabletRatio=10/10                                                                                                                                            |
-   |      tabletList=22084,22086,22088,22090,22092,22094,22096,22098,22100,22102                                                                                       |
-   |      cardinality=0                                                                                                                                                |
-   |      avgRowSize=0.0                                                                                                                                               |
-   |      numNodes=1                                                                                                                                                   |
-   +-------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-   45 rows in set (0.030 sec)
+   mysql [test]>explain SELECT advertiser, channel, count(distinct user_id) FROM  advertiser_view_record GROUP BY advertiser, channel;
+   +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+   | Explain String                                                                                                                                                                 |
+   +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+   | PLAN FRAGMENT 0                                                                                                                                                                |
+   |   OUTPUT EXPRS:                                                                                                                                                                |
+   |     <slot 9> `default_cluster:test`.`advertiser_view_record`.`mv_advertiser`                                                                                                   |
+   |     <slot 10> `default_cluster:test`.`advertiser_view_record`.`mv_channel`                                                                                                     |
+   |     <slot 11> bitmap_union_count(`default_cluster:test`.`advertiser_view_record`.`mva_BITMAP_UNION__to_bitmap_with_check(`user_id`)`)                                          |
+   |   PARTITION: UNPARTITIONED                                                                                                                                                     |
+   |                                                                                                                                                                                |
+   |   VRESULT SINK                                                                                                                                                                 |
+   |                                                                                                                                                                                |
+   |   4:VEXCHANGE                                                                                                                                                                  |
+   |      offset: 0                                                                                                                                                                 |
+   |                                                                                                                                                                                |
+   | PLAN FRAGMENT 1                                                                                                                                                                |
+   |                                                                                                                                                                                |
+   |   PARTITION: HASH_PARTITIONED: <slot 6> `default_cluster:test`.`advertiser_view_record`.`mv_advertiser`, <slot 7> `default_cluster:test`.`advertiser_view_record`.`mv_channel` |
+   |                                                                                                                                                                                |
+   |   STREAM DATA SINK                                                                                                                                                             |
+   |     EXCHANGE ID: 04                                                                                                                                                            |
+   |     UNPARTITIONED                                                                                                                                                              |
+   |                                                                                                                                                                                |
+   |   3:VAGGREGATE (merge finalize)                                                                                                                                                |
+   |   |  output: bitmap_union_count(<slot 8> bitmap_union_count(`default_cluster:test`.`advertiser_view_record`.`mva_BITMAP_UNION__to_bitmap_with_check(`user_id`)`))              |
+   |   |  group by: <slot 6> `default_cluster:test`.`advertiser_view_record`.`mv_advertiser`, <slot 7> `default_cluster:test`.`advertiser_view_record`.`mv_channel`                 |
+   |   |  cardinality=-1                                                                                                                                                            |
+   |   |                                                                                                                                                                            |
+   |   2:VEXCHANGE                                                                                                                                                                  |
+   |      offset: 0                                                                                                                                                                 |
+   |                                                                                                                                                                                |
+   | PLAN FRAGMENT 2                                                                                                                                                                |
+   |                                                                                                                                                                                |
+   |   PARTITION: HASH_PARTITIONED: `default_cluster:test`.`advertiser_view_record`.`time`                                                                                          |
+   |                                                                                                                                                                                |
+   |   STREAM DATA SINK                                                                                                                                                             |
+   |     EXCHANGE ID: 02                                                                                                                                                            |
+   |     HASH_PARTITIONED: <slot 6> `default_cluster:test`.`advertiser_view_record`.`mv_advertiser`, <slot 7> `default_cluster:test`.`advertiser_view_record`.`mv_channel`          |
+   |                                                                                                                                                                                |
+   |   1:VAGGREGATE (update serialize)                                                                                                                                              |
+   |   |  STREAMING                                                                                                                                                                 |
+   |   |  output: bitmap_union_count(`default_cluster:test`.`advertiser_view_record`.`mva_BITMAP_UNION__to_bitmap_with_check(`user_id`)`)                                           |
+   |   |  group by: `default_cluster:test`.`advertiser_view_record`.`mv_advertiser`, `default_cluster:test`.`advertiser_view_record`.`mv_channel`                                   |
+   |   |  cardinality=-1                                                                                                                                                            |
+   |   |                                                                                                                                                                            |
+   |   0:VOlapScanNode                                                                                                                                                              |
+   |      TABLE: default_cluster:test.advertiser_view_record(advertiser_uv), PREAGGREGATION: ON                                                                                     |
+   |      partitions=1/1, tablets=10/10, tabletList=50075,50077,50079 ...                                                                                                           |
+   |      cardinality=0, avgRowSize=48.0, numNodes=1                                                                                                                                |
+   +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
    ```
 
-   在 EXPLAIN 的结果中，首先可以看到 OlapScanNode 的 rollup 属性值为 advertiser_uv。也就是说，查询会直接扫描物化视图的数据。说明匹配成功。
+   在 EXPLAIN 的结果中，首先可以看到`VOlapScanNode`命中了`advertiser_uv`。也就是说，查询会直接扫描物化视图的数据。说明匹配成功。
 
    其次对于 `user_id` 字段求 `count(distinct)` 被改写为求 `bitmap_union_count(to_bitmap)`。也就是通过 bitmap 的方式来达到精确去重的效果。
 
-   ## 最佳实践3
+## 最佳实践3
 
-   业务场景：匹配更丰富的前缀索引
+业务场景：匹配更丰富的前缀索引
 
-   用户的原始表有 （k1, k2, k3） 三列。其中 k1, k2 为前缀索引列。这时候如果用户查询条件中包含 `where k1=1 and k2=2` 就能通过索引加速查询。
+用户的原始表有 （k1, k2, k3） 三列。其中 k1, k2 为前缀索引列。这时候如果用户查询条件中包含 `where k1=1 and k2=2` 就能通过索引加速查询。
 
-   但是有些情况下，用户的过滤条件无法匹配到前缀索引，比如 `where k3=3`。则无法通过索引提升查询速度。
+但是有些情况下，用户的过滤条件无法匹配到前缀索引，比如 `where k3=3`。则无法通过索引提升查询速度。
 
-   创建以 k3 作为第一列的物化视图就可以解决这个问题。
+创建以 k3 作为第一列的物化视图就可以解决这个问题。
 
-   1. 创建物化视图
+1. 创建物化视图
 
-      ```sql
-      CREATE MATERIALIZED VIEW mv_1 as SELECT k3, k2, k1 FROM tableA ORDER BY k3;
-      ```
+   ```sql
+   CREATE MATERIALIZED VIEW mv_1 as SELECT k3, k2, k1 FROM tableA ORDER BY k3;
+   ```
 
-      通过上面语法创建完成后，物化视图中既保留了完整的明细数据，且物化视图的前缀索引为 k3 列。表结构如下：
+   通过上面语法创建完成后，物化视图中既保留了完整的明细数据，且物化视图的前缀索引为 k3 列。表结构如下：
 
-      ```sql
-      MySQL [test]> desc tableA all;
-      +-----------+---------------+-------+------+------+-------+---------+-------+
-      | IndexName | IndexKeysType | Field | Type | Null | Key   | Default | Extra |
-      +-----------+---------------+-------+------+------+-------+---------+-------+
-      | tableA    | DUP_KEYS      | k1    | INT  | Yes  | true  | NULL    |       |
-      |           |               | k2    | INT  | Yes  | true  | NULL    |       |
-      |           |               | k3    | INT  | Yes  | true  | NULL    |       |
-      |           |               |       |      |      |       |         |       |
-      | mv_1      | DUP_KEYS      | k3    | INT  | Yes  | true  | NULL    |       |
-      |           |               | k2    | INT  | Yes  | false | NULL    | NONE  |
-      |           |               | k1    | INT  | Yes  | false | NULL    | NONE  |
-      +-----------+---------------+-------+------+------+-------+---------+-------+
-      ```
+   ```sql
+   MySQL [test]> desc tableA all;
+   +-----------+---------------+-------+------+------+-------+---------+-------+
+   | IndexName | IndexKeysType | Field | Type | Null | Key   | Default | Extra |
+   +-----------+---------------+-------+------+------+-------+---------+-------+
+   | tableA    | DUP_KEYS      | k1    | INT  | Yes  | true  | NULL    |       |
+   |           |               | k2    | INT  | Yes  | true  | NULL    |       |
+   |           |               | k3    | INT  | Yes  | true  | NULL    |       |
+   |           |               |       |      |      |       |         |       |
+   | mv_1      | DUP_KEYS      | k3    | INT  | Yes  | true  | NULL    |       |
+   |           |               | k2    | INT  | Yes  | false | NULL    | NONE  |
+   |           |               | k1    | INT  | Yes  | false | NULL    | NONE  |
+   +-----------+---------------+-------+------+------+-------+---------+-------+
+   ```
 
-   2. 查询匹配
+2. 查询匹配
 
-      这时候如果用户的查询存在 k3 列的过滤条件是，比如：
+   这时候如果用户的查询存在 k3 列的过滤条件是，比如：
 
-      ```sql
-      select k1, k2, k3 from table A where k3=3;
-      ```
+   ```sql
+   select k1, k2, k3 from table A where k3=3;
+   ```
 
-      这时候查询就会直接从刚才创建的 mv_1 物化视图中读取数据。物化视图对 k3 是存在前缀索引的，查询效率也会提升。
+   这时候查询就会直接从刚才创建的 mv_1 物化视图中读取数据。物化视图对 k3 是存在前缀索引的，查询效率也会提升。
 
-   ## 局限性
+## 最佳实践4
 
-   1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b)不支持。
-   2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
-   3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
-   4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。
-   5. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
+<version since="2.0.0"></version>
 
-   ## 异常错误
+在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持。
 
-   1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
+1. 创建一个base表并插入一些数据。
+```sql
+create table d_table (
+   k1 int null,
+   k2 int not null,
+   k3 bigint null,
+   k4 varchar(100) null
+)
+duplicate key (k1,k2,k3)
+distributed BY hash(k1) buckets 3
+properties("replication_num" = "1");
+
+insert into d_table select 1,1,1,'2020-02-20';
+insert into d_table select 2,2,2,'2021-02-20';
+insert into d_table select 3,-3,null,'2022-02-20';
+```
+
+2. 创建一些物化视图。
+```sql
+create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
+create materialized view kymd as select year(k4),month(k4),day(k4) from d_table;
+```
+
+3. 用一些查询测试是否成功命中物化视图。
+```sql
+select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1; // 命中k1a2p2ap3ps
+select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1); // 命中k1a2p2ap3ps
+select year(k4),month(k4),day(k4) from d_table; // 命中kymd
+select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // 命中kymd
+```
+
+## 局限性
+
+1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b)不支持。(2.0后支持)
+2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
+3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
+4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。(2.0后支持)
+5. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
+
+## 异常错误
+
+1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
 
 
 

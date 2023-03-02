@@ -1,7 +1,7 @@
 ---
 {
     "title": "split_by_string",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

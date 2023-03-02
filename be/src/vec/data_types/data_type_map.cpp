@@ -156,11 +156,11 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* map_column = assert_cast<ColumnMap*>(column);
 
     if (*rb.position() != '{') {
-        return Status::InvalidArgument("map does not start with '{' character, found '{}'",
+        return Status::InvalidArgument("map does not start with '{}' character, found '{}'", "{",
                                        *rb.position());
     }
     if (*(rb.end() - 1) != '}') {
-        return Status::InvalidArgument("map does not end with '}' character, found '{}'",
+        return Status::InvalidArgument("map does not end with '{}' character, found '{}'", "}",
                                        *(rb.end() - 1));
     }
 

@@ -80,8 +80,10 @@ public:
 
     ColumnValueRange(std::string col_name, int precision, int scale);
 
+    ColumnValueRange(std::string col_name, bool is_nullable_col, int precision, int scale);
+
     ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool contain_null, int precision, int scale);
+                     bool is_nullable_col, bool contain_null, int precision, int scale);
 
     // should add fixed value before add range
     Status add_fixed_value(const CppType& value);
@@ -166,6 +168,8 @@ public:
 
     const std::string& column_name() const { return _column_name; }
 
+    bool is_nullable_col() const { return _is_nullable_col; }
+
     bool contain_null() const { return _contain_null; }
 
     size_t get_fixed_value_size() const { return _fixed_values.size(); }
@@ -184,7 +188,8 @@ public:
             // 2. convert to min max filter condition
             TCondition null_pred;
             if (TYPE_MAX == _high_value && _high_op == FILTER_LESS_OR_EQUAL &&
-                TYPE_MIN == _low_value && _low_op == FILTER_LARGER_OR_EQUAL && !contain_null()) {
+                TYPE_MIN == _low_value && _low_op == FILTER_LARGER_OR_EQUAL && _is_nullable_col &&
+                !contain_null()) {
                 null_pred.__set_column_name(_column_name);
                 null_pred.__set_condition_op("is");
                 null_pred.condition_values.emplace_back("not null");
@@ -223,7 +228,8 @@ public:
         } else {
             // 3. convert to is null and is not null filter condition
             TCondition null_pred;
-            if (TYPE_MAX == _low_value && TYPE_MIN == _high_value && contain_null()) {
+            if (TYPE_MAX == _low_value && TYPE_MIN == _high_value && _is_nullable_col &&
+                contain_null()) {
                 null_pred.__set_column_name(_column_name);
                 null_pred.__set_condition_op("is");
                 null_pred.condition_values.emplace_back("null");
@@ -312,13 +318,16 @@ public:
         _high_value = TYPE_MAX;
         _low_op = FILTER_LARGER_OR_EQUAL;
         _high_op = FILTER_LESS_OR_EQUAL;
-        _contain_null = true;
+        _contain_null = _is_nullable_col;
     }
 
     bool is_whole_value_range() const {
+        DCHECK(_is_nullable_col || !contain_null())
+                << "Non-nullable column cannot contains null value";
+
         return _fixed_values.empty() && _low_value == TYPE_MIN && _high_value == TYPE_MAX &&
                _low_op == FILTER_LARGER_OR_EQUAL && _high_op == FILTER_LESS_OR_EQUAL &&
-               contain_null();
+               _is_nullable_col == contain_null();
     }
 
     // only two case will set range contain null, call by temp_range in olap scan node
@@ -333,7 +342,7 @@ public:
         } else {
             set_whole_value_range();
         }
-        _contain_null = contain_null;
+        _contain_null = _is_nullable_col && contain_null;
     }
 
     void mark_runtime_filter_predicate(bool is_runtime_filter_predicate) {
@@ -369,25 +378,17 @@ public:
         range.add_match_value(match_type, *match_value);
     }
 
-    static ColumnValueRange<primitive_type> create_empty_column_value_range() {
-        return ColumnValueRange<primitive_type>::create_empty_column_value_range("");
-    }
-
-    static ColumnValueRange<primitive_type> create_empty_column_value_range(
-            const std::string& col_name) {
-        return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, false);
-    }
-
-    static ColumnValueRange<primitive_type> create_empty_column_value_range(int precision,
+    static ColumnValueRange<primitive_type> create_empty_column_value_range(bool is_nullable_col,
+                                                                            int precision,
                                                                             int scale) {
-        return ColumnValueRange<primitive_type>::create_empty_column_value_range("", precision,
-                                                                                 scale);
+        return ColumnValueRange<primitive_type>::create_empty_column_value_range(
+                "", is_nullable_col, precision, scale);
     }
 
     static ColumnValueRange<primitive_type> create_empty_column_value_range(
-            const std::string& col_name, int precision, int scale) {
-        return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, false, precision,
-                                                scale);
+            const std::string& col_name, bool is_nullable_col, int precision, int scale) {
+        return ColumnValueRange<primitive_type>(col_name, TYPE_MAX, TYPE_MIN, is_nullable_col,
+                                                false, precision, scale);
     }
 
 protected:
@@ -406,6 +407,7 @@ private:
     std::set<CppType> _fixed_values;                       // Column's fixed int value
     std::set<std::pair<MatchType, CppType>> _match_values; // match value using in full-text search
 
+    bool _is_nullable_col;
     bool _contain_null;
     int _precision;
     int _scale;
@@ -527,27 +529,35 @@ ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const C
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
           _high_op(FILTER_LESS_OR_EQUAL),
+          _is_nullable_col(true),
           _contain_null(contain_null),
           _precision(-1),
           _scale(-1) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
-                                                   const CppType& max, bool contain_null,
-                                                   int precision, int scale)
+                                                   const CppType& max, bool is_nullable_col,
+                                                   bool contain_null, int precision, int scale)
         : _column_name(std::move(col_name)),
           _column_type(primitive_type),
           _low_value(min),
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
           _high_op(FILTER_LESS_OR_EQUAL),
-          _contain_null(contain_null),
+          _is_nullable_col(is_nullable_col),
+          _contain_null(is_nullable_col && contain_null),
           _precision(precision),
           _scale(scale) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, int precision, int scale)
-        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true, precision, scale) {}
+        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true, true, precision, scale) {}
+
+template <PrimitiveType primitive_type>
+ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, bool is_nullable_col,
+                                                   int precision, int scale)
+        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, is_nullable_col,
+                           is_nullable_col, precision, scale) {}
 
 template <PrimitiveType primitive_type>
 Status ColumnValueRange<primitive_type>::add_fixed_value(const CppType& value) {

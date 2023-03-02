@@ -539,6 +539,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
 
+* `skip_delete_bitmap`
+
+    For debugging purpose. In Unique Key MoW table, in case of problems of reading data, setting value to `true` will also read deleted data.
+
 * `default_password_lifetime`
 
 	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:
@@ -584,3 +588,30 @@ Translated with www.DeepL.com/Translator (free version)
 * `drop_table_if_ctas_failed`
 
     Controls whether create table as select deletes created tables when a insert error occurs, the default value is true.
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
+
+* `use_fix_replica`
+
+    Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+
+    This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```

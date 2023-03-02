@@ -60,7 +60,7 @@ class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
     ParquetReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
-                      FileReader* file_reader, int32_t num_of_columns_from_file,
+                      io::FileReaderSPtr file_reader, int32_t num_of_columns_from_file,
                       int64_t range_start_offset, int64_t range_size, bool case_sensitive = true);
     ~ParquetReaderWrap() override = default;
 

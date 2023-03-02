@@ -317,12 +317,6 @@ public class Coordinator {
             this.descTable = planner.getDescTable().toThrift();
         }
 
-        for (PlanFragment fragment : fragments) {
-            if (fragment.hasTargetNode()) {
-                LOG.info("Log for ISSUE-16517: " + this.descTable.toString());
-            }
-        }
-
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
@@ -1125,7 +1119,10 @@ public class Coordinator {
     private void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
         lock.lock();
         try {
-            this.errorTabletInfos.addAll(errorTabletInfos);
+            if (this.errorTabletInfos.size() <= Config.max_error_tablet_of_broker_load) {
+                this.errorTabletInfos.addAll(errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load
+                        - this.errorTabletInfos.size()).collect(Collectors.toList()));
+            }
         } finally {
             lock.unlock();
         }
@@ -1215,6 +1212,10 @@ public class Coordinator {
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
                 cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
+            }
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                numReceivedRows = 0;
+                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
             }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -3326,4 +3327,5 @@ public class Coordinator {
         }
     }
 }
+
 

@@ -73,6 +73,11 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder projectExprs(List<NamedExpression> projectExprs) {
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        return from(project);
+    }
+
     public LogicalPlanBuilder alias(List<Integer> slotsIndex, List<String> alias) {
         Preconditions.checkArgument(slotsIndex.size() == alias.size());
 

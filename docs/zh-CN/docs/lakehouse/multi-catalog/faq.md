@@ -67,3 +67,17 @@ under the License.
    `"hive.exec.orc.split.strategy" = "BI"`
 
    其他选项：HYBRID（默认），ETL。
+
+6. 通过 JDBC Catalog 连接 SQLServer 报错：`unable to find valid certification path to requested target`
+
+   请在 `jdbc_url` 中添加 `trustServerCertificate=true` 选项。
+
+7. 通过 JDBC Catalog 连接 MySQL 数据库，中文字符乱码，或中文字符条件查询不正确
+
+   请在 `jdbc_url` 中添加 `useUnicode=true&characterEncoding=utf-8`
+
+   > 注：1.2.3 版本后，使用 JDBC Catalog 连接 MySQL 数据库，会自动添加这些参数。
+
+8. 通过 JDBC Catalog 连接 MySQL 数据库报错：`Establishing SSL connection without server's identity verification is not recommended`
+
+   请在 `jdbc_url` 中添加 `useSSL=true`

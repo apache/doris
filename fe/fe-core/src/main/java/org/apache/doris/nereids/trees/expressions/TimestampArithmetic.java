@@ -25,12 +25,11 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -43,15 +42,6 @@ import java.util.Objects;
  * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
 public class TimestampArithmetic extends Expression implements BinaryExpression, PropagateNullable {
-
-    //the size and order of EXPECTED_INPUT_TYPES must follow the function signature parameters
-    //For example: days_sub('2000-01-01', interval 5 days),
-    // '2000-01-01'->DateTimeType.INSTANCE
-    // 5 -> IntegerType
-    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
-            DateTimeType.INSTANCE,
-            IntegerType.INSTANCE
-    );
 
     private final String funcName;
     private final boolean intervalFirst;
@@ -98,7 +88,17 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
         if (intervalFirst) {
             dateChildIndex = 1;
         }
-        if (child(dateChildIndex).getDataType() instanceof DateTimeType || timeUnit.isDateTimeUnit()) {
+        DataType childType = child(dateChildIndex).getDataType();
+        if (childType instanceof DateTimeV2Type) {
+            return childType;
+        }
+        if (childType instanceof DateV2Type) {
+            if (timeUnit.isDateTimeUnit()) {
+                return DateTimeV2Type.SYSTEM_DEFAULT;
+            }
+            return DateV2Type.INSTANCE;
+        }
+        if (childType instanceof DateTimeType || timeUnit.isDateTimeUnit()) {
             return DateTimeType.INSTANCE;
         } else {
             return DateType.INSTANCE;

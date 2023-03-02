@@ -133,6 +133,7 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
 1. 由于除`Stream Load` 外的导入操作在doris 内部有可能乱序执行，因此在使用`MERGE` 方式导入时如果不是`Stream Load`，需要与 load sequence 一起使用，具体的 语法可以参照[`sequence`](sequence-column-manual.md)列 相关的文档；
 2. `DELETE ON` 条件只能与 MERGE 一起使用。
+3. 如果在执行导入作业前按上文所述开启了`SET show_hidden_columns = true`的session variable来查看表是否支持批量删除, 按示例完成DELETE/MERGE的导入作业后, 如果在同一个session中执行`select count(*) from xxx`等语句时, 需要执行`SET show_hidden_columns = false`或者开启新的session, 避免查询结果中包含那些被批量删除的记录, 导致结果与预期不符.
 
 ## 使用示例
 

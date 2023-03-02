@@ -230,10 +230,8 @@ Path HdfsFileSystem::_covert_path(const Path& path) const {
 int HdfsFileSystemCache::MAX_CACHE_HANDLE = 64;
 
 Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, hdfsFS* fs) {
-    HDFSCommonBuilder builder = createHDFSBuilder(hdfs_params);
-    if (builder.is_need_kinit()) {
-        RETURN_IF_ERROR(builder.run_kinit());
-    }
+    HDFSCommonBuilder builder;
+    RETURN_IF_ERROR(createHDFSBuilder(hdfs_params, &builder));
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
         return Status::InternalError("connect to hdfs failed. error: {}", hdfsGetLastError());

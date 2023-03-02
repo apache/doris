@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -78,7 +78,7 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
      * @return null, if there exists an aggregation function that its parameters contains non-constant expr.
      *               else return a slot with min data type.
      */
-    private boolean isAggregateWithConstant(LogicalAggregate<GroupPlan> agg) {
+    private boolean isAggregateWithConstant(LogicalAggregate<Plan> agg) {
         for (NamedExpression output : agg.getOutputExpressions()) {
             if (output.anyMatch(SlotReference.class::isInstance)) {
                 return false;

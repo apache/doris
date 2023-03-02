@@ -28,11 +28,13 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -90,7 +92,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
                 DistributionSpec childSpec = childOutputProperty.getDistributionSpec();
-                if (childSpec instanceof DistributionSpecHash) {
+                // If child's property is enforced, change it to bucketed
+                if (childSpec instanceof DistributionSpecHash
+                        && ((DistributionSpecHash) childSpec).getShuffleType().equals(ShuffleType.ENFORCED)) {
                     DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childSpec;
                     return new PhysicalProperties(distributionSpecHash.withShuffleType(ShuffleType.BUCKETED));
                 }
@@ -238,6 +242,16 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
         return storageLayerAggregate.getRelation().accept(this, context);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
+        return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
+        return PhysicalProperties.ANY;
     }
 
     @Override

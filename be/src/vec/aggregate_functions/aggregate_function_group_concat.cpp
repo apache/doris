@@ -17,6 +17,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_concat.h"
 
+#include "vec/aggregate_functions/helpers.h"
+
 namespace doris::vectorized {
 
 const std::string AggregateFunctionGroupConcatImplStr::separator = ", ";
@@ -26,12 +28,14 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
                                                             const bool result_is_nullable) {
     if (argument_types.size() == 1) {
         return AggregateFunctionPtr(
-                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>(
-                        argument_types));
+                creator_without_type::create<
+                        AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>>(
+                        result_is_nullable, argument_types));
     } else if (argument_types.size() == 2) {
         return AggregateFunctionPtr(
-                new AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>(
-                        argument_types));
+                creator_without_type::create<
+                        AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStrStr>>(
+                        result_is_nullable, argument_types));
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
@@ -40,6 +44,6 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
 }
 
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("group_concat", create_aggregate_function_group_concat);
+    factory.register_function_both("group_concat", create_aggregate_function_group_concat);
 }
 } // namespace doris::vectorized
