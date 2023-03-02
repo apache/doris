@@ -2614,3 +2614,23 @@ ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
 show data （其他用法：HELP SHOW DATA）
 ```
 
+#### `prefer_compute_node_for_external_table`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为 true，对外部表的查询将优先分配给计算节点。计算节点的最大数量由 `min_backend_num_for_external_table` 控制。如果设置为 false，对外部表的查询将分配给任何节点。
+
+#### `min_backend_num_for_external_table`
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+仅在 `prefer_compute_node_for_external_table` 为 true 时生效。如果计算节点数小于此值，则对外部表的查询将尝试使用一些混合节点，让节点总数达到这个值。
+如果计算节点数大于这个值，外部表的查询将只分配给计算节点。
