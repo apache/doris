@@ -691,7 +691,7 @@ bool VScanNode::_is_predicate_acting_on_slot(
 Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -1288,7 +1288,7 @@ Status VScanNode::_should_push_down_binary_predicate(
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {

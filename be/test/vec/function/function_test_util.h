@@ -208,7 +208,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     ColumnNumbers arguments;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
-    std::vector<ColumnPtrWrapper*> constant_cols;
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
         arguments.push_back(i);
@@ -216,7 +216,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         if (desc.is_const) {
             constant_col_ptrs.push_back(
                     std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
-            constant_cols.push_back(constant_col_ptrs.back().get());
+            constant_cols.push_back(constant_col_ptrs.back());
         } else {
             constant_cols.push_back(nullptr);
         }
@@ -250,8 +250,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->impl()->set_constant_cols(constant_cols);
-    func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
+    func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
 
     block.insert({nullptr, return_type, "result"});
 

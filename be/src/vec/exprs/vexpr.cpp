@@ -446,14 +446,14 @@ bool VExpr::is_constant() const {
     return true;
 }
 
-Status VExpr::get_const_col(VExprContext* context, ColumnPtrWrapper** output) {
-    *output = nullptr;
+Status VExpr::get_const_col(VExprContext* context,
+                            std::shared_ptr<ColumnPtrWrapper>* column_wrapper) {
     if (!is_constant()) {
         return Status::OK();
     }
 
     if (_constant_col != nullptr) {
-        *output = _constant_col.get();
+        *column_wrapper = _constant_col;
         return Status::OK();
     }
 
@@ -466,7 +466,7 @@ Status VExpr::get_const_col(VExprContext* context, ColumnPtrWrapper** output) {
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    *output = _constant_col.get();
+    *column_wrapper = _constant_col;
     return Status::OK();
 }
 
@@ -477,7 +477,7 @@ void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* 
         arg_types.push_back(VExpr::column_type_to_type_desc(_children[i]->type()));
     }
 
-    _fn_context_index = context->register_func(state, return_type, arg_types, 0);
+    _fn_context_index = context->register_func(state, return_type, arg_types);
 }
 
 Status VExpr::init_function_context(VExprContext* context,
@@ -485,19 +485,19 @@ Status VExpr::init_function_context(VExprContext* context,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        std::vector<ColumnPtrWrapper*> constant_cols;
+        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
         for (auto c : _children) {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
-            RETURN_IF_ERROR(c->get_const_col(context, &const_col_wrapper));
-            constant_cols.push_back(const_col_wrapper);
+            std::shared_ptr<ColumnPtrWrapper> const_col;
+            RETURN_IF_ERROR(c->get_const_col(context, &const_col));
+            constant_cols.push_back(const_col);
         }
         fn_ctx->impl()->set_constant_cols(constant_cols);
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
-    RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
     return Status::OK();
 }
 
