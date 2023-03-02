@@ -1166,7 +1166,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         vectorized::VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.cast_to_date();
-        
+
         int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
