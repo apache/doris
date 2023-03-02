@@ -16,6 +16,9 @@
 // under the License.
 
 suite('nereids_arith_p0') {
+	sql 'use regression_test_nereids_arith_p0'
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_test_1 """
 		select id, kbool + kbool, kbool - kbool, kbool * kbool, kbool / kbool, kbool DIV kbool, kbool % kbool, kbool & kbool, kbool | kbool, kbool ^ kbool from expr_test order by id"""
 	qt_sql_test_2_notn """

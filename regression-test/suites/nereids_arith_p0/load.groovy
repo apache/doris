@@ -18,11 +18,11 @@
 suite("load") {
 
     // ddl begin
-    sql "drop table if exists fn_test"
-    sql "drop table if exists fn_test_not_nullable"
+    sql "drop table if exists expr_test"
+    sql "drop table if exists expr_test_not_nullable"
 
     sql """
-        CREATE TABLE IF NOT EXISTS `fn_test` (
+        CREATE TABLE IF NOT EXISTS `expr_test` (
             `id` int null,
             `kbool` boolean null,
             `ktint` tinyint(4) null,
@@ -46,7 +46,7 @@ suite("load") {
     """
 
     sql """
-        CREATE TABLE IF NOT EXISTS `fn_test_not_nullable` (
+        CREATE TABLE IF NOT EXISTS `expr_test_not_nullable` (
             `id` int not null,
             `kbool` boolean not null,
             `ktint` tinyint(4) not null,
@@ -71,17 +71,17 @@ suite("load") {
     // ddl end
 
     streamLoad {
-        table "fn_test"
-        db "regression_test_nereids_function_p0"
+        table "expr_test"
+        db "regression_test_nereids_arith_p0"
         set 'column_separator', ';'
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcml, kchr, kvchr, kstr,
             kdt, kdtv2, kdtm, kdtmv2
             '''
-        file "fn_test.dat"
+        file "expr_test.dat"
     }
 
     sql """
-        insert into fn_test_not_nullable select * from fn_test where id is not null
+        insert into expr_test_not_nullable select * from expr_test where id is not null
     """
 }

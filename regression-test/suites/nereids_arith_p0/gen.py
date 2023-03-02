@@ -85,6 +85,9 @@ header = '''// Licensed to the Apache Software Foundation (ASF) under one
 // under the License.
 
 suite('nereids_arith_p0') {
+    sql 'use regression_test_nereids_arith_p0'
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_fallback_to_original_planner=false'
 '''
 
 sqls = genBinaryExpr()
