@@ -191,6 +191,7 @@ std::string Status::to_string() const {
     if (ok()) {
         return result;
     }
+    result.append(fmt::format("({})", _be_ip));
     if (precise_code() != 1) {
         result.append(fmt::format("(error {})", precise_code()));
     }

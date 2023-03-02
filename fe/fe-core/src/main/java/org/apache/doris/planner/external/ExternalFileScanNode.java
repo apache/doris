@@ -610,6 +610,24 @@ public class ExternalFileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(prefix).append("backends:").append("\n");
+            for (TScanRangeLocations locations : scanRangeLocations) {
+                output.append(prefix).append("  ").append(locations.getLocations().get(0).backend_id).append("\n");
+                List<TFileRangeDesc> files = locations.getScanRange().getExtScanRange().getFileScanRange().getRanges();
+                for (int i = 0; i < 3; i++) {
+                    if (i >= files.size()) {
+                        break;
+                    }
+                    TFileRangeDesc file = files.get(i);
+                    output.append(prefix).append("    ").append(file.getPath())
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getFileSize())
+                            .append("\n");
+                }
+            }
+        }
+
         output.append(prefix);
         if (cardinality > 0) {
             output.append(String.format("cardinality=%s, ", cardinality));
