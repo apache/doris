@@ -103,6 +103,14 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         // bottomProjects includes:
         // 1. expressions from function and WindowSpec's partitionKeys and orderKeys
         // 2. other slots of outputExpressions
+        /*
+        avg(c) / sum(a+1) over (order by avg(b))  group by a
+        win(x/sum(z) over y)
+            prj(x, y, a+1 as z)
+                agg(avg(c) x, avg(b) y, a)
+                    proj(a b c)
+        toBePushDown = {avg(c), a+1, avg(b)}
+         */
         return expressions.stream()
             .flatMap(expression -> {
                 if (expression.anyMatch(WindowExpression.class::isInstance)) {
