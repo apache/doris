@@ -100,7 +100,7 @@ void Status::to_thrift(TStatus* s) const {
         s->status_code = TStatusCode::OK;
     } else {
         s->status_code = code();
-        s->error_msgs.push_back(_err_msg);
+        s->error_msgs.push_back(fmt::format("({}) {}", _be_ip, _err_msg));
         s->__isset.error_msgs = true;
     }
 }
