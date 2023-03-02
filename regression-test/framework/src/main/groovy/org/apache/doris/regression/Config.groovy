@@ -372,7 +372,7 @@ class Config {
             log.info("Set actionParallel to 10 because not specify.".toString())
         }
     }
-    
+
     static String configToString(Object obj) {
         return (obj instanceof String || obj instanceof GString) ? obj.toString() : null
     }

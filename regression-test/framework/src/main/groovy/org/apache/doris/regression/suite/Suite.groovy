@@ -520,29 +520,5 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void executeMySQLCommand(String command) {
-        try {
-            String line;
-            StringBuilder errMsg = new StringBuilder();
-            StringBuilder msg = new StringBuilder();
-            Process p = Runtime.getRuntime().exec(new String[]{"/bin/bash", "-c", command});
-
-            BufferedReader errInput = new BufferedReader(new InputStreamReader(p.getErrorStream()));
-            while ((line = errInput.readLine()) != null) {
-                errMsg.append(line);
-            }
-            assert errMsg.length() == 0: "error occurred!" + errMsg.toString();
-            errInput.close();
-
-            BufferedReader input = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            while ((line = input.readLine()) != null) {
-                msg.append(line);
-            }
-            assert msg.toString().contains("version"): "error occurred!" + errMsg.toString();
-            input.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 }
 
