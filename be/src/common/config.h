@@ -905,6 +905,9 @@ CONF_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 CONF_Bool(enable_fuzzy_mode, "false");
 
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "200");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
