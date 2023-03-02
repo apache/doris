@@ -92,5 +92,8 @@ private:
     std::unique_ptr<MemPool> _pool;
 
     int _last_result_column_id;
+
+    /// The depth of expression-tree.
+    int _depth_num = 0;
 };
 } // namespace doris::vectorized

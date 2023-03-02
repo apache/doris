@@ -745,6 +745,9 @@ CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "200");
 } // namespace config
 
 } // namespace doris
