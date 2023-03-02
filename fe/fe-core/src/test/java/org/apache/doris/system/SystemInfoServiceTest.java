@@ -235,15 +235,15 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy01, 1).size());
 
         BeSelectionPolicy policy02 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
-                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().build();
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy02, 1).size());
 
         BeSelectionPolicy policy03 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
-                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignExpectBeNum(0).build();
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(0).build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy03, 1).size());
 
         BeSelectionPolicy policy04 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
-                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignExpectBeNum(1).build();
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(1).build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy04, 1).size());
 
         // one compute node and two mix node
@@ -264,11 +264,11 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy05, 3).size());
 
         BeSelectionPolicy policy06 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
-                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignExpectBeNum(2).build();
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(2).build();
         Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy06, 2).size());
 
         BeSelectionPolicy policy07 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
-                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignExpectBeNum(3).build();
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode(true).assignExpectBeNum(3).build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy07, 3).size());
     }
 

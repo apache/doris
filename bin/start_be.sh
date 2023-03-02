@@ -231,7 +231,9 @@ set_tcmalloc_heap_limit() {
 # set_tcmalloc_heap_limit || exit 1
 
 ## set hdfs conf
-export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
+if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
+    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
+fi
 
 # see https://github.com/jemalloc/jemalloc/issues/2366
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof:true,prof_prefix:jeprof.out"
