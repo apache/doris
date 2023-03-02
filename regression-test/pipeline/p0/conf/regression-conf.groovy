@@ -64,6 +64,9 @@ brokerName = "broker_name"
 // broker load test config
 enableBrokerLoad=true
 
+// enable ssl for test
+enable_ssl = true
+
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`

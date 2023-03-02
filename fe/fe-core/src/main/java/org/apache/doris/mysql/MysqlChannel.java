@@ -60,7 +60,6 @@ public class MysqlChannel {
     protected ByteBuffer tempBuffer;
     protected ByteBuffer remainingBuffer;
     protected ByteBuffer sendBuffer;
-    protected ByteBuffer sendSslBuffer;
 
     protected ByteBuffer decryptAppData;
     protected ByteBuffer encryptNetData;
@@ -105,7 +104,6 @@ public class MysqlChannel {
 
     public void initSslBuffer() {
         // allocate buffer when needed.
-        this.sendSslBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.remainingBuffer = ByteBuffer.allocate(16 * 1024);
         this.remainingBuffer.flip();
         this.tempBuffer = ByteBuffer.allocate(16 * 1024);
@@ -381,53 +379,50 @@ public class MysqlChannel {
     }
 
     public void flush() throws IOException {
-        ByteBuffer sendData = (isSslMode | isSslHandshaking) ? sendSslBuffer : sendBuffer;
-        if (null == sendData || sendData.position() == 0) {
+        if (null == sendBuffer || sendBuffer.position() == 0) {
             // Nothing to send
             return;
         }
-        sendData.flip();
-        realNetSend(sendData);
-        sendData.clear();
+        sendBuffer.flip();
+        realNetSend(sendBuffer);
+        sendBuffer.clear();
         isSend = true;
     }
 
     private void writeHeader(int length, boolean isSsl) throws IOException {
-        ByteBuffer sendData = isSsl ? sendSslBuffer : sendBuffer;
-        if (null == sendData) {
+        if (null == sendBuffer) {
             return;
         }
-        long leftLength = sendData.capacity() - sendData.position();
+        long leftLength = sendBuffer.capacity() - sendBuffer.position();
         if (leftLength < 4) {
             flush();
         }
 
         long newLen = length;
         for (int i = 0; i < 3; ++i) {
-            sendData.put((byte) newLen);
+            sendBuffer.put((byte) newLen);
             newLen >>= 8;
         }
-        sendData.put((byte) sequenceId);
+        sendBuffer.put((byte) sequenceId);
     }
 
     private void writeBuffer(ByteBuffer buffer, boolean isSsl) throws IOException {
-        ByteBuffer sendData = isSsl ? sendSslBuffer : sendBuffer;
-        if (null == sendData) {
+        if (null == sendBuffer) {
             return;
         }
-        long leftLength = sendData.capacity() - sendData.position();
+        long leftLength = sendBuffer.capacity() - sendBuffer.position();
         // If too long for buffer, send buffered data.
         if (leftLength < buffer.remaining()) {
             // Flush data in buffer.
             flush();
         }
         // Send this buffer if large enough
-        if (buffer.remaining() > sendData.capacity()) {
+        if (buffer.remaining() > sendBuffer.capacity()) {
             realNetSend(buffer);
             return;
         }
         // Put it to
-        sendData.put(buffer);
+        sendBuffer.put(buffer);
     }
 
     public void sendOnePacket(ByteBuffer packet) throws IOException {

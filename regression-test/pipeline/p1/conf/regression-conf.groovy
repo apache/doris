@@ -35,6 +35,9 @@ beHttpAddress = "172.19.0.2:8142"
 suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 
+// enable ssl for test
+enable_ssl = true
+
 // will test <group>/<suite>.groovy
 // empty group will test all group
 testGroups = ""
