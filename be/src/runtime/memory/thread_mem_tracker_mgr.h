@@ -39,13 +39,6 @@ public:
         if (_init) flush_untracked_mem<false, true>();
     }
 
-    // only for memory hook
-    static void consume_no_attach(int64_t size) {
-        if (ExecEnv::GetInstance()->initialized()) {
-            ExecEnv::GetInstance()->orphan_mem_tracker()->consume(size);
-        }
-    }
-
     void init();
 
     // After attach, the current thread Memory Hook starts to consume/release task mem_tracker
