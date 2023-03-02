@@ -1117,8 +1117,16 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 ((Slice*)_mem_value.data())->size = _default_value.length();
                 ((Slice*)_mem_value.data())->data = _default_value.data();
             } else if (_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
-                // TODO llj for Array default value
-                return Status::NotSupported("Array default type is unsupported");
+                if (_default_value != "[]") {
+                    return Status::NotSupported("Array default {} is unsupported", _default_value);
+                } else {
+                    ((Slice*)_mem_value.data())->size = _default_value.length();
+                    ((Slice*)_mem_value.data())->data = _default_value.data();
+                }
+            } else if (_type_info->type() == OLAP_FIELD_TYPE_STRUCT) {
+                return Status::NotSupported("STRUCT default type is unsupported");
+            } else if (_type_info->type() == OLAP_FIELD_TYPE_MAP) {
+                return Status::NotSupported("MAP default type is unsupported");
             } else {
                 s = _type_info->from_string(_mem_value.data(), _default_value, _precision, _scale);
             }
@@ -1198,6 +1206,10 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);
+        break;
+    }
+    case OLAP_FIELD_TYPE_ARRAY: {
+        dst->insert_many_defaults(n);
         break;
     }
     default: {
