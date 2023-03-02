@@ -31,16 +31,11 @@
 
 namespace doris::vectorized {
 /** Map data type.
-  *
-  * Map's key and value only have types.
-  * If only one type is set, then key's type is "String" in default.
   */
 class DataTypeMap final : public IDataType {
 private:
     DataTypePtr key_type;
     DataTypePtr value_type;
-    DataTypePtr keys;   // array
-    DataTypePtr values; // array
 
 public:
     static constexpr bool is_parametric = true;
@@ -66,9 +61,6 @@ public:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-
-    const DataTypePtr& get_keys() const { return keys; }
-    const DataTypePtr& get_values() const { return values; }
 
     const DataTypePtr& get_key_type() const { return key_type; }
     const DataTypePtr& get_value_type() const { return value_type; }
