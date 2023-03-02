@@ -40,7 +40,7 @@ public class MasterCatalogExecutor {
 
     public MasterCatalogExecutor() {
         ctx = ConnectContext.get();
-        waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+        waitTimeoutMs = ctx.getExecTimeout() * 1000;
     }
 
     public void forward(long catalogId, long dbId) throws Exception {
