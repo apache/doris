@@ -53,9 +53,9 @@ static io::FileSystemSPtr s_fs;
 class TabletCooldownTest : public testing::Test {
     class FileWriterMock : public io::FileWriter {
     public:
-        FileWriterMock(Path path) : io::FileWriter(path) {
-            *_local_file_writer = std::make_unique<LocalFileWriter>(fmt::format(
-                    "{}/{}", kTestDir, path.str()));
+        FileWriterMock(Path path) : io::FileWriter(std::move(path)) {
+            _local_file_writer = std::make_unique<io::LocalFileWriter>(fmt::format(
+                    "{}/{}", kTestDir, _path.string()));
         }
 
         ~FileWriterMock() {}
@@ -88,14 +88,14 @@ class TabletCooldownTest : public testing::Test {
 
         io::FileSystemSPtr fs() const override { return s_fs; }
     private:
-        std::unique_ptr<LocalFileWriter> _local_file_writer;
+        std::unique_ptr<io::LocalFileWriter> _local_file_writer;
     };
 
     class RemoteFileSystemMock : public io::RemoteFileSystem {
         RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
-                : RemoteFileSystem(root_path, id, type) {
+                : RemoteFileSystem(std::move(root_path), std::move(id), type) {
             _local_fs = io::LocalFileSystem::create(fmt::format("{}/{}", kTestDir,
-                                                                      root_path.str()));
+                                                                _root_path.string()));
         }
         ~RemoteFileSystemMock() override {}
 
@@ -105,40 +105,40 @@ class TabletCooldownTest : public testing::Test {
         }
 
         Status open_file(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx) override {
-            return _local_fs->open_file(fmt::format("{}/{}", kTestDir, path.str()), reader, io_ctx);
+            return _local_fs->open_file(fmt::format("{}/{}", kTestDir, path.string()), reader, io_ctx);
         }
 
         Status delete_file(const Path& path) override {
-            return _local_fs->delete_file(fmt::format("{}/{}", kTestDir, path.str()));
+            return _local_fs->delete_file(fmt::format("{}/{}", kTestDir, path.string()));
         }
 
         Status create_directory(const Path& path) override {
-            return _local_fs->create_directory(fmt::format("{}/{}", kTestDir, path.str()));
+            return _local_fs->create_directory(fmt::format("{}/{}", kTestDir, path.string()));
         }
 
         Status delete_directory(const Path& path) override {
-            return _local_fs->delete_directory(fmt::format("{}/{}", kTestDir, path.str()));
+            return _local_fs->delete_directory(fmt::format("{}/{}", kTestDir, path.string()));
         }
 
         Status link_file(const Path& src, const Path& dest) override {
-            return _local_fs->link_file(fmt::format("{}/{}", kTestDir, src.str()),
-                                        fmt::format("{}/{}", kTestDir, dest.str()));
+            return _local_fs->link_file(fmt::format("{}/{}", kTestDir, src.string()),
+                                        fmt::format("{}/{}", kTestDir, dest.string()));
         }
 
         Status exists(const Path& path, bool* res) const override {
-            return _local_fs->exists(fmt::format("{}/{}", kTestDir, path.str()), res);
+            return _local_fs->exists(fmt::format("{}/{}", kTestDir, path.string()), res);
         }
 
         Status file_size(const Path& path, size_t* file_size) const override {
-            return _local_fs->file_size(fmt::format("{}/{}", kTestDir, path.str()), file_size);
+            return _local_fs->file_size(fmt::format("{}/{}", kTestDir, path.string()), file_size);
         }
 
         Status list(const Path& path, std::vector<Path>* files) override {
             std::vector<Path> local_paths;
-            RETURN_IF_ERROR(_local_fs->list(fmt::format("{}/{}", kTestDir, path.str()),
+            RETURN_IF_ERROR(_local_fs->list(fmt::format("{}/{}", kTestDir, path.string()),
                                             &local_paths));
             for (Path path : local_paths) {
-                files->emplace_back(path.str().substr(kTestDir.size() + 1));
+                files->emplace_back(path.string().substr(kTestDir.size() + 1));
             }
             return Status::OK();
         }
@@ -166,7 +166,7 @@ class TabletCooldownTest : public testing::Test {
             return Status::OK();
         }
     private:
-        std::shared_ptr<LocalFileSystem> _local_fs;
+        std::shared_ptr<io::LocalFileSystem> _local_fs;
     };
 
 public:
