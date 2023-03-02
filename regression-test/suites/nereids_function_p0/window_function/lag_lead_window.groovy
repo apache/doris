@@ -52,7 +52,7 @@ suite("nereids_lag_lead_window") {
             ('b','2022-09-06 00:00:01'),
             ('c','2022-09-06 00:00:02') """
     qt_select_default """ select id, create_time, lead(create_time, 1, '2022-09-06 00:00:00') over
-                          (order by create_time desc) as "prev_time" from test1; """
-    qt_select_default """ select id, create_time, lead(create_time, 1, date_sub('2022-09-06 00:00:00', interval 7 day)) over (order by create_time desc) as "prev_time" from test1; """
+                          (order by create_time desc) as "prev_time" from test1 order by id; """
+    qt_select_default """ select id, create_time, lead(create_time, 1, date_sub('2022-09-06 00:00:00', interval 7 day)) over (order by create_time desc) as "prev_time" from test1 order by id; """
     sql """ DROP TABLE IF EXISTS test1 """
 }
