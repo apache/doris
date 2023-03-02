@@ -296,7 +296,7 @@ public class HeartbeatMgr extends MasterDaemon {
         public HeartbeatResponse call() {
             HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
             if (fe.getIp().equals(selfNode.getIp())
-                    || (fe.getHostName() != null && fe.getHostName().equals(selfNode.getHostName()))) {
+                    || (!Strings.isNullOrEmpty(fe.getHostName()) && fe.getHostName().equals(selfNode.getHostName()))) {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,

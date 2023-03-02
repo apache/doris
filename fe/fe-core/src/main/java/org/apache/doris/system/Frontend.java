@@ -60,7 +60,7 @@ public class Frontend implements Writable {
     public Frontend() {}
 
     public Frontend(FrontendNodeType role, String nodeName, String ip, int editLogPort) {
-        this(role, nodeName, ip, null, editLogPort);
+        this(role, nodeName, ip, "", editLogPort);
     }
 
     public Frontend(FrontendNodeType role, String nodeName, String ip, String hostName, int editLogPort) {
@@ -160,7 +160,8 @@ public class Frontend implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         role = FrontendNodeType.valueOf(Text.readString(in));
         if (role == FrontendNodeType.REPLICA) {
             // this is for compatibility.
