@@ -25,7 +25,6 @@ suite("test_query_sys", "query,p0") {
     sql "SELECT DATABASE();"
     sql "SELECT \"welecome to my blog!\";"
     sql "describe ${tableName};"
-    sql "select version();"
     sql "select rand();"
     sql "select rand(20);"
     sql "select random();"
@@ -42,4 +41,11 @@ suite("test_query_sys", "query,p0") {
     // INFORMATION_SCHEMA
     sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"test_query_db\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"
     sql "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = \"${tableName}\" AND table_schema =\"test_query_db\" AND column_name LIKE \"k%\""
+    
+    // test version()
+    sql "set enable_nereids_planner=false"
+    def v1 = sql "select version()"
+    sql "set enable_nereids_planner=true"
+    def v2 = sql "select version()"
+    assertEquals(v1, v2)
 }
