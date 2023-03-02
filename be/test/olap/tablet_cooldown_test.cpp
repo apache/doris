@@ -53,98 +53,122 @@ static io::FileSystemSPtr s_fs;
 class TabletCooldownTest : public testing::Test {
     class FileWriterMock : public io::FileWriter {
     public:
-        FileWriterMock(Path path) : io::FileWriter(std::move(path)) {}
+        FileWriterMock(Path path) : io::FileWriter(path) {
+            *_local_file_writer = std::make_unique<LocalFileWriter>(fmt::format(
+                    "{}/{}", kTestDir, path.str()));
+        }
 
         ~FileWriterMock() {}
 
         Status close() override {
-            return Status::OK();
+            return _local_file_writer->close();
         }
 
         Status abort() override {
-            return Status::OK();
+            return _local_file_writer->abort();
         }
 
         Status append(const Slice& data) override {
-            return Status::OK();
+            return _local_file_writer->append(data);
         }
 
         Status appendv(const Slice* data, size_t data_cnt) override {
-            return Status::OK();
+            return _local_file_writer->appendv(data, data_cnt);
         }
 
         Status write_at(size_t offset, const Slice& data) override {
-            return Status::OK();
+            return _local_file_writer->write_at(offset, data);
         }
 
         Status finalize() override {
-            return Status::OK();
+            return _local_file_writer->finalize();
         }
 
-        size_t bytes_appended() const override { return 0; }
+        size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
 
         io::FileSystemSPtr fs() const override { return s_fs; }
+    private:
+        std::unique_ptr<LocalFileWriter> _local_file_writer;
     };
 
     class RemoteFileSystemMock : public io::RemoteFileSystem {
         RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
-                : RemoteFileSystem(std::move(root_path), std::move(id), type) {}
+                : RemoteFileSystem(root_path, id, type) {
+            _local_fs = io::LocalFileSystem::create(fmt::format("{}/{}", kTestDir,
+                                                                      root_path.str()));
+        }
         ~RemoteFileSystemMock() override {}
 
         Status create_file(const Path& path, io::FileWriterPtr* writer) override {
-            *writer = std::make_unique<FileWriterMock>("test_path");
+            *writer = std::make_unique<FileWriterMock>(path);
             return Status::OK();
         }
 
         Status open_file(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx) override {
-            return Status::OK();
+            return _local_fs->open_file(fmt::format("{}/{}", kTestDir, path.str()), reader, io_ctx);
         }
 
         Status delete_file(const Path& path) override {
-            return Status::OK();
+            return _local_fs->delete_file(fmt::format("{}/{}", kTestDir, path.str()));
         }
 
         Status create_directory(const Path& path) override {
-            return Status::OK();
+            return _local_fs->create_directory(fmt::format("{}/{}", kTestDir, path.str()));
         }
 
         Status delete_directory(const Path& path) override {
-            return Status::OK();
+            return _local_fs->delete_directory(fmt::format("{}/{}", kTestDir, path.str()));
         }
 
         Status link_file(const Path& src, const Path& dest) override {
-            return Status::OK();
+            return _local_fs->link_file(fmt::format("{}/{}", kTestDir, src.str()),
+                                        fmt::format("{}/{}", kTestDir, dest.str()));
         }
 
         Status exists(const Path& path, bool* res) const override {
-            return Status::OK();
+            return _local_fs->exists(fmt::format("{}/{}", kTestDir, path.str()), res);
         }
 
         Status file_size(const Path& path, size_t* file_size) const override {
-            return Status::OK();
+            return _local_fs->file_size(fmt::format("{}/{}", kTestDir, path.str()), file_size);
         }
 
         Status list(const Path& path, std::vector<Path>* files) override {
+            std::vector<Path> local_paths;
+            RETURN_IF_ERROR(_local_fs->list(fmt::format("{}/{}", kTestDir, path.str()),
+                                            &local_paths));
+            for (Path path : local_paths) {
+                files->emplace_back(path.str().substr(kTestDir.size() + 1));
+            }
             return Status::OK();
         }
 
         Status upload(const Path& local_path, const Path& dest_path) override {
-            return Status::OK();
+            return link_file(local_path, dest_path);
         }
 
         Status batch_upload(const std::vector<Path>& local_paths,
                             const std::vector<Path>& dest_paths) override {
+            for (int i = 0; i < local_paths.size(); ++i) {
+                RETURN_IF_ERROR(link_file(local_paths[i], dest_paths[i]));
+            }
             return Status::OK();
         }
 
         Status batch_delete(const std::vector<Path>& paths) override {
+            for (int i = 0; i < paths.size(); ++i) {
+                RETURN_IF_ERROR(delete_file(paths[i]));
+            }
             return Status::OK();
         }
 
         Status connect() override {
             return Status::OK();
         }
+    private:
+        std::shared_ptr<LocalFileSystem> _local_fs;
     };
+
 public:
     static void SetUpTestSuite() {
         s_fs.reset(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
@@ -180,10 +204,6 @@ public:
             k_engine = nullptr;
         }
     }
-
-private:
-
-    static io::FileWriterPtr* _file_writer;
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
