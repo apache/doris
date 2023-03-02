@@ -121,17 +121,11 @@ IntVal num_var_args(FunctionContext*, const BigIntVal& dummy, int n, const IntVa
 
 IntVal validat_udf(FunctionContext* context) {
     EXPECT_EQ(context->version(), FunctionContext::V2_0);
-    EXPECT_FALSE(context->has_error());
-    EXPECT_TRUE(context->error_msg() == nullptr);
     return IntVal::null();
 }
 
 IntVal validate_fail(FunctionContext* context) {
-    EXPECT_FALSE(context->has_error());
-    EXPECT_TRUE(context->error_msg() == nullptr);
     context->set_error("Fail");
-    EXPECT_TRUE(context->has_error());
-    EXPECT_TRUE(strcmp(context->error_msg(), "Fail") == 0);
     return IntVal::null();
 }
 

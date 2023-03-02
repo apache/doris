@@ -49,8 +49,7 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
                                    const DataTypePtr& return_type)
         : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
 
-Status JavaFunctionCall::prepare(FunctionContext* context,
-                                 FunctionContext::FunctionStateScope scope) {
+Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {

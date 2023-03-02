@@ -127,7 +127,7 @@ StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
         buf[buf_index] = '-';
         ++result_len;
     }
-    StringVal result = StringVal::create_temp_string_val(ctx, result_len);
+    StringVal result = ctx->create_temp_string_val(result_len);
     memcpy(result.ptr, buf + max_digits - result_len, result_len);
     return result;
 }
