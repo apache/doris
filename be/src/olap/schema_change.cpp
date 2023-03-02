@@ -2161,6 +2161,10 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // a.Parse the Alter request and convert it into an internal representation
     Status res = _parse_request(sc_params, &rb_changer, &sc_sorting, &sc_directly);
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly
+              << ", base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
 
     auto process_alter_exit = [&]() -> Status {
         {
