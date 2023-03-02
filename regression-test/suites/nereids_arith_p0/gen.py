@@ -1,6 +1,5 @@
-unary_arithmetic = ['~', '!', 'div']
-binary_arithmetic = ['+', '-', '*', '/', '%']
-bit_arithmetic = ['BITAND', 'BITOR', 'BITXOR', '&', '|', '^', '~']
+unary_op = ['~', '!', '~']
+binary_op = ['+', '-', '*', '/', '%', 'BITAND', 'BITOR', 'BITXOR', '&', '|', '^']
 
 type_to_column_map = {
     'TinyInt': ['ktint'],
@@ -26,4 +25,9 @@ type_set = {
     'float': ['Float', 'Double'],
     'string': ['Char', 'Varchar', 'String'],
     'date': ['Date', 'DateTime', 'DateV2', 'DateTimeV2']
+}
+
+op_map = {
+    ['int', 'int']: [],
+
 }
