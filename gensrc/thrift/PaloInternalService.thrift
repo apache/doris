@@ -201,6 +201,7 @@ struct TQueryOptions {
 
   // For debug purpose, skip delete bitmap when reading data
   63: optional bool skip_delete_bitmap = false
+  64: optional bool dry_run_query = false
 }
     
 

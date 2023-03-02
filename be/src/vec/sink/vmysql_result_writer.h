@@ -74,6 +74,8 @@ private:
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
     // for synchronized results
     ResultList _results;
+    // If true, no block will be sent
+    bool _is_dry_run = false;
 };
 } // namespace vectorized
 } // namespace doris
