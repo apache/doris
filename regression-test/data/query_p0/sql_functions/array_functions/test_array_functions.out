@@ -714,6 +714,17 @@
 8	\N
 9	\N
 
+-- !select_array --
+1	[1]	true
+2	[2]	true
+3	[3]	true
+4	[4]	true
+5	[5]	true
+6	[6]	true
+7	[7]	true
+8	[8]	true
+9	[9]	true
+
 -- !select --
 \N	\N
 -1	\N
