@@ -35,9 +35,16 @@ namespace doris {
 static const std::string hdfs_file_prefix = "hdfs://";
 
 HDFSStorageBackend::HDFSStorageBackend(const std::map<std::string, std::string>& prop)
-        : _properties(prop), _builder(createHDFSBuilder(_properties)) {
-    _hdfs_fs = HDFSHandle::instance().create_hdfs_fs(_builder);
-    DCHECK(_hdfs_fs) << "init hdfs client error.";
+        : _properties(prop) {
+    HDFSCommonBuilder builder;
+    Status st = createHDFSBuilder(_properties, &builder);
+    if (st.ok()) {
+        _hdfs_fs = HDFSHandle::instance().create_hdfs_fs(builder);
+        DCHECK(_hdfs_fs) << "init hdfs client error.";
+    }
+    // if createHDFSBuilder failed, _hdfs_fs will be null.
+    // and CHECK_HDFS_CLIENT will return error.
+    // TODO: refacotr StorageBackend, unify into File system
 }
 
 HDFSStorageBackend::~HDFSStorageBackend() {

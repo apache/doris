@@ -55,6 +55,7 @@ import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -609,6 +610,24 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
+
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(prefix).append("backends:").append("\n");
+            for (TScanRangeLocations locations : scanRangeLocations) {
+                output.append(prefix).append("  ").append(locations.getLocations().get(0).backend_id).append("\n");
+                List<TFileRangeDesc> files = locations.getScanRange().getExtScanRange().getFileScanRange().getRanges();
+                for (int i = 0; i < 3; i++) {
+                    if (i >= files.size()) {
+                        break;
+                    }
+                    TFileRangeDesc file = files.get(i);
+                    output.append(prefix).append("    ").append(file.getPath())
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getFileSize())
+                            .append("\n");
+                }
+            }
+        }
 
         output.append(prefix);
         if (cardinality > 0) {

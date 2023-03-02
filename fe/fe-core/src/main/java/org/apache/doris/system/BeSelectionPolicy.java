@@ -47,7 +47,7 @@ public class BeSelectionPolicy {
     public boolean allowOnSameHost = false;
 
     public boolean preferComputeNode = false;
-    public int candidateNum = Integer.MAX_VALUE;
+    public int expectBeNum = 0;
 
     private BeSelectionPolicy() {
 
@@ -100,13 +100,13 @@ public class BeSelectionPolicy {
             return this;
         }
 
-        public Builder preferComputeNode() {
-            policy.preferComputeNode = true;
+        public Builder preferComputeNode(boolean prefer) {
+            policy.preferComputeNode = prefer;
             return this;
         }
 
-        public Builder assignCandidateNum(int candidateNum) {
-            policy.candidateNum = candidateNum;
+        public Builder assignExpectBeNum(int expectBeNum) {
+            policy.expectBeNum = expectBeNum;
             return this;
         }
 
@@ -141,25 +141,21 @@ public class BeSelectionPolicy {
 
     public List<Backend> getCandidateBackends(ImmutableCollection<Backend> backends) {
         List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
-        Collections.shuffle(filterBackends);
         List<Backend> candidates = new ArrayList<>();
         if (preferComputeNode) {
             int num = 0;
             // pick compute node first
             for (Backend backend : filterBackends) {
                 if (backend.isComputeNode()) {
-                    if (num >= candidateNum) {
-                        break;
-                    }
                     candidates.add(backend);
                     num++;
                 }
             }
             // fill with some mix node.
-            if (num < candidateNum) {
+            if (num < expectBeNum) {
                 for (Backend backend : filterBackends) {
                     if (backend.isMixNode()) {
-                        if (num >= candidateNum) {
+                        if (num >= expectBeNum) {
                             break;
                         }
                         candidates.add(backend);
@@ -170,7 +166,7 @@ public class BeSelectionPolicy {
         } else {
             candidates.addAll(filterBackends);
         }
-
+        Collections.shuffle(candidates);
         return candidates;
     }
 

@@ -14,6 +14,7 @@
 #include "common/compiler_util.h"
 #include "common/logging.h"
 #include "gen_cpp/Status_types.h" // for TStatus
+#include "service/backend_options.h"
 
 namespace doris {
 
@@ -510,6 +511,7 @@ private:
     TStatusCode::type _code;
     int16_t _precise_code;
     std::string _err_msg;
+    std::string _be_ip = BackendOptions::get_localhost();
 };
 
 // Override the << operator, it is used during LOG(INFO) << "xxxx" << status;
