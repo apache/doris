@@ -2000,7 +2000,7 @@ public class Config extends ConfigBase {
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_ssl = false;
+    public static boolean enable_ssl = true;
 
     /**
      * Default certificate file location for mysql ssl connection.
