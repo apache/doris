@@ -68,6 +68,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
+        register_aggregate_function_group_concat(instance);
         register_aggregate_function_combinator_distinct(instance);
         register_aggregate_function_reader_load(
                 instance); // register aggregate function for agg reader
@@ -75,7 +76,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_stddev_variance_pop(instance);
         register_aggregate_function_topn(instance);
         register_aggregate_function_approx_count_distinct(instance);
-        register_aggregate_function_group_concat(instance);
         register_aggregate_function_percentile(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
