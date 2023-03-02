@@ -238,16 +238,12 @@ public:
 
     // Returns true if the arg_idx-th input argument (0 indexed, not including the
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
-    bool is_arg_constant(int arg_idx) const;
-
     bool is_col_constant(int arg_idx) const;
 
     // Returns a pointer to the value of the arg_idx-th input argument (0 indexed, not
     // including the FunctionContext* argument). Returns nullptr if the argument is not
     // constant. This function can be used to obtain user-specified constants in a UDF's
     // Init() or Close() functions.
-    AnyVal* get_constant_arg(int arg_idx) const;
-
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
     ~FunctionContext();

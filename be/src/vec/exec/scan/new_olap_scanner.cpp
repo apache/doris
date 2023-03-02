@@ -91,8 +91,7 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             }
         }
 
-        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
-            olap_scan_node.indexes_desc[0].index_id >= 0) {
+        if (olap_scan_node.__isset.indexes_desc) {
             _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 

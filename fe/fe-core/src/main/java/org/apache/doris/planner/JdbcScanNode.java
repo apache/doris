@@ -181,7 +181,8 @@ public class JdbcScanNode extends ScanNode {
         createJdbcFilters();
     }
 
-    public void finalizeForNerieds() throws UserException {
+    @Override
+    public void finalizeForNereids() throws UserException {
         createJdbcColumns();
         createJdbcFilters();
     }

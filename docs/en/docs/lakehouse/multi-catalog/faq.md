@@ -67,3 +67,17 @@ under the License.
     `"hive.exec.orc.split.strategy" = "BI"`
 
     Other options: HYBRID (default), ETL.
+
+6. An error is reported when connecting to SQLServer through JDBC Catalog: `unable to find valid certification path to requested target`
+
+    Please add `trustServerCertificate=true` option in `jdbc_url`.
+
+7. When connecting to the MySQL database through the JDBC Catalog, the Chinese characters are garbled, or the Chinese character condition query is incorrect
+
+    Please add `useUnicode=true&characterEncoding=utf-8` in `jdbc_url`
+
+    > Note: After version 1.2.3, these parameters will be automatically added when using JDBC Catalog to connect to the MySQL database.
+
+8. An error is reported when connecting to the MySQL database through the JDBC Catalog: `Establishing SSL connection without server's identity verification is not recommended`
+
+    Please add `useSSL=true` in `jdbc_url`
