@@ -203,10 +203,8 @@ Status HdfsFileReader::tell(int64_t* position) {
 int HdfsFsCache::MAX_CACHE_HANDLE = 64;
 
 Status HdfsFsCache::_create_fs(THdfsParams& hdfs_params, hdfsFS* fs) {
-    HDFSCommonBuilder builder = createHDFSBuilder(hdfs_params);
-    if (builder.is_need_kinit()) {
-        RETURN_IF_ERROR(builder.run_kinit());
-    }
+    HDFSCommonBuilder builder;
+    RETURN_IF_ERROR(createHDFSBuilder(hdfs_params, &builder));
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
         return Status::InternalError("connect to hdfs failed. error: {}", hdfsGetLastError());
