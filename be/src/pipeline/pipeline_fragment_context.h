@@ -100,9 +100,6 @@ public:
 
     void send_report(bool);
 
-    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
-    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
-
     void report_profile();
 
     Status update_status(Status status) {
@@ -170,8 +167,6 @@ private:
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer;
     RuntimeProfile::Counter* _prepare_timer;
-
-    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     std::once_flag _close_once_flag;
