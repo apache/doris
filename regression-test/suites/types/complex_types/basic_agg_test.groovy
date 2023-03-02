@@ -28,9 +28,9 @@ suite("basic_agg_test", "types") {
 
     qt_sql_hll """select * from hll_basic_agg;"""
 
-    qt_sal_quantile_state """select * from quantile_state_basic_agg;"""
-
     qt_sql_hll_cardinality """select k1, hll_cardinality(hll_union(k2)) from hll_basic_agg group by k1 order by k1;"""
 
-    qt_sql_quantile_state_percent """select k1, quantile_percent(k2, 0.5) from quantile_state_basic_agg group by k1 order by k1;"""
+    qt_sql_quantile_state """select * from quantile_state_basic_agg;"""
+
+    qt_sql_quantile_state_percent """select k1, quantile_percent(quantile_union(k2), 0.5) from quantile_state_basic_agg group by k1 order by k1;"""
 }
