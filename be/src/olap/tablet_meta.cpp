@@ -726,6 +726,11 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                 ++it;
             }
         }
+        // delete delete_bitmap of to_delete's rowsets if not added to _stale_rs_metas.
+        if (same_version && _enable_unique_key_merge_on_write) {
+            delete_bitmap().remove({rs_to_del->rowset_id(), 0, 0},
+                                   {rs_to_del->rowset_id(), UINT32_MAX, 0});
+        }
     }
     if (!same_version) {
         // put to_delete rowsets in _stale_rs_metas.
@@ -977,6 +982,14 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
             break;
         }
         subset_rowset_map->set(k, bm);
+    }
+}
+
+void DeleteBitmap::merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
+    std::lock_guard l(lock);
+    auto [iter, succ] = delete_bitmap.emplace(bmk, segment_delete_bitmap);
+    if (!succ) {
+        iter->second |= segment_delete_bitmap;
     }
 }
 
