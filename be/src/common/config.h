@@ -60,7 +60,9 @@ CONF_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+// `auto` means process mem limit is equal to max(physical mem * 0.9, 6.4G).
+// 6.4G is the maximum memory reserved for the system.
+CONF_String(mem_limit, "auto");
 
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
