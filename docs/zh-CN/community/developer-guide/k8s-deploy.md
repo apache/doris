@@ -52,7 +52,7 @@ under the License.
 - backend
   - 命令：kubectl scale statefulset dbe --replicas=4
 - backend_cn
-  - 命令：kubectl scale statefulset dcn --replicas=2
+  - 命令：kubectl scale statefulset dcn --replicas=4
 
 ## 验证
 
@@ -79,6 +79,9 @@ under the License.
   backend:当前缩容之前需要用户手动执行[ALTER-SYSTEM-DECOMMISSION-BACKEND](../../docs/sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND.md)
   
   backend_cn: 不存储数据文件，可以直接进行缩容，[关于计算节点](../../docs/advanced/compute_node.md)
+- fe启动报错"failed to init statefulSetName"
+
+  fe_follower的环境变量 statefulSetName和serviceName必须成对出现，比如配置了CN_SERVICE，就必须配置CN_STATEFULSET
 
 
 
