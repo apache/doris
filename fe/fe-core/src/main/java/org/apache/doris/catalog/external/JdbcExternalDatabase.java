@@ -55,7 +55,6 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         super(extCatalog, id, name);
     }
 
-    // TODO(ftw): drew out the public multiple parts
     @Override
     protected void init() {
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
