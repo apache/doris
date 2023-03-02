@@ -39,6 +39,11 @@
 
 namespace doris {
 
+using ::testing::_;
+using ::testing::DoAll;
+using ::testing::Return;
+using ::testing::SetArgPointee;
+
 static StorageEngine* k_engine = nullptr;
 
 static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
@@ -78,8 +83,8 @@ class RemoteFileSystemMock : public io::RemoteFileSystem {
     MOCK_METHOD1(create_directory, Status(const Path& path));
     MOCK_METHOD1(delete_directory, Status(const Path& path));
     MOCK_METHOD2(link_file, Status(const Path& src, const Path& dest));
-    MOCK_METHOD2(exists, Status(const Path& path, bool* res));
-    MOCK_METHOD2(file_size, Status(const Path& path, size_t* file_size));
+    MOCK_CONST_METHOD2(exists, Status(const Path& path, bool* res));
+    MOCK_CONST_METHOD2(file_size, Status(const Path& path, size_t* file_size));
     MOCK_METHOD2(list, Status(const Path& path, std::vector<Path>* files));
     MOCK_METHOD2(upload, Status(const Path& local_path, const Path& dest_path));
     MOCK_METHOD2(batch_upload, Status(const std::vector<Path>& local_paths,
@@ -189,39 +194,27 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(TabletCooldownTest, normal) {
-    EXPECT_CALL(_file_writer, close()).WillRepeatedly(::testing::Return(Status::OK()));
-    EXPECT_CALL(_file_writer, abort()).WillRepeatedly(::testing::Return(Status::OK()));
-    EXPECT_CALL(_file_writer, append(::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(_file_writer, appendv(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(_file_writer, write_at(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(_file_writer, finalize()).WillRepeatedly(::testing::Return(Status::OK()));
-    EXPECT_CALL(_file_writer, bytes_appended()).WillRepeatedly(::testing::Return(1));
-    EXPECT_CALL(_file_writer, fs()).WillRepeatedly(::testing::Return(s_fs))
+    EXPECT_CALL(*_file_writer, close()).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*_file_writer, abort()).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*_file_writer, append(_)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*_file_writer, appendv(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*_file_writer, write_at(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*_file_writer, finalize()).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*_file_writer, bytes_appended()).WillRepeatedly(Return(1));
+    EXPECT_CALL(*_file_writer, fs()).WillRepeatedly(Return(s_fs))
 
-    EXPECT_CALL(s_fs, open_file(::testing::_, ::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, delete_file(::testing::_)).WillRepeatedly(::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, create_directory(::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, delete_directory(::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, link_file(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, exists(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, file_size(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, list(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, upload(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, batch_upload(::testing::_, ::testing::_)).WillRepeatedly(
-            ::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, batch_delete(::testing::_)).WillRepeatedly(::testing::Return(Status::OK()));
-    EXPECT_CALL(s_fs, connect()).WillRepeatedly(::testing::Return(Status::OK()));
+    EXPECT_CALL(*s_fs, open_file(_, _, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, delete_file(_)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, create_directory(_)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, delete_directory(_)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, link_file(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, exists(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, file_size(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, list(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, upload(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, batch_upload(_, _)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, batch_delete(_)).WillRepeatedly(Return(Status::OK()));
+    EXPECT_CALL(*s_fs, connect()).WillRepeatedly(Return(Status::OK()));
 
     // create tablet
     TCreateTabletReq request;
