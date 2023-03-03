@@ -44,25 +44,10 @@ const RowDescriptor& OperatorBase::row_desc() {
 
 std::string OperatorBase::debug_string() const {
     std::stringstream ss;
-    ss << _operator_builder->get_name() << ", source: " << is_source();
-    ss << ", sink: " << is_sink() << ", is closed: " << _is_closed;
+    ss << _operator_builder->get_name() << ", is source: " << is_source();
+    ss << ", is sink: " << is_sink() << ", is closed: " << _is_closed;
     ss << ", is pending finish: " << is_pending_finish();
     return ss.str();
-}
-
-/////////////////////////////////////// OperatorBuilder ////////////////////////////////////////////////////////////
-
-Status OperatorBuilderBase::prepare(doris::RuntimeState* state) {
-    _state = state;
-    // runtime filter, now dispose by NewOlapScanNode
-    return Status::OK();
-}
-
-void OperatorBuilderBase::close(doris::RuntimeState* state) {
-    if (_is_closed) {
-        return;
-    }
-    _is_closed = true;
 }
 
 } // namespace doris::pipeline

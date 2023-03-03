@@ -32,7 +32,7 @@ SHOW PARTITIONS
 
 ### Description
 
- 该语句用于展示分区信息
+该语句用于展示分区信息
 
 语法：
 
@@ -47,26 +47,26 @@ SHOW PARTITIONS
 
 ### Example
 
-1.展示指定db下指定表的所有非临时分区信息
+1. 展示指定db下指定表的所有非临时分区信息
 
-```SQL
- SHOW PARTITIONS FROM example_db.table_name;
-```
+    ```SQL
+    SHOW PARTITIONS FROM example_db.table_name;
+    ```
 
 2. 展示指定db下指定表的所有临时分区信
-    
+
     ```SQL
     SHOW TEMPORARY PARTITIONS FROM example_db.table_name;
     ```
-    
+
 3. 展示指定db下指定表的指定非临时分区的信息
-    
+
     ```SQL
      SHOW PARTITIONS FROM example_db.table_name WHERE PartitionName = "p1";
     ```
-    
+
 4. 展示指定db下指定表的最新非临时分区的信息
-    
+
     ```SQL
     SHOW PARTITIONS FROM example_db.table_name ORDER BY PartitionId DESC LIMIT 1;
     ```

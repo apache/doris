@@ -31,7 +31,7 @@ under the License.
 
 - [使用 Docker 开发镜像编译](/docs/install/source-install/compilation)
 - [部署](/docs/install/install-deploy)
-- [VSCode Be 开发调试](./be-vscode-dev)
+- [VSCode Be 开发调试](./be-vscode-dev.md)
 
 ## 环境准备
 
@@ -90,7 +90,7 @@ docker build -t doris .
 
 运行镜像
 
-此处按需注意 [挂载的问题](../../docs/install/source-install/compilation/)
+此处按需注意 [挂载的问题](../../docs/install/source-install/compilation.md)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 

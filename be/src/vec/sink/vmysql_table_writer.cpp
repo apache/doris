@@ -21,7 +21,6 @@
 
 #include <sstream>
 
-#include "exprs/expr.h"
 #include "util/types.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -32,6 +31,14 @@
 
 namespace doris {
 namespace vectorized {
+
+std::string MysqlConnInfo::debug_string() const {
+    std::stringstream ss;
+
+    ss << "(host=" << host << ",port=" << port << ",user=" << user << ",db=" << db
+       << ",passwd=" << passwd << ",charset=" << charset << ")";
+    return ss.str();
+}
 
 VMysqlTableWriter::VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_expr_ctxs)
         : _vec_output_expr_ctxs(output_expr_ctxs) {}

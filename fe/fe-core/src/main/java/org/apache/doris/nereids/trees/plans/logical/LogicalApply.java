@@ -44,8 +44,9 @@ import java.util.Optional;
  */
 public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
     // correlation column
-    private final ImmutableList<Expression> correlationSlot;
+    private final List<Expression> correlationSlot;
     // original subquery
     private final SubqueryExpr subqueryExpr;
     // correlation Conjunction
@@ -98,6 +99,10 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     public boolean isCorrelated() {
         return !correlationSlot.isEmpty();
+    }
+
+    public boolean alreadyExecutedEliminateFilter() {
+        return correlationFilter.isPresent();
     }
 
     @Override

@@ -121,7 +121,7 @@ public class PaloFe {
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
 
-            LOG.info("Palo FE starting...");
+            LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
 
@@ -133,6 +133,14 @@ public class PaloFe {
                 BDBDebugger.get().startDebugMode(dorisHomeDir);
                 return;
             }
+
+            // To resolve: "SdkClientException: Multiple HTTP implementations were found on the classpath"
+            // Currently, there are 2 implements of HTTP client: ApacheHttpClient and UrlConnectionHttpClient
+            // The UrlConnectionHttpClient is introduced by #16602, and it causes the exception.
+            // So we set the default HTTP client to UrlConnectionHttpClient.
+            // TODO: remove this after we remove ApacheHttpClient
+            System.setProperty("software.amazon.awssdk.http.service.impl",
+                    "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
 
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
@@ -171,7 +179,7 @@ public class PaloFe {
                 Thread.sleep(2000);
             }
         } catch (Throwable e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -196,7 +204,7 @@ public class PaloFe {
 
     /*
      * -v --version
-     *      Print the version of Palo Frontend
+     *      Print the version of Doris Frontend
      * -h --helper
      *      Specify the helper node when joining a bdb je replication group
      * -i --image
@@ -222,7 +230,7 @@ public class PaloFe {
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
-        options.addOption("v", "version", false, "Print the version of Palo Frontend");
+        options.addOption("v", "version", false, "Print the version of Doris Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
         options.addOption("i", "image", true, "Check if the specified image is valid");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
@@ -237,7 +245,7 @@ public class PaloFe {
         try {
             cmd = commandLineParser.parse(options, args);
         } catch (final ParseException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             System.err.println("Failed to parse command line. exit now");
             System.exit(-1);
         }
@@ -349,7 +357,7 @@ public class PaloFe {
                     System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
                     System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 } finally {
                     System.exit(0);
                 }

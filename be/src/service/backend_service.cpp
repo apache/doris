@@ -35,7 +35,6 @@
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "olap/storage_engine.h"
-#include "runtime/data_stream_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/export_task_mgr.h"
@@ -88,8 +87,6 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    VLOG_ROW << "exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
 
@@ -142,15 +139,9 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
         //        params.sender_id,
         //        params.be_number);
         //VLOG_ROW << "params.eos: " << (params.eos ? "true" : "false")
-        //        << " close_sender status: " << status.get_error_msg();
+        //        << " close_sender status: " << status;
         //status.set_t_status(&return_val);
     }
-}
-
-void BackendService::fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {
-    // maybe hang in this function
-    Status status = _exec_env->result_mgr()->fetch_data(params.fragment_instance_id, &return_val);
-    status.set_t_status(&return_val);
 }
 
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
@@ -164,7 +155,7 @@ void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequ
     //    } else {
     //        VLOG_RPC << "start export task failed id="
     //            << request.params.params.fragment_instance_id
-    //            << " and err_msg=" << status.get_error_msg();
+    //            << " and err_msg=" << status;
     //    }
     //    status.to_thrift(&t_status);
 }
@@ -193,7 +184,7 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
     //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
     //    if (!status.ok()) {
     //        LOG(WARNING) << "delete export task failed. because "
-    //            << status.get_error_msg() << " with task_id " << task_id;
+    //            << status << " with task_id " << task_id;
     //    } else {
     //        VLOG_RPC << "delete export task successful with task_id " << task_id;
     //    }

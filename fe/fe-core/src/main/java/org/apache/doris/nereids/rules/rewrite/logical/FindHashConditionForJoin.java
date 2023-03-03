@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -43,6 +44,9 @@ import java.util.List;
  * CAUTION:
  * This rule must be applied after BindSlotReference
  */
+@DependsRules({
+    PushFilterInsideJoin.class
+})
 public class FindHashConditionForJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
@@ -69,6 +73,7 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
             return new LogicalJoin<>(joinType,
                     combinedHashJoinConjuncts,
                     remainedNonHashJoinConjuncts,
+                    join.getHint(),
                     join.left(), join.right());
         }).toRule(RuleType.FIND_HASH_CONDITION_FOR_JOIN);
     }

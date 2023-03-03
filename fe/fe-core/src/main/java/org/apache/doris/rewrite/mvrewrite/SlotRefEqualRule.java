@@ -17,12 +17,19 @@
 
 package org.apache.doris.rewrite.mvrewrite;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 
 public class SlotRefEqualRule implements MVExprEqualRule {
 
     public static MVExprEqualRule INSTANCE = new SlotRefEqualRule();
+
+    private String normalize(String name) {
+        return MaterializedIndexMeta
+                .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(name));
+    }
 
     @Override
     public boolean equal(Expr queryExpr, Expr mvColumnExpr) {
@@ -31,7 +38,10 @@ public class SlotRefEqualRule implements MVExprEqualRule {
         }
         SlotRef querySlotRef = (SlotRef) queryExpr;
         SlotRef mvColumnSlotRef = (SlotRef) mvColumnExpr;
-        if (querySlotRef.getColumnName().equalsIgnoreCase(mvColumnSlotRef.getColumnName())) {
+
+        if (querySlotRef.getColumnName() != null
+                && normalize(querySlotRef.getColumnName()).equalsIgnoreCase(
+                    normalize(mvColumnSlotRef.getColumnName()))) {
             return true;
         }
         return false;

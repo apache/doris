@@ -19,7 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Strings;
 
@@ -59,9 +64,17 @@ public class ModifyColumnClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, DdlException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in modify column clause.");
+        }
+        if (tableName != null) {
+            Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+                    .getTableOrDdlException(tableName.getTbl());
+            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
+                    && columnDef.getAggregateType() == null) {
+                columnDef.setIsKey(true);
+            }
         }
         columnDef.analyze(true);
         if (colPos != null) {

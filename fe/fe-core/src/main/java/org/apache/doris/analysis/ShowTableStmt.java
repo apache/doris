@@ -41,27 +41,34 @@ public class ShowTableStmt extends ShowStmt {
     private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
             InfoSchemaDb.DATABASE_NAME, "tables");
     private String db;
+    private String catalog;
     private boolean isVerbose;
     private String pattern;
     private Expr where;
     private SelectStmt selectStmt;
 
-    public ShowTableStmt(String db, boolean isVerbose, String pattern) {
+    public ShowTableStmt(String db, String catalog, boolean isVerbose, String pattern) {
         this.db = db;
         this.isVerbose = isVerbose;
         this.pattern = pattern;
         this.where = null;
+        this.catalog = catalog;
     }
 
-    public ShowTableStmt(String db, boolean isVerbose, String pattern, Expr where) {
+    public ShowTableStmt(String db, String catalog, boolean isVerbose, String pattern, Expr where) {
         this.db = db;
         this.isVerbose = isVerbose;
         this.pattern = pattern;
         this.where = where;
+        this.catalog = catalog;
     }
 
     public String getDb() {
         return db;
+    }
+
+    public String getCatalog() {
+        return catalog;
     }
 
     public boolean isVerbose() {
@@ -81,6 +88,12 @@ public class ShowTableStmt extends ShowStmt {
             }
         } else {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
+        }
+        if (Strings.isNullOrEmpty(catalog)) {
+            catalog = analyzer.getDefaultCatalog();
+            if (Strings.isNullOrEmpty(catalog)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_CATALOG);
+            }
         }
 
         // we do not check db privs here. because user may not have any db privs,
@@ -114,7 +127,7 @@ public class ShowTableStmt extends ShowStmt {
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
 
-        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null);
+        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null, catalog);
 
         return selectStmt;
     }
@@ -128,7 +141,12 @@ public class ShowTableStmt extends ShowStmt {
         }
         sb.append(" TABLES");
         if (!Strings.isNullOrEmpty(db)) {
-            sb.append(" FROM ").append(db);
+            if (!Strings.isNullOrEmpty(catalog)) {
+                sb.append(" FROM ").append(catalog);
+                sb.append(".").append(ClusterNamespace.getNameFromFullName(db));
+            } else {
+                sb.append(" FROM ").append(db);
+            }
         }
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");

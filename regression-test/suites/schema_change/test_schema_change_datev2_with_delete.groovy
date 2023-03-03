@@ -41,7 +41,7 @@ suite("test_schema_change_datev2_with_delete") {
     sql """ insert into ${tbName} (`datek1`, `datek2`, `datev2`) values('2022-01-04', '2022-01-04 11:11:11', '2022-01-04 11:11:11');"""
     sql """ insert into ${tbName} (`datek1`, `datev1`, `datev2`) values('2022-01-05', '2022-01-05', '2022-01-05 11:11:11');"""
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ alter table ${tbName} modify column `datev1` datev2 DEFAULT '2022-01-01' """
     int max_try_time = 1000
@@ -56,7 +56,7 @@ suite("test_schema_change_datev2_with_delete") {
             }
         }
     }
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ alter  table ${tbName} modify column `datev2` datetimev2 DEFAULT '2022-01-01 11:11:11' """
     max_try_time = 1000
@@ -71,7 +71,7 @@ suite("test_schema_change_datev2_with_delete") {
             }
         }
     }
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ alter  table ${tbName} modify column `datev2` datetimev2(3) DEFAULT '2022-01-01 11:11:11' """
     max_try_time = 1000
@@ -86,16 +86,16 @@ suite("test_schema_change_datev2_with_delete") {
             }
         }
     }
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ delete from ${tbName} where `datev1`='2022-01-02';"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ delete from ${tbName} where `datev2`='2022-01-04 11:11:11.111';"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ delete from ${tbName} where `datev2`='2022-01-04 11:11:11';"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ insert into ${tbName} values('2022-01-02', '2022-01-02 11:11:11', '2022-01-02', '2022-01-02 11:11:11');"""
     sql """ insert into ${tbName} (`datek1`, `datek2`, `datev1`) values('2022-01-03', '2022-01-03 11:11:11', '2022-01-03');"""
@@ -103,15 +103,15 @@ suite("test_schema_change_datev2_with_delete") {
     sql """ insert into ${tbName} (`datek1`, `datev1`, `datev2`) values('2022-01-05', '2022-01-05', '2022-01-05 11:11:11');"""
     sql """ insert into ${tbName} (`datek2`, `datev1`, `datev2`) values('2022-01-06 11:11:11', '2022-01-06', '2022-01-06 11:11:11');"""
 
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
     sql """ delete from ${tbName} where `datev1`='2022-01-01';"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ delete from ${tbName} where `datev2`='2022-01-01 11:11:11.111';"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ delete from ${tbName} where `datev2`='2022-01-01 11:11:11';"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `datek1`;"""
+    qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ DROP TABLE  ${tbName} force"""
 }

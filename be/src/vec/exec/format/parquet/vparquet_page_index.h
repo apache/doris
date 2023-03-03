@@ -21,6 +21,7 @@
 
 #include "exec/olap_common.h"
 #include "parquet_common.h"
+#include "schema_desc.h"
 
 namespace doris::vectorized {
 
@@ -33,12 +34,12 @@ public:
     Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
                                       ColumnValueRangeType& col_val_range,
                                       const FieldSchema* col_schema,
-                                      std::vector<int>& skipped_ranges);
+                                      std::vector<int>& skipped_ranges, const cctz::time_zone& ctz);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                              tparquet::ColumnIndex* _column_index);
+                              tparquet::ColumnIndex* column_index);
     Status parse_offset_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
-                              int64_t buffer_size, tparquet::OffsetIndex* _offset_index);
+                              tparquet::OffsetIndex* offset_index);
 
 private:
     friend class ParquetReader;

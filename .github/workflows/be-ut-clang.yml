@@ -67,7 +67,6 @@ jobs:
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
           sudo apt update
-          sudo apt upgrade --yes
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
           # set timezone
@@ -75,8 +74,14 @@ jobs:
           sudo dpkg-reconfigure --frontend noninteractive tzdata
 
           pushd thirdparty
-          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
-            -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          branch="${{ github.base_ref }}"
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          else
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-linux-x86_64.tar.xz" \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          fi
           tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
           popd
 

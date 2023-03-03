@@ -51,8 +51,8 @@ public class MultiJoinTest extends SqlTestBase {
 
     @Test
     @Disabled
-    // TODO: MultiJoin And EliminateOuter
     void testEliminateBelowOuter() {
+        // FIXME: MultiJoin And EliminateOuter
         String sql = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -103,5 +103,47 @@ public class MultiJoinTest extends SqlTestBase {
                     )
                     .printlnTree();
         }
+    }
+
+    @Test
+    void testOuterJoin() {
+        String sql = "SELECT * FROM T1 LEFT OUTER JOIN T2 ON T1.id = T2.id, T3 WHERE T2.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyBottomUp(new ReorderJoin())
+                .printlnTree()
+                .matches(
+                        crossLogicalJoin(
+                                leftOuterLogicalJoin()
+                                        .when(join -> join.getOtherJoinConjuncts().size() == 1),
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    @Disabled
+    void testNoFilter() {
+        String sql = "Select * FROM T1 INNER JOIN T2 On true";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        crossLogicalJoin()
+                );
+    }
+
+    @Test
+    void test() {
+        String sql = "select T1.score, T2.score from T1 inner join T2 on T1.id = T2.id where T1.score - 2 > T2.score";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalProject(
+                                innerLogicalJoin()
+                        )
+                );
+
     }
 }

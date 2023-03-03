@@ -62,7 +62,7 @@ public class CreateViewStmt extends BaseViewStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         // check privilege
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
@@ -78,6 +78,7 @@ public class CreateViewStmt extends BaseViewStmt {
 
             // Analyze view define statement
             Analyzer viewAnalyzer = new Analyzer(analyzer);
+            viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
 
             createColumnAndViewDefs(analyzer);

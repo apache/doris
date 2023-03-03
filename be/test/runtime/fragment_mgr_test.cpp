@@ -22,7 +22,6 @@
 #include "common/config.h"
 #include "exec/data_sink.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/row_batch.h"
 
 namespace doris {
 

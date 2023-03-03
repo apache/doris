@@ -76,7 +76,7 @@ public:
 #ifdef USE_JEMALLOC
         size_t value = 0;
         size_t sz = sizeof(value);
-        if (je_mallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
+        if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
             return value;
         }
 #endif
@@ -111,11 +111,16 @@ public:
         DCHECK(_s_initialized);
         return _s_soft_mem_limit;
     }
+    static inline std::string soft_mem_limit_str() {
+        DCHECK(_s_initialized);
+        return _s_soft_mem_limit_str;
+    }
 
     static std::string debug_string();
 
-    static void process_minor_gc();
-    static void process_full_gc();
+    static void process_cache_gc(int64_t& freed_mem);
+    static bool process_minor_gc();
+    static bool process_full_gc();
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
@@ -127,6 +132,7 @@ private:
     static int64_t _s_mem_limit;
     static std::string _s_mem_limit_str;
     static int64_t _s_soft_mem_limit;
+    static std::string _s_soft_mem_limit_str;
 
     static int64_t _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;

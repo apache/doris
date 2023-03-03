@@ -19,7 +19,6 @@
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
-#include "runtime/file_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
@@ -63,7 +62,8 @@ Status VResultSink::prepare(RuntimeState* state) {
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec()));
+            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
+            state->execution_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {
@@ -82,10 +82,6 @@ Status VResultSink::prepare(RuntimeState* state) {
 Status VResultSink::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultSink::open");
     return VExpr::open(_output_vexpr_ctxs, state);
-}
-
-Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented Result Sink::send scalar");
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {

@@ -41,6 +41,7 @@ import java.util.Optional;
  * The cancelled reason will be reported by Backend and displayed back to the user.
  */
 public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+
     private final AssertNumRowsElement assertNumRowsElement;
 
     public LogicalAssertNumRows(AssertNumRowsElement assertNumRowsElement, CHILD_TYPE child) {

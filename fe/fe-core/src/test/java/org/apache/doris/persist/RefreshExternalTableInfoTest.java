@@ -88,9 +88,9 @@ public class RefreshExternalTableInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         RefreshExternalTableInfo rInfo1 = RefreshExternalTableInfo.read(dis);
-        Assert.assertTrue(rInfo1.getDbName().equals(info.getDbName()));
-        Assert.assertTrue(rInfo1.getTableName().equals(info.getTableName()));
-        Assert.assertTrue(rInfo1.getNewSchema().equals(info.getNewSchema()));
+        Assert.assertEquals(rInfo1.getDbName(), info.getDbName());
+        Assert.assertEquals(rInfo1.getTableName(), info.getTableName());
+        Assert.assertEquals(rInfo1.getNewSchema(), info.getNewSchema());
 
         // 3. delete files
         dis.close();

@@ -40,6 +40,7 @@ import java.util.Optional;
  * Physical assertNumRows.
  */
 public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+
     private final AssertNumRowsElement assertNumRowsElement;
 
     public PhysicalAssertNumRows(AssertNumRowsElement assertNumRowsElement,

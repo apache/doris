@@ -33,10 +33,10 @@
 #include <string>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/fs/file_reader.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -45,9 +45,7 @@ class ExecEnv;
 class TBrokerRangeDesc;
 class TNetworkAddress;
 class RuntimeState;
-class Tuple;
 class SlotDescriptor;
-class MemPool;
 class FileReader;
 
 struct Statistics {
@@ -61,7 +59,7 @@ struct Statistics {
 
 class ArrowFile : public arrow::io::RandomAccessFile {
 public:
-    ArrowFile(FileReader* file);
+    ArrowFile(io::FileReaderSPtr file_reader);
     virtual ~ArrowFile();
     arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
     arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
@@ -73,24 +71,20 @@ public:
     bool closed() const override;
 
 private:
-    FileReader* _file;
-    int64_t _pos = 0;
+    io::FileReaderSPtr _file_reader;
+    size_t _pos = 0;
 };
 
 // base of arrow reader
 class ArrowReaderWrap : public vectorized::GenericReader {
 public:
     ArrowReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
-                    FileReader* file_reader, int32_t num_of_columns_from_file, bool caseSensitive);
+                    io::FileReaderSPtr file_reader, int32_t num_of_columns_from_file,
+                    bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
-    virtual Status init_reader(const TupleDescriptor* tuple_desc,
-                               const std::vector<ExprContext*>& conjunct_ctxs,
-                               const std::string& timezone) = 0;
-    // for row
-    virtual Status read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
-        return Status::NotSupported("Not Implemented read");
-    }
+    virtual Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) = 0;
+
     // for vec
     Status get_next_block(vectorized::Block* block, size_t* read_row, bool* eof) override;
     // This method should be deprecated once the old scanner is removed.

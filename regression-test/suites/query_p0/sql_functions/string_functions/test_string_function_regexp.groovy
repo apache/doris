@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_string_function_regexp") {
-    sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
     def tbName = "test_string_function_regexp"
@@ -47,6 +46,7 @@ suite("test_string_function_regexp") {
     qt_sql "SELECT regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)');"
     qt_sql "SELECT regexp_extract_all('http://a.m.baidu.com/i41915i73660.htm', 'i([0-9]+)');"
     qt_sql "SELECT regexp_extract_all('abc=111, def=222, ghi=333', '(\"[^\"]+\"|\\\\w+)=(\"[^\"]+\"|\\\\w+)');"
+    qt_sql "select regexp_extract_all('xxfs','f');"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"

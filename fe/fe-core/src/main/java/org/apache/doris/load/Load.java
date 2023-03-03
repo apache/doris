@@ -29,23 +29,18 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.backup.BlobStorage;
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -67,31 +62,22 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
-import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.Backend;
-import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPriority;
-import org.apache.doris.transaction.TransactionNotFoundException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -139,8 +125,6 @@ public class Load {
     private Set<Long> loadingPartitionIds; // loading partition id set
     // dbId -> set of (label, timestamp)
     private Map<Long, Map<String, Long>> dbToMiniLabels; // db to mini uncommitted label
-
-    private volatile LoadErrorHub.Param loadErrorHubParam = new LoadErrorHub.Param();
 
     // lock for load job
     // lock is private and must use after db lock
@@ -221,245 +205,6 @@ public class Load {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
-        // get db
-        String dbName = stmt.getLabel().getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        // create job
-        LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
-        addLoadJob(job, db);
-    }
-
-    // This is the final step of all addLoadJob() methods
-    private void addLoadJob(LoadJob job, Database db) throws DdlException {
-        // check cluster capacity
-        Env.getCurrentSystemInfo().checkClusterCapacity(db.getClusterName());
-        // for original job, check quota
-        // for delete job, not check
-        if (!job.isSyncDeleteJob()) {
-            db.checkDataSizeQuota();
-        }
-
-        // check if table is in restore process
-        readLock();
-        try {
-            for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
-                Table tbl = db.getTableNullable(tblId);
-                if (tbl != null && tbl.getType() == TableType.OLAP
-                        && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
-                    throw new DdlException("Table " + tbl.getName() + " is in restore process. "
-                            + "Can not load into it");
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-
-        writeLock();
-        try {
-            unprotectAddLoadJob(job, false /* not replay */);
-            Env.getCurrentEnv().getEditLog().logLoadStart(job);
-        } finally {
-            writeUnlock();
-        }
-        LOG.info("add load job. job: {}", job);
-    }
-
-    private LoadJob createLoadJob(LoadStmt stmt, EtlJobType etlJobType,
-                                  Database db, long timestamp) throws DdlException {
-        // get params
-        String label = stmt.getLabel().getLabelName();
-        List<DataDescription> dataDescriptions = stmt.getDataDescriptions();
-        Map<String, String> properties = stmt.getProperties();
-
-        // check params
-        try {
-            FeNameFormat.checkLabel(label);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        if (dataDescriptions == null || dataDescriptions.isEmpty()) {
-            throw new DdlException("No data file in load statement.");
-        }
-
-        // create job
-        LoadJob job = new LoadJob(label);
-        job.setEtlJobType(etlJobType);
-        job.setDbId(db.getId());
-        job.setTimestamp(timestamp);
-        job.setBrokerDesc(stmt.getBrokerDesc());
-
-        // resource info
-        if (ConnectContext.get() != null) {
-            job.setResourceInfo(ConnectContext.get().toResourceCtx());
-            job.setExecMemLimit(ConnectContext.get().getSessionVariable().getMaxExecMemByte());
-        }
-
-        // job properties
-        if (properties != null) {
-            if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-                try {
-                    job.setTimeoutSecond(Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY)));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Timeout is not INT", e);
-                }
-            }
-
-            if (properties.containsKey(LoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
-                try {
-                    job.setMaxFilterRatio(Double.parseDouble(properties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY)));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Max filter ratio is not DOUBLE", e);
-                }
-            }
-
-            if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
-                try {
-                    job.setExecMemLimit(Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT)));
-                } catch (NumberFormatException e) {
-                    throw new DdlException("Execute memory limit is not Long", e);
-                }
-            }
-        }
-
-        // job table load info
-        Map<Long, TableLoadInfo> idToTableLoadInfo = Maps.newHashMap();
-        // tableId partitionId sources
-        Map<Long, Map<Long, List<Source>>> tableToPartitionSources = Maps.newHashMap();
-        for (DataDescription dataDescription : dataDescriptions) {
-            // create source
-            checkAndCreateSource(db, dataDescription, tableToPartitionSources, etlJobType);
-            job.addTableName(dataDescription.getTableName());
-        }
-        for (Entry<Long, Map<Long, List<Source>>> tableEntry : tableToPartitionSources.entrySet()) {
-            long tableId = tableEntry.getKey();
-            Map<Long, List<Source>> partitionToSources = tableEntry.getValue();
-
-            Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = Maps.newHashMap();
-            for (Entry<Long, List<Source>> partitionEntry : partitionToSources.entrySet()) {
-                PartitionLoadInfo info = new PartitionLoadInfo(partitionEntry.getValue());
-                idToPartitionLoadInfo.put(partitionEntry.getKey(), info);
-            }
-            idToTableLoadInfo.put(tableId, new TableLoadInfo(idToPartitionLoadInfo));
-        }
-        job.setIdToTableLoadInfo(idToTableLoadInfo);
-
-        if (etlJobType == EtlJobType.BROKER) {
-            BrokerFileGroupAggInfo sourceInfo = new BrokerFileGroupAggInfo();
-            for (DataDescription dataDescription : dataDescriptions) {
-                BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-                fileGroup.parse(db, dataDescription);
-                sourceInfo.addFileGroup(fileGroup);
-            }
-            job.setPullLoadSourceInfo(sourceInfo);
-            LOG.info("source info is {}", sourceInfo);
-        }
-
-        if (etlJobType == EtlJobType.MINI) {
-            // mini etl tasks
-            Map<Long, MiniEtlTaskInfo> idToEtlTask = Maps.newHashMap();
-            long etlTaskId = 0;
-
-            for (DataDescription dataDescription : dataDescriptions) {
-                String tableName = dataDescription.getTableName();
-                OlapTable table = db.getOlapTableOrDdlException(tableName);
-
-                table.readLock();
-                try {
-                    TNetworkAddress beAddress = dataDescription.getBeAddr();
-                    Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
-                            beAddress.getPort());
-                    if (!Env.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
-                        throw new DdlException("Etl backend is null or not available");
-                    }
-
-                    MiniEtlTaskInfo taskInfo = new MiniEtlTaskInfo(etlTaskId++, backend.getId(), table.getId());
-                    idToEtlTask.put(taskInfo.getId(), taskInfo);
-                } finally {
-                    table.readUnlock();
-                }
-            }
-
-            job.setMiniEtlTasks(idToEtlTask);
-            job.setPriority(TPriority.HIGH);
-
-            if (job.getTimeoutSecond() == 0) {
-                // set default timeout
-                job.setTimeoutSecond(Config.mini_load_default_timeout_second);
-            }
-
-        } else if (etlJobType == EtlJobType.HADOOP) {
-            // hadoop dpp cluster config
-            // default dpp config
-            DppConfig dppConfig = dppDefaultConfig.getCopiedDppConfig();
-
-            // get dpp config by cluster
-            // 1. from user
-            String cluster = stmt.getCluster();
-            if (cluster == null && properties != null) {
-                cluster = properties.get(LoadStmt.CLUSTER_PROPERTY);
-            }
-
-            Pair<String, DppConfig> clusterInfo = Env.getCurrentEnv().getAuth().getLoadClusterInfo(
-                    stmt.getUser(), cluster);
-            cluster = clusterInfo.first;
-            DppConfig clusterConfig = clusterInfo.second;
-
-            // 2. from system
-            if (cluster == null || clusterConfig == null) {
-                if (cluster == null) {
-                    cluster = Config.dpp_default_cluster;
-                }
-
-                clusterConfig = clusterToDppConfig.get(cluster);
-                if (clusterConfig == null) {
-                    throw new DdlException("Load cluster[" + cluster + "] does not exist");
-                }
-            }
-
-            dppConfig.update(clusterConfig);
-
-            try {
-                // parse user define hadoop and bos configs
-                dppConfig.updateHadoopConfigs(properties);
-
-                // check and set cluster info
-                dppConfig.check();
-                job.setClusterInfo(cluster, dppConfig);
-                job.setPriority(dppConfig.getPriority());
-            } catch (LoadException e) {
-                throw new DdlException(e.getMessage());
-            }
-
-            if (job.getTimeoutSecond() == 0) {
-                // set default timeout
-                job.setTimeoutSecond(Config.hadoop_load_default_timeout_second);
-            }
-            for (DataDescription dataDescription : dataDescriptions) {
-                if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND) {
-                    throw new DdlException("MERGE OR DELETE is not supported in hadoop load.");
-                }
-            }
-        } else if (etlJobType == EtlJobType.BROKER) {
-            if (job.getTimeoutSecond() == 0) {
-                // set default timeout
-                job.setTimeoutSecond(Config.broker_load_default_timeout_second);
-            }
-        } else if (etlJobType == EtlJobType.INSERT) {
-            job.setPriority(TPriority.HIGH);
-            if (job.getTimeoutSecond() == 0) {
-                // set default timeout
-                job.setTimeoutSecond(Config.insert_load_default_timeout_second);
-            }
-        }
-
-        // job id
-        job.setId(Env.getCurrentEnv().getNextId());
-
-        return job;
     }
 
     /*
@@ -585,8 +330,8 @@ public class Load {
             // so there will be a shadow column: '__doris_shadow_B'
             // So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
             for (Column column : table.getFullSchema()) {
-                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+                if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
                     if (parsedColumnExprMap.containsKey(originCol)) {
                         Expr mappingExpr = parsedColumnExprMap.get(originCol);
                         if (mappingExpr != null) {
@@ -749,11 +494,11 @@ public class Load {
     public static List<ImportColumnDesc> getSchemaChangeShadowColumnDesc(Table tbl, Map<String, Expr> columnExprMap) {
         List<ImportColumnDesc> shadowColumnDescs = Lists.newArrayList();
         for (Column column : tbl.getFullSchema()) {
-            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
                 continue;
             }
 
-            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX);
+            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
             if (columnExprMap.containsKey(originCol)) {
                 Expr mappingExpr = columnExprMap.get(originCol);
                 if (mappingExpr != null) {
@@ -858,7 +603,12 @@ public class Load {
                 if (hasSequenceCol && column.isSequenceColumn()) {
                     continue;
                 }
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                ImportColumnDesc columnDesc = null;
+                if (formatType == TFileFormatType.FORMAT_JSON) {
+                    columnDesc = new ImportColumnDesc(column.getName());
+                } else {
+                    columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                }
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
@@ -975,20 +725,46 @@ public class Load {
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                    // ISSUE A: src slot should be nullable even if the column is not nullable.
-                    // because src slot is what we read from file, not represent to real column value.
-                    // If column is not nullable, error will be thrown when filling the dest slot,
-                    // which is not nullable.
-                    slotDesc.setIsNullable(true);
+                    if (formatType == TFileFormatType.FORMAT_JSON
+                                && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+                        slotDesc.setType(tblColumn.getType());
+                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        slotDesc.setIsNullable(tblColumn.isAllowNull());
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        // ISSUE A: src slot should be nullable even if the column is not nullable.
+                        // because src slot is what we read from file, not represent to real column value.
+                        // If column is not nullable, error will be thrown when filling the dest slot,
+                        // which is not nullable.
+                        slotDesc.setIsNullable(true);
+                    }
                 }
                 slotDesc.setIsMaterialized(true);
                 srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }
+
+        // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+            analyzer.getDescTbl().addReferencedTable(tbl);
+            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+            String name = Column.DYNAMIC_COLUMN_NAME;
+            Column col = new Column(name, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setType(Type.VARIANT);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            slotDesc.setIsMaterialized(true);
+            srcSlotIds.add(slotDesc.getId().asInt());
+            slotDescByName.put(name, slotDesc);
+            LOG.debug("add dynamic column to srcTupleDesc with name:{} id:{}", name, slotDesc.getId().asInt());
+        }
+        LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
+
         /*
          * The extension column of the materialized view is added to the expression evaluation of load
          * To avoid nested expressions. eg : column(a, tmp_c, c = expr(tmp_c)) ,
@@ -1061,6 +837,17 @@ public class Load {
                     throw new AnalysisException("Don't support aggregation function in load expression");
                 }
             }
+
+            // Array type do not support cast now
+            Type exprReturnType = expr.getType();
+            if (exprReturnType.isArrayType()) {
+                Type schemaType = tbl.getColumn(entry.getKey()).getType();
+                if (exprReturnType != schemaType) {
+                    throw new AnalysisException("Don't support load from type:" + exprReturnType + " to type:"
+                            + schemaType + " for column:" + entry.getKey());
+                }
+            }
+
             exprsByName.put(entry.getKey(), expr);
         }
 
@@ -1346,131 +1133,6 @@ public class Load {
         return originExpr;
     }
 
-    public void unprotectAddLoadJob(LoadJob job, boolean isReplay) throws DdlException {
-        long jobId = job.getId();
-        long dbId = job.getDbId();
-        String label = job.getLabel();
-
-        if (!isReplay && getAllUnfinishedLoadJob() > Config.max_unfinished_load_job) {
-            throw new DdlException(
-                    "Number of unfinished load jobs exceed the max number: " + Config.max_unfinished_load_job);
-        }
-
-        Preconditions.checkState(!job.isSyncDeleteJob(), "delete job is deprecated");
-        // check label exist
-        boolean checkMini = true;
-        if (job.getEtlJobType() == EtlJobType.MINI) {
-            // already registered, do not need check
-            checkMini = false;
-        }
-
-        unprotectIsLabelUsed(dbId, label, -1, checkMini);
-
-        // add job
-        Map<String, List<LoadJob>> labelToLoadJobs = null;
-        if (dbLabelToLoadJobs.containsKey(dbId)) {
-            labelToLoadJobs = dbLabelToLoadJobs.get(dbId);
-        } else {
-            labelToLoadJobs = Maps.newHashMap();
-            dbLabelToLoadJobs.put(dbId, labelToLoadJobs);
-        }
-        List<LoadJob> labelLoadJobs = null;
-        if (labelToLoadJobs.containsKey(label)) {
-            labelLoadJobs = labelToLoadJobs.get(label);
-        } else {
-            labelLoadJobs = Lists.newArrayList();
-            labelToLoadJobs.put(label, labelLoadJobs);
-        }
-
-        List<LoadJob> dbLoadJobs = null;
-        if (dbToLoadJobs.containsKey(dbId)) {
-            dbLoadJobs = dbToLoadJobs.get(dbId);
-        } else {
-            dbLoadJobs = Lists.newArrayList();
-            dbToLoadJobs.put(dbId, dbLoadJobs);
-        }
-        idToLoadJob.put(jobId, job);
-        dbLoadJobs.add(job);
-        labelLoadJobs.add(job);
-
-        // beginTransaction Here
-        switch (job.getState()) {
-            case PENDING:
-                idToPendingLoadJob.put(jobId, job);
-                break;
-            case ETL:
-                idToEtlLoadJob.put(jobId, job);
-                break;
-            case LOADING:
-                idToLoadingLoadJob.put(jobId, job);
-                // recover loadingPartitionIds
-                recoverLoadingPartitions(job);
-                break;
-            case QUORUM_FINISHED:
-                // The state QUORUM_FINISHED could only occur when loading image file
-                idToQuorumFinishedLoadJob.put(jobId, job);
-                break;
-            case FINISHED:
-                break;
-            case CANCELLED:
-                break;
-            default:
-                // Impossible to be other state
-                Preconditions.checkNotNull(null, "Should not be here");
-        }
-    }
-
-    private long getAllUnfinishedLoadJob() {
-        return idToPendingLoadJob.size() + idToEtlLoadJob.size() + idToLoadingLoadJob.size()
-                + idToQuorumFinishedLoadJob.size();
-    }
-
-    public void replayAddLoadJob(LoadJob job) throws DdlException {
-        writeLock();
-        try {
-            unprotectAddLoadJob(job, true /* replay */);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void unprotectEtlLoadJob(LoadJob job) {
-        long jobId = job.getId();
-        idToPendingLoadJob.remove(jobId);
-        idToEtlLoadJob.put(jobId, job);
-
-        replaceLoadJob(job);
-    }
-
-    public void replayEtlLoadJob(LoadJob job) throws DdlException {
-        writeLock();
-        try {
-            unprotectEtlLoadJob(job);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void unprotectLoadingLoadJob(LoadJob job) {
-        long jobId = job.getId();
-        idToEtlLoadJob.remove(jobId);
-        idToLoadingLoadJob.put(jobId, job);
-
-        // recover loadingPartitionIds
-        recoverLoadingPartitions(job);
-
-        replaceLoadJob(job);
-    }
-
-    public void replayLoadingLoadJob(LoadJob job) throws DdlException {
-        writeLock();
-        try {
-            unprotectLoadingLoadJob(job);
-        } finally {
-            writeUnlock();
-        }
-    }
-
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
@@ -1611,66 +1273,6 @@ public class Load {
         return false;
     }
 
-    public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
-        return cancelLoadJob(job, cancelType, msg, null);
-    }
-
-    public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
-        // update job to cancelled
-        LOG.info("try to cancel load job: {}", job);
-        JobState srcState = job.getState();
-        if (!updateLoadJobState(job, JobState.CANCELLED, cancelType, msg, failedMsg)) {
-            LOG.warn("cancel load job failed. job: {}", job);
-            return false;
-        }
-
-        // clear
-        if (job.getHadoopDppConfig() != null) {
-            clearJob(job, srcState);
-        }
-
-        Preconditions.checkState(job.getBrokerDesc() == null);
-        LOG.info("cancel load job success. job: {}", job);
-        return true;
-    }
-
-    public void unprotectCancelLoadJob(LoadJob job) {
-        long jobId = job.getId();
-        LoadJob oldJob = idToLoadJob.get(jobId);
-        if (oldJob == null) {
-            LOG.warn("cancel job does not exist. id: {}", jobId);
-            return;
-        }
-
-        switch (oldJob.getState()) {
-            case PENDING:
-                idToPendingLoadJob.remove(jobId);
-                break;
-            case ETL:
-                idToEtlLoadJob.remove(jobId);
-                break;
-            case LOADING:
-                idToLoadingLoadJob.remove(jobId);
-                // remove loading partitions
-                removeLoadingPartitions(oldJob);
-                break;
-            default:
-                LOG.warn("cancel job has wrong src state: {}", oldJob.getState().name());
-                return;
-        }
-
-        replaceLoadJob(job);
-    }
-
-    public void replayCancelLoadJob(LoadJob job) {
-        writeLock();
-        try {
-            unprotectCancelLoadJob(job);
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public Map<Long, LoadJob> getIdToLoadJob() {
         return idToLoadJob;
     }
@@ -1752,7 +1354,8 @@ public class Load {
             LOG.debug("begin to get load job info, size: {}", loadJobs.size());
             PatternMatcher matcher = null;
             if (labelValue != null && !accurateMatch) {
-                matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                matcher = PatternMatcherWrapper.createMysqlPattern(labelValue,
+                        CaseSensibility.LABEL.getCaseSensibility());
             }
 
             for (LoadJob loadJob : loadJobs) {
@@ -1782,14 +1385,14 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                             PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                                 tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
@@ -1891,6 +1494,10 @@ public class Load {
                 jobInfo.add(loadJob.getTransactionId());
                 // error tablets(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
+                // user
+                jobInfo.add(loadJob.getUser());
+                // comment
+                jobInfo.add(loadJob.getComment());
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
@@ -2019,83 +1626,6 @@ public class Load {
         return infos;
     }
 
-    public LoadErrorHub.Param getLoadErrorHubInfo() {
-        return loadErrorHubParam;
-    }
-
-    public void setLoadErrorHubInfo(LoadErrorHub.Param info) {
-        this.loadErrorHubParam = info;
-    }
-
-    public void setLoadErrorHubInfo(Map<String, String> properties) throws DdlException {
-        String type = properties.get("type");
-        if (type.equalsIgnoreCase("MYSQL")) {
-            String host = properties.get("host");
-            if (Strings.isNullOrEmpty(host)) {
-                throw new DdlException("mysql host is missing");
-            }
-
-            int port = -1;
-            try {
-                port = Integer.valueOf(properties.get("port"));
-            } catch (NumberFormatException e) {
-                throw new DdlException("invalid mysql port: " + properties.get("port"));
-            }
-
-            String user = properties.get("user");
-            if (Strings.isNullOrEmpty(user)) {
-                throw new DdlException("mysql user name is missing");
-            }
-
-            String db = properties.get("database");
-            if (Strings.isNullOrEmpty(db)) {
-                throw new DdlException("mysql database is missing");
-            }
-
-            String tbl = properties.get("table");
-            if (Strings.isNullOrEmpty(tbl)) {
-                throw new DdlException("mysql table is missing");
-            }
-
-            String pwd = Strings.nullToEmpty(properties.get("password"));
-
-            MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
-            loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
-        } else if (type.equalsIgnoreCase("BROKER")) {
-            String brokerName = properties.get("name");
-            if (Strings.isNullOrEmpty(brokerName)) {
-                throw new DdlException("broker name is missing");
-            }
-            properties.remove("name");
-
-            if (!Env.getCurrentEnv().getBrokerMgr().containsBroker(brokerName)) {
-                throw new DdlException("broker does not exist: " + brokerName);
-            }
-
-            String path = properties.get("path");
-            if (Strings.isNullOrEmpty(path)) {
-                throw new DdlException("broker path is missing");
-            }
-            properties.remove("path");
-
-            // check if broker info is invalid
-            BlobStorage blobStorage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
-            Status st = blobStorage.checkPathExist(path);
-            if (!st.ok()) {
-                throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
-            }
-
-            BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
-            loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
-        } else if (type.equalsIgnoreCase("null")) {
-            loadErrorHubParam = LoadErrorHub.Param.createNullParam();
-        }
-
-        Env.getCurrentEnv().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
-
-        LOG.info("set load error hub info: {}", loadErrorHubParam);
-    }
-
     public static class JobInfo {
         public String dbName;
         public Set<String> tblNames = Sets.newHashSet();
@@ -2147,189 +1677,6 @@ public class Load {
         }
     }
 
-    public void unprotectQuorumLoadJob(LoadJob job, Database db) {
-        // in real time load replica info and partition version is set by transaction manager not by job
-        if (job.getTransactionId() < 0) {
-            // remove loading partitions
-            removeLoadingPartitions(job);
-
-            // Update database information first
-            Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
-            if (replicaInfos != null) {
-                for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
-                    if (table == null) {
-                        LOG.warn("the table[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    Partition partition = table.getPartition(info.getPartitionId());
-                    if (partition == null) {
-                        LOG.warn("the partition[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    MaterializedIndex index = partition.getIndex(info.getIndexId());
-                    if (index == null) {
-                        LOG.warn("the index[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    Tablet tablet = index.getTablet(info.getTabletId());
-                    if (tablet == null) {
-                        LOG.warn("the tablet[{}] is missing", info.getTabletId());
-                        continue;
-                    }
-
-                    Replica replica = tablet.getReplicaById(info.getReplicaId());
-                    if (replica == null) {
-                        LOG.warn("the replica[{}] is missing", info.getReplicaId());
-                        continue;
-                    }
-                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(),
-                            info.getRowCount());
-                }
-            }
-
-            long jobId = job.getId();
-            Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
-            if (idToTableLoadInfo != null) {
-                for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
-                    long tableId = tableEntry.getKey();
-                    OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                    if (table == null) {
-                        continue;
-                    }
-                    TableLoadInfo tableLoadInfo = tableEntry.getValue();
-                    for (Entry<Long, PartitionLoadInfo> entry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
-                        long partitionId = entry.getKey();
-                        Partition partition = table.getPartition(partitionId);
-                        PartitionLoadInfo partitionLoadInfo = entry.getValue();
-                        if (!partitionLoadInfo.isNeedLoad()) {
-                            continue;
-                        }
-                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
-
-                        // update table row count
-                        for (MaterializedIndex materializedIndex
-                                : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                            long indexRowCount = 0L;
-                            for (Tablet tablet : materializedIndex.getTablets()) {
-                                long tabletRowCount = 0L;
-                                for (Replica replica : tablet.getReplicas()) {
-                                    long replicaRowCount = replica.getRowCount();
-                                    if (replicaRowCount > tabletRowCount) {
-                                        tabletRowCount = replicaRowCount;
-                                    }
-                                }
-                                indexRowCount += tabletRowCount;
-                            }
-                            materializedIndex.setRowCount(indexRowCount);
-                        } // end for indices
-                    } // end for partitions
-                } // end for tables
-            }
-
-            idToLoadingLoadJob.remove(jobId);
-            idToQuorumFinishedLoadJob.put(jobId, job);
-        }
-        replaceLoadJob(job);
-    }
-
-    public void replayQuorumLoadJob(LoadJob job, Env env) throws MetaNotFoundException {
-        // TODO: need to call this.writeLock()?
-        Database db = env.getInternalCatalog().getDbOrMetaException(job.getDbId());
-
-        List<Long> tableIds = Lists.newArrayList();
-        long tblId = job.getTableId();
-        if (tblId > 0) {
-            tableIds.add(tblId);
-        } else {
-            tableIds.addAll(job.getIdToTableLoadInfo().keySet());
-        }
-
-        List<Table> tables = db.getTablesOnIdOrderOrThrowException(tableIds);
-
-        MetaLockUtils.writeLockTables(tables);
-        try {
-            writeLock();
-            try {
-                unprotectQuorumLoadJob(job, db);
-            } finally {
-                writeUnlock();
-            }
-        } finally {
-            MetaLockUtils.writeUnlockTables(tables);
-        }
-    }
-
-    public void unprotectFinishLoadJob(LoadJob job, Database db) {
-        // in real time load, replica info is not set by job, it is set by transaction manager
-        long jobId = job.getId();
-        if (job.getTransactionId() < 0) {
-            idToQuorumFinishedLoadJob.remove(jobId);
-
-            // Update database information
-            Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
-            if (replicaInfos != null) {
-                for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
-                    if (table == null) {
-                        LOG.warn("the table[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    Partition partition = table.getPartition(info.getPartitionId());
-                    if (partition == null) {
-                        LOG.warn("the partition[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    MaterializedIndex index = partition.getIndex(info.getIndexId());
-                    if (index == null) {
-                        LOG.warn("the index[{}] is missing", info.getIndexId());
-                        continue;
-                    }
-                    Tablet tablet = index.getTablet(info.getTabletId());
-                    if (tablet == null) {
-                        LOG.warn("the tablet[{}] is missing", info.getTabletId());
-                        continue;
-                    }
-
-                    Replica replica = tablet.getReplicaById(info.getReplicaId());
-                    if (replica == null) {
-                        LOG.warn("the replica[{}] is missing", info.getReplicaId());
-                        continue;
-                    }
-                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRemoteDataSize(),
-                            info.getRowCount());
-                }
-            }
-        } else {
-            // in realtime load, does not exist a quorum finish stage, so that should remove job from pending queue and
-            // loading queue at finish stage
-            idToPendingLoadJob.remove(jobId);
-            // for delete load job, it also in id to loading job
-            idToLoadingLoadJob.remove(jobId);
-            job.setProgress(100);
-            job.setLoadFinishTimeMs(System.currentTimeMillis());
-        }
-        replaceLoadJob(job);
-    }
-
-    public void replayFinishLoadJob(LoadJob job, Env env) throws MetaNotFoundException {
-        // TODO: need to call this.writeLock()?
-        Database db = env.getCurrentInternalCatalog().getDbOrMetaException(job.getDbId());
-        // After finish, the idToTableLoadInfo in load job will be set to null.
-        // We lost table info. So we have to use db lock here.
-        db.writeLock();
-        try {
-            writeLock();
-            try {
-                unprotectFinishLoadJob(job, db);
-            } finally {
-                writeUnlock();
-            }
-        } finally {
-            db.writeUnlock();
-        }
-    }
-
     public void replayClearRollupInfo(ReplicaPersistInfo info, Env env) throws MetaNotFoundException {
         Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
@@ -2341,69 +1688,6 @@ public class Load {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    private void replaceLoadJob(LoadJob job) {
-        long jobId = job.getId();
-
-        // Replace LoadJob in idToLoadJob
-        if (!idToLoadJob.containsKey(jobId)) {
-            // This may happen when we drop db while there are still load jobs running
-            LOG.warn("Does not find load job in idToLoadJob. JobId : {}", jobId);
-            return;
-        }
-        idToLoadJob.put(jobId, job);
-
-        Preconditions.checkState(!job.isSyncDeleteJob(), "delete job is deprecated");
-
-        // Replace LoadJob in dbToLoadJobs
-        List<LoadJob> jobs = dbToLoadJobs.get(job.getDbId());
-        if (jobs == null) {
-            LOG.warn("Does not find db in dbToLoadJobs. DbId : {}",
-                    job.getDbId());
-            return;
-        }
-        int pos = 0;
-        for (LoadJob oneJob : jobs) {
-            if (oneJob.getId() == jobId) {
-                break;
-            }
-            pos++;
-        }
-        if (pos == jobs.size()) {
-            LOG.warn("Does not find load job for db. DbId : {}, jobId : {}",
-                    job.getDbId(), jobId);
-            return;
-        }
-        jobs.remove(pos);
-        jobs.add(pos, job);
-
-        // Replace LoadJob in dbLabelToLoadJobs
-        if (dbLabelToLoadJobs.get(job.getDbId()) == null) {
-            LOG.warn("Does not find db in dbLabelToLoadJobs. DbId : {}",
-                    job.getDbId());
-            return;
-        }
-        jobs = dbLabelToLoadJobs.get(job.getDbId()).get(job.getLabel());
-        if (jobs == null) {
-            LOG.warn("Does not find label for db. label : {}, DbId : {}",
-                    job.getLabel(), job.getDbId());
-            return;
-        }
-        pos = 0;
-        for (LoadJob oneJob : jobs) {
-            if (oneJob.getId() == jobId) {
-                break;
-            }
-            pos++;
-        }
-        if (pos == jobs.size()) {
-            LOG.warn("Does not find load job for label. label : {}, DbId : {}",
-                    job.getLabel(), job.getDbId());
-            return;
-        }
-        jobs.remove(pos);
-        jobs.add(pos, job);
     }
 
     // remove all db jobs from dbToLoadJobs and dbLabelToLoadJobs
@@ -2523,289 +1807,6 @@ public class Load {
         }
     }
 
-    public boolean updateLoadJobState(LoadJob job, JobState destState) {
-        return updateLoadJobState(job, destState, CancelType.UNKNOWN, null, null);
-    }
-
-    public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg,
-                                      List<String> failedMsg) {
-        boolean result = true;
-        JobState srcState;
-
-        long jobId = job.getId();
-        long dbId = job.getDbId();
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        String errMsg = msg;
-        if (db == null) {
-            // if db is null, update job to cancelled
-            errMsg = "db does not exist. id: " + dbId;
-            LOG.warn(errMsg);
-            writeLock();
-            try {
-                // sometimes db is dropped and then cancel the job, the job must have transactionid
-                // transaction state should only be dropped when job is dropped
-                processCancelled(job, cancelType, errMsg, failedMsg);
-            } finally {
-                writeUnlock();
-            }
-        } else {
-            db.writeLock();
-            try {
-                writeLock();
-                try {
-                    // check state
-                    srcState = job.getState();
-                    if (!STATE_CHANGE_MAP.containsKey(srcState)) {
-                        LOG.warn("src state error. src state: {}", srcState.name());
-                        return false;
-                    }
-                    Set<JobState> destStates = STATE_CHANGE_MAP.get(srcState);
-                    if (!destStates.contains(destState)) {
-                        LOG.warn("state change error. src state: {}, dest state: {}",
-                                srcState.name(), destState.name());
-                        return false;
-                    }
-
-                    switch (destState) {
-                        case ETL:
-                            idToPendingLoadJob.remove(jobId);
-                            idToEtlLoadJob.put(jobId, job);
-                            job.setProgress(0);
-                            job.setEtlStartTimeMs(System.currentTimeMillis());
-                            job.setState(destState);
-                            Env.getCurrentEnv().getEditLog().logLoadEtl(job);
-                            break;
-                        case LOADING:
-                            idToEtlLoadJob.remove(jobId);
-                            idToLoadingLoadJob.put(jobId, job);
-                            job.setProgress(0);
-                            job.setLoadStartTimeMs(System.currentTimeMillis());
-                            job.setState(destState);
-                            Env.getCurrentEnv().getEditLog().logLoadLoading(job);
-                            break;
-                        case QUORUM_FINISHED:
-                            if (processQuorumFinished(job, db)) {
-                                // Write edit log
-                                Env.getCurrentEnv().getEditLog().logLoadQuorum(job);
-                            } else {
-                                errMsg = "process loading finished fail";
-                                processCancelled(job, cancelType, errMsg, failedMsg);
-                            }
-                            break;
-                        case FINISHED:
-                            if (job.getTransactionId() > 0) {
-                                idToPendingLoadJob.remove(jobId);
-                                idToLoadingLoadJob.remove(jobId);
-                                job.setProgress(100);
-                                job.setLoadFinishTimeMs(System.currentTimeMillis());
-                            }
-                            // job will transfer from LOADING to FINISHED, skip QUORUM_FINISHED
-                            idToLoadingLoadJob.remove(jobId);
-                            idToQuorumFinishedLoadJob.remove(jobId);
-                            job.setState(destState);
-
-                            // clear push tasks
-                            for (PushTask pushTask : job.getPushTasks()) {
-                                AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                        pushTask.getVersion(),
-                                        pushTask.getPushType(), pushTask.getTaskType());
-                            }
-                            // Clear the Map and Set in this job, reduce the memory cost for finished load job.
-                            // for delete job, keep the map and set because some of them is used in show proc method
-                            if (!job.isSyncDeleteJob()) {
-                                job.clearRedundantInfoForHistoryJob();
-                            }
-                            // Write edit log
-                            Env.getCurrentEnv().getEditLog().logLoadDone(job);
-                            break;
-                        case CANCELLED:
-                            processCancelled(job, cancelType, errMsg, failedMsg);
-                            break;
-                        default:
-                            Preconditions.checkState(false, "wrong job state: " + destState.name());
-                            break;
-                    }
-                } finally {
-                    writeUnlock();
-                }
-            } finally {
-                db.writeUnlock();
-            }
-        }
-
-        // check current job state
-        if (destState != job.getState()) {
-            result = false;
-        }
-        return result;
-    }
-
-    private boolean processQuorumFinished(LoadJob job, Database db) {
-        long jobId = job.getId();
-        // remove partition from loading set
-        removeLoadingPartitions(job);
-
-        // check partition exist
-        Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
-        for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
-            long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            if (table == null) {
-                LOG.warn("table does not exist, id: {}", tableId);
-                return false;
-            }
-
-            TableLoadInfo tableLoadInfo = tableEntry.getValue();
-            for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
-                long partitionId = partitionEntry.getKey();
-                PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
-                if (!partitionLoadInfo.isNeedLoad()) {
-                    continue;
-                }
-
-                Partition partition = table.getPartition(partitionId);
-                if (partition == null) {
-                    LOG.warn("partition does not exist, id: {}", partitionId);
-                    return false;
-                }
-            }
-        }
-
-        // update partition version and index row count
-        for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
-            long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            if (table == null) {
-                continue;
-            }
-
-            TableLoadInfo tableLoadInfo = tableEntry.getValue();
-            for (Entry<Long, PartitionLoadInfo> entry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
-                long partitionId = entry.getKey();
-                Partition partition = table.getPartition(partitionId);
-                PartitionLoadInfo partitionLoadInfo = entry.getValue();
-                if (!partitionLoadInfo.isNeedLoad()) {
-                    continue;
-                }
-
-                updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
-
-                for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    long tableRowCount = 0L;
-                    for (Tablet tablet : materializedIndex.getTablets()) {
-                        long tabletRowCount = 0L;
-                        for (Replica replica : tablet.getReplicas()) {
-                            long replicaRowCount = replica.getRowCount();
-                            if (replicaRowCount > tabletRowCount) {
-                                tabletRowCount = replicaRowCount;
-                            }
-                        }
-                        tableRowCount += tabletRowCount;
-                    }
-                    materializedIndex.setRowCount(tableRowCount);
-                }
-            }
-        }
-
-        // When start up or checkpoint, Job may stay in pending queue. So remove it.
-        idToPendingLoadJob.remove(jobId);
-
-        idToLoadingLoadJob.remove(jobId);
-        idToQuorumFinishedLoadJob.put(jobId, job);
-        job.setProgress(100);
-        job.setLoadFinishTimeMs(System.currentTimeMillis());
-        job.setState(JobState.QUORUM_FINISHED);
-        return true;
-    }
-
-    private void updatePartitionVersion(Partition partition, long version, long jobId) {
-        long partitionId = partition.getId();
-        partition.updateVisibleVersion(version);
-        LOG.info("update partition version success. version: {}, job id: {}, partition id: {}",
-                version, jobId, partitionId);
-    }
-
-    private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
-        long jobId = job.getId();
-        JobState srcState = job.getState();
-        CancelType tmpCancelType = CancelType.UNKNOWN;
-        // should abort in transaction manager first because it maybe aborts job successfully
-        // and abort in transaction manager failed then there will be rubbish transactions in transaction manager
-        try {
-            Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                    job.getDbId(),
-                    job.getTransactionId(),
-                    job.getFailMsg().toString());
-        } catch (TransactionNotFoundException e) {
-            // the transaction may already be aborted due to timeout by transaction manager.
-            // just print a log and continue to cancel the job.
-            LOG.info("transaction not found when try to abort it: {}", e.getTransactionId());
-        } catch (AnalysisException e) {
-            // This is because the database has been dropped, so dbTransactionMgr can not be found.
-            // In this case, just continue to cancel the load.
-            if (!e.getMessage().contains("does not exist")) {
-                if (failedMsg != null) {
-                    failedMsg.add("Abort transaction failed: " + e.getMessage());
-                }
-                return false;
-            }
-        } catch (Exception e) {
-            LOG.info("errors while abort transaction", e);
-            if (failedMsg != null) {
-                failedMsg.add("Abort transaction failed: " + e.getMessage());
-            }
-            return false;
-        }
-        switch (srcState) {
-            case PENDING:
-                idToPendingLoadJob.remove(jobId);
-                tmpCancelType = CancelType.ETL_SUBMIT_FAIL;
-                break;
-            case ETL:
-                idToEtlLoadJob.remove(jobId);
-                tmpCancelType = CancelType.ETL_RUN_FAIL;
-                break;
-            case LOADING:
-                // remove partition from loading set
-                removeLoadingPartitions(job);
-                idToLoadingLoadJob.remove(jobId);
-                tmpCancelType = CancelType.LOAD_RUN_FAIL;
-                break;
-            case QUORUM_FINISHED:
-                idToQuorumFinishedLoadJob.remove(jobId);
-                tmpCancelType = CancelType.LOAD_RUN_FAIL;
-                break;
-            default:
-                Preconditions.checkState(false, "wrong job state: " + srcState.name());
-                break;
-        }
-
-        // set failMsg and state
-        CancelType newCancelType = cancelType;
-        if (newCancelType == CancelType.UNKNOWN) {
-            newCancelType = tmpCancelType;
-        }
-        FailMsg failMsg = new FailMsg(newCancelType, msg);
-        job.setFailMsg(failMsg);
-        job.setLoadFinishTimeMs(System.currentTimeMillis());
-        job.setState(JobState.CANCELLED);
-
-        // clear push tasks
-        if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
-            for (PushTask pushTask : job.getPushTasks()) {
-                AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                        pushTask.getVersion(),
-                        pushTask.getPushType(), pushTask.getTaskType());
-            }
-        }
-
-        // Clear the Map and Set in this job, reduce the memory cost of canceled load job.
-        job.clearRedundantInfoForHistoryJob();
-        Env.getCurrentEnv().getEditLog().logLoadCancel(job);
-
-        return true;
-    }
-
     public boolean addLoadingPartitions(Set<Long> partitionIds) {
         writeLock();
         try {
@@ -2822,41 +1823,12 @@ public class Load {
         }
     }
 
-    private void recoverLoadingPartitions(LoadJob job) {
-        // loading partition ids is used to avoid concurrent loading to a single partition
-        // but in realtime load, concurrent loading is allowed, so it is useless
-        if (job.getTransactionId() > 0) {
-            return;
-        }
-        for (TableLoadInfo tableLoadInfo : job.getIdToTableLoadInfo().values()) {
-            Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
-            for (Entry<Long, PartitionLoadInfo> entry : idToPartitionLoadInfo.entrySet()) {
-                PartitionLoadInfo partitionLoadInfo = entry.getValue();
-                if (partitionLoadInfo.isNeedLoad()) {
-                    loadingPartitionIds.add(entry.getKey());
-                }
-            }
-        }
-    }
-
     public void removeLoadingPartitions(Set<Long> partitionIds) {
         writeLock();
         try {
             loadingPartitionIds.removeAll(partitionIds);
         } finally {
             writeUnlock();
-        }
-    }
-
-    private void removeLoadingPartitions(LoadJob job) {
-        for (TableLoadInfo tableLoadInfo : job.getIdToTableLoadInfo().values()) {
-            Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
-            for (Entry<Long, PartitionLoadInfo> entry : idToPartitionLoadInfo.entrySet()) {
-                PartitionLoadInfo partitionLoadInfo = entry.getValue();
-                if (partitionLoadInfo.isNeedLoad()) {
-                    loadingPartitionIds.remove(entry.getKey());
-                }
-            }
         }
     }
 

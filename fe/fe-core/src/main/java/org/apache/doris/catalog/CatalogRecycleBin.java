@@ -169,7 +169,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
                                                  Range<PartitionKey> range, PartitionItem listPartitionItem,
                                                  DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                                 boolean isInMemory) {
+                                                 boolean isInMemory, boolean isMutable) {
         if (idToPartition.containsKey(partition.getId())) {
             LOG.error("partition[{}] already in recycle bin.", partition.getId());
             return false;
@@ -177,7 +177,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                range, listPartitionItem, dataProperty, replicaAlloc, isInMemory);
+                range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
         LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
@@ -765,6 +765,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
         partitionInfo.setReplicaAllocation(partitionId, recoverPartitionInfo.getReplicaAlloc());
         partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
+        partitionInfo.setIsMutable(partitionId, recoverPartitionInfo.isMutable());
 
         // remove from recycle bin
         idToPartition.remove(partitionId);
@@ -808,6 +809,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             partitionInfo.setDataProperty(partitionId, recyclePartitionInfo.getDataProperty());
             partitionInfo.setReplicaAllocation(partitionId, recyclePartitionInfo.getReplicaAlloc());
             partitionInfo.setIsInMemory(partitionId, recyclePartitionInfo.isInMemory());
+            partitionInfo.setIsMutable(partitionId, recyclePartitionInfo.isMutable());
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
@@ -839,8 +841,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                    TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                     for (Tablet tablet : index.getTablets()) {
+                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
                         for (Replica replica : tablet.getReplicas()) {
@@ -891,8 +893,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                 for (Tablet tablet : index.getTablets()) {
+                    TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, medium);
                     long tabletId = tablet.getId();
                     invertedIndex.addTablet(tabletId, tabletMeta);
                     for (Replica replica : tablet.getReplicas()) {
@@ -1192,6 +1194,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         private DataProperty dataProperty;
         private ReplicaAllocation replicaAlloc;
         private boolean isInMemory;
+        private boolean isMutable = true;
 
         public RecyclePartitionInfo() {
             // for persist
@@ -1200,7 +1203,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         public RecyclePartitionInfo(long dbId, long tableId, Partition partition,
                                     Range<PartitionKey> range, PartitionItem listPartitionItem,
                                     DataProperty dataProperty, ReplicaAllocation replicaAlloc,
-                                    boolean isInMemory) {
+                                    boolean isInMemory, boolean isMutable) {
             this.dbId = dbId;
             this.tableId = tableId;
             this.partition = partition;
@@ -1209,6 +1212,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             this.dataProperty = dataProperty;
             this.replicaAlloc = replicaAlloc;
             this.isInMemory = isInMemory;
+            this.isMutable = isMutable;
         }
 
         public long getDbId() {
@@ -1243,6 +1247,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return isInMemory;
         }
 
+        public boolean isMutable() {
+            return isMutable;
+        }
+
         @Override
         public void write(DataOutput out) throws IOException {
             out.writeLong(dbId);
@@ -1253,6 +1261,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             dataProperty.write(out);
             replicaAlloc.write(out);
             out.writeBoolean(isInMemory);
+            out.writeBoolean(isMutable);
         }
 
         public void readFields(DataInput in) throws IOException {
@@ -1269,6 +1278,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 replicaAlloc = ReplicaAllocation.read(in);
             }
             isInMemory = in.readBoolean();
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+                isMutable = in.readBoolean();
+            }
         }
     }
 

@@ -38,6 +38,7 @@ import java.util.List;
  */
 public enum ExpressionEvaluator {
     INSTANCE;
+
     private ImmutableMultimap<String, FunctionInvoker> functions;
 
     ExpressionEvaluator() {

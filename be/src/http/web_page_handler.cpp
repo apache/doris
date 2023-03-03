@@ -64,7 +64,8 @@ void WebPageHandler::register_template_page(const std::string& path, const strin
                                             bool is_on_nav_bar) {
     // Relative path which will be used to find .mustache file in _www_path
     std::string render_path = (path == "/") ? "/home" : path;
-    auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
+    auto wrapped_cb = [callback, render_path, this](const ArgumentMap& args,
+                                                    std::stringstream* output) {
         EasyJson ej;
         callback(args, &ej);
         render(render_path, ej, true /* is_styled */, output);

@@ -18,16 +18,18 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Collection;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * validator plan.
@@ -50,17 +52,21 @@ public class Validator extends PlanPostProcessor {
 
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
-        Preconditions.checkArgument(filter.getPredicates() != BooleanLiteral.TRUE);
+        Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
+                && filter.getPredicate() != BooleanLiteral.TRUE);
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        Preconditions.checkState(!(child instanceof PhysicalProject));
-        // Forbidden filter-cross join, because we put all filter on cross join into its other join condition.
-        Preconditions.checkState(!(child instanceof PhysicalNestedLoopJoin));
+        if (child instanceof PhysicalProject) {
+            throw new AnalysisException(
+                    "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
+        }
 
         // Check filter is from child output.
         Set<Slot> childOutputSet = child.getOutputSet();
-        Set<Slot> slotsUsedByFilter = filter.getPredicates().collect(Slot.class::isInstance);
+        Set<Slot> slotsUsedByFilter = filter.getConjuncts().stream()
+                .<Set<Slot>>map(expr -> expr.collect(Slot.class::isInstance))
+                .flatMap(Collection::stream).collect(Collectors.toSet());
         for (Slot slot : slotsUsedByFilter) {
             Preconditions.checkState(childOutputSet.contains(slot));
         }

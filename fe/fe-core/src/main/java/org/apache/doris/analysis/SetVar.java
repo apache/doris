@@ -89,7 +89,7 @@ public class SetVar {
         }
 
         if (type == SetType.GLOBAL) {
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                         "ADMIN");
             }
@@ -109,7 +109,7 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support non-constant expr.");
         }
 
-        final Expr literalExpr = value.getResultValue();
+        final Expr literalExpr = value.getResultValue(false);
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
@@ -149,15 +149,6 @@ public class SetVar {
         }
         if (getVariable().equalsIgnoreCase("is_report_success")) {
             variable = SessionVariable.ENABLE_PROFILE;
-        }
-
-        if (getVariable().equalsIgnoreCase(SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION)) {
-            String value = getValue().getStringValue();
-            if (!"1".equals(value) && !"2".equals(value)) {
-                throw new AnalysisException("Value of "
-                        + SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION + " should be "
-                        + "either 1 or 2, but meet " + value);
-            }
         }
     }
 

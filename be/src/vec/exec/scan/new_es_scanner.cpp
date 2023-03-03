@@ -26,8 +26,8 @@ namespace doris::vectorized {
 NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit,
                            TupleId tuple_id, const std::map<std::string, std::string>& properties,
                            const std::map<std::string, std::string>& docvalue_context,
-                           bool doc_value_mode)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                           bool doc_value_mode, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _is_init(false),
           _es_eof(false),
           _properties(properties),
@@ -35,7 +35,6 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _batch_eof(false),
           _tuple_id(tuple_id),
           _tuple_desc(nullptr),
-          _mem_pool(nullptr),
           _es_reader(nullptr),
           _es_scroll_parser(nullptr),
           _docvalue_context(docvalue_context),
@@ -86,7 +85,6 @@ Status NewEsScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
 
     RETURN_IF_ERROR(_es_reader->open());
-    _mem_pool.reset(new MemPool());
 
     return Status::OK();
 }
@@ -175,8 +173,8 @@ Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& column
 
         COUNTER_UPDATE(new_es_scan_node->_rows_read_counter, 1);
         SCOPED_TIMER(new_es_scan_node->_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, _mem_pool.get(),
-                                                        &_line_eof, _docvalue_context));
+        RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, &_line_eof,
+                                                        _docvalue_context));
         if (!_line_eof) {
             break;
         }

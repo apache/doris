@@ -19,7 +19,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/file_factory.h"
@@ -28,11 +27,11 @@
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -343,6 +342,10 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
+                case TYPE_MAP: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
                 default: {
                     // not supported type, like BITMAP, just export null
                     _plain_text_outstream << NULL_IN_CSV;
@@ -464,7 +467,7 @@ Status VFileResultWriter::_send_result() {
     // FileNumber, TotalRows, FileSize and URL
     // The type of these field should be consistent with types defined
     // in OutFileClause.java of FE.
-    MysqlRowBuffer row_buffer;
+    MysqlRowBuffer<> row_buffer;
     row_buffer.push_int(_file_idx);                         // file number
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size

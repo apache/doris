@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.analyzer.identifier.TableIdentifier;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -26,11 +26,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -40,36 +43,39 @@ import java.util.Optional;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
+public class UnboundRelation extends LogicalRelation implements Unbound {
+
     private final List<String> nameParts;
+    private final List<String> partNames;
+    private final boolean isTempPart;
+    private final List<String> hints;
 
-    public UnboundRelation(List<String> nameParts) {
-        this(nameParts, Optional.empty(), Optional.empty());
+    public UnboundRelation(RelationId id, List<String> nameParts) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of());
     }
 
-    public UnboundRelation(List<String> nameParts, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
-        this.nameParts = nameParts;
+    public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of());
     }
 
-    public UnboundRelation(TableIdentifier identifier) {
-        this(identifier, Optional.empty(), Optional.empty());
+    public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
+            List<String> hints) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, hints);
     }
 
-    /**
-     * Constructor for UnboundRelation.
-     *
-     * @param identifier relation identifier
-     */
-    public UnboundRelation(TableIdentifier identifier, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
-        this.nameParts = Lists.newArrayList();
-        if (identifier.getDatabaseName().isPresent()) {
-            nameParts.add(identifier.getDatabaseName().get());
-        }
-        nameParts.add(identifier.getTableName());
+    public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
+            List<String> hints) {
+        super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
+        this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
+        this.isTempPart = isTempPart;
+        this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints should not be null."));
+    }
+
+    @Override
+    public Table getTable() {
+        throw new UnsupportedOperationException("unbound relation cannot get table");
     }
 
     public List<String> getNameParts() {
@@ -88,12 +94,14 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundRelation(nameParts, groupExpression, Optional.of(getLogicalProperties()));
+        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()), partNames,
+                isTempPart, hints);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(nameParts, Optional.empty(), logicalProperties);
+        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames,
+                isTempPart, hints);
     }
 
     @Override
@@ -103,9 +111,15 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("UnboundRelation",
+        List<Object> args = Lists.newArrayList(
+                "id", id,
                 "nameParts", StringUtils.join(nameParts, ".")
         );
+        if (CollectionUtils.isNotEmpty(hints)) {
+            args.add("hints");
+            args.add(StringUtils.join(hints, ", "));
+        }
+        return Utils.toSqlString("UnboundRelation", args.toArray());
     }
 
     @Override
@@ -116,6 +130,10 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
     @Override
     public List<? extends Expression> getExpressions() {
         throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
+    }
+
+    public RelationId getId() {
+        return id;
     }
 
     @Override
@@ -130,11 +148,23 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
             return false;
         }
         UnboundRelation that = (UnboundRelation) o;
-        return Objects.equals(nameParts, that.nameParts);
+        return id.equals(that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(nameParts);
+        return Objects.hash(id);
+    }
+
+    public List<String> getPartNames() {
+        return partNames;
+    }
+
+    public boolean isTempPart() {
+        return isTempPart;
+    }
+
+    public List<String> getHints() {
+        return hints;
     }
 }

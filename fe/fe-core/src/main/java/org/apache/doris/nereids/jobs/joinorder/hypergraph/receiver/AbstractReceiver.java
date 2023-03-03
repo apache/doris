@@ -26,13 +26,13 @@ import java.util.List;
  * A interface of receiver
  */
 public interface AbstractReceiver {
-    public boolean emitCsgCmp(long csg, long cmp, List<Edge> edges);
+    boolean emitCsgCmp(long csg, long cmp, List<Edge> edges);
 
-    public void addGroup(long bitSet, Group group);
+    void addGroup(long bitSet, Group group);
 
-    public boolean contain(long bitSet);
+    boolean contain(long bitSet);
 
-    public void reset();
+    void reset();
 
-    public Group getBestPlan(long bitSet);
+    Group getBestPlan(long bitSet);
 }

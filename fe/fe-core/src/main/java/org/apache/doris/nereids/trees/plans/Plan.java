@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -87,6 +88,8 @@ public interface Plan extends TreeNode<Plan> {
      */
     List<Slot> getOutput();
 
+    List<Slot> getNonUserVisibleOutput();
+
     /**
      * Get output slot set of the plan.
      */
@@ -114,6 +117,10 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
+    default List<Slot> computeNonUserVisibleOutput() {
+        return ImmutableList.of();
+    }
+
     String treeString();
 
     default Plan withOutput(List<Slot> output) {
@@ -123,4 +130,19 @@ public interface Plan extends TreeNode<Plan> {
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+
+    <T> Optional<T> getMutableState(String key);
+
+    /** getOrInitMutableState */
+    default <T> T getOrInitMutableState(String key, Supplier<T> initState) {
+        Optional<T> mutableState = getMutableState(key);
+        if (!mutableState.isPresent()) {
+            T state = initState.get();
+            setMutableState(key, state);
+            return state;
+        }
+        return mutableState.get();
+    }
+
+    void setMutableState(String key, Object value);
 }

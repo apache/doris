@@ -73,7 +73,7 @@ public class ShowIndexStmt extends ShowStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                 ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
                     tableName.getDb() + ": " + tableName.toString());

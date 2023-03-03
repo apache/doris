@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -38,7 +37,7 @@ struct ScannerCounter {
 
 class VScanner {
 public:
-    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit);
+    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
 
     virtual ~VScanner() {}
 
@@ -47,9 +46,6 @@ public:
     Status get_block(RuntimeState* state, Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
-
-    // Subclass must implement this to return the current rows read
-    virtual int64_t raw_rows_read() { return 0; }
 
 protected:
     // Subclass should implement this to return data.
@@ -64,6 +60,10 @@ protected:
 public:
     VScanNode* get_parent() { return _parent; }
 
+    int64_t get_time_cost_ns() const { return _per_scanner_timer; }
+
+    int64_t get_rows_read() const { return _num_rows_read; }
+
     Status try_append_late_arrival_runtime_filter();
 
     // Call start_wait_worker_timer() when submit the scanner to the thread pool.
@@ -73,7 +73,14 @@ public:
         _watch.start();
     }
 
+    void start_scan_cpu_timer() {
+        _cpu_watch.reset();
+        _cpu_watch.start();
+    }
+
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+
+    void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
     RuntimeState* runtime_state() { return _state; }
 
@@ -82,8 +89,8 @@ public:
 
     int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
 
-    doris::TabletStorageType get_storage_type() {
-        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    virtual doris::TabletStorageType get_storage_type() {
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
     bool need_to_close() { return _need_to_close; }
@@ -96,10 +103,6 @@ public:
     void set_status_on_failure(const Status& st) { _status = st; }
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
-
-    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) {
-        _conjunct_ctxs = conjunct_ctxs;
-    }
 
     // return false if _is_counted_down is already true,
     // otherwise, set _is_counted_down to true and return true.
@@ -126,6 +129,8 @@ protected:
     // Set if scan node has sort limit info
     int64_t _limit = -1;
 
+    RuntimeProfile* _profile;
+
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
     const TupleDescriptor* _real_tuple_desc = nullptr;
@@ -133,9 +138,6 @@ protected:
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
     Block _input_block;
-    // If _input_tuple_desc is set, this will point to _input_block,
-    // otherwise, it will point to the output block.
-    Block* _input_block_ptr;
 
     bool _is_open = false;
     bool _is_closed = false;
@@ -157,21 +159,25 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
+    // num of rows return from scanner, after filter block
+    int64_t _num_rows_return = 0;
+
     // Set true after counter is updated finally
     bool _has_updated_counter = false;
 
     // watch to count the time wait for scanner thread
     MonotonicStopWatch _watch;
+    // Do not use ScopedTimer. There is no guarantee that, the counter
+    ThreadCpuStopWatch _cpu_watch;
     int64_t _scanner_wait_worker_timer = 0;
-
-    // File formats based push down predicate
-    std::vector<ExprContext*> _conjunct_ctxs;
+    int64_t _scan_cpu_timer = 0;
 
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
 
     ScannerCounter _counter;
+    int64_t _per_scanner_timer = 0;
 };
 
 } // namespace doris::vectorized

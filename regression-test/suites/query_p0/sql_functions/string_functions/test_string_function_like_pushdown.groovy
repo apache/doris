@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_string_function_like_pushdown", "query") {
-    sql "set enable_vectorized_engine = true;"
     sql "set enable_function_pushdown = true;"
     sql "set batch_size = 4096;"
 

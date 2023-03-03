@@ -20,10 +20,14 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.util.TreeStringUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -33,8 +37,10 @@ import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -45,7 +51,7 @@ import java.util.stream.Collectors;
  */
 public class Group {
     private final GroupId groupId;
-    // Save all parent GroupExpression to avoid travsing whole Memo.
+    // Save all parent GroupExpression to avoid traversing whole Memo.
     private final IdentityHashMap<GroupExpression, Void> parentExpressions = new IdentityHashMap<>();
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
@@ -67,24 +73,26 @@ public class Group {
      */
     public Group(GroupId groupId, GroupExpression groupExpression, LogicalProperties logicalProperties) {
         this.groupId = groupId;
-        if (groupExpression.getPlan() instanceof LogicalPlan) {
-            this.logicalExpressions.add(groupExpression);
-        } else {
-            this.physicalExpressions.add(groupExpression);
-        }
+        addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
-        groupExpression.setOwnerGroup(this);
     }
 
     /**
-     * For unit test only.
+     * Construct a Group without any group expression
+     *
+     * @param groupId the groupId in memo
      */
-    public Group() {
-        groupId = null;
+    public Group(GroupId groupId, LogicalProperties logicalProperties) {
+        this.groupId = groupId;
+        this.logicalProperties = logicalProperties;
     }
 
     public GroupId getGroupId() {
         return groupId;
+    }
+
+    public List<PhysicalProperties> getAllProperties() {
+        return new ArrayList<>(lowestCostPlans.keySet());
     }
 
     /**
@@ -108,6 +116,11 @@ public class Group {
         logicalExpressions.add(groupExpression);
     }
 
+    public void addPhysicalExpression(GroupExpression groupExpression) {
+        groupExpression.setOwnerGroup(this);
+        physicalExpressions.add(groupExpression);
+    }
+
     public List<GroupExpression> getLogicalExpressions() {
         return logicalExpressions;
     }
@@ -125,8 +138,6 @@ public class Group {
     public GroupExpression getLogicalExpression() {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
-        Preconditions.checkArgument(physicalExpressions.isEmpty(),
-                "The Physical Expression list in Group should be empty");
         return logicalExpressions.get(0);
     }
 
@@ -141,10 +152,11 @@ public class Group {
      * @return removed {@link GroupExpression}
      */
     public GroupExpression removeGroupExpression(GroupExpression groupExpression) {
+        // use identityRemove to avoid equals() method
         if (groupExpression.getPlan() instanceof LogicalPlan) {
-            logicalExpressions.remove(groupExpression);
+            Utils.identityRemove(logicalExpressions, groupExpression);
         } else {
-            physicalExpressions.remove(groupExpression);
+            Utils.identityRemove(physicalExpressions, groupExpression);
         }
         groupExpression.setOwnerGroup(null);
         return groupExpression;
@@ -196,7 +208,7 @@ public class Group {
      */
     public void setBestPlan(GroupExpression expression, double cost, PhysicalProperties properties) {
         if (lowestCostPlans.containsKey(properties)) {
-            if (lowestCostPlans.get(properties).first >= cost) {
+            if (lowestCostPlans.get(properties).first > cost) {
                 lowestCostPlans.put(properties, Pair.of(cost, expression));
             }
         } else {
@@ -207,13 +219,30 @@ public class Group {
     /**
      * replace best plan with new properties
      */
-    public void replaceBestPlan(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
+    public void replaceBestPlanProperty(PhysicalProperties oldProperty, PhysicalProperties newProperty, double cost) {
         Pair<Double, GroupExpression> pair = lowestCostPlans.get(oldProperty);
         GroupExpression lowestGroupExpr = pair.second;
         lowestGroupExpr.updateLowestCostTable(newProperty,
                 lowestGroupExpr.getInputPropertiesList(oldProperty), cost);
         lowestCostPlans.remove(oldProperty);
         lowestCostPlans.put(newProperty, pair);
+    }
+
+    /**
+     * replace oldGroupExpression with newGroupExpression in lowestCostPlans.
+     */
+    public void replaceBestPlanGroupExpr(GroupExpression oldGroupExpression, GroupExpression newGroupExpression) {
+        Map<PhysicalProperties, Pair<Double, GroupExpression>> needReplaceBestExpressions = Maps.newHashMap();
+        for (Iterator<Entry<PhysicalProperties, Pair<Double, GroupExpression>>> iterator =
+                lowestCostPlans.entrySet().iterator(); iterator.hasNext(); ) {
+            Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry = iterator.next();
+            Pair<Double, GroupExpression> pair = entry.getValue();
+            if (pair.second.equals(oldGroupExpression)) {
+                needReplaceBestExpressions.put(entry.getKey(), Pair.of(pair.first, newGroupExpression));
+                iterator.remove();
+            }
+        }
+        lowestCostPlans.putAll(needReplaceBestExpressions);
     }
 
     public StatsDeriveResult getStatistics() {
@@ -260,53 +289,59 @@ public class Group {
     }
 
     /**
-     * move the ownerGroup of all logical expressions to target group
-     * if this.equals(target), do nothing.
+     * move the ownerGroup to target group.
      *
      * @param target the new owner group of expressions
      */
-    public void moveLogicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : logicalExpressions) {
-            target.addGroupExpression(expression);
+    public void mergeTo(Group target) {
+        // move parentExpressions Ownership
+        parentExpressions.keySet().forEach(target::addParentExpression);
+        // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
+        // So we need to manually replace the children of PhysicalEnforcer in here.
+        parentExpressions.keySet().stream().filter(ge -> ge.getPlan() instanceof PhysicalDistribute)
+                .forEach(ge -> ge.children().set(0, target));
+        parentExpressions.clear();
+
+        // move LogicalExpression PhysicalExpression Ownership
+        Map<GroupExpression, GroupExpression> logicalSet = target.getLogicalExpressions().stream()
+                .collect(Collectors.toMap(Function.identity(), Function.identity()));
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            GroupExpression existGroupExpr = logicalSet.get(logicalExpression);
+            if (existGroupExpr != null) {
+                Preconditions.checkState(logicalExpression != existGroupExpr, "must not equals");
+                // lowCostPlans must be physical GroupExpression, don't need to replaceBestPlanGroupExpr
+                logicalExpression.mergeToNotOwnerRemove(existGroupExpr);
+            } else {
+                target.addLogicalExpression(logicalExpression);
+            }
         }
         logicalExpressions.clear();
-    }
-
-    /**
-     * move the ownerGroup of all physical expressions to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void movePhysicalExpressionOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
-        for (GroupExpression expression : physicalExpressions) {
-            target.addGroupExpression(expression);
+        // movePhysicalExpressionOwnership
+        Map<GroupExpression, GroupExpression> physicalSet = target.getPhysicalExpressions().stream()
+                .collect(Collectors.toMap(Function.identity(), Function.identity()));
+        for (GroupExpression physicalExpression : physicalExpressions) {
+            GroupExpression existGroupExpr = physicalSet.get(physicalExpression);
+            if (existGroupExpr != null) {
+                Preconditions.checkState(physicalExpression != existGroupExpr, "must not equals");
+                physicalExpression.getOwnerGroup().replaceBestPlanGroupExpr(physicalExpression, existGroupExpr);
+                physicalExpression.mergeToNotOwnerRemove(existGroupExpr);
+            } else {
+                target.addPhysicalExpression(physicalExpression);
+            }
         }
         physicalExpressions.clear();
-    }
 
-    /**
-     * move the ownerGroup of all lowestCostPlans to target group
-     * if this.equals(target), do nothing.
-     *
-     * @param target the new owner group of expressions
-     */
-    public void moveLowestCostPlansOwnership(Group target) {
-        if (equals(target)) {
-            return;
-        }
+        // Above we already replaceBestPlanGroupExpr, but we still need to moveLowestCostPlansOwnership.
+        // Because PhysicalEnforcer don't exist in physicalExpressions, so above `replaceBestPlanGroupExpr` can't
+        // move PhysicalEnforcer in lowestCostPlans. Following code can move PhysicalEnforcer in lowestCostPlans.
         lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
             GroupExpression bestGroupExpression = costAndGroupExpr.second;
-            // change into target group.
             if (bestGroupExpression.getOwnerGroup() == this || bestGroupExpression.getOwnerGroup() == null) {
+                // move PhysicalEnforcer into target
+                Preconditions.checkState(bestGroupExpression.getPlan() instanceof PhysicalDistribute);
                 bestGroupExpression.setOwnerGroup(target);
             }
+            // move lowestCostPlans Ownership
             if (!target.lowestCostPlans.containsKey(physicalProperties)) {
                 target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
             } else {
@@ -316,10 +351,27 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+
+        // If statistics is null, use other statistics
+        if (target.statistics == null) {
+            target.statistics = this.statistics;
+        }
     }
 
+    /**
+     * This function used to check whether the group is an end node in DPHyp
+     */
     public boolean isJoinGroup() {
-        return getLogicalExpression().getPlan() instanceof LogicalJoin;
+        Plan plan = getLogicalExpression().getPlan();
+        if (plan instanceof LogicalJoin) {
+            // Right now, we only support inner join
+            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN;
+        }
+        return false;
+    }
+
+    public boolean isProjectGroup() {
+        return getLogicalExpression().getPlan() instanceof LogicalProject;
     }
 
     @Override
@@ -341,7 +393,16 @@ public class Group {
 
     @Override
     public String toString() {
-        return "Group[" + groupId + "]";
+        StringBuilder str = new StringBuilder("Group[" + groupId + "]\n");
+        str.append("logical expressions:\n");
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            str.append("  ").append(logicalExpression).append("\n");
+        }
+        str.append("physical expressions:\n");
+        for (GroupExpression physicalExpression : physicalExpressions) {
+            str.append("  ").append(physicalExpression).append("\n");
+        }
+        return str.toString();
     }
 
     /**
@@ -352,7 +413,7 @@ public class Group {
     public String treeString() {
         Function<Object, String> toString = obj -> {
             if (obj instanceof Group) {
-                return obj.toString();
+                return "Group[" + ((Group) obj).groupId + "]";
             } else if (obj instanceof GroupExpression) {
                 return ((GroupExpression) obj).getPlan().toString();
             } else if (obj instanceof Pair) {

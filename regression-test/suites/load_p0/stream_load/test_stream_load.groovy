@@ -186,12 +186,14 @@ suite("test_stream_load", "p0") {
     def tableName6 = "test_unique_key"
     def tableName7 = "test_unique_key_with_delete"
     def tableName8 = "test_array"
+    def tableName10 = "test_struct"
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ DROP TABLE IF EXISTS ${tableName5} """
     sql """ DROP TABLE IF EXISTS ${tableName6} """
     sql """ DROP TABLE IF EXISTS ${tableName7} """
     sql """ DROP TABLE IF EXISTS ${tableName8} """
+    sql """ DROP TABLE IF EXISTS ${tableName10} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -280,6 +282,28 @@ suite("test_stream_load", "p0") {
       `k9` ARRAY<FLOAT> NULL COMMENT "",
       `k10` ARRAY<DOUBLE> NULL COMMENT "",
       `k11` ARRAY<DECIMAL(20, 6)> NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true');"""
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName10} (
+      `k1` INT(11) NULL COMMENT "",
+      `k2` STRUCT<
+               f1:SMALLINT,
+               f2:INT(11),
+               f3:BIGINT,
+               f4:CHAR,
+               f5:VARCHAR(20),
+               f6:DATE,
+               f7:DATETIME,
+               f8:FLOAT,
+               f9:DOUBLE,
+               f10:DECIMAL(20, 6)> NULL COMMENT ""
     ) ENGINE=OLAP
     DUPLICATE KEY(`k1`)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -650,5 +674,159 @@ suite("test_stream_load", "p0") {
     order_qt_all102 "SELECT * from ${tableName8}" // 8
     sql """truncate table ${tableName8}"""
     sql """sync"""
+
+    // malformat with mismatch array type
+    streamLoad {
+        table "${tableName8}"
+
+        set 'column_separator', '|'
+        set 'columns', 'k1,k2,k3,k4,k5,k6,k7,k8,k9,b10,k11,k10=array_remove(cast(k5 as array<bigint>), 1)'
+
+        file 'array_normal.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains('Don\'t support load from type'))
+        }
+    }
+    sql "sync"
+
+    // ===== test struct stream load
+    // malformat without strictmode
+    streamLoad {
+        table "${tableName10}"
+
+        set 'column_separator', '|'
+
+        file 'struct_malformat.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(5, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    qt_all111 "SELECT * from ${tableName10} order by k1" // 5
+    sql """truncate table ${tableName10}"""
+    sql """sync"""
+
+    // malformat with strictmode
+    streamLoad {
+        table "${tableName10}"
+
+        set 'column_separator', '|'
+        set 'strict_mode', 'true'
+
+        file 'struct_malformat.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(2, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+
+    // normal load
+    streamLoad {
+        table "${tableName10}"
+
+        set 'column_separator', '|'
+
+        file 'struct_normal.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(13, json.NumberTotalRows)
+            assertEquals(13, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    sql "sync"
+    qt_all112 "SELECT * from ${tableName10} order by k1" // 10
+    sql """truncate table ${tableName10}"""
+    sql """sync"""
+
+    // test immutable partition success
+    def tableName9 = "test_immutable_partition"
+    sql """ DROP TABLE IF EXISTS ${tableName9} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName9} (
+            `k1` bigint(20) NULL,
+            `k2` bigint(20) NULL,
+            `v1` tinyint(4) SUM NULL,
+            `v2` tinyint(4) REPLACE NULL,
+            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`k1`)
+        (PARTITION partition_a VALUES [("-9223372036854775808"), ("10")),
+        PARTITION partition_b VALUES [("10"), ("20")),
+        PARTITION partition_c VALUES [("20"), ("30")),
+        PARTITION partition_d VALUES [("30"), ("40")))
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    sql """ALTER TABLE ${tableName9} ADD PARTITION partition_e VALUES less than ('3000') properties ('mutable' = 'false')"""
+    sql """ALTER TABLE ${tableName9} MODIFY PARTITION partition_b set ('mutable' = 'false')"""
+
+    streamLoad {
+        table "${tableName9}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'k1, k2, v1, v2, v3'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d, partition_e'
+        set 'strict_mode', 'true'
+
+        file 'test_immutable_partition.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(11, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(5, json.NumberUnselectedRows)
+        }
+    }
+    
+    sql "sync"
+    order_qt_sql1 "select * from ${tableName9} order by k1, k2"
 }
 

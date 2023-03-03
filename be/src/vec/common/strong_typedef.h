@@ -70,14 +70,12 @@ public:
     const T& to_under_type() const { return t; }
 };
 
-namespace std {
 template <class T, class Tag>
-struct hash<StrongTypedef<T, Tag>> {
+struct std::hash<StrongTypedef<T, Tag>> {
     size_t operator()(const StrongTypedef<T, Tag>& x) const {
         return std::hash<T>()(x.to_under_type());
     }
 };
-} // namespace std
 
 #define STRONG_TYPEDEF(T, D) \
     struct D##Tag {};        \

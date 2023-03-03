@@ -31,6 +31,7 @@ import javax.annotation.Nullable;
  * Abstract class for all physical plan that have no child.
  */
 public abstract class PhysicalLeaf extends AbstractPhysicalPlan implements LeafPlan {
+
     public PhysicalLeaf(PlanType type, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(type, groupExpression, logicalProperties);
     }

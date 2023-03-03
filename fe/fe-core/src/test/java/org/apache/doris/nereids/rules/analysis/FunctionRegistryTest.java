@@ -31,8 +31,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.Map;
 
 // this ut will add more test case later
-public class FunctionRegistryTest implements PatternMatchSupported {
+public class FunctionRegistryTest implements MemoPatternMatchSupported {
     private ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
     @Test
@@ -121,7 +121,7 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         ImmutableList<Expression> arguments = ImmutableList.of(Literal.of(1));
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder("foo", arguments);
         BoundFunction function = functionBuilder.build("foo", arguments);
-        Assertions.assertTrue(function.getClass().equals(ExtendFunction.class));
+        Assertions.assertEquals(function.getClass(), ExtendFunction.class);
         Assertions.assertEquals(arguments, function.getArguments());
     }
 

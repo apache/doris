@@ -45,6 +45,7 @@ using rocksdb::Status;
 using rocksdb::kDefaultColumnFamilyName;
 
 namespace doris {
+using namespace ErrorCode;
 
 // should use tablet->generate_tablet_meta_copy() method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
@@ -57,10 +58,10 @@ Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaH
     std::string key = key_stream.str();
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
-    if (s.precise_code() == OLAP_ERR_META_KEY_NOT_FOUND) {
+    if (s.is<META_KEY_NOT_FOUND>()) {
         LOG(WARNING) << "tablet_id:" << tablet_id << ", schema_hash:" << schema_hash
                      << " not found.";
-        return Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND);
+        return Status::Error<META_KEY_NOT_FOUND>();
     } else if (!s.ok()) {
         LOG(WARNING) << "load tablet_id:" << tablet_id << ", schema_hash:" << schema_hash
                      << " failed.";
@@ -151,7 +152,7 @@ Status TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta
     bool ret = json2pb::JsonToProtoMessage(json_meta, &tablet_meta_pb, &error);
     if (!ret) {
         LOG(ERROR) << "JSON to protobuf message failed: " << error;
-        return Status::OLAPInternalError(OLAP_ERR_HEADER_LOAD_JSON_HEADER);
+        return Status::Error<HEADER_LOAD_JSON_HEADER>();
     }
 
     std::string meta_binary;

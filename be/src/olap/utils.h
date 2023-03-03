@@ -35,9 +35,6 @@
 #include <vector>
 
 #include "common/logging.h"
-#if defined(__i386) || defined(__x86_64__)
-#include "olap/bhp_lib.h"
-#endif
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
@@ -46,6 +43,7 @@
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,
@@ -78,7 +76,7 @@ private:
 template <typename T>
 Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
-        return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
     }
 
     // 处理base为空的情况
@@ -108,43 +106,13 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-template <typename T>
-void _destruct_array(const void* array, void*) {
-    delete[] ((const T*)array);
-}
-
-// 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，
-// 通过指针返回的written_len是实际写入的长度。
-Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                     size_t* written_len, OLAPCompressionType compression_type);
-
-Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                       size_t* written_len, OLAPCompressionType compression_type);
-
 // 计算adler32的包装函数
 // 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
 #define ADLER32_INIT adler32(0L, Z_NULL, 0)
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
-// CRC32仅仅用在RowBlock的校验，性能优异
-#define CRC32_INIT 0xFFFFFFFF
-uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len);
-
 // 获取系统当前时间，并将时间转换为字符串
 Status gen_timestamp_string(std::string* out_string);
-
-enum ComparatorEnum {
-    COMPARATOR_LESS = 0,
-    COMPARATOR_LARGER = 1,
-};
-
-// 处理comparator functor处理过程中出现的错误
-class ComparatorException : public std::exception {
-public:
-    virtual const char* what() const throw() {
-        return "exception happens when doing binary search.";
-    }
-};
 
 // iterator offset，用于二分查找
 using iterator_offset_t = size_t;
@@ -272,6 +240,22 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale);
 
 bool valid_bool(const std::string& value_str);
 
+constexpr bool is_string_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+           field_type == OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool is_numeric_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
+           field_type == OLAP_FIELD_TYPE_DATETIME || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_BOOL;
+}
+
 // Util used to get string name of thrift enum item
 #define EnumToString(enum_type, index, out)                 \
     do {                                                    \
@@ -292,6 +276,13 @@ struct RowLocation {
     RowsetId rowset_id;
     uint32_t segment_id;
     uint32_t row_id;
+};
+
+struct GlobalRowLoacation {
+    GlobalRowLoacation(uint32_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
+            : tablet_id(tid), row_location(rsid, sid, rid) {}
+    uint32_t tablet_id;
+    RowLocation row_location;
 };
 
 } // namespace doris

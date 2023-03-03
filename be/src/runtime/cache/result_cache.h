@@ -32,8 +32,6 @@
 #include "runtime/cache/cache_utils.h"
 #include "runtime/cache/result_node.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 
 namespace doris {
 

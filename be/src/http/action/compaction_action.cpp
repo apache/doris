@@ -35,6 +35,7 @@
 #include "olap/storage_engine.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 const static std::string HEADER_JSON = "application/json";
 
@@ -192,7 +193,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         BaseCompaction base_compaction(tablet);
         res = base_compaction.compact();
         if (!res) {
-            if (res.precise_code() == OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+            if (res.is<BE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
                             << tablet->full_name();
@@ -206,7 +207,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         CumulativeCompaction cumulative_compaction(tablet);
         res = cumulative_compaction.compact();
         if (!res) {
-            if (res.precise_code() == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+            if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();

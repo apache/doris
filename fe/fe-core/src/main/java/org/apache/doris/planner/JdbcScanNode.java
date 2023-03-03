@@ -54,12 +54,6 @@ public class JdbcScanNode extends ScanNode {
     private String tableName;
     private TOdbcTableType jdbcType;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, JdbcTable tbl) {
-        super(id, desc, "SCAN JDBC", StatisticalType.JDBC_SCAN_NODE);
-        jdbcType = tbl.getJdbcTableType();
-        tableName = OdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
-    }
-
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
         super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE);
         JdbcTable tbl = null;
@@ -79,12 +73,21 @@ public class JdbcScanNode extends ScanNode {
         computeStats(analyzer);
     }
 
+    /**
+     * Used for Nereids. Should NOT use this function in anywhere else.
+     */
+    public void init() throws UserException {
+        numNodes = numNodes <= 0 ? 1 : numNodes;
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
+    }
+
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return null;
     }
 
-    private void createJdbcFilters(Analyzer analyzer) {
+    private void createJdbcFilters() {
         if (conjuncts.isEmpty()) {
             return;
         }
@@ -102,14 +105,14 @@ public class JdbcScanNode extends ScanNode {
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         for (Expr p : conjunctsList) {
             if (OdbcScanNode.shouldPushDownConjunct(jdbcType, p)) {
-                String filter = p.toMySql();
+                String filter = OdbcScanNode.conjunctExprToString(jdbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
             }
         }
     }
 
-    private void createJdbcColumns(Analyzer analyzer) {
+    private void createJdbcColumns() {
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -174,8 +177,14 @@ public class JdbcScanNode extends ScanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         // Convert predicates to Jdbc columns and filters.
-        createJdbcColumns(analyzer);
-        createJdbcFilters(analyzer);
+        createJdbcColumns();
+        createJdbcFilters();
+    }
+
+    @Override
+    public void finalizeForNereids() throws UserException {
+        createJdbcColumns();
+        createJdbcFilters();
     }
 
     @Override
@@ -195,6 +204,7 @@ public class JdbcScanNode extends ScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        msg.jdbc_scan_node.setTableType(jdbcType);
     }
 
     @Override

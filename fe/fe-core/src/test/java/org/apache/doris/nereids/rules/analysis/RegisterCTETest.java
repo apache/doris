@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -28,10 +29,10 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -45,8 +46,8 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.FieldChecker;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -59,7 +60,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class RegisterCTETest extends TestWithFeService implements PatternMatchSupported {
+public class RegisterCTETest extends TestWithFeService implements MemoPatternMatchSupported {
 
     private final NereidsParser parser = new NereidsParser();
 
@@ -120,7 +121,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         new MockUp<RuleSet>() {
             @Mock
             public List<Rule> getExplorationRules() {
-                return Lists.newArrayList(new AggregateDisassemble().build());
+                return Lists.newArrayList(new AggregateStrategies().buildRules());
             }
         };
 
@@ -198,14 +199,14 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("cte1"));
         SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        SlotReference count = new SlotReference(new ExprId(14), "count()", BigIntType.INSTANCE,
+        SlotReference count = new SlotReference(new ExprId(14), "count(*)", BigIntType.INSTANCE,
                 false, ImmutableList.of());
-        Alias countAlias = new Alias(new ExprId(14), new Count(), "count()");
+        Alias countAlias = new Alias(new ExprId(14), new Count(), "count(*)");
 
         PlanChecker.from(connectContext)
                 .analyze(sql3)
-                .applyBottomUp(new PushApplyUnderProject())
-                .applyBottomUp(new PushApplyUnderFilter())
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyBottomUp(new UnCorrelatedApplyFilter())
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalProject(
@@ -236,15 +237,14 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .analyze(sql4)
                 .matchesFromRoot(
                     logicalProject(
-                        logicalJoin(
+                        innerLogicalJoin(
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias)))
                             ).when(a -> a.getAlias().equals("cte1")),
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skInCTE2)))
                             ).when(a -> a.getAlias().equals("cte2"))
-                        ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                            .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
+                        ).when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
                     ).when(p -> p.getProjects().equals(ImmutableList.of(skInCTE1, skInCTE2)))
                 );
     }
@@ -341,6 +341,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testDifferenceRelationId() {
+        final Integer[] integer = {0};
         PlanChecker.from(connectContext)
                 .analyze("with s as (select * from supplier) select * from s as s1, s as s2")
                 .matchesFromRoot(
@@ -349,14 +350,17 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                             logicalSubQueryAlias(// as s1
                                 logicalSubQueryAlias(// as s
                                     logicalProject(// select * from supplier
-                                        logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                                        logicalOlapScan().when(scan -> {
+                                            integer[0] = scan.getId().asInt();
+                                            return true;
+                                        })
                                     )
                                 ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s1")),
                             logicalSubQueryAlias(
                                 logicalSubQueryAlias(
                                      logicalProject(
-                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                         logicalOlapScan().when(scan -> scan.getId().asInt() != integer[0])
                                      )
                                  ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s2"))

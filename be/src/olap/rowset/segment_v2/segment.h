@@ -37,7 +37,6 @@
 
 namespace doris {
 
-class SegmentGroup;
 class TabletSchema;
 class ShortKeyIndexDecoder;
 class Schema;
@@ -51,7 +50,6 @@ class ColumnIterator;
 class Segment;
 class SegmentIterator;
 using SegmentSharedPtr = std::shared_ptr<Segment>;
-
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -62,9 +60,10 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(io::FileSystemSPtr fs, const std::string& path,
-                       const std::string& cache_path, uint32_t segment_id, RowsetId rowset_id,
-                       TabletSchemaSPtr tablet_schema, std::shared_ptr<Segment>* output);
+    static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                       const io::FileReaderOptions& reader_options,
+                       std::shared_ptr<Segment>* output);
 
     ~Segment();
 
@@ -81,6 +80,10 @@ public:
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
+    Status new_inverted_index_iterator(const TabletColumn& tablet_column,
+                                       const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                                       InvertedIndexIterator** iter);
+
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();
@@ -93,6 +96,8 @@ public:
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);
 
+    Status read_key_by_rowid(uint32_t row_id, std::string* key);
+
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
@@ -103,11 +108,15 @@ public:
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().min_key();
-    };
+    }
     std::string max_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().max_key();
-    };
+    }
+
+    io::FileReaderSPtr file_reader() { return _file_reader; }
+
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

@@ -107,7 +107,8 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
                 params.put("catalogId", String.valueOf(catalog.getId()));
                 params.put("dbId", String.valueOf(db.getId()));
-                params.put("tblId", String.valueOf(meta.getIndexId()));
+                params.put("tblId", String.valueOf(tbl.getId()));
+                params.put("idxId", String.valueOf(meta.getIndexId()));
                 String colName = column.getName();
                 params.put("colId", colName);
                 long partId = part.getId();
@@ -122,7 +123,8 @@ public class MVAnalysisTask extends BaseAnalysisTask {
             params.remove("partId");
             params.put("type", column.getType().toString());
             StatisticsUtil.execUpdate(ANALYZE_MV_COL, params);
-            Env.getCurrentEnv().getStatisticsCache().refreshSync(meta.getIndexId(), column.getName());
+            Env.getCurrentEnv().getStatisticsCache()
+                    .refreshSync(meta.getIndexId(), meta.getIndexId(), column.getName());
         }
     }
 

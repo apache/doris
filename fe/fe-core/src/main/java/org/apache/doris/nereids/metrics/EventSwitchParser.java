@@ -25,6 +25,7 @@ import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -33,7 +34,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * parser
@@ -76,7 +76,7 @@ public class EventSwitchParser {
     public static List<String> checkEventModeStringAndSplit(String eventTypeMode) {
         List<String> strings = Arrays.stream(eventTypeMode.toLowerCase().split("[\\s+,]"))
                 .map(String::trim)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         if (strings.size() == 0) {
             return null;
         } else if ("all".equals(strings.get(0))) {

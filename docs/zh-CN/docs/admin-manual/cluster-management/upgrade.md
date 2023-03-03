@@ -59,10 +59,14 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 ## 测试 BE 升级正确性
 
 1. 任意选择一个 BE 节点，部署最新的 doris_be 二进制文件。
+
 2. 重启 BE 节点，通过 BE 日志 be.INFO，查看是否启动成功。
+
 3. 如果启动失败，可以先排查原因。如果错误不可恢复，可以直接通过 DROP BACKEND 删除该 BE、清理数据后，使用上一个版本的 doris_be 重新启动 BE。然后重新 ADD BACKEND。（**该方法会导致丢失一个数据副本，请务必确保3副本完整的情况下，执行这个操作！！！**）
+
 4. 安装 Java UDF 函数
-<version since="1.2.0">安装 Java UDF 函数： </version>, 因为从1.2 版本开始支持Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
+
+   <version since="1.2.0">安装 Java UDF 函数： </version>, 因为从1.2 版本开始支持Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
 
 
 ## 测试 FE 元数据兼容性
@@ -79,10 +83,13 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 9. 如果启动成功，运行 sh bin/stop_fe.sh 停止测试环境的 FE 进程。
 10. **以上 2-6 步的目的是防止测试环境的FE启动后，错误连接到线上环境中。**
 
+**注：**
+1.1.x 版本升级 1.2.x 版本时，需要先删除已有的原生 UDF ；否则会导致FE启动失败；并且1.2版本开始不再对原生 UDF提供支持，请使用 [Java UDF](../../ecosystem/udf/java-user-defined-function.md)。
+
 ## 升级准备
 
 1. 在完成数据正确性验证后，将 BE 和 FE 新版本的二进制文件分发到各自目录下。
-2. 通常小版本升级，BE 只需升级 doris_be；而 FE 只需升级 palo-fe.jar。如果是大版本升级，则可能需要升级其他文件（包括但不限于 bin/ lib/ 等等）如果你不清楚是否需要替换其他文件，建议全部替换。
+2. 原则上版本升级需要替换 FE 和 BE 的 lib 目录以及 bin 目录，和除 conf 目录、数据目录（FE 的 doris-meta，BE 的 storage）、log 目录外的其他目录。
 
 ## 滚动升级
 

@@ -29,7 +29,7 @@ class QueryStatisticsRecvr;
 
 class NodeStatistics {
 public:
-    NodeStatistics() : peak_memory_bytes(0) {};
+    NodeStatistics() : peak_memory_bytes(0) {}
 
     void add_peak_memory(int64_t peak_memory) { this->peak_memory_bytes += peak_memory; }
 

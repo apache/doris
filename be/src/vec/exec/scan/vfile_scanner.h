@@ -19,10 +19,10 @@
 
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
-#include "runtime/tuple.h"
+#include "vec/common/schema_util.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -33,7 +33,8 @@ class NewFileScanNode;
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile);
+                 const TFileScanRange& scan_range, RuntimeProfile* profile,
+                 KVCache<string>& kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -49,7 +50,7 @@ protected:
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.
-    Status _cast_src_block(Block* block) { return Status::OK(); };
+    Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;
@@ -62,12 +63,11 @@ protected:
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // File slot id to index in _file_slot_descs
-    std::unordered_map<SlotId, int> _file_slot_index_map;
-    // file col name to index in _file_slot_descs
-    std::map<std::string, int> _file_slot_name_map;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+    // column id to name map. Collect from FE slot descriptor.
+    std::unordered_map<int, std::string> _col_id_name_map;
+
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
     // Partition slot id to index in _partition_slot_descs
@@ -100,11 +100,7 @@ protected:
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
 
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    std::unique_ptr<MemPool> _mem_pool;
-
-    // Profile
-    RuntimeProfile* _profile;
+    KVCache<std::string>& _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -118,6 +114,12 @@ protected:
     Block _src_block;
 
     VExprContext* _push_down_expr = nullptr;
+    bool _is_dynamic_schema = false;
+    // for tracing dynamic schema
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
+
+    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<IOContext> _io_ctx;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
@@ -136,6 +138,7 @@ private:
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
+    Status _handle_dynamic_block(Block* block);
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;

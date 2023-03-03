@@ -19,17 +19,18 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AuthType;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.URI;
 
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
@@ -47,6 +48,7 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -56,7 +58,7 @@ import java.util.Map;
  */
 public class HdfsStorage extends BlobStorage {
     private static final Logger LOG = LogManager.getLogger(HdfsStorage.class);
-    private final Map<String, String> caseInsensitiveProperties;
+    private final Map<String, String> hdfsProperties;
 
     private final int readBufferSize = 128 << 10; // 128k
     private final int writeBufferSize = 128 << 10; // 128k
@@ -69,29 +71,28 @@ public class HdfsStorage extends BlobStorage {
      * @param properties parameters to access HDFS.
      */
     public HdfsStorage(Map<String, String> properties) {
-        caseInsensitiveProperties = new CaseInsensitiveMap();
+        hdfsProperties = new HashMap<>();
         setProperties(properties);
         setType(StorageBackend.StorageType.HDFS);
         setName(StorageBackend.StorageType.HDFS.name());
     }
 
-    public static void checkHDFS(Map<String, String> properties) throws UserException {
-        if (!properties.containsKey(BrokerUtil.HADOOP_FS_NAME)) {
-            throw new UserException(
-                    String.format("The properties of hdfs is invalid. %s are needed", BrokerUtil.HADOOP_FS_NAME));
-        }
+    public static String getFsName(String path) {
+        Path hdfsPath = new Path(path);
+        String fullPath = hdfsPath.toUri().toString();
+        String filePath = hdfsPath.toUri().getPath();
+        return fullPath.replace(filePath, "");
     }
 
-    private FileSystem getFileSystem(String remotePath) throws UserException {
+    @Override
+    public FileSystem getFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
-            checkHDFS(caseInsensitiveProperties);
-            String hdfsFsName = caseInsensitiveProperties.get(BrokerUtil.HADOOP_FS_NAME).toString();
-            String username = caseInsensitiveProperties.get(BrokerUtil.HADOOP_USER_NAME).toString();
+            String username = hdfsProperties.get(HdfsResource.HADOOP_USER_NAME);
             Configuration conf = new HdfsConfiguration();
             boolean isSecurityEnabled = false;
-            for (Map.Entry<String, String> propEntry : caseInsensitiveProperties.entrySet()) {
+            for (Map.Entry<String, String> propEntry : hdfsProperties.entrySet()) {
                 conf.set(propEntry.getKey(), propEntry.getValue());
-                if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
+                if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
                         && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
                     isSecurityEnabled = true;
                 }
@@ -101,10 +102,14 @@ public class HdfsStorage extends BlobStorage {
                 if (isSecurityEnabled) {
                     UserGroupInformation.setConfiguration(conf);
                     UserGroupInformation.loginUserFromKeytab(
-                            caseInsensitiveProperties.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                            caseInsensitiveProperties.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+                            hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
+                            hdfsProperties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
                 }
-                dfsFileSystem = FileSystem.get(java.net.URI.create(hdfsFsName), conf, username);
+                if (username == null) {
+                    dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf);
+                } else {
+                    dfsFileSystem = FileSystem.get(java.net.URI.create(remotePath), conf, username);
+                }
             } catch (Exception e) {
                 LOG.error("errors while connect to " + remotePath, e);
                 throw new UserException("errors while connect to " + remotePath, e);
@@ -116,7 +121,7 @@ public class HdfsStorage extends BlobStorage {
     @Override
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
-        caseInsensitiveProperties.putAll(properties);
+        hdfsProperties.putAll(properties);
     }
 
     @Override
@@ -488,6 +493,16 @@ public class HdfsStorage extends BlobStorage {
     }
 
     @Override
+    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
+        FileSystem fileSystem = getFileSystem(remotePath);
+        try {
+            return fileSystem.listLocatedStatus(new Path(remotePath));
+        } catch (IOException e) {
+            throw new UserException("Failed to list located status for path: " + remotePath, e);
+        }
+    }
+
+    @Override
     public Status list(String remotePath, List<RemoteFile> result) {
         return list(remotePath, result, true);
     }
@@ -500,6 +515,7 @@ public class HdfsStorage extends BlobStorage {
      * @param fileNameOnly means get file only in remotePath if true.
      * @return Status.OK if success.
      */
+    @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
@@ -552,6 +568,6 @@ public class HdfsStorage extends BlobStorage {
 
     @Override
     public StorageBackend.StorageType getStorageType() {
-        return StorageBackend.StorageType.HDFS;
+        return this.getType();
     }
 }

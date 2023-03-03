@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
 namespace doris {
@@ -38,6 +39,8 @@ public:
     Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
                    size_t* bytes_read) override;
 
+    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
+
     const Path& path() const override { return _remote_file_reader->path(); }
 
     size_t size() const override { return _remote_file_reader->size(); }
@@ -52,17 +55,30 @@ public:
 
     Status clean_all_cache() override;
 
+    Status clean_one_cache(size_t* cleaned_size) override;
+
+    int64_t get_oldest_match_time() const override { return _gc_match_time; }
+
+    bool is_gc_finish() const override;
+
+    FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
+
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);
 
-    Status _clean_cache_internal();
+    Status _clean_cache_internal(size_t* cleaned_size);
+
+    void update_last_match_time() { _last_match_time = time(nullptr); }
 
 private:
     Path _cache_dir;
     int64_t _alive_time_sec;
     io::FileReaderSPtr _remote_file_reader;
 
-    std::shared_mutex _cache_lock;
+    int64_t _gc_match_time {0};
+    int64_t _last_match_time {0};
+
+    mutable std::shared_mutex _cache_lock;
     io::FileReaderSPtr _cache_file_reader;
 };
 

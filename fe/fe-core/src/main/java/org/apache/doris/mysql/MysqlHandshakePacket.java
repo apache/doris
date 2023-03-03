@@ -23,7 +23,9 @@ public class MysqlHandshakePacket extends MysqlPacket {
     // Version of handshake packet, since MySQL 3.21.0, Handshake of protocol 10 is used
     private static final int PROTOCOL_VERSION = 10;
     // JDBC uses this version to check which protocol the server support
-    public static final String SERVER_VERSION = "5.7.37";
+    // Set the patch version to 99 to prevent the vulnerability scanning tool from
+    // falsely reporting MySQL vulnerabilities
+    public static final String SERVER_VERSION = "5.7.99";
     // 33 stands for UTF-8 character set
     private static final int CHARACTER_SET = 33;
     // use default capability for all

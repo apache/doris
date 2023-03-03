@@ -22,17 +22,14 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -67,15 +64,15 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalRepeat()).then(filter -> {
-            LogicalRepeat<GroupPlan> repeat = filter.child();
+            LogicalRepeat<Plan> repeat = filter.child();
             Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
             if (commonGroupingSetExpressions.isEmpty()) {
                 return filter;
             }
 
-            List<Expression> pushedPredicates = Lists.newArrayList();
-            List<Expression> notPushedPredicates = Lists.newArrayList();
-            for (Expression conjunct : ExpressionUtils.extractConjunction(filter.getPredicates())) {
+            Set<Expression> pushedPredicates = Sets.newHashSet();
+            Set<Expression> notPushedPredicates = Sets.newHashSet();
+            for (Expression conjunct : filter.getConjuncts()) {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 if (commonGroupingSetExpressions.containsAll(conjunctSlots)) {
                     pushedPredicates.add(conjunct);
@@ -88,13 +85,12 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
     }
 
     private Plan pushDownPredicate(LogicalFilter filter, LogicalRepeat repeat,
-                                   List<Expression> pushedPredicates, List<Expression> notPushedPredicates) {
+                                   Set<Expression> pushedPredicates, Set<Expression> notPushedPredicates) {
         if (pushedPredicates.size() == 0) {
             // nothing pushed down, just return origin plan
             return filter;
         }
-        LogicalFilter bottomFilter = new LogicalFilter<>(ExpressionUtils.and(pushedPredicates),
-                repeat.child(0));
+        LogicalFilter bottomFilter = new LogicalFilter<>(pushedPredicates, repeat.child(0));
 
         repeat = repeat.withChildren(ImmutableList.of(bottomFilter));
         return PlanUtils.filterOrSelf(notPushedPredicates, repeat);

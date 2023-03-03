@@ -26,6 +26,7 @@
                         "install/source-install/compilation",
                         "install/source-install/compilation-with-ldb-toolchain",
                         "install/source-install/compilation-arm",
+                        "install/source-install/compilation-win",
                         "install/source-install/compilation-mac"
                     ]
                 },
@@ -34,7 +35,7 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/construct-docker-compose"
+                        "install/construct-docker/run-docker-cluster"
                     ]
                 }
             ]
@@ -48,12 +49,15 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
+                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
-                        "data-table/index/bloomfilter",
                         "data-table/index/prefix-index",
+                        "data-table/index/inverted-index",
+                        "data-table/index/bloomfilter",
+                        "data-table/index/ngram-bloomfilter-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
@@ -91,6 +95,7 @@
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
                                 "data-operate/import/import-way/stream-load-manual",
+                                "data-operate/import/import-way/mysql-load-manual",
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
@@ -156,6 +161,7 @@
                         "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
+                "advanced/pipeline-execution-engine",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -164,7 +170,8 @@
                     "items": [
                         "advanced/best-practice/query-analysis",
                         "advanced/best-practice/import-analysis",
-                        "advanced/best-practice/debug-log"
+                        "advanced/best-practice/debug-log",
+                        "advanced/best-practice/compaction"
                     ]
                 },
                 "advanced/resource",
@@ -173,26 +180,47 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold_hot_separation"
+                "advanced/cold_hot_separation",
+                "advanced/compute_node",
+                "advanced/hight-concurrent-point-query"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Lakehouse",
+            "items": [
+                {
+                    "type": "category",
+                    "label": "Multi Catalog",
+                    "items": [
+                        "lakehouse/multi-catalog/multi-catalog",
+                        "lakehouse/multi-catalog/hive",
+                        "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/hudi",
+                        "lakehouse/multi-catalog/es",
+                        "lakehouse/multi-catalog/jdbc",
+                        "lakehouse/multi-catalog/dlf",
+                        "lakehouse/multi-catalog/faq"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "External Table",
+                    "items": [
+                        "lakehouse/external-table/es",
+                        "lakehouse/external-table/jdbc",
+                        "lakehouse/external-table/odbc",
+                        "lakehouse/external-table/hive"
+                    ]
+                },
+                "lakehouse/file",
+                "lakehouse/filecache"
             ]
         },
         {
             "type": "category",
             "label": "Ecosystem",
             "items": [
-                {
-                    "type": "category",
-                    "label": "Expansion table",
-                    "items": [
-                        "ecosystem/external-table/multi-catalog",
-                        "ecosystem/external-table/doris-on-es",
-                        "ecosystem/external-table/hudi-external-table",
-                        "ecosystem/external-table/iceberg-of-doris",
-                        "ecosystem/external-table/odbc-of-doris",
-                        "ecosystem/external-table/jdbc-of-doris",
-                        "ecosystem/external-table/hive-of-doris"
-                    ]
-                },
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
@@ -201,18 +229,7 @@
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
-                {
-                    "type": "category",
-                    "label": "Doris Manager",
-                    "items": [
-                        "ecosystem/doris-manager/compiling-deploying",
-                        "ecosystem/doris-manager/initializing",
-                        "ecosystem/doris-manager/cluster-managenent",
-                        "ecosystem/doris-manager/space-list",
-                        "ecosystem/doris-manager/space-management",
-                        "ecosystem/doris-manager/system-settings"
-                    ]
-                },
+                "ecosystem/hive-bitmap-udf",
                 {
                     "type": "category",
                     "label": "SeaTunnel",
@@ -326,6 +343,7 @@
                                 "sql-manual/sql-functions/date-time-functions/date_trunc",
                                 "sql-manual/sql-functions/date-time-functions/date_format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
+                                "sql-manual/sql-functions/date-time-functions/microseconds_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_diff",
                                 "sql-manual/sql-functions/date-time-functions/minutes_sub",
@@ -410,6 +428,8 @@
                                 "sql-manual/sql-functions/string-functions/strleft",
                                 "sql-manual/sql-functions/string-functions/strright",
                                 "sql-manual/sql-functions/string-functions/split_part",
+                                "sql-manual/sql-functions/string-functions/split_by_string",
+                                "sql-manual/sql-functions/string-functions/substring_index",
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/convert_to",
@@ -556,7 +576,8 @@
                                 "sql-manual/sql-functions/json-functions/get_json_string",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
-                                "sql-manual/sql-functions/json-functions/json_quote"
+                                "sql-manual/sql-functions/json-functions/json_quote",
+                                "sql-manual/sql-functions/json-functions/json_valid"
                             ]
                         },
                         {
@@ -599,6 +620,7 @@
                                 "sql-manual/sql-functions/math-functions/floor",
                                 "sql-manual/sql-functions/math-functions/pmod",
                                 "sql-manual/sql-functions/math-functions/round",
+                                "sql-manual/sql-functions/math-functions/round_bankers",
                                 "sql-manual/sql-functions/math-functions/truncate",
                                 "sql-manual/sql-functions/math-functions/abs",
                                 "sql-manual/sql-functions/math-functions/sqrt",
@@ -639,7 +661,8 @@
                                 "sql-manual/sql-functions/table-functions/numbers",
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
                                 "sql-manual/sql-functions/table-functions/s3",
-                                "sql-manual/sql-functions/table-functions/hdfs"
+                                "sql-manual/sql-functions/table-functions/hdfs",
+                                "sql-manual/sql-functions/table-functions/iceberg_meta"
                             ]
                         },
                         {
@@ -664,7 +687,8 @@
                             ]
                         },
                         "sql-manual/sql-functions/cast",
-                        "sql-manual/sql-functions/digital-masking"
+                        "sql-manual/sql-functions/digital-masking",
+                        "sql-manual/sql-functions/width-bucket"
                     ]
                 },
                 {
@@ -713,6 +737,7 @@
                                     "type": "category",
                                     "label": "Alter",
                                     "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
@@ -803,7 +828,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD"
                                     ]
                                 },
                                 {
@@ -814,7 +840,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/SELECT",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -858,8 +885,10 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
@@ -875,6 +904,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-EXPORT",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ENCRYPT-KEY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FUNCTIONS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TYPECAST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
@@ -926,26 +956,27 @@
                             "type": "category",
                             "label": "Data Types",
                             "items": [
-                                "sql-manual/sql-reference/Data-Types/VARCHAR",
+                                "sql-manual/sql-reference/Data-Types/BOOLEAN",
+                                "sql-manual/sql-reference/Data-Types/TINYINT",
+                                "sql-manual/sql-reference/Data-Types/SMALLINT",
                                 "sql-manual/sql-reference/Data-Types/INT",
+                                "sql-manual/sql-reference/Data-Types/BIGINT",
+                                "sql-manual/sql-reference/Data-Types/LARGEINT",
+                                "sql-manual/sql-reference/Data-Types/FLOAT",
+                                "sql-manual/sql-reference/Data-Types/DOUBLE",
+                                "sql-manual/sql-reference/Data-Types/DECIMAL",
+                                "sql-manual/sql-reference/Data-Types/DECIMALV3",
                                 "sql-manual/sql-reference/Data-Types/DATE",
                                 "sql-manual/sql-reference/Data-Types/DATETIME",
                                 "sql-manual/sql-reference/Data-Types/DATEV2",
                                 "sql-manual/sql-reference/Data-Types/DATETIMEV2",
-                                "sql-manual/sql-reference/Data-Types/BITMAP",
-                                "sql-manual/sql-reference/Data-Types/DOUBLE",
+                                "sql-manual/sql-reference/Data-Types/CHAR",
+                                "sql-manual/sql-reference/Data-Types/VARCHAR",
                                 "sql-manual/sql-reference/Data-Types/STRING",
                                 "sql-manual/sql-reference/Data-Types/HLL",
-                                "sql-manual/sql-reference/Data-Types/ARRAY",
-                                "sql-manual/sql-reference/Data-Types/LARGEINT",
+                                "sql-manual/sql-reference/Data-Types/BITMAP",
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
-                                "sql-manual/sql-reference/Data-Types/SMALLINT",
-                                "sql-manual/sql-reference/Data-Types/TINYINT",
-                                "sql-manual/sql-reference/Data-Types/DECIMAL",
-                                "sql-manual/sql-reference/Data-Types/BIGINT",
-                                "sql-manual/sql-reference/Data-Types/BOOLEAN",
-                                "sql-manual/sql-reference/Data-Types/FLOAT",
-                                "sql-manual/sql-reference/Data-Types/CHAR",
+                                "sql-manual/sql-reference/Data-Types/ARRAY",
                                 "sql-manual/sql-reference/Data-Types/JSONB"
                             ]
                         },
@@ -1063,68 +1094,72 @@
                             "type": "category",
                             "label": "FE",
                             "items": [
-                                {
-                                    "type": "category",
-                                    "label": "MANAGER",
-                                    "items": [
-                                        "admin-manual/http-actions/fe/manager/query-profile-action",
-                                        "admin-manual/http-actions/fe/manager/node-action",
-                                        "admin-manual/http-actions/fe/manager/cluster-action"
-                                    ]
-                                },
-                                "admin-manual/http-actions/fe/get-load-state",
-                                "admin-manual/http-actions/fe/bootstrap-action",
-                                "admin-manual/http-actions/fe/ha-action",
-                                "admin-manual/http-actions/fe/meta-replay-state-action",
-                                "admin-manual/http-actions/fe/statement-execution-action",
-                                "admin-manual/http-actions/fe/profile-action",
-                                "admin-manual/http-actions/fe/meta-info-action",
-                                "admin-manual/http-actions/fe/meta-action",
-                                "admin-manual/http-actions/fe/query-profile-action",
-                                "admin-manual/http-actions/fe/show-data-action",
                                 "admin-manual/http-actions/fe/config-action",
-                                "admin-manual/http-actions/fe/get-log-file-action",
-                                "admin-manual/http-actions/fe/connection-action",
-                                "admin-manual/http-actions/fe/system-action",
-                                "admin-manual/http-actions/fe/table-schema-action",
-                                "admin-manual/http-actions/fe/show-meta-info-action",
+                                "admin-manual/http-actions/fe/ha-action",
                                 "admin-manual/http-actions/fe/hardware-info-action",
+                                "admin-manual/http-actions/fe/help-action",
                                 "admin-manual/http-actions/fe/log-action",
-                                "admin-manual/http-actions/fe/cancel-load-action",
+                                "admin-manual/http-actions/fe/login-action",
                                 "admin-manual/http-actions/fe/logout-action",
-                                "admin-manual/http-actions/fe/backends-action",
-                                "admin-manual/http-actions/fe/get-load-info-action",
-                                "admin-manual/http-actions/fe/show-runtime-info-action",
-                                "admin-manual/http-actions/fe/query-detail-action",
-                                "admin-manual/http-actions/fe/upload-action",
+                                "admin-manual/http-actions/fe/query-profile-action-controller",
                                 "admin-manual/http-actions/fe/session-action",
-                                "admin-manual/http-actions/fe/table-row-count-action",
-                                "admin-manual/http-actions/fe/get-small-file",
-                                "admin-manual/http-actions/fe/table-query-plan-action",
-                                "admin-manual/http-actions/fe/set-config-action",
-                                "admin-manual/http-actions/fe/row-count-action",
-                                "admin-manual/http-actions/fe/get-ddl-stmt-action",
-                                "admin-manual/http-actions/fe/show-proc-action",
+                                "admin-manual/http-actions/fe/system-action",
+                                "admin-manual/http-actions/fe/colocate-meta-action",
+                                "admin-manual/http-actions/fe/meta-action",
+                                "admin-manual/http-actions/fe/cluster-action",
+                                "admin-manual/http-actions/fe/node-action",
+                                "admin-manual/http-actions/fe/query-profile-action",
+                                "admin-manual/http-actions/fe/backends-action",
+                                "admin-manual/http-actions/fe/bootstrap-action",
+                                "admin-manual/http-actions/fe/cancel-load-action",
                                 "admin-manual/http-actions/fe/check-decommission-action",
-                                "admin-manual/http-actions/fe/health-action",
                                 "admin-manual/http-actions/fe/check-storage-type-action",
-                                "admin-manual/http-actions/fe/query-schema-action"
+                                "admin-manual/http-actions/fe/connection-action",
+                                "admin-manual/http-actions/fe/extra-basepath-action",
+                                "admin-manual/http-actions/fe/fe-version-info-action",
+                                "admin-manual/http-actions/fe/get-ddl-stmt-action",
+                                "admin-manual/http-actions/fe/get-load-info-action",
+                                "admin-manual/http-actions/fe/get-load-state",
+                                "admin-manual/http-actions/fe/get-log-file-action",
+                                "admin-manual/http-actions/fe/get-small-file",
+                                "admin-manual/http-actions/fe/health-action",
+                                "admin-manual/http-actions/fe/meta-info-action",
+                                "admin-manual/http-actions/fe/meta-replay-state-action",
+                                "admin-manual/http-actions/fe/metrics-action",
+                                "admin-manual/http-actions/fe/profile-action",
+                                "admin-manual/http-actions/fe/query-detail-action",
+                                "admin-manual/http-actions/fe/query-schema-action",
+                                "admin-manual/http-actions/fe/row-count-action",
+                                "admin-manual/http-actions/fe/set-config-action",
+                                "admin-manual/http-actions/fe/show-data-action",
+                                "admin-manual/http-actions/fe/show-meta-info-action",
+                                "admin-manual/http-actions/fe/show-proc-action",
+                                "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/statement-execution-action",
+                                "admin-manual/http-actions/fe/table-query-plan-action",
+                                "admin-manual/http-actions/fe/table-row-count-action",
+                                "admin-manual/http-actions/fe/table-schema-action",
+                                "admin-manual/http-actions/fe/upload-action",
+                                "admin-manual/http-actions/fe/import-action",
+                                "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },
-                        "admin-manual/http-actions/restore-tablet",
-                        "admin-manual/http-actions/get-load-state",
-                        "admin-manual/http-actions/tablet-migration-action",
-                        "admin-manual/http-actions/cancel-label",
-                        "admin-manual/http-actions/profile-action",
-                        "admin-manual/http-actions/show-data-action",
-                        "admin-manual/http-actions/tablets_distribution",
-                        "admin-manual/http-actions/connection-action",
-                        "admin-manual/http-actions/compaction-action",
-                        "admin-manual/http-actions/query-detail-action",
-                        "admin-manual/http-actions/get-tablets",
-                        "admin-manual/http-actions/fe-get-log-file",
-                        "admin-manual/http-actions/check-reset-rpc-cache",
-                        "admin-manual/http-actions/check-tablet-segment-action"
+                        {
+                            "type": "category",
+                            "label": "BE",
+                            "items": [
+                                "admin-manual/http-actions/be/be-version-info-action",
+                                "admin-manual/http-actions/be/restore-tablet",
+                                "admin-manual/http-actions/be/pad-rowset",
+                                "admin-manual/http-actions/be/tablet-migration-action",
+                                "admin-manual/http-actions/be/tablets_distribution",
+                                "admin-manual/http-actions/be/compaction-action",
+                                "admin-manual/http-actions/be/get-tablets",
+                                "admin-manual/http-actions/be/check-reset-rpc-cache",
+                                "admin-manual/http-actions/be/check-tablet-segment-action"
+                            ]
+                        }
                     ]
                 }
             ]
@@ -1150,7 +1185,10 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-1.2.2",
+                "releasenotes/release-1.2.1",
                 "releasenotes/release-1.2.0",
+                "releasenotes/release-1.1.5",
                 "releasenotes/release-1.1.4",
                 "releasenotes/release-1.1.3",
                 "releasenotes/release-1.1.2",

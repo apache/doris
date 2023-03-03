@@ -220,7 +220,7 @@ public class IcebergUtils {
         return DorisTypeVisitor.visit(type, new DorisTypeToType());
     }
 
-    public static Expression convertToIcebergExpr(Expr expr) {
+    public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
             return null;
         }
@@ -241,23 +241,23 @@ public class IcebergUtils {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0));
-                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1));
+                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
+                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
                         return Expressions.and(left, right);
                     }
                     return null;
                 }
                 case OR: {
-                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0));
-                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1));
+                    Expression left = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
+                    Expression right = convertToIcebergExpr(compoundPredicate.getChild(1), schema);
                     if (left != null && right != null) {
                         return Expressions.or(left, right);
                     }
                     return null;
                 }
                 case NOT: {
-                    Expression child = convertToIcebergExpr(compoundPredicate.getChild(0));
+                    Expression child = convertToIcebergExpr(compoundPredicate.getChild(0), schema);
                     if (child != null) {
                         return Expressions.not(child);
                     }
@@ -290,6 +290,8 @@ public class IcebergUtils {
                     return null;
                 }
                 String colName = slotRef.getColumnName();
+                Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+                colName = nestedField.name();
                 Object value = extractDorisLiteral(literalExpr);
                 if (value == null) {
                     if (opCode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {

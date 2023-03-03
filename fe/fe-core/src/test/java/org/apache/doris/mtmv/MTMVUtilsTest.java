@@ -40,17 +40,17 @@ public class MTMVUtilsTest {
 
     public static MTMVJob createDummyJob() {
         MTMVJob job = new MTMVJob("dummy");
-        job.setDbName(dbName);
-        job.setMvName(MV_NAME);
+        job.setDBName(dbName);
+        job.setMVName(MV_NAME);
         return job;
     }
 
     public static MTMVJob createOnceJob() {
         MTMVJob job = new MTMVJob("");
         job.setTriggerMode(TriggerMode.ONCE);
-        job.setDbName(dbName);
+        job.setDBName(dbName);
         job.setName(O_JOB);
-        job.setMvName(MV_NAME);
+        job.setMVName(MV_NAME);
         return job;
     }
 
@@ -59,9 +59,9 @@ public class MTMVUtilsTest {
         JobSchedule jobSchedule = new JobSchedule(System.currentTimeMillis() / 1000, 1, TimeUnit.SECONDS);
         job.setSchedule(jobSchedule);
         job.setTriggerMode(TriggerMode.PERIODICAL);
-        job.setDbName(dbName);
+        job.setDBName(dbName);
         job.setName(S_JOB);
-        job.setMvName(MV_NAME);
+        job.setMVName(MV_NAME);
         return job;
     }
 

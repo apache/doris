@@ -123,6 +123,9 @@ public class CancelLoadStmt extends DdlStmt {
         if (expr instanceof CompoundPredicate) {
             // current only support label and state
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            if (CompoundPredicate.Operator.NOT == compoundPredicate.getOp()) {
+                throw new AnalysisException("Current not support NOT operator");
+            }
             for (int i = 0; i < 2; i++) {
                 Expr child = compoundPredicate.getChild(i);
                 if (child instanceof CompoundPredicate) {

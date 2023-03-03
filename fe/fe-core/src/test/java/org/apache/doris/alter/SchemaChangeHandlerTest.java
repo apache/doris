@@ -374,4 +374,181 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
 
     }
+
+    @Test
+    public void testAggAddOrDropInvertedIndex() throws Exception {
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_agg", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+
+        //process agg add inverted index schema change
+        String addInvertedIndexStmtStr = "alter table test.sc_agg add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
+        AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        jobSize++;
+        //check alter job
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+
+        //process agg drop inverted index schema change
+        String dropInvertedIndexStmtStr = "alter table test.sc_agg drop index idx_city";
+        AlterTableStmt dropInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropInvertedIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
+        jobSize++;
+        //check alter job
+        LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
+
+    @Test
+    public void testUniqAddOrDropInvertedIndex() throws Exception {
+
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_uniq", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+
+        //process uniq add inverted index schema change
+        String addInvertedIndexStmtStr = "alter table test.sc_uniq add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
+        AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        jobSize++;
+        //check alter job
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+
+        //process uniq drop inverted indexn schema change
+        String dropInvertedIndexStmtStr = "alter table test.sc_uniq drop index idx_city";
+        AlterTableStmt dropInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropInvertedIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
+        jobSize++;
+        //check alter job
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
+
+    @Test
+    public void testDupAddOrDropInvertedIndex() throws Exception {
+
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+
+        //process dup add inverted index schema change
+        String addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg) using inverted properties(\"parser\"=\"standard\")";
+        AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        jobSize++;
+        //check dup job
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+
+        //process dup drop inverted index schema change
+        String dropInvertedIndexStmtStr = "alter table test.sc_dup drop index idx_error_msg";
+        AlterTableStmt dropInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropInvertedIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
+        jobSize++;
+        //check alter job
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
 }

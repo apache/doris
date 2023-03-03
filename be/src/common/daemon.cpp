@@ -23,38 +23,17 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/array_functions.h"
-#include "exprs/bitmap_function.h"
-#include "exprs/cast_functions.h"
-#include "exprs/compound_predicate.h"
-#include "exprs/decimalv2_operators.h"
-#include "exprs/encryption_functions.h"
-#include "exprs/es_functions.h"
-#include "exprs/grouping_sets_functions.h"
-#include "exprs/hash_functions.h"
-#include "exprs/hll_function.h"
-#include "exprs/hll_hash_function.h"
-#include "exprs/is_null_predicate.h"
-#include "exprs/json_functions.h"
-#include "exprs/like_predicate.h"
 #include "exprs/math_functions.h"
-#include "exprs/new_in_predicate.h"
-#include "exprs/operators.h"
-#include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/table_function/dummy_table_functions.h"
-#include "exprs/time_operators.h"
-#include "exprs/timestamp_functions.h"
-#include "exprs/topn_function.h"
-#include "exprs/utility_functions.h"
-#include "geo/geo_functions.h"
 #include "olap/options.h"
-#include "runtime/bufferpool/buffer_pool.h"
+#include "olap/storage_engine.h"
+#include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/user_function_cache.h"
+#include "service/backend_options.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -187,56 +166,94 @@ void Daemon::tcmalloc_gc_thread() {
 #endif
 }
 
-void Daemon::buffer_pool_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
-        ExecEnv* env = ExecEnv::GetInstance();
-        // ExecEnv may not have been created yet or this may be the catalogd or statestored,
-        // which don't have ExecEnvs.
-        if (env != nullptr) {
-            BufferPool* buffer_pool = env->buffer_pool();
-            if (buffer_pool != nullptr) {
-                buffer_pool->Maintenance();
+void Daemon::memory_maintenance_thread() {
+    int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(interval_milliseconds))) {
+        if (!MemInfo::initialized()) {
+            continue;
+        }
+        // Refresh process memory metrics.
+        doris::PerfCounters::refresh_proc_status();
+        doris::MemInfo::refresh_proc_meminfo();
+        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
+
+        // Update and print memory stat when the memory changes by 100M.
+        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 104857600) {
+            last_print_proc_mem = PerfCounters::get_vm_rss();
+            doris::MemTrackerLimiter::enable_print_log_process_usage();
+
+            // Refresh mem tracker each type counter.
+            doris::MemTrackerLimiter::refresh_global_counter();
+
+            // Refresh allocator memory metrics.
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+            doris::MemInfo::refresh_allocator_mem();
+            if (config::enable_system_metrics) {
+                DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+            }
+#endif
+            if (doris::config::memory_debug) {
+                LOG(INFO) << MemTrackerLimiter::process_mem_log_str();
+                LOG_EVERY_N(INFO, 10)
+                        << doris::MemTrackerLimiter::log_process_usage_str("memory debug", false);
             }
         }
     }
 }
 
-void Daemon::memory_maintenance_thread() {
-    int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+void Daemon::memory_gc_thread() {
+    int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    int32_t cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+    int32_t memory_minor_gc_sleep_time_ms = 0;
+    int32_t memory_full_gc_sleep_time_ms = 0;
+    int64_t cache_gc_freed_mem = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        // Refresh process memory metrics.
-        doris::PerfCounters::refresh_proc_status();
-        doris::MemInfo::refresh_proc_meminfo();
-
-        // Refresh allocator memory metrics.
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-        doris::MemInfo::refresh_allocator_mem();
-#endif
-        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
-        LOG_EVERY_N(INFO, 10) << MemTrackerLimiter::process_mem_log_str();
-
-        // Refresh mem tracker each type metrics.
-        doris::MemTrackerLimiter::refresh_global_counter();
-        if (doris::config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
+        if (!MemInfo::initialized()) {
+            continue;
         }
-        doris::MemTrackerLimiter::enable_print_log_process_usage();
-
-        // If system available memory is not enough, or the process memory exceeds the limit, reduce refresh interval.
-        if (doris::MemInfo::sys_mem_available() <
-                    doris::MemInfo::sys_mem_available_low_water_mark() ||
-            doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit()) {
-            interval_milliseconds = 100;
-            doris::MemInfo::process_full_gc();
-        } else if (doris::MemInfo::sys_mem_available() <
-                           doris::MemInfo::sys_mem_available_warning_water_mark() ||
-                   doris::MemInfo::proc_mem_no_allocator_cache() >=
-                           doris::MemInfo::soft_mem_limit()) {
-            interval_milliseconds = 200;
-            doris::MemInfo::process_minor_gc();
+        if (memory_full_gc_sleep_time_ms <= 0 &&
+            (doris::MemInfo::sys_mem_available() <
+                     doris::MemInfo::sys_mem_available_low_water_mark() ||
+             doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit())) {
+            // No longer full gc and minor gc during sleep.
+            memory_full_gc_sleep_time_ms = config::memory_gc_sleep_time_s * 1000;
+            memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_s * 1000;
+            cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+            doris::MemTrackerLimiter::print_log_process_usage("process full gc", false);
+            if (doris::MemInfo::process_full_gc()) {
+                // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
+                doris::MemTrackerLimiter::enable_print_log_process_usage();
+            }
+        } else if (memory_minor_gc_sleep_time_ms <= 0 &&
+                   (doris::MemInfo::sys_mem_available() <
+                            doris::MemInfo::sys_mem_available_warning_water_mark() ||
+                    doris::MemInfo::proc_mem_no_allocator_cache() >=
+                            doris::MemInfo::soft_mem_limit())) {
+            // No minor gc during sleep, but full gc is possible.
+            memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_s * 1000;
+            cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+            doris::MemTrackerLimiter::print_log_process_usage("process minor gc", false);
+            if (doris::MemInfo::process_minor_gc()) {
+                doris::MemTrackerLimiter::enable_print_log_process_usage();
+            }
         } else {
-            interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+            if (memory_full_gc_sleep_time_ms > 0) {
+                memory_full_gc_sleep_time_ms -= interval_milliseconds;
+            }
+            if (memory_minor_gc_sleep_time_ms > 0) {
+                memory_minor_gc_sleep_time_ms -= interval_milliseconds;
+            }
+            cache_gc_interval_ms -= interval_milliseconds;
+            if (cache_gc_interval_ms < 0) {
+                cache_gc_freed_mem = 0;
+                doris::MemInfo::process_cache_gc(cache_gc_freed_mem);
+                LOG(INFO) << fmt::format("Process regular GC Cache, Free Memory {} Bytes",
+                                         cache_gc_freed_mem);
+                cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+            }
         }
     }
 }
@@ -245,8 +262,17 @@ void Daemon::load_channel_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::load_channel_memory_refresh_sleep_time_ms))) {
-        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+            std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms))) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+        }
+    }
+}
+
+void Daemon::memory_tracker_profile_refresh_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(50))) {
+        MemTracker::refresh_all_tracker_profile();
+        MemTrackerLimiter::refresh_all_tracker_profile();
     }
 }
 
@@ -270,13 +296,15 @@ void Daemon::calculate_metrics_thread() {
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
-            last_ts = GetCurrentTimeMicros() / 1000;
+            last_ts = GetMonoTimeMicros() / 1000;
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
-            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
-            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
-                                                                            &lst_net_receive_bytes);
+            if (config::enable_system_metrics) {
+                DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+                DorisMetrics::instance()->system_metrics()->get_network_traffic(
+                        &lst_net_send_bytes, &lst_net_receive_bytes);
+            }
         } else {
-            int64_t current_ts = GetCurrentTimeMicros() / 1000;
+            int64_t current_ts = GetMonoTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
@@ -286,25 +314,43 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
-            // 2. max disk io util
-            DorisMetrics::instance()->max_disk_io_util_percent->set_value(
-                    DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time,
-                                                                                15));
-            // update lst map
-            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            if (config::enable_system_metrics) {
+                // 2. max disk io util
+                DorisMetrics::instance()->system_metrics()->update_max_disk_io_util_percent(
+                        lst_disks_io_time, 15);
 
-            // 3. max network traffic
-            int64_t max_send = 0;
-            int64_t max_receive = 0;
-            DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
-                    lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
-            DorisMetrics::instance()->max_network_send_bytes_rate->set_value(max_send);
-            DorisMetrics::instance()->max_network_receive_bytes_rate->set_value(max_receive);
-            // update lst map
-            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
-                                                                            &lst_net_receive_bytes);
+                // update lst map
+                DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+
+                // 3. max network traffic
+                int64_t max_send = 0;
+                int64_t max_receive = 0;
+                DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
+                        lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
+                DorisMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
+                        max_send);
+                DorisMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
+                        max_receive);
+                // update lst map
+                DorisMetrics::instance()->system_metrics()->get_network_traffic(
+                        &lst_net_send_bytes, &lst_net_receive_bytes);
+            }
+
+            DorisMetrics::instance()->all_rowsets_num->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
+            DorisMetrics::instance()->all_segments_num->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
+}
+
+// clean up stale spilled files
+void Daemon::block_spill_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+        if (ExecEnv::GetInstance()->initialized()) {
+            ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
+        }
+    }
 }
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
@@ -318,12 +364,12 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     if (init_system_metrics) {
         auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
         if (!st.ok()) {
-            LOG(WARNING) << "get disk devices failed, status=" << st.get_error_msg();
+            LOG(WARNING) << "get disk devices failed, status=" << st;
             return;
         }
-        st = get_inet_interfaces(&network_interfaces);
+        st = get_inet_interfaces(&network_interfaces, BackendOptions::is_bind_ipv6());
         if (!st.ok()) {
-            LOG(WARNING) << "get inet interfaces failed, status=" << st.get_error_msg();
+            LOG(WARNING) << "get inet interfaces failed, status=" << st;
             return;
         }
     }
@@ -374,31 +420,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DiskInfo::init();
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
-    Operators::init();
-    IsNullPredicate::init();
-    LikePredicate::init();
-    StringFunctions::init();
-    ArrayFunctions::init();
-    CastFunctions::init();
-    InPredicate::init();
-    MathFunctions::init();
-    EncryptionFunctions::init();
-    TimestampFunctions::init();
-    DecimalV2Operators::init();
-    TimeOperators::init();
-    UtilityFunctions::init();
-    CompoundPredicate::init();
-    JsonFunctions::init();
-    HllHashFunctions::init();
-    ESFunctions::init();
-    GeoFunctions::init();
-    GroupingSetsFunctions::init();
-    BitmapFunctions::init();
-    HllFunctions::init();
-    QuantileStateFunctions::init();
-    HashFunctions::init();
-    TopNFunctions::init();
-    DummyTableFunctions::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -413,33 +434,36 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
             &_tcmalloc_gc_thread);
-    CHECK(st.ok()) << st.to_string();
-    st = Thread::create(
-            "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
-            &_buffer_pool_gc_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
             &_memory_maintenance_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
+    st = Thread::create(
+            "Daemon", "memory_gc_thread", [this]() { this->memory_gc_thread(); },
+            &_memory_gc_thread);
+    CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "load_channel_tracker_refresh_thread",
             [this]() { this->load_channel_tracker_refresh_thread(); },
             &_load_channel_tracker_refresh_thread);
-    CHECK(st.ok()) << st.to_string();
+    CHECK(st.ok()) << st;
+    st = Thread::create(
+            "Daemon", "memory_tracker_profile_refresh_thread",
+            [this]() { this->memory_tracker_profile_refresh_thread(); },
+            &_memory_tracker_profile_refresh_thread);
+    CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {
-        CHECK(DorisMetrics::instance()->is_inited())
-                << "enable metric calculator failed, maybe you set enable_system_metrics to false "
-                << " or there may be some hardware error which causes metric init failed, please "
-                   "check log first;"
-                << " you can set enable_metric_calculator = false to quickly recover ";
-
         st = Thread::create(
                 "Daemon", "calculate_metrics_thread",
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);
-        CHECK(st.ok()) << st.to_string();
+        CHECK(st.ok()) << st;
     }
+    st = Thread::create(
+            "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
+            &_block_spill_gc_thread);
+    CHECK(st.ok()) << st;
 }
 
 void Daemon::stop() {
@@ -448,17 +472,23 @@ void Daemon::stop() {
     if (_tcmalloc_gc_thread) {
         _tcmalloc_gc_thread->join();
     }
-    if (_buffer_pool_gc_thread) {
-        _buffer_pool_gc_thread->join();
-    }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();
+    }
+    if (_memory_gc_thread) {
+        _memory_gc_thread->join();
     }
     if (_load_channel_tracker_refresh_thread) {
         _load_channel_tracker_refresh_thread->join();
     }
+    if (_memory_tracker_profile_refresh_thread) {
+        _memory_tracker_profile_refresh_thread->join();
+    }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();
+    }
+    if (_block_spill_gc_thread) {
+        _block_spill_gc_thread->join();
     }
 }
 

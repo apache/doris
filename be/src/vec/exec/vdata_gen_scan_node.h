@@ -26,10 +26,8 @@
 namespace doris {
 
 class TextConverter;
-class Tuple;
 class TupleDescriptor;
 class RuntimeState;
-class MemPool;
 class Status;
 
 namespace vectorized {
@@ -44,10 +42,6 @@ public:
 
     // Start MySQL scan using _mysql_scanner.
     Status open(RuntimeState* state) override;
-
-    // Fill the next row batch by calling next() on the _mysql_scanner,
-    // converting text data in MySQL cells to binary data.
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
 
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

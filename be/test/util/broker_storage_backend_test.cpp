@@ -32,6 +32,7 @@
 #include "util/storage_backend.h"
 
 namespace doris {
+using namespace ErrorCode;
 static const std::string AK = "AK";
 static const std::string SK = "SK";
 static const std::string ENDPOINT = "http://bj.bcebos.com";
@@ -105,7 +106,7 @@ TEST_F(StorageBackendTest, broker_upload) {
                              _broker_base_path + "/Ode_to_the_West_Wind1.txt");
     EXPECT_FALSE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind1.txt");
-    EXPECT_EQ(TStatusCode::NOT_FOUND, status.code());
+    EXPECT_EQ(NOT_FOUND, status.code());
 }
 
 TEST_F(StorageBackendTest, broker_direct_upload) {
@@ -152,7 +153,7 @@ TEST_F(StorageBackendTest, broker_rename) {
     EXPECT_TRUE(status.ok());
     // rm by broker old file may exist for a few moment
     // status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    // EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    // EXPECT_TRUE(status.code() == NOT_FOUND);
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt.new");
     EXPECT_TRUE(status.ok());
 }
@@ -183,7 +184,7 @@ TEST_F(StorageBackendTest, broker_rm) {
     status = _broker->rm(_broker_base_path + "/Ode_to_the_West_Wind.txt");
     EXPECT_TRUE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == NOT_FOUND);
 }
 
 } // end namespace doris

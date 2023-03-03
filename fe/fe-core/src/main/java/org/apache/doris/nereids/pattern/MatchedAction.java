@@ -20,7 +20,8 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Define an callback action when match a pattern, usually implement as a rule body.
+ * Define a callback action when match a pattern, and then transform to a plan,
+ * usually implement as a rule body.
  * e.g. exchange join children for JoinCommutative Rule
  */
 public interface MatchedAction<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {

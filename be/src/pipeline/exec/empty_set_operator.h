@@ -33,10 +33,10 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class EmptySetSourceOperator final : public Operator<EmptySetSourceOperatorBuilder> {
+class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperatorBuilder> {
 public:
     EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
-    bool can_read() override { return true; };
+    bool can_read() override { return true; }
 };
 
 } // namespace pipeline

@@ -18,20 +18,25 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.rules.analysis.CTEContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -45,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -60,7 +66,7 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Group root;
+    private Group root;
 
     // FOR TEST ONLY
     public Memo() {
@@ -71,20 +77,32 @@ public class Memo {
         root = init(plan);
     }
 
+    public static long getStateId() {
+        return stateId;
+    }
+
     public Group getRoot() {
         return root;
+    }
+
+    /**
+     * This function used to update the root group when DPHyp change the root Group
+     * Note it only used in DPHyp
+     */
+    public void setRoot(Group root) {
+        this.root = root;
     }
 
     public List<Group> getGroups() {
         return ImmutableList.copyOf(groups.values());
     }
 
-    public Map<GroupExpression, GroupExpression> getGroupExpressions() {
-        return groupExpressions;
+    public Group getGroup(GroupId groupId) {
+        return groups.get(groupId);
     }
 
-    public static long getStateId() {
-        return stateId;
+    public Map<GroupExpression, GroupExpression> getGroupExpressions() {
+        return groupExpressions;
     }
 
     /**
@@ -120,12 +138,11 @@ public class Memo {
         return copyOutAll(root);
     }
 
-    public List<Plan> copyOutAll(Group group) {
+    private List<Plan> copyOutAll(Group group) {
         List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
-        List<Plan> plans = logicalExpressions.stream()
+        return logicalExpressions.stream()
                 .flatMap(groupExpr -> copyOutAll(groupExpr).stream())
                 .collect(Collectors.toList());
-        return plans;
     }
 
     private List<Plan> copyOutAll(GroupExpression logicalExpression) {
@@ -199,11 +216,11 @@ public class Memo {
      * Utility function to create a new {@link CascadesContext} with this Memo.
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(this, statementContext);
+        return new CascadesContext(null, this, statementContext, PhysicalProperties.ANY);
     }
 
     public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(this, statementContext, cteContext);
+        return new CascadesContext(null, this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -250,7 +267,7 @@ public class Memo {
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 3:                               |                                   |                                |
      * | if targetGroup is not null            |              true                 |      new group expression      |
-     * | and same group expression not exits   |                                   |                                |
+     * | and same group expression not exist   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 4:                               |                                   |                                |
      * | if targetGroup is not null and not    |              true                 |      new group expression      |
@@ -368,7 +385,7 @@ public class Memo {
     private void validateRewriteChildGroup(Group childGroup, Group targetGroup) {
         /*
          * 'A => B(A)' is invalid equivalent transform because of dead loop.
-         * see 'MemoRewriteTest.a2ba()'
+         * see 'MemoTest.a2ba()'
          */
         if (childGroup == targetGroup) {
             throw new IllegalStateException("Can not add plan which is ancestor of the target plan");
@@ -431,36 +448,40 @@ public class Memo {
             }
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
-        for (GroupExpression groupExpression : needReplaceChild) {
-            // After change GroupExpression children, the hashcode will change,
-            // so need to reinsert into map.
-            groupExpressions.remove(groupExpression);
-            List<Group> children = groupExpression.children();
-            for (int i = 0; i < children.size(); i++) {
-                if (children.get(i).equals(source)) {
-                    children.set(i, destination);
-                }
-            }
 
-            GroupExpression that = groupExpressions.get(groupExpression);
-            if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
-                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
-                // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                mergeGroup(ownerGroup, that.getOwnerGroup());
+        Map<Group, Group> needMergeGroupPairs = Maps.newHashMap();
+        for (GroupExpression reinsertGroupExpr : needReplaceChild) {
+            // After change GroupExpression children, hashcode will change, so need to reinsert into map.
+            groupExpressions.remove(reinsertGroupExpr);
+            Utils.replaceList(reinsertGroupExpr.children(), source, destination);
+
+            GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
+            if (existGroupExpr != null) {
+                Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
+                // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
+                // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
+                reinsertGroupExpr.setUnused(true);
+                if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
+                    // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
+                    if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
+                        reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
+                    }
+                    // existingGroupExpression merge the state of reinsertGroupExpr
+                    reinsertGroupExpr.mergeTo(existGroupExpr);
+                } else {
+                    // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
+                    needMergeGroupPairs.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                }
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
             }
         }
         if (!source.equals(destination)) {
-            // TODO: stats and other
-            source.moveLogicalExpressionOwnership(destination);
-            source.movePhysicalExpressionOwnership(destination);
-            source.moveLowestCostPlansOwnership(destination);
+            source.mergeTo(destination);
             groups.remove(source.getGroupId());
         }
+
+        needMergeGroupPairs.forEach(this::mergeGroup);
         return destination;
     }
 
@@ -468,7 +489,9 @@ public class Memo {
      * Add enforcer expression into the target group.
      */
     public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
+        Preconditions.checkArgument(groupExpression != null);
         groupExpression.setOwnerGroup(group);
+        // Don't add groupExpression into group's physicalExpressions, it will cause dead loop;
     }
 
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
@@ -482,6 +505,10 @@ public class Memo {
             eliminateFromGroupAndMoveToTargetGroup(existedGroup, targetGroup, existedPlan.getLogicalProperties());
         }
         return CopyInResult.of(false, existedLogicalExpression);
+    }
+
+    public Group newGroup(LogicalProperties logicalProperties) {
+        return new Group(groupIdGenerator.getNextId(), logicalProperties);
     }
 
     // This function is used to copy new group expression
@@ -667,7 +694,8 @@ public class Memo {
             builder.append(group).append("\n");
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             StatsDeriveResult stats = group.getStatistics();
-            if (stats != null && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+            if (stats != null && !group.getLogicalExpressions().isEmpty()
+                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
                 for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
@@ -680,5 +708,192 @@ public class Memo {
             }
         }
         return builder.toString();
+    }
+
+    /**
+     * rank all plan and select n-th plan, we write the algorithm according paper:
+     *      * Counting,Enumerating, and Sampling of Execution Plans in a Cost-Based Query Optimizer
+     * Specifically each physical plan in memo is assigned a unique ID in rank(). And then we sort the
+     * plan according their cost and choose the n-th plan. Note we don't generate any physical plan in rank
+     * function.
+     *
+     * In unrank() function, we will extract the actual physical function according the unique ID
+     */
+    public Pair<Long, Double> rank(long n) {
+        double threshold = 0.000000001;
+        Preconditions.checkArgument(n > 0, "the n %d must be greater than 0 in nthPlan", n);
+        List<Pair<Long, Double>> plans = rankGroup(root, PhysicalProperties.GATHER);
+        plans = plans.stream().filter(
+                p -> !p.second.equals(Double.NaN)
+                        && !p.second.equals(Double.POSITIVE_INFINITY)
+                        && !p.second.equals(Double.NEGATIVE_INFINITY))
+                .collect(Collectors.toList());
+        // This is big heap, it always pops the element with larger cost or larger id.
+        PriorityQueue<Pair<Long, Double>> pq = new PriorityQueue<>((l, r) -> Math.abs(l.second - r.second) < threshold
+                ? -Long.compare(l.first, r.first) : -Double.compare(l.second, r.second));
+        for (Pair<Long, Double> p : plans) {
+            pq.add(p);
+            if (pq.size() > n) {
+                pq.poll();
+            }
+        }
+        return pq.peek();
+    }
+
+    private List<Pair<Long, Double>> rankGroup(Group group, PhysicalProperties prop) {
+        List<Pair<Long, Double>> res = new ArrayList<>();
+        int prefix = res.size();
+        for (GroupExpression groupExpression : extractGroupExpressionContainsProp(group, prop)) {
+            for (Pair<Long, Double> idCostPair : rankGroupExpression(groupExpression, prop)) {
+                res.add(Pair.of(idCostPair.first + prefix, idCostPair.second));
+            }
+            prefix = res.size();
+        }
+        return res;
+    }
+
+    private List<Pair<Long, Double>> rankGroupExpression(GroupExpression groupExpression,
+            PhysicalProperties prop) {
+        if (!groupExpression.getLowestCostTable().containsKey(prop)) {
+            return new ArrayList<>();
+        }
+        List<Pair<Long, Double>> res = new ArrayList<>();
+
+        List<PhysicalProperties> inputProperties = groupExpression.getInputPropertiesList(prop);
+        if (groupExpression.getPlan() instanceof LeafPlan) {
+            res.add(Pair.of(0L, groupExpression.getCostByProperties(prop)));
+            return res;
+        }
+
+        double bestChildrenCost = 0;
+        List<List<Pair<Long, Double>>> children = new ArrayList<>();
+        for (int i = 0; i < inputProperties.size(); i++) {
+            // To avoid reach a circle, we don't allow ranking the same group with the same physical properties.
+            Preconditions.checkArgument(!groupExpression.child(i).equals(groupExpression.getOwnerGroup())
+                    || !prop.equals(inputProperties.get(i)));
+            bestChildrenCost += groupExpression.children().get(i).getLowestCostPlan(inputProperties.get(i)).get().first;
+            List<Pair<Long, Double>> idCostPair
+                    = rankGroup(groupExpression.child(i), inputProperties.get(i));
+            children.add(idCostPair);
+        }
+        List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
+        permute(children, 0, childrenId, new ArrayList<>());
+        for (Pair<Long, List<Integer>> c : childrenId) {
+            double childCost = 0;
+            for (int i = 0; i < children.size(); i++) {
+                childCost += children.get(i).get(c.second.get(i)).second;
+            }
+            res.add(Pair.of(c.first,
+                    childCost + groupExpression.getCostByProperties(prop) - bestChildrenCost));
+        }
+        return res;
+    }
+
+    /** we permute all children, e.g.,
+     *      for children [1, 2] [1, 2, 3]
+     *      we can get: 0: [1,1] 1:[1, 2] 2:[1, 3] 3:[2, 1] 4:[2, 2] 5:[2, 3]
+     */
+    private void permute(List<List<Pair<Long, Double>>> children, int index,
+            List<Pair<Long, List<Integer>>> result, List<Integer> current) {
+        if (index == children.size()) {
+            result.add(Pair.of(getUniqueId(children, current), current));
+            return;
+        }
+        for (int i = 0; i < children.get(index).size(); i++) {
+            List<Integer> next = new ArrayList<>(current);
+            next.add(i);
+            permute(children, index + 1, result, next);
+        }
+    }
+
+    /**
+     * This method is used to calculate the unique ID for one combination,
+     * The current is used to represent the index of the child in lists e.g.,
+     *       for children [1], [1, 2], The possible indices and IDs are:
+     *       [0, 0]: 0*1 + 0*1*2
+     *       [0, 1]: 0*1 + 1*1*2
+     */
+    private static long getUniqueId(List<List<Pair<Long, Double>>> lists, List<Integer> current) {
+        long id = 0;
+        long factor = 1;
+        for (int i = 0; i < lists.size(); i++) {
+            id += factor * current.get(i);
+            factor *= lists.get(i).size();
+        }
+        return id;
+    }
+
+    private List<GroupExpression> extractGroupExpressionContainsProp(Group group, PhysicalProperties prop) {
+        List<GroupExpression> validExpressions = new ArrayList<>();
+        GroupExpression bestExpr = group.getLowestCostPlan(prop).get().second;
+        validExpressions.add(bestExpr);
+        for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
+            if (!groupExpression.equals(bestExpr) && groupExpression.getLowestCostTable().containsKey(prop)) {
+                validExpressions.add(groupExpression);
+            }
+        }
+        return validExpressions;
+    }
+
+    private PhysicalPlan unrankGroup(Group group, PhysicalProperties prop, long rank) {
+        int prefix = 0;
+        for (GroupExpression groupExpression : extractGroupExpressionContainsProp(group, prop)) {
+            List<Pair<Long, Double>> possiblePlans = rankGroupExpression(groupExpression, prop);
+            if (possiblePlans.size() != 0 && rank - prefix <= possiblePlans.get(possiblePlans.size() - 1).first) {
+                return unrankGroupExpression(groupExpression, prop, rank - prefix);
+            }
+            prefix += possiblePlans.size();
+        }
+        Preconditions.checkArgument(false, "unrank Group error");
+        return null;
+    }
+
+    private PhysicalPlan unrankGroupExpression(GroupExpression groupExpression,
+            PhysicalProperties prop, long rank) {
+        if (groupExpression.getPlan() instanceof LeafPlan) {
+            Preconditions.checkArgument(rank == 0);
+            return ((PhysicalPlan) groupExpression.getPlan()).withPhysicalPropertiesAndStats(
+                    groupExpression.getOutputProperties(prop),
+                    groupExpression.getOwnerGroup().getStatistics());
+        }
+        List<List<Pair<Long, Double>>> children = new ArrayList<>();
+        List<PhysicalProperties> properties = groupExpression.getInputPropertiesList(prop);
+        for (int i = 0; i < properties.size(); i++) {
+            children.add(rankGroup(groupExpression.child(i), properties.get(i)));
+        }
+        List<Long> childrenRanks = extractChildRanks(rank, children);
+
+        List<Plan> childrenPlan = new ArrayList<>();
+        for (int i = 0; i < properties.size(); i++) {
+            childrenPlan.add(unrankGroup(groupExpression.child(i), properties.get(i), childrenRanks.get(i)));
+        }
+        Plan plan = groupExpression.getPlan().withChildren(childrenPlan);
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                groupExpression.getOutputProperties(prop),
+                groupExpression.getOwnerGroup().getStatistics());
+        return physicalPlan;
+    }
+
+    /**
+     * This method is used to decode ID for each child, which is the opposite of getUniqueID method, e.g.,
+     * 0: [0%1, 0%(1*2)]
+     * 1: [1%1, 1%(1*2)]
+     * 2: [2%1, 2%(1*2)]
+     */
+    private List<Long> extractChildRanks(long rank, List<List<Pair<Long, Double>>> children) {
+        Preconditions.checkArgument(children.size() > 0);
+        int factor = children.get(0).size();
+        List<Long> indices = new ArrayList<>();
+        for (int i = 0; i < children.size() - 1; i++) {
+            indices.add(rank % factor);
+            rank = rank / factor;
+            factor *= children.get(i + 1).size();
+        }
+        indices.add(rank % factor);
+        return indices;
+    }
+
+    public PhysicalPlan unrank(long id) {
+        return unrankGroup(getRoot(), PhysicalProperties.GATHER, id);
     }
 }

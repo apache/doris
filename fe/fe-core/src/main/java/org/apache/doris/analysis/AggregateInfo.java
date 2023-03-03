@@ -235,14 +235,17 @@ public final class AggregateInfo extends AggregateInfoBase {
      * Used by new optimizer.
      */
     public static AggregateInfo create(
-            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
-            TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
+            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs, List<Integer> aggExprIds,
+            boolean isPartialAgg, TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
         result.outputTupleDesc = tupleDesc;
         result.intermediateTupleDesc = intermediateTupleDesc;
         int aggExprSize = result.getAggregateExprs().size();
         for (int i = 0; i < aggExprSize; i++) {
             result.materializedSlots.add(i);
+            String label = (isPartialAgg ? "partial_" : "")
+                    + aggExprs.get(i).toSql() + "[#" + aggExprIds.get(i) + "]";
+            result.materializedSlotLabels.add(label);
         }
         return result;
     }
@@ -555,8 +558,10 @@ public final class AggregateInfo extends AggregateInfoBase {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             Expr aggExprParam =
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
-            FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            FunctionParams fnParams = inputExpr.getAggFnParams();
+            FunctionCallExpr aggExpr =
+                    FunctionCallExpr.createMergeAggCall(inputExpr, Lists.newArrayList(aggExprParam),
+                            fnParams != null ? fnParams.exprs() : inputExpr.getFnParams().exprs());
             aggExpr.analyzeNoThrow(analyzer);
             // do not need analyze in merge stage, just do mark for BE get right function
             aggExpr.setOrderByElements(inputExpr.getOrderByElements());
@@ -688,6 +693,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
                     inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             secondPhaseAggExprs.add(aggExpr);
         }
         Preconditions.checkState(

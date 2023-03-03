@@ -44,7 +44,7 @@ import java.util.Optional;
  */
 public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Sort {
 
-    private final ImmutableList<OrderKey> orderKeys;
+    private final List<OrderKey> orderKeys;
 
     public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
         this(orderKeys, Optional.empty(), Optional.empty(), child);
@@ -93,7 +93,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalSort((LogicalSort<Plan>) this, context);
+        return visitor.visitLogicalSort(this, context);
     }
 
     @Override
@@ -104,18 +104,23 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
+    public LogicalSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalSort<>(orderKeys, children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalSort<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalSort<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalSort<>(orderKeys, Optional.empty(), logicalProperties, child());
+    }
+
+    public LogicalSort<Plan> withOrderKeys(List<OrderKey> orderKeys) {
+        return new LogicalSort<>(orderKeys, Optional.empty(),
+                Optional.of(getLogicalProperties()), child());
     }
 }

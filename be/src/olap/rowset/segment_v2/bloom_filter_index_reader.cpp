@@ -19,6 +19,7 @@
 
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 namespace segment_v2 {
@@ -39,20 +40,18 @@ Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIter
 Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
                                                    std::unique_ptr<BloomFilter>* bf) {
     size_t num_to_read = 1;
-    std::unique_ptr<ColumnVectorBatch> cvb;
-    RETURN_IF_ERROR(
-            ColumnVectorBatch::create(num_to_read, false, _reader->type_info(), nullptr, &cvb));
-    ColumnBlock block(cvb.get(), _pool.get());
-    ColumnBlockView column_block_view(&block);
+    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+            _reader->type_info()->type(), 1, 0);
+    auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));
     size_t num_read = num_to_read;
-    RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, &column_block_view));
+    RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, column));
     DCHECK(num_to_read == num_read);
     // construct bloom filter
-    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf);
-    const Slice* value_ptr = reinterpret_cast<const Slice*>(block.data());
-    RETURN_IF_ERROR((*bf)->init(value_ptr->data, value_ptr->size,
+    StringRef value = column->get_data_at(0);
+    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value.size);
+    RETURN_IF_ERROR((*bf)->init(value.data, value.size,
                                 _reader->_bloom_filter_index_meta->hash_strategy()));
     _pool->clear();
     return Status::OK();

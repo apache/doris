@@ -74,9 +74,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalCheckPolicy",
-            "child", child()
-        );
+        return Utils.toSqlString("LogicalCheckPolicy");
     }
 
     @Override

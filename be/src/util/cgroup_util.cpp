@@ -203,7 +203,7 @@ std::string CGroupUtil::debug_string() {
     if (status.ok()) {
         mem_limit_str = strings::Substitute("$0", mem_limit);
     } else {
-        mem_limit_str = status.get_error_msg();
+        mem_limit_str = status.to_string();
     }
     string cpu_limit_str;
     float cpu_limit;
@@ -217,7 +217,7 @@ std::string CGroupUtil::debug_string() {
             cpu_limit_str = "unlimited";
         }
     } else {
-        cpu_limit_str = status.get_error_msg();
+        cpu_limit_str = status.to_string();
     }
     return strings::Substitute("Process CGroup Info: memory.limit_in_bytes=$0, cpu cfs limits: $1",
                                mem_limit_str, cpu_limit_str);

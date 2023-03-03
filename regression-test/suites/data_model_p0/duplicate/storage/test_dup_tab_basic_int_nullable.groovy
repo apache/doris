@@ -38,8 +38,6 @@ PROPERTIES (
 )
 """
 
-    sql "set enable_vectorized_engine = false"
-
     sql """insert into ${table1} values
         (9,10,11,12),
         (9,10,11,12),
@@ -58,8 +56,6 @@ PROPERTIES (
         (5,6,7,8),
         (5,6,7,8)
 """
-
-    sql "set enable_vectorized_engine = true"
 
     test {
         // siteid column not contain null

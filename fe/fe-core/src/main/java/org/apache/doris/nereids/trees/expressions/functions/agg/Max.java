@@ -18,46 +18,60 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /** max agg function. */
-public class Max extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
+public class Max extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
     public Max(Expression child) {
-        super("max", child);
+        this(false, false, child);
     }
 
-    public Max(AggregateParam aggregateParam, Expression child) {
-        super("max", aggregateParam, child);
+    public Max(boolean distinct, Expression arg) {
+        this(distinct, false, arg);
     }
 
-    @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(argumentTypes.get(0)).args(argumentTypes.get(0));
-    }
-
-    @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes;
+    private Max(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("max", distinct, alwaysNullable, arg);
     }
 
     @Override
-    public Max withChildren(List<Expression> children) {
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).isOnlyMetricType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        DataType dataType = getArgument(0).getDataType();
+        return FunctionSignature.ret(dataType).args(dataType);
+    }
+
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(getDataType());
+    }
+
+    @Override
+    public Max withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(getAggregateParam(), children.get(0));
+        return new Max(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public Max withAggregateParam(AggregateParam aggregateParam) {
-        return new Max(aggregateParam, child());
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new Max(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

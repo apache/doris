@@ -51,7 +51,7 @@ priorty_network 的值是 CIDR 格式表示的。分为两部分，第一部分�
 
 首先明确一点，FE 只有两种角色：Follower 和 Observer。而 Master 只是一组 Follower 节点中选择出来的一个 FE。Master 可以看成是一种特殊的 Follower。所以当我们被问及一个集群有多少 FE，都是什么角色时，正确的回答当时应该是所有 FE 节点的个数，以及 Follower 角色的个数和 Observer 角色的个数。
 
-所有 Follower 角色的 FE 节点会组成一个可选择组，类似 Poxas 一致性协议里的组概念。组内会选举出一个 Follower 作为 Master。当 Master 挂了，会自动选择新的 Follower 作为 Master。而 Observer 不会参与选举，因此 Observer 也不会称为 Master 。
+所有 Follower 角色的 FE 节点会组成一个可选择组，类似 Paxos 一致性协议里的组概念。组内会选举出一个 Follower 作为 Master。当 Master 挂了，会自动选择新的 Follower 作为 Master。而 Observer 不会参与选举，因此 Observer 也不会称为 Master 。
 
 一条元数据日志需要在多数 Follower 节点写入成功，才算成功。比如3个 FE ，2个写入成功才可以。这也是为什么 Follower 角色的个数需要是奇数的原因。
 
@@ -83,7 +83,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 3. 使用API手动迁移数据
 
-   Doris提供了[HTTP API](../admin-manual/http-actions/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
+   Doris提供了[HTTP API](../admin-manual/http-actions/be/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
 
 ### Q5. 如何正确阅读 FE/BE 日志?
 
@@ -285,7 +285,7 @@ cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.d
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../ecosystem/external-table/odbc-of-doris.md)。
+解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../lakehouse/external-table/odbc.md)。
 
 可以通过如下方式验证 MySQL ODBC Driver 使用的openssl 版本
 
@@ -296,9 +296,17 @@ ldd /path/to/libmyodbc8w.so |grep libssl.so
 
 ### Q15. 升级到 1.2 版本，BE NoClassDefFoundError 问题启动失败
 <version since="1.2"> Java UDF 依赖错误 </version>
-如果升级支持启动 be 出现下面这种 Java `NoClassDefFoundError` 错误
+如果升级后启动 be 出现下面这种 Java `NoClassDefFoundError` 错误
 ```
 Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/IniUtil
 Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
 ```
 需要重官网下载 `apache-doris-java-udf-jar-with-dependencies-1.2.0` 的 Java UDF 函数依赖包，放到 BE 安装目录下的 lib 目录，然后重新启动 BE
+
+### Q16. 升级到 1.2 版本，BE 启动显示 Failed to initialize JNI 问题
+<version since="1.2"> Java 环境问题 </version>
+如果升级后启动 BE 出现下面这种 `Failed to initialize JNI` 错误
+```
+Failed to initialize JNI: Failed to find the library libjvm.so.
+```
+需要在系统设置 `JAVA_HOME` 环境变量，或者在 `start_be.sh` 启动脚本第一行添加 `export JAVA_HOME=your_java_home_path`，然后重新启动 BE 节点。

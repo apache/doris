@@ -30,18 +30,17 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "runtime/buffered_block_mgr2.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/file_utils.h"
-#include "util/load_error_hub.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 // for ut only
 RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
@@ -54,7 +53,6 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _unreported_error_idx(0),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
-          _root_node_id(-1),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
@@ -80,7 +78,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _query_id(fragment_exec_params.query_id),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
-          _root_node_id(-1),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
@@ -95,6 +92,33 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     }
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
+    DCHECK(status.ok());
+}
+
+RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
+                           const TUniqueId& query_id, const TQueryOptions& query_options,
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+        : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+          _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
+          _data_stream_recvrs_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _query_id(query_id),
+          _is_cancelled(false),
+          _per_fragment_instance_idx(0),
+          _num_rows_load_total(0),
+          _num_rows_load_filtered(0),
+          _num_rows_load_unselected(0),
+          _num_print_error_rows(0),
+          _num_bytes_load_total(0),
+          _normal_row_number(0),
+          _error_row_number(0),
+          _error_log_file(nullptr) {
+    if (pipeline_params.__isset.runtime_filter_params) {
+        _runtime_filter_mgr->set_runtime_filter_params(pipeline_params.runtime_filter_params);
+    }
+    Status status =
+            init(pipeline_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
@@ -147,16 +171,11 @@ RuntimeState::RuntimeState()
 }
 
 RuntimeState::~RuntimeState() {
-    _block_mgr2.reset();
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
-    }
-
-    if (_error_hub != nullptr) {
-        _error_hub->close();
     }
 
     _obj_pool->clear();
@@ -216,27 +235,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
-    _scanner_mem_tracker =
-            std::make_shared<MemTracker>(fmt::format("TestScanner#QueryId={}", print_id(query_id)));
     return Status::OK();
-}
-
-Status RuntimeState::create_block_mgr() {
-    DCHECK(_block_mgr2.get() == nullptr);
-    RETURN_IF_ERROR(BufferedBlockMgr2::create(this, runtime_profile(), _exec_env->tmp_file_mgr(),
-                                              _exec_env->disk_io_mgr()->max_read_buffer_size(),
-                                              &_block_mgr2));
-    return Status::OK();
-}
-
-bool RuntimeState::error_log_is_empty() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return (_error_log.size() > 0);
-}
-
-std::string RuntimeState::error_log() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return boost::algorithm::join(_error_log, "\n");
 }
 
 bool RuntimeState::log_error(const std::string& error) {
@@ -248,14 +247,6 @@ bool RuntimeState::log_error(const std::string& error) {
     }
 
     return false;
-}
-
-void RuntimeState::log_error(const Status& status) {
-    if (status.ok()) {
-        return;
-    }
-
-    log_error(status.get_error_msg());
 }
 
 void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
@@ -274,14 +265,15 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
             _process_status = Status::MemoryLimitExceeded(msg);
         }
     }
-    DCHECK(_process_status.is_mem_limit_exceeded());
+    DCHECK(_process_status.is<MEM_LIMIT_EXCEEDED>());
     return _process_status;
 }
 
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    if (thread_context()->thread_mem_tracker()->limit_exceeded()) {
+    if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
+        !config::enable_query_memroy_overcommit) {
         RETURN_LIMIT_EXCEEDED(this, msg);
     }
     return query_status();
@@ -290,19 +282,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const std::string ERROR_FILE_NAME = "error_log";
 const int64_t MAX_ERROR_NUM = 50;
 
-Status RuntimeState::create_load_dir() {
-    if (!_load_dir.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(_db_name, _import_label, &_load_dir));
-    _load_dir += "/output";
-    return FileUtils::create_dir(_load_dir);
-}
-
 Status RuntimeState::create_error_log_file() {
-    // Make sure that load dir exists.
-    // create_load_dir();
-
     _exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
     // std::stringstream ss;
@@ -335,7 +315,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
         if (!status.ok()) {
-            LOG(WARNING) << "Create error file log failed. because: " << status.get_error_msg();
+            LOG(WARNING) << "Create error file log failed. because: " << status;
             if (_error_log_file != nullptr) {
                 _error_log_file->close();
                 delete _error_log_file;
@@ -370,35 +350,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 
     if (out.size() > 0) {
         (*_error_log_file) << fmt::to_string(out) << std::endl;
-        export_load_error(fmt::to_string(out));
     }
     return Status::OK();
-}
-
-const int64_t HUB_MAX_ERROR_NUM = 10;
-
-void RuntimeState::export_load_error(const std::string& err_msg) {
-    if (_error_hub == nullptr) {
-        std::lock_guard<std::mutex> lock(_create_error_hub_lock);
-        if (_error_hub == nullptr) {
-            if (_load_error_hub_info == nullptr) {
-                return;
-            }
-
-            Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
-                                                 _error_log_file_path, &_error_hub);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
-                return;
-            }
-        }
-    }
-
-    if (_error_row_number <= HUB_MAX_ERROR_NUM) {
-        LoadErrorHub::ErrorMsg err(_load_job_id, err_msg);
-        // TODO(lingbin): think if should check return value?
-        _error_hub->export_error(err);
-    }
 }
 
 int64_t RuntimeState::get_load_mem_limit() {

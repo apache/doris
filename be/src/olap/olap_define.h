@@ -60,8 +60,14 @@ static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
 // the max length supported for jsonb type 2G
 static const uint32_t OLAP_JSONB_MAX_LENGTH = 2147483647;
 
+// the max length supported for struct, but excluding the length of its subtypes.
+static const uint16_t OLAP_STRUCT_MAX_LENGTH = 65535;
+
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
+
+// the max length supported for map
+static const uint16_t OLAP_MAP_MAX_LENGTH = 65535;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
@@ -91,6 +97,17 @@ static const std::string ERROR_LOG_PREFIX = "error_log";
 static const std::string PENDING_DELTA_PREFIX = "pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
+
+// define paths
+static inline std::string remote_tablet_path(int64_t tablet_id) {
+    // data/{tablet_id}
+    return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
+}
+static inline std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
+                                                  int64_t cooldown_term) {
+    // data/{tablet_id}/{replica_id}.{cooldown_term}.meta
+    return fmt::format("{}/{}.{}.meta", remote_tablet_path(tablet_id), replica_id, cooldown_term);
+}
 
 static const std::string TABLET_UID = "tablet_uid";
 static const std::string STORAGE_NAME = "storage_name";

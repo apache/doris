@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -81,14 +83,14 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
     @Test
     public void testLikeImplicitCast() {
         String expression = "1 like 5";
-        String expected = "cast(1 as string) like cast(5 as string)";
+        String expected = "cast(1 as varchar) like cast(5 as varchar)";
         assertRewrite(expression, expected);
     }
 
     @Test
     public void testRegexImplicitCast() {
         String expression = "1 regexp 5";
-        String expected = "cast(1 as string) regexp cast(5 as string)";
+        String expected = "cast(1 as varchar) regexp cast(5 as varchar)";
         assertRewrite(expression, expected);
     }
 
@@ -103,14 +105,14 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
     @Test
     public void testSumImplicitCast() {
         Assertions.assertThrows(AnalysisException.class, () -> {
-            new Sum(new StringLiteral("1")).getDataType();
+            checkAndGetDataType(new Sum(new StringLiteral("1")));
         });
     }
 
     @Test
     public void testAvgImplicitCast() {
         Assertions.assertThrows(AnalysisException.class, () -> {
-            new Avg(new StringLiteral("1")).getDataType();
+            checkAndGetDataType(new Avg(new StringLiteral("1")));
         });
     }
 
@@ -185,5 +187,19 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         Expression expected = new Divide(new Cast(Literal.of((short) 1), DoubleType.INSTANCE),
                 new Cast(Literal.of(10L), DoubleType.INSTANCE));
         assertRewrite(actual, expected);
+
+        Expression actual1 = new Add(new IntegerLiteral(1), new Add(BooleanLiteral.TRUE, new StringLiteral("2")));
+        Expression expected1 = new Add(new Cast(new IntegerLiteral(1), DoubleType.INSTANCE), new Add(
+                new Cast(BooleanLiteral.TRUE, DoubleType.INSTANCE),
+                new Cast(new StringLiteral("2"), DoubleType.INSTANCE)));
+        assertRewrite(actual1, expected1);
+
+        Expression actual2 = new Add(new IntegerLiteral(1), new Add(BooleanLiteral.TRUE, new StringLiteral("x")));
+        Assertions.assertThrows(IllegalStateException.class, () -> assertRewrite(actual2, null));
+    }
+
+    private DataType checkAndGetDataType(Expression expression) {
+        expression.checkLegalityBeforeTypeCoercion();
+        return expression.getDataType();
     }
 }

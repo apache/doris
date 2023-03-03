@@ -32,7 +32,7 @@ under the License.
 
 The Flink Doris Connector can support operations (read, insert, modify, delete) data stored in Doris through Flink.
 
-Github: https://github.com/apache/incubator-doris-flink-connector
+Github: https://github.com/apache/doris-flink-connector
 
 * `Doris` table can be mapped to `DataStream` or `Table`.
 
@@ -46,8 +46,9 @@ Github: https://github.com/apache/incubator-doris-flink-connector
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.0     | 1.14+ | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.0     | 1.15+ | 1.0+   | 8    | -         |
+| 1.1.0     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.0     | 1.15  | 1.0+   | 8    | -         |
+| 1.3.0     | 1.16  | 1.0+   | 8    | -         |
 
 ## Build and Install
 
@@ -67,6 +68,7 @@ Ready to work
 export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 #export MVN_BIN=
 #export JAVA_HOME=
+```
 
 Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
 Windows:
@@ -84,16 +86,18 @@ Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that t
  Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
  
 Linux:
-    1.Download source package：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-    2.Install dependencies：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-    3.`tar zxvf thrift-0.13.0.tar.gz`
-    4.`cd thrift-0.13.0`
-    5.`./configure --without-tests`
-    6.`make`
-    7.`make install`
-   Check the version after installation is complete：thrift --version
-   Note: If you have compiled Doris, you do not need to install thrift, you can directly use $DORIS_HOME/thirdparty/installed/bin/thrift
-```
+   ```bash
+    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # Download source package
+    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # Install dependencies
+    3. tar zxvf thrift-0.13.0.tar.gz
+    4. cd thrift-0.13.0
+    5. ./configure --without-tests
+    6. make
+    7. make install
+    8. thrift --version  # Check the version after installation is complete
+   ```
+   Note: If you have compiled Doris, you do not need to install thrift, you can directly use `$DORIS_HOME/thirdparty/installed/bin/thrift`
+
 
 Execute following command in source dir:
 
@@ -101,16 +105,17 @@ Execute following command in source dir:
 sh build.sh
 
   Usage:
-    build.sh --flink version --scala version # specify flink and scala version
-    build.sh --tag                           # this is a build from tag
+    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
+    build.sh --tag           # this is a build from tag
   e.g.:
-    build.sh --flink 1.14.3 --scala 2.12
+    build.sh --flink 1.16.0
     build.sh --tag
-Then, for example, execute the command to compile according to the version you need:
-sh build.sh --flink 1.14.3 --scala 2.12
 ```
+Then, for example, execute the command to compile according to the version you need:
+`sh build.sh --flink 1.16.0`
 
-After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+
+After successful compilation, the file `flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` will be generated in the `target/` directory. Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
@@ -123,46 +128,22 @@ enable_http_server_v2 = true
 ```
 ## Using Maven
 
-Add flink-doris-connector and necessary Flink Maven dependencies
+Add flink-doris-connector Maven dependencies
 
 ```
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-java</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-streaming-java_${scala.version}</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-clients_${scala.version}</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-<!-- flink table -->
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-table-planner_${scala.version}</artifactId>
-    <version>${flink.version}</version>
-    <scope>provided</scope>
-</dependency>
-
 <!-- flink-doris-connector -->
 <dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
-  <version>1.1.0</version>
+  <artifactId>flink-doris-connector-1.16</artifactId>
+  <version>1.3.0</version>
 </dependency>  
 ```
 
 **Notes**
 
-1. Please replace the corresponding Connector and Flink dependency versions according to different Flink and Scala versions. Version 1.1.0 only supports Flink1.14
+1. Please replace the corresponding Connector and Flink dependency versions according to different Flink versions. Version 1.3.0 only supports Flink1.16
+
+2. You can also download the relevant version jar package from [here](https://repo.maven.apache.org/maven2/org/apache/doris/).
 
 ## How to use
 
@@ -314,8 +295,8 @@ executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
                 .setStreamLoadProp(properties); //streamload params
 
 //flink rowdata‘s schema
-String[] fields = {"city", "longitude", "latitude"};
-DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE()};
+String[] fields = {"city", "longitude", "latitude", "destroy_date"};
+DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE(), DataTypes.DATE()};
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
         .setDorisExecutionOptions(executionBuilder.build())
@@ -330,16 +311,47 @@ DataStream<RowData> source = env.fromElements("")
     .map(new MapFunction<String, RowData>() {
         @Override
         public RowData map(String value) throws Exception {
-            GenericRowData genericRowData = new GenericRowData(3);
+            GenericRowData genericRowData = new GenericRowData(4);
             genericRowData.setField(0, StringData.fromString("beijing"));
             genericRowData.setField(1, 116.405419);
             genericRowData.setField(2, 39.916927);
+            genericRowData.setField(3, LocalDate.now().toEpochDay());
             return genericRowData;
         }
     });
 
 source.sinkTo(builder.build());
 ```
+
+**SchemaChange Stream**
+```java
+// enable checkpoint
+env.enableCheckpointing(10000);
+
+Properties props = new Properties();
+props.setProperty("format", "json");
+props.setProperty("read_json_by_line", "true");
+DorisOptions dorisOptions = DorisOptions.builder()
+        .setFenodes("127.0.0.1:8030")
+        .setTableIdentifier("test.t1")
+        .setUsername("root")
+        .setPassword("").build();
+
+DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
+executionBuilder.setLabelPrefix("label-doris" + UUID.randomUUID())
+        .setStreamLoadProp(props).setDeletable(true);
+
+DorisSink.Builder<String> builder = DorisSink.builder();
+builder.setDorisReadOptions(DorisReadOptions.builder().build())
+        .setDorisExecutionOptions(executionBuilder.build())
+        .setDorisOptions(dorisOptions)
+        .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisOptions).build());
+
+env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.print();
+        .sinkTo(builder.build());
+```
+refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/blob/master/flink-doris-connector/src/test/java/org/apache/doris/flink/CDCSchemaChangeExample.java)
+
 
 ### General
 
@@ -431,7 +443,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ## Java example
 
-`samples/doris-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/)
+`samples/doris-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/doris/tree/master/samples/doris-demo/)
 
 ## Best Practices
 
@@ -444,9 +456,17 @@ The most suitable scenario for using Flink Doris Connector is to synchronize sou
 1. The Flink Doris Connector mainly relies on Checkpoint for streaming writing, so the interval between Checkpoints is the visible delay time of the data.
 2. To ensure the Exactly Once semantics of Flink, the Flink Doris Connector enables two-phase commit by default, and Doris enables two-phase commit by default after version 1.1. 1.0 can be enabled by modifying the BE parameters, please refer to [two_phase_commit](../data-operate/import/import-way/stream-load-manual.md).
 
-### common problem
+## FAQ
 
-1. **Bitmap type write**
+1. **After Doris Source finishes reading data, why does the stream end?**
+
+Currently Doris Source is a bounded stream and does not support CDC reading.
+
+2. **Can Flink read Doris and perform conditional pushdown?**
+
+By configuring the doris.filter.query parameter, refer to the configuration section for details.
+
+3. **How to write Bitmap type?**
 
 ```sql
 CREATE TABLE bitmap_sink (
@@ -464,12 +484,32 @@ WITH (
    'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
 )
 ````
-2. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
+4. **errCode = 2, detailMessage = Label [label_0_1] has already been used, relate to txn [19650]**
 
 In the Exactly-Once scenario, the Flink Job must be restarted from the latest Checkpoint/Savepoint, otherwise the above error will be reported.
 When Exactly-Once is not required, it can also be solved by turning off 2PC commits (sink.enable-2pc=false) or changing to a different sink.label-prefix.
 
-3. **errCode = 2, detailMessage = transaction [19650] not found**
+5. **errCode = 2, detailMessage = transaction [19650] not found**
 
 Occurred in the Commit phase, the transaction ID recorded in the checkpoint has expired on the FE side, and the above error will occur when committing again at this time.
 At this time, it cannot be started from the checkpoint, and the expiration time can be extended by modifying the streaming_label_keep_max_second configuration in fe.conf, which defaults to 12 hours.
+
+6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
+
+This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+
+7. **How to ensure the order of a batch of data when Flink writes to the Uniq model?**
+
+You can add sequence column configuration to ensure that, for details, please refer to [sequence](https://doris.apache.org/zh-CN/docs/dev/data-operate/update-delete/sequence-column-manual)
+
+8. **The Flink task does not report an error, but the data cannot be synchronized? **
+
+Before Connector1.1.0, it was written in batches, and the writing was driven by data. It was necessary to determine whether there was data written upstream. After 1.1.0, it depends on Checkpoint, and Checkpoint must be enabled to write.
+
+9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
+
+It usually occurs before Connector1.1.0, because the writing frequency is too fast, resulting in too many versions. The frequency of Streamload can be reduced by setting the sink.batch.size and sink.batch.interval parameters.
+
+10. **Flink imports dirty data, how to skip it? **
+
+When Flink imports data, if there is dirty data, such as field format, length, etc., it will cause StreamLoad to report an error, and Flink will continue to retry at this time. If you need to skip, you can disable the strict mode of StreamLoad (strict_mode=false, max_filter_ratio=1) or filter the data before the Sink operator.

@@ -22,8 +22,11 @@ import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -46,6 +49,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
@@ -87,6 +91,13 @@ public class Tablet extends MetaObject implements Writable {
     private long checkedVersionHash;
     @SerializedName(value = "isConsistent")
     private boolean isConsistent;
+
+    // cooldown conf
+    @SerializedName(value = "cooldownReplicaId")
+    private long cooldownReplicaId = -1;
+    @SerializedName(value = "cooldownTerm")
+    private long cooldownTerm = -1;
+    private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -134,6 +145,22 @@ public class Tablet extends MetaObject implements Writable {
 
     public boolean isConsistent() {
         return isConsistent;
+    }
+
+    public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
+        cooldownConfLock.writeLock().lock();
+        this.cooldownReplicaId = cooldownReplicaId;
+        this.cooldownTerm = cooldownTerm;
+        cooldownConfLock.writeLock().unlock();
+    }
+
+    public Pair<Long, Long> getCooldownConf() {
+        cooldownConfLock.readLock().lock();
+        try {
+            return Pair.of(cooldownReplicaId, cooldownTerm);
+        } finally {
+            cooldownConfLock.readLock().unlock();
+        }
     }
 
     private boolean deleteRedundantReplica(long backendId, long version) {
@@ -326,18 +353,8 @@ public class Tablet extends MetaObject implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        int replicaCount = replicas.size();
-        out.writeInt(replicaCount);
-        for (int i = 0; i < replicaCount; ++i) {
-            replicas.get(i).write(out);
-        }
-
-        out.writeLong(checkedVersion);
-        out.writeLong(checkedVersionHash);
-        out.writeBoolean(isConsistent);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     @Override
@@ -359,6 +376,11 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public static Tablet read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Tablet.class);
+        }
+
         Tablet tablet = new Tablet();
         tablet.readFields(in);
         return tablet;
@@ -565,7 +587,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     private boolean checkHost(Set<String> hosts, Backend backend) {
-        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
+        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getIp());
     }
 
     /**

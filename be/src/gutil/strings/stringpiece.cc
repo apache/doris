@@ -23,11 +23,9 @@ using std::sort;
 using std::swap;
 using std::string;
 
-namespace std {
-size_t hash<StringPiece>::operator()(StringPiece s) const {
+size_t std::hash<StringPiece>::operator()(StringPiece s) const {
     return HashTo32(s.data(), s.size());
 }
-} // namespace std
 
 std::ostream& operator<<(std::ostream& o, StringPiece piece) {
     o.write(piece.data(), piece.size());

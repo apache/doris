@@ -31,20 +31,7 @@ suite("test_lag_lead_window") {
         ('b','aa','/wyyt-image/2022/04/13/1434607674511761493.jpg'),
         ('c','cc','/wyyt-image/2022/04/13/1434607674511761493.jpg') """
 
-    sql """ set enable_vectorized_engine = false """
-    qt_select_default """ 
-        select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
-            lag(cc,1,'unknown') over (PARTITION by cc  order by aa) as lag_cc 
-        from ${tableName}  
-        order by aa; """
-
-    qt_select_default2 """ select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
-                                  lead(cc,1,'') over (PARTITION by cc  order by aa) as lead_cc 
-                           from ${tableName} 
-                           order by aa; """
-
-    sql """ set enable_vectorized_engine = true """
-    qt_select_default """ 
+    qt_select_default """
         select aa, bb, min(cc) over(PARTITION by cc  order by aa) ,
             lag(cc,1,'unknown') over (PARTITION by cc  order by aa) as lag_cc 
         from ${tableName}  

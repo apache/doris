@@ -221,7 +221,7 @@ public final class RuntimeFilterGenerator {
      * (scan) nodes. Filters that cannot be assigned to a scan node are discarded.
      */
     private void generateFilters(PlanNode root) {
-        if (root instanceof HashJoinNode) {
+        if (root instanceof HashJoinNode && !((HashJoinNode) root).isMarkJoin()) {
             HashJoinNode joinNode = (HashJoinNode) root;
             List<Expr> joinConjuncts = new ArrayList<>();
             // It's not correct to push runtime filters to the left side of a left outer,

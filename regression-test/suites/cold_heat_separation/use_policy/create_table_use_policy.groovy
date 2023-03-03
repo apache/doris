@@ -15,15 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
-
 suite("create_table_use_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
-    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-    Date date = new Date(System.currentTimeMillis() + 3600000)
-    def cooldownTime = format.format(date)
+    def cooldown_ttl = "10"
 
     def create_table_use_not_create_policy = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_use_not_create_policy
@@ -59,23 +52,24 @@ suite("create_table_use_policy") {
         CREATE RESOURCE IF NOT EXISTS "test_create_table_use_resource"
         PROPERTIES(
             "type"="s3",
-            "s3_region" = "bj",
-            "s3_endpoint" = "http://bj.s3.comaaaa",
-            "s3_root_path" = "path/to/rootaaaa",
-            "s3_secret_key" = "aaaa",
-            "s3_access_key" = "bbba",
-            "s3_bucket" = "test-bucket"
+            "AWS_REGION" = "bj",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
     """
     def create_succ_1 = try_sql """
         CREATE STORAGE POLICY IF NOT EXISTS test_create_table_use_policy
         PROPERTIES(
         "storage_resource" = "test_create_table_use_resource",
-        "cooldown_datetime" = "$cooldownTime"
+        "cooldown_ttl" = "$cooldown_ttl"
         );
     """
 
-    sql """ALTER STORAGE POLICY test_create_table_use_policy PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
+    sql """ALTER STORAGE POLICY test_create_table_use_policy PROPERTIES("cooldown_ttl" = "$cooldown_ttl")"""
 
     assertEquals(storage_exist.call("test_create_table_use_policy"), true)
 

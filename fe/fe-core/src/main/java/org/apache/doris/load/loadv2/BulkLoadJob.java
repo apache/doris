@@ -29,8 +29,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -74,12 +76,12 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // input params
     protected BrokerDesc brokerDesc;
+    // queryId of OriginStatement
+    protected String queryId;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyze when the log is replayed
     private OriginStatement originStmt;
-
-    private UserIdentity userInfo;
 
     // include broker desc and data desc
     protected BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
@@ -101,9 +103,11 @@ public abstract class BulkLoadJob extends LoadJob {
         this.userInfo = userInfo;
 
         if (ConnectContext.get() != null) {
+            this.queryId = DebugUtil.printId(ConnectContext.get().queryId());
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
         } else {
+            this.queryId = "N/A";
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
@@ -133,6 +137,7 @@ public abstract class BulkLoadJob extends LoadJob {
                 default:
                     throw new DdlException("Unknown load job type.");
             }
+            bulkLoadJob.setComment(stmt.getComment());
             bulkLoadJob.setJobProperties(stmt.getProperties());
             bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
             return bulkLoadJob;
@@ -292,7 +297,6 @@ public abstract class BulkLoadJob extends LoadJob {
         super.write(out);
         brokerDesc.write(out);
         originStmt.write(out);
-        userInfo.write(out);
 
         out.writeInt(sessionVariables.size());
         for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
@@ -301,17 +305,23 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
+    public OriginStatement getOriginStmt() {
+        return this.originStmt;
+    }
+
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
         originStmt = OriginStatement.read(in);
         // The origin stmt does not be analyzed in here.
-        // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
+        // The reason is that it will throw MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
 
-        userInfo = UserIdentity.read(in);
-        // must set is as analyzed, because when write the user info to meta image, it will be checked.
-        userInfo.setIsAnalyzed();
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
+            userInfo = UserIdentity.read(in);
+            // must set is as analyzed, because when write the user info to meta image, it will be checked.
+            userInfo.setIsAnalyzed();
+        }
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);

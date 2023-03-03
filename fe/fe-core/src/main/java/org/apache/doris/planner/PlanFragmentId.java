@@ -34,11 +34,6 @@ public class PlanFragmentId extends Id<PlanFragmentId> {
             public PlanFragmentId getNextId() {
                 return new PlanFragmentId(nextId++);
             }
-
-            @Override
-            public PlanFragmentId getMaxId() {
-                return new PlanFragmentId(nextId - 1);
-            }
         };
     }
 

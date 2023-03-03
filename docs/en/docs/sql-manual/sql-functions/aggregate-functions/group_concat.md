@@ -31,8 +31,10 @@ under the License.
 `VARCHAR GROUP_CONCAT([DISTINCT] VARCHAR str[, VARCHAR sep]) [ORDER BY { col_name | expr} [ASC | DESC])`
 
 
-This function is an aggregation function similar to sum (), and group_concat links multiple rows of results in the result set to a string. The second parameter, sep, is a connection symbol between strings, which can be omitted. 
-Support Order By for sorting multi-row results, sorting and aggregation columns can be different. This function usually needs to be used with group by statements.
+This function is an aggregation function similar to sum (), and group_concat links multiple rows of results in the result set to a string. The second parameter, sep, is a connection symbol between strings, which can be omitted. This function usually needs to be used with group by statements.
+
+<version since="1.2"></version>
+Support Order By for sorting multi-row results, sorting and aggregation columns can be different.
 
 ### example
 

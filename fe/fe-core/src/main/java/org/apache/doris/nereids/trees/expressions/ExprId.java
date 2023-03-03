@@ -52,11 +52,6 @@ public class ExprId extends Id<ExprId> {
             public ExprId getNextId() {
                 return new ExprId(nextId++);
             }
-
-            @Override
-            public ExprId getMaxId() {
-                return new ExprId(nextId++);
-            }
         };
     }
 

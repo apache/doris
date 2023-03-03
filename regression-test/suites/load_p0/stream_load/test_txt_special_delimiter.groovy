@@ -31,13 +31,6 @@ suite("test_txt_special_delimiter", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
     for ( i in 0..1 ) {
-        // should be deleted after new_load_scan is ready
-        if (i == 1) {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
-        } else {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
-        }
-
         // test special_delimiter success
         streamLoad {
             table "${tableName}"

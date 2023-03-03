@@ -54,10 +54,11 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 |Double|Double|
 |Date|LocalDate|
 |Datetime|LocalDateTime|
-|Char|String|
-|Varchar|String|
+|String|String|
 |Decimal|BigDecimal|
+|```array<Type>```|```ArrayList<Type>```|
 
+* array类型可以嵌套基本类型，例如Doris: ```array<int>```对应JAVA UDF Argument Type: ```ArrayList<Integer>```, 其他依此类推
 ## 编写 UDF 函数
 
 本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/java-udf-demo)
@@ -92,6 +93,7 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 ```
 * "file"="http://IP:port/udf-code.jar", 当在多机环境时，也可以使用http的方式下载jar包
 * "always_nullable"可选属性, 如果在计算中对出现的NULL值有特殊处理，确定结果中不会返回NULL，可以设为false，这样在整个查询计算过程中性能可能更好些。
+* 如果你是**本地路径**方式，这里数据库驱动依赖的jar包，**FE、BE节点都要放置**
 
 ## 编写 UDAF 函数
 <br/>
@@ -99,11 +101,17 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 在使用Java代码编写UDAF时，有一些必须实现的函数(标记required)和一个内部类State，下面将以一个具体的实例来说明
 下面的SimpleDemo将实现一个类似的sum的简单函数,输入参数INT，输出参数是INT
 ```JAVA
-package org.apache.doris.udf;
+package org.apache.doris.udf.demo;
 
-public class SimpleDemo {
+import org.apache.hadoop.hive.ql.exec.UDAF;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+public class SimpleDemo extends UDAF {
     //Need an inner class to store data
-    /*required*/  
+    /*required*/
     public static class State {
         /*some variables if you need */
         public int sum = 0;
@@ -117,13 +125,13 @@ public class SimpleDemo {
 
     /*required*/
     public void destroy(State state) {
-      /* here could do some destroy work if needed */
+        /* here could do some destroy work if needed */
     }
 
-    /*required*/ 
+    /*required*/
     //first argument is State, then other types your input
     public void add(State state, Integer val) {
-      /* here doing update work when input data*/
+        /* here doing update work when input data*/
         if (val != null) {
             state.sum += val;
         }
@@ -131,27 +139,36 @@ public class SimpleDemo {
 
     /*required*/
     public void serialize(State state, DataOutputStream out) {
-      /* serialize some data into buffer */
-        out.writeInt(state.sum);
+        /* serialize some data into buffer */
+        try {
+            out.writeInt(state.sum);
+        } catch ( IOException e ) {
+            throw new RuntimeException (e);
+        }
     }
 
     /*required*/
     public void deserialize(State state, DataInputStream in) {
-      /* deserialize get data from buffer before you put */
-        int val = in.readInt();
+        /* deserialize get data from buffer before you put */
+        int val = 0;
+        try {
+            val = in.readInt();
+        } catch ( IOException e ) {
+            throw new RuntimeException (e);
+        }
         state.sum = val;
     }
 
     /*required*/
     public void merge(State state, State rhs) {
-      /* merge data from state */
+        /* merge data from state */
         state.sum += rhs.sum;
     }
 
     /*required*/
     //return Type you defined
     public Integer getValue(State state) {
-      /* return finally result */
+        /* return finally result */
         return state.sum;
     }
 }
@@ -159,9 +176,9 @@ public class SimpleDemo {
 ```
 
 ```sql
-CREATE AGGREGATE FUNCTION simple_sum(int) RETURNS int PROPERTIES (
+CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "file"="file:///pathTo/java-udaf.jar",
-    "symbol"="org.apache.doris.udf.SimpleDemo",
+    "symbol"="org.apache.doris.udf.demo.SimpleDemo",
     "always_nullable"="true",
     "type"="JAVA_UDF"
 );

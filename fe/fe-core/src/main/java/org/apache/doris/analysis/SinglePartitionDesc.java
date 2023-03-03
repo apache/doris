@@ -47,6 +47,7 @@ public class SinglePartitionDesc implements AllPartitionDesc {
     private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
     private Long versionInfo;
     private String storagePolicy;
+    private boolean isMutable;
 
     public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
                                Map<String, String> properties) {
@@ -58,7 +59,7 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         this.partitionKeyDesc = partitionKeyDesc;
         this.properties = properties;
 
-        this.partitionDataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
+        this.partitionDataProperty = new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM);
         this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         this.storagePolicy = "";
     }
@@ -85,6 +86,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
     public boolean isInMemory() {
         return isInMemory;
+    }
+
+    public boolean isMutable() {
+        return isMutable;
     }
 
     public TTabletType getTabletType() {
@@ -127,7 +132,7 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
         // analyze data property
         partitionDataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
-                DataProperty.DEFAULT_DATA_PROPERTY);
+                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num
@@ -141,6 +146,9 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
         // analyze in memory
         isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+
+        // analyze is mutable
+        isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
 
         tabletType = PropertyAnalyzer.analyzeTabletType(properties);
 

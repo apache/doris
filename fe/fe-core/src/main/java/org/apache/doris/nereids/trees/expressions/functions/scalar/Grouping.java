@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShape;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShapes;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,9 +40,9 @@ public class Grouping extends GroupingScalarFunction implements UnaryExpression,
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+    public FunctionSignature customSignature() {
         // any argument type
-        return FunctionSignature.ret(BigIntType.INSTANCE).args(argumentTypes.get(0));
+        return FunctionSignature.ret(BigIntType.INSTANCE).args(getArgument(0).getDataType());
     }
 
     @Override

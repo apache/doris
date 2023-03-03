@@ -47,6 +47,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "env/env.h"
+#include "io/cache/block/block_file_cache_factory.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -379,11 +380,50 @@ int main(int argc, char** argv) {
         // Init jni
         status = doris::JniUtil::Init();
         if (!status.ok()) {
-            LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+            LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
         }
     }
 
+    if (doris::config::enable_file_cache) {
+        std::vector<doris::CachePath> cache_paths;
+        olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
+        if (!olap_res) {
+            LOG(FATAL) << "parse config file cache path failed, path="
+                       << doris::config::file_cache_path;
+            exit(-1);
+        }
+        for (auto& cache_path : cache_paths) {
+            Status st = doris::io::FileCacheFactory::instance().create_file_cache(
+                    cache_path.path, cache_path.init_settings(), doris::io::FileCacheType::NORMAL);
+            if (!st) {
+                LOG(FATAL) << st;
+                exit(-1);
+            }
+        }
+
+        if (!doris::config::disposable_file_cache_path.empty()) {
+            cache_paths.clear();
+            olap_res = doris::parse_conf_cache_paths(doris::config::disposable_file_cache_path,
+                                                     cache_paths);
+            if (!olap_res) {
+                LOG(FATAL) << "parse config disposable file cache path failed, path="
+                           << doris::config::disposable_file_cache_path;
+                exit(-1);
+            }
+            for (auto& cache_path : cache_paths) {
+                Status st = doris::io::FileCacheFactory::instance().create_file_cache(
+                        cache_path.path, cache_path.init_settings(),
+                        doris::io::FileCacheType::DISPOSABLE);
+                if (!st) {
+                    LOG(FATAL) << st;
+                    exit(-1);
+                }
+            }
+        }
+    }
+
+    // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
     daemon.start();
@@ -405,7 +445,7 @@ int main(int argc, char** argv) {
     doris::StorageEngine* engine = nullptr;
     auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {
-        LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
+        LOG(FATAL) << "fail to open StorageEngine, res=" << st;
         exit(-1);
     }
     exec_env->set_storage_engine(engine);
@@ -488,8 +528,7 @@ int main(int argc, char** argv) {
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: "
-                   << status.get_error_msg();
+        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
         doris::shutdown_logging();
         exit(1);
     }

@@ -120,6 +120,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
         keywordMap.put("inverted", new Integer(SqlParserSymbols.KW_INVERTED));
         keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
+        keywordMap.put("ngram_bf", new Integer(SqlParserSymbols.KW_NGRAM_BF));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
         keywordMap.put("broker", new Integer(SqlParserSymbols.KW_BROKER));
@@ -235,6 +236,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("full", new Integer(SqlParserSymbols.KW_FULL));
         keywordMap.put("function", new Integer(SqlParserSymbols.KW_FUNCTION));
         keywordMap.put("functions", new Integer(SqlParserSymbols.KW_FUNCTIONS));
+        keywordMap.put("type_cast", new Integer(SqlParserSymbols.KW_TYPECAST));
         keywordMap.put("global", new Integer(SqlParserSymbols.KW_GLOBAL));
         keywordMap.put("grant", new Integer(SqlParserSymbols.KW_GRANT));
         keywordMap.put("grants", new Integer(SqlParserSymbols.KW_GRANTS));
@@ -293,6 +295,15 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("lock", new Integer(SqlParserSymbols.KW_LOCK));
         keywordMap.put("low_priority", new Integer(SqlParserSymbols.KW_LOW_PRIORITY));
         keywordMap.put("map", new Integer(SqlParserSymbols.KW_MAP));
+        keywordMap.put("match", new Integer(SqlParserSymbols.KW_MATCH));
+        keywordMap.put("match_any", new Integer(SqlParserSymbols.KW_MATCH_ANY));
+        keywordMap.put("match_all", new Integer(SqlParserSymbols.KW_MATCH_ALL));
+        keywordMap.put("match_phrase", new Integer(SqlParserSymbols.KW_MATCH_PHRASE));
+        keywordMap.put("element_eq", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_EQ));
+        keywordMap.put("element_lt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_LT));
+        keywordMap.put("element_gt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_GT));
+        keywordMap.put("element_le", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_LE));
+        keywordMap.put("element_ge", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_GE));
         keywordMap.put("materialized", new Integer(SqlParserSymbols.KW_MATERIALIZED));
         keywordMap.put("max", new Integer(SqlParserSymbols.KW_MAX));
         keywordMap.put("maxvalue", new Integer(SqlParserSymbols.KW_MAX_VALUE));
@@ -315,6 +326,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("null", new Integer(SqlParserSymbols.KW_NULL));
         keywordMap.put("nulls", new Integer(SqlParserSymbols.KW_NULLS));
         keywordMap.put("observer", new Integer(SqlParserSymbols.KW_OBSERVER));
+        keywordMap.put("of", new Integer(SqlParserSymbols.KW_OF));
         keywordMap.put("offset", new Integer(SqlParserSymbols.KW_OFFSET));
         keywordMap.put("on", new Integer(SqlParserSymbols.KW_ON));
         keywordMap.put("only", new Integer(SqlParserSymbols.KW_ONLY));
@@ -453,6 +465,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("varchar", new Integer(SqlParserSymbols.KW_VARCHAR));
         keywordMap.put("variables", new Integer(SqlParserSymbols.KW_VARIABLES));
         keywordMap.put("verbose", new Integer(SqlParserSymbols.KW_VERBOSE));
+        keywordMap.put("version", new Integer(SqlParserSymbols.KW_VERSION));
         keywordMap.put("view", new Integer(SqlParserSymbols.KW_VIEW));
         keywordMap.put("warnings", new Integer(SqlParserSymbols.KW_WARNINGS));
         keywordMap.put("week", new Integer(SqlParserSymbols.KW_WEEK));
@@ -465,6 +478,12 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
+        keywordMap.put("histogram", new Integer(SqlParserSymbols.KW_HISTOGRAM));
+        keywordMap.put("auto", new Integer(SqlParserSymbols.KW_AUTO));
+        keywordMap.put("prepare", new Integer(SqlParserSymbols.KW_PREPARE));
+        keywordMap.put("execute", new Integer(SqlParserSymbols.KW_EXECUTE));
+        keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
+        keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
    }
     
   // map from token id to token description
@@ -485,6 +504,8 @@ import org.apache.doris.qe.SqlModeHelper;
     tokenIdMap.put(new Integer(SqlParserSymbols.RPAREN), ")");
     tokenIdMap.put(new Integer(SqlParserSymbols.LBRACKET), "[");
     tokenIdMap.put(new Integer(SqlParserSymbols.RBRACKET), "]");
+    tokenIdMap.put(new Integer(SqlParserSymbols.LBRACE), "{");
+    tokenIdMap.put(new Integer(SqlParserSymbols.RBRACE), "}");
     tokenIdMap.put(new Integer(SqlParserSymbols.COLON), ":");
     tokenIdMap.put(new Integer(SqlParserSymbols.SEMICOLON), ";");
     tokenIdMap.put(new Integer(SqlParserSymbols.FLOATINGPOINT_LITERAL),
@@ -513,6 +534,7 @@ import org.apache.doris.qe.SqlModeHelper;
     tokenIdMap.put(new Integer(SqlParserSymbols.error), "ERROR");
     tokenIdMap.put(new Integer(SqlParserSymbols.BITXOR), "^");
     tokenIdMap.put(new Integer(SqlParserSymbols.NUMERIC_OVERFLOW), "NUMERIC OVERFLOW");
+    tokenIdMap.put(new Integer(SqlParserSymbols.PLACEHOLDER), "?");
   }
 
   public static boolean isKeyword(Integer tokenId) {
@@ -576,7 +598,6 @@ import org.apache.doris.qe.SqlModeHelper;
 %init}
 
 LineTerminator = \r|\n|\r\n
-NonTerminator = [^\r\n]
 Whitespace = {LineTerminator} | [ \t\f]
 
 IdentifierOrKwContents = [:digit:]*[:jletter:][:jletterdigit:]* | "&&" | "||"
@@ -633,6 +654,8 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 ";" { return newToken(SqlParserSymbols.SEMICOLON, null); }
 "[" { return newToken(SqlParserSymbols.LBRACKET, null); }
 "]" { return newToken(SqlParserSymbols.RBRACKET, null); }
+"{" { return newToken(SqlParserSymbols.LBRACE, null); }
+"}" { return newToken(SqlParserSymbols.RBRACE, null); }
 "/" { return newToken(SqlParserSymbols.DIVIDE, null); }
 "%" { return newToken(SqlParserSymbols.MOD, null); }
 "+" { return newToken(SqlParserSymbols.ADD, null); }
@@ -649,6 +672,7 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 "\"" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "'" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "`" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
+"?" { return newToken(SqlParserSymbols.PLACEHOLDER, null); }
 
 {QuotedIdentifier} {
     // Remove the quotes

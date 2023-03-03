@@ -18,7 +18,6 @@
 suite("test_multi_columns_delete") {
     def tableName = "test_multi_columns_delete"
 
-    sql """ SET enable_vectorized_engine = TRUE; """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """ CREATE TABLE IF NOT EXISTS ${tableName} ( id INT NULL COMMENT "",name VARCHAR(500) NULL COMMENT "",gender VARCHAR(500) NULL COMMENT "",remark VARCHAR(500) NULL COMMENT "" ) ENGINE=OLAP DUPLICATE KEY(id, name) DISTRIBUTED BY HASH(id, name) BUCKETS 4 PROPERTIES ( "replication_allocation" = "tag.location.default: 1","in_memory" = "false","storage_format" = "V2");"""
 

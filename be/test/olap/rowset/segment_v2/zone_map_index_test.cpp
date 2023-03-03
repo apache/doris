@@ -84,7 +84,7 @@ public:
         }
 
         io::FileReaderSPtr file_reader;
-        EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+        EXPECT_TRUE(fs->open_file(filename, &file_reader, nullptr).ok());
         ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
@@ -131,7 +131,7 @@ public:
         }
 
         io::FileReaderSPtr file_reader;
-        EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+        EXPECT_TRUE(fs->open_file(filename, &file_reader, nullptr).ok());
         ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
         Status status = column_zone_map.load(true, false);
         EXPECT_TRUE(status.ok());
@@ -184,7 +184,7 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     }
 
     io::FileReaderSPtr file_reader;
-    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+    EXPECT_TRUE(fs->open_file(filename, &file_reader, nullptr).ok());
     ZoneMapIndexReader column_zone_map(file_reader, &index_meta.zone_map_index());
     Status status = column_zone_map.load(true, false);
     EXPECT_TRUE(status.ok());

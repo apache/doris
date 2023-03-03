@@ -37,35 +37,40 @@ namespace doris::vectorized {
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t result, size_t input_rows_count) {
     ColumnPtr result_null_map_column;
-
     /// If result is already nullable.
     ColumnPtr src_not_nullable = src;
+    MutableColumnPtr mutable_result_null_map_column;
 
-    if (src->only_null())
-        return src;
-    else if (auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
         src_not_nullable = nullable->get_nested_column_ptr();
         result_null_map_column = nullable->get_null_map_column_ptr();
     }
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
-        if (!elem.type->is_nullable()) continue;
+        if (!elem.type->is_nullable()) {
+            continue;
+        }
 
+        bool is_const = is_column_const(*elem.column);
         /// Const Nullable that are NULL.
-        if (elem.column->only_null())
+        if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
             return block.get_by_position(result).type->create_column_const(input_rows_count,
                                                                            Null());
+        }
+        if (is_const) {
+            continue;
+        }
 
-        if (is_column_const(*elem.column)) continue;
-
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
+        if (auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get())) {
             const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
             if (!result_null_map_column) {
-                result_null_map_column = null_map_column->clone_resized(null_map_column->size());
+                result_null_map_column = null_map_column->clone_resized(input_rows_count);
             } else {
-                MutableColumnPtr mutable_result_null_map_column =
-                        (*std::move(result_null_map_column)).assume_mutable();
+                if (!mutable_result_null_map_column) {
+                    mutable_result_null_map_column =
+                            (*std::move(result_null_map_column)).assume_mutable();
+                }
 
                 NullMap& result_null_map =
                         assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
@@ -73,12 +78,19 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
                         assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
 
                 VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                result_null_map_column = std::move(mutable_result_null_map_column);
             }
         }
     }
 
-    if (!result_null_map_column) return make_nullable(src);
+    if (!result_null_map_column) {
+        if (is_column_const(*src)) {
+            return ColumnConst::create(
+                    make_nullable(assert_cast<const ColumnConst&>(*src).get_data_column_ptr(),
+                                  false),
+                    input_rows_count);
+        }
+        return ColumnNullable::create(src, ColumnUInt8::create(input_rows_count, 0));
+    }
 
     return ColumnNullable::create(src_not_nullable->convert_to_full_column_if_const(),
                                   result_null_map_column);
@@ -217,11 +229,12 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     }
 
     if (null_presence.has_nullable) {
-        Block temporary_block = create_block_with_nested_columns(block, args, result);
+        auto [temporary_block, new_args, new_result] =
+                create_block_with_nested_columns(block, args, result);
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-                context, temporary_block, args, result, temporary_block.rows(), dry_run));
+                context, temporary_block, new_args, new_result, temporary_block.rows(), dry_run));
         block.get_by_position(result).column =
-                wrap_in_nullable(temporary_block.get_by_position(result).column, block, args,
+                wrap_in_nullable(temporary_block.get_by_position(new_result).column, block, args,
                                  result, input_rows_count);
         *executed = true;
         return Status::OK();
@@ -295,10 +308,9 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
         }
         if (null_presence.has_nullable) {
             ColumnNumbers numbers(arguments.size());
-            for (size_t i = 0; i < arguments.size(); i++) {
-                numbers[i] = i;
-            }
-            Block nested_block = create_block_with_nested_columns(Block(arguments), numbers);
+            std::iota(numbers.begin(), numbers.end(), 0);
+            auto [nested_block, _] =
+                    create_block_with_nested_columns(Block(arguments), numbers, false);
             auto return_type = get_return_type_impl(
                     ColumnsWithTypeAndName(nested_block.begin(), nested_block.end()));
             return make_nullable(return_type);

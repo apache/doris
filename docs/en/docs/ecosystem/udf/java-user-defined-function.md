@@ -56,10 +56,11 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 |Double|Double|
 |Date|LocalDate|
 |Datetime|LocalDateTime|
-|Char|String|
-|Varchar|String|
+|String|String|
 |Decimal|BigDecimal|
+|```array<Type>```|```ArrayList<Type>```|
 
+* Array types can nested basic types, Eg: In Doris: ```array<int>``` corresponds to JAVA UDF Argument Type: ```ArrayList<Integer>```, Others is also.
 ## Write UDF functions
 
 This section mainly introduces how to develop a Java UDF. Samples for the Java version are provided under `samples/doris-demo/java-udf-demo/` for your reference, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
@@ -96,17 +97,25 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 * "file"=" http://IP:port/udf -code. Jar ", you can also use http to download jar packages in a multi machine environment.
 
 * The "always_nullable" is optional attribute, if there is special treatment for the NULL value in the calculation, it is determined that the result will not return NULL, and it can be set to false, so that the performance may be better in the whole calculation process.
+
+* If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
 ## Create UDAF
 <br/>
 When using Java code to write UDAF, there are some functions that must be implemented (mark required) and an inner class State, which will be explained with a specific example below.
 The following SimpleDemo will implement a simple function similar to sum, the input parameter is INT, and the output parameter is INT
 
 ```JAVA
-package org.apache.doris.udf;
+package org.apache.doris.udf.demo;
 
-public class SimpleDemo {
+import org.apache.hadoop.hive.ql.exec.UDAF;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+public class SimpleDemo extends UDAF {
     //Need an inner class to store data
-    /*required*/  
+    /*required*/
     public static class State {
         /*some variables if you need */
         public int sum = 0;
@@ -120,13 +129,13 @@ public class SimpleDemo {
 
     /*required*/
     public void destroy(State state) {
-      /* here could do some destroy work if needed */
+        /* here could do some destroy work if needed */
     }
 
-    /*required*/ 
+    /*required*/
     //first argument is State, then other types your input
     public void add(State state, Integer val) {
-      /* here doing update work when input data*/
+        /* here doing update work when input data*/
         if (val != null) {
             state.sum += val;
         }
@@ -134,27 +143,36 @@ public class SimpleDemo {
 
     /*required*/
     public void serialize(State state, DataOutputStream out) {
-      /* serialize some data into buffer */
-        out.writeInt(state.sum);
+        /* serialize some data into buffer */
+        try {
+            out.writeInt(state.sum);
+        } catch ( IOException e ) {
+            throw new RuntimeException (e);
+        }
     }
 
     /*required*/
     public void deserialize(State state, DataInputStream in) {
-      /* deserialize get data from buffer before you put */
-        int val = in.readInt();
+        /* deserialize get data from buffer before you put */
+        int val = 0;
+        try {
+            val = in.readInt();
+        } catch ( IOException e ) {
+            throw new RuntimeException (e);
+        }
         state.sum = val;
     }
 
     /*required*/
     public void merge(State state, State rhs) {
-      /* merge data from state */
+        /* merge data from state */
         state.sum += rhs.sum;
     }
 
     /*required*/
     //return Type you defined
     public Integer getValue(State state) {
-      /* return finally result */
+        /* return finally result */
         return state.sum;
     }
 }
@@ -164,7 +182,7 @@ public class SimpleDemo {
 ```sql
 CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "file"="file:///pathTo/java-udaf.jar",
-    "symbol"="org.apache.doris.udf.SimpleDemo",
+    "symbol"="org.apache.doris.udf.demo.SimpleDemo",
     "always_nullable"="true",
     "type"="JAVA_UDF"
 );

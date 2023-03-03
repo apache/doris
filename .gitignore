@@ -44,8 +44,9 @@ docs/.temp
 # output, thirdparty, extension
 output/
 rpc_data/
-thirdparty/src
-thirdparty/installed
+metastore_db/
+thirdparty/src*
+thirdparty/installed*
 
 fe_plugins/output
 fe_plugins/**/.factorypath
@@ -91,6 +92,9 @@ tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx
 tools/**/tpc-h_v*.pdf
 tools/**/tpch-data/
+tools/single-node-cluster/fe*
 
 # be-ut
 data_test
+
+/conf/log4j2-spring.xml

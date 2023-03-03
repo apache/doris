@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
-#include "olap/column_block.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"

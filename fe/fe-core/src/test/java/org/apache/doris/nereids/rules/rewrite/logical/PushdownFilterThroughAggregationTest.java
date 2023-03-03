@@ -24,20 +24,21 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
-public class PushdownFilterThroughAggregationTest implements PatternMatchSupported {
+public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSupported {
 
     /*-
      * origin plan:
@@ -60,7 +61,7 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
      */
     @Test
     public void pushDownPredicateOneFilterTest() {
-        LogicalPlan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student,
+        LogicalPlan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
 
@@ -78,7 +79,7 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                 logicalAggregate(
                                         logicalFilter(
                                                 logicalOlapScan()
-                                        ).when(filter -> filter.getPredicates().equals(filterPredicate))
+                                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
                                 )
                         )
                 );
@@ -107,7 +108,7 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
      */
     @Test
     public void pushDownPredicateTwoFilterTest() {
-        LogicalPlan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student,
+        LogicalPlan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
         Slot gender = scan.getOutput().get(1);
         Slot name = scan.getOutput().get(2);
@@ -134,11 +135,10 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                         logicalAggregate(
                                                 logicalFilter(
                                                         logicalOlapScan()
-                                                ).when(filter -> filter.getPredicates().child(0) instanceof GreaterThan)
-                                                        .when(filter -> filter.getPredicates()
-                                                                .child(1) instanceof LessThanEqual)
+                                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof GreaterThan
+                                                        && ImmutableList.copyOf(filter.getConjuncts()).get(1) instanceof LessThanEqual)
                                         )
-                                ).when(filter -> filter.getPredicates() instanceof EqualTo)
+                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo)
                         )
                 );
     }

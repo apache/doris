@@ -17,48 +17,109 @@
 
 #pragma once
 
-#include <vec/exec/format/parquet/parquet_common.h>
-
 #include <queue>
 
 #include "table_format_reader.h"
+#include "vec/columns/column_dictionary.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
+
+struct IOContext;
+
+namespace vectorized {
 
 class IcebergTableReader : public TableFormatReader {
 public:
+    struct PositionDeleteRange {
+        std::vector<std::string> data_file_path;
+        std::vector<std::pair<int, int>> range;
+    };
+
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
-                       RuntimeState* state, const TFileScanRangeParams& params)
-            : TableFormatReader(file_format_reader),
-              _profile(profile),
-              _state(state),
-              _params(params) {}
-    Status init_row_filters();
-    void filter_rows() override;
+                       RuntimeState* state, const TFileScanRangeParams& params,
+                       const TFileRangeDesc& range, KVCache<std::string>& kv_cache,
+                       IOContext* io_ctx);
+    ~IcebergTableReader() override = default;
+
+    Status init_row_filters(const TFileRangeDesc& range) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+
+    bool fill_all_columns() const override;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-public:
-    enum { DATA, POSITON_DELELE, EQULITY_DELELE };
-    struct PositionDeleteParams {
-        int64_t low_bound_index = -1;
-        int64_t upper_bound_index = -1;
-        int64_t last_delete_row_index = -1;
-        int64_t total_file_rows = 0;
-    };
+    Status init_reader(
+            const std::vector<std::string>& file_col_names,
+            const std::unordered_map<int, std::string>& col_id_name_map,
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            VExprContext* vconjunct_ctx);
+
+    enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
 
 private:
+    struct IcebergProfile {
+        RuntimeProfile::Counter* num_delete_files;
+        RuntimeProfile::Counter* num_delete_rows;
+        RuntimeProfile::Counter* delete_files_read_time;
+        RuntimeProfile::Counter* delete_rows_sort_time;
+    };
+
+    Status _position_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+
+    /**
+     * https://iceberg.apache.org/spec/#position-delete-files
+     * The rows in the delete file must be sorted by file_path then position to optimize filtering rows while scanning.
+     * Sorting by file_path allows filter pushdown by file in columnar storage formats.
+     * Sorting by position allows filtering rows while scanning, to avoid keeping deletes in memory.
+     */
+    void _sort_delete_rows(std::vector<std::vector<int64_t>*>& delete_rows_array,
+                           int64_t num_delete_rows);
+
+    PositionDeleteRange _get_range(const ColumnDictI32& file_path_column);
+
+    PositionDeleteRange _get_range(const ColumnString& file_path_column);
+
+    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    void _gen_file_col_names();
+    void _gen_new_colname_to_value_range();
+
     RuntimeProfile* _profile;
     RuntimeState* _state;
     const TFileScanRangeParams& _params;
-    std::vector<const FieldSchema*> _column_schemas;
-    std::deque<std::unique_ptr<GenericReader>> _delete_file_readers;
-    std::unique_ptr<GenericReader> _cur_delete_file_reader;
-    PositionDeleteParams _position_delete_params;
-};
+    const TFileRangeDesc& _range;
+    KVCache<std::string>& _kv_cache;
+    IcebergProfile _iceberg_profile;
+    std::vector<int64_t> _delete_rows;
+    // col names from _file_slot_descs
+    std::vector<std::string> _file_col_names;
+    // file column name to table column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _file_col_to_table_col;
+    // table column name to file column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    // copy from _colname_to_value_range with new column name that is in parquet file, to support schema evolution.
+    std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
+    // column id to name map. Collect from FE slot descriptor.
+    std::unordered_map<int, std::string> _col_id_name_map;
+    // col names in the parquet file
+    std::vector<std::string> _all_required_col_names;
+    // col names in table but not in parquet file
+    std::vector<std::string> _not_in_file_col_names;
 
-} // namespace doris::vectorized
+    IOContext* _io_ctx;
+    bool _has_schema_change = false;
+    bool _has_iceberg_schema = false;
+};
+} // namespace vectorized
+} // namespace doris

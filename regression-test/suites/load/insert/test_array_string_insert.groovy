@@ -19,14 +19,7 @@ suite("test_array_string_insert", "load") {
     // define a sql table
     def testTable = "tbl_test_array_string_insert"
 
-    def create_test_table = {testTablex, enable_vectorized_flag ->
-
-        if (enable_vectorized_flag) {
-            sql """ set enable_vectorized_engine = true """
-        } else {
-            sql """ set enable_vectorized_engine = false """
-        }
-
+    def create_test_table = {testTablex ->
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL COMMENT "",
@@ -48,9 +41,9 @@ suite("test_array_string_insert", "load") {
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
 
-    def test_insert_array_string = { enable_vectorized_flag ->
+    def test_insert_array_string = {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        create_test_table.call(testTable, enable_vectorized_flag)
+        create_test_table.call(testTable)
 
         sql "set enable_insert_strict = true"
 
@@ -82,9 +75,5 @@ suite("test_array_string_insert", "load") {
         qt_select "select * from ${testTable} order by k1"
     }
     
-    // case1: enable_vectorized_flag = false
-    test_insert_array_string(false);
-
-    // case2: enable_vectorized_flag = true
-    test_insert_array_string(true);
+    test_insert_array_string();
 }

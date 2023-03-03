@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -25,6 +27,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
@@ -117,5 +120,46 @@ public class ExternalMetaCacheMgr {
             metaCache.invalidateAll();
         }
         LOG.debug("invalid catalog cache for {}", catalogId);
+    }
+
+    public void addPartitionsCache(long catalogId, ExternalTable table, List<String> partitionNames) {
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
+        String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
+        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        if (metaCache != null) {
+            metaCache.addPartitionsCache(dbName, table.getName(), partitionNames,
+                    ((HMSExternalTable) table).getPartitionColumnTypes());
+        }
+        LOG.debug("add partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
+    }
+
+    public void dropPartitionsCache(long catalogId, ExternalTable table, List<String> partitionNames) {
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("only support HMSTable");
+            return;
+        }
+        String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
+        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        if (metaCache != null) {
+            metaCache.dropPartitionsCache(dbName, table.getName(), partitionNames,
+                    ((HMSExternalTable) table).getPartitionColumnTypes(), true);
+        }
+        LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
+    }
+
+    public void invalidatePartitionsCache(long catalogId, String dbName, String tableName,
+            List<String> partitionNames) {
+        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        if (metaCache != null) {
+            dbName = ClusterNamespace.getNameFromFullName(dbName);
+            for (String partitionName : partitionNames) {
+                metaCache.invalidatePartitionCache(dbName, tableName, partitionName);
+            }
+
+        }
+        LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, tableName, catalogId);
     }
 }

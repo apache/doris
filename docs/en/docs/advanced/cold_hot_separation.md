@@ -1,7 +1,7 @@
 ---
 {
-    "title": "cold hot separation",
-    "language": "en"
+"title": "cold hot separation",
+"language": "en"
 }
 ---
 
@@ -51,6 +51,10 @@ The cold and hot separation supports all doris functions, but only places some d
 
 The storage policy is the entry to use the cold and hot separation function. Users only need to associate a storage policy with a table or partition during table creation or doris use. that is, they can use the cold and hot separation function.
 
+<version since="dev"></version> When creating an S3 RESOURCE, the S3 remote link verification will be performed to ensure that the RESOURCE is created correctly.
+
+In addition, fe configuration needs to be added: `enable_storage_policy=true`
+
 For example:
 
 ```
@@ -58,15 +62,15 @@ CREATE RESOURCE "remote_s3"
 PROPERTIES
 (
     "type" = "s3",
-    "s3_endpoint" = "bj.s3.com",
-    "s3_region" = "bj",
-    "s3_bucket" = "test-bucket",
-    "s3_root_path" = "path/to/root",
-    "s3_access_key" = "bbb",
-    "s3_secret_key" = "aaaa",
-    "s3_max_connections" = "50",
-    "s3_request_timeout_ms" = "3000",
-    "s3_connection_timeout_ms" = "1000"
+    "AWS_ENDPOINT" = "bj.s3.com",
+    "AWS_REGION" = "bj",
+    "AWS_BUCKET" = "test-bucket",
+    "AWS_ROOT_PATH" = "path/to/root",
+    "AWS_ACCESS_KEY" = "bbb",
+    "AWS_SECRET_KEY" = "aaaa",
+    "AWS_MAX_CONNECTIONS" = "50",
+    "AWS_REQUEST_TIMEOUT_MS" = "3000",
+    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
 );
 
 CREATE STORAGE POLICY test_policy
@@ -95,21 +99,27 @@ Or associate a storage policy with an existing partition
 ```
 ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");
 ```
-For details, please refer to the resource, policy, create table, alter and other documents in the docs directory
+For details, please refer to the [resource](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md), [policy](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY.md), create table, alter and other documents in the docs directory
 
 ### Some restrictions
 
 - A single table or a single partition can only be associated with one storage policy. After association, the storage policy cannot be dropped
 - The object information associated with the storage policy does not support modifying the data storage path information, such as bucket, endpoint, and root_ Path and other information
-- Currently, the storage policy only supports creation, not deletion
+- Currently, the storage policy only supports creation and modification, not deletion
 
 ## Show size of objects occupied by cold data
-方式一：
-Through show proc '/backends', you can view the size of each object being uploaded to, and the RemoteUsedCapacity item.
+1. Through show proc '/backends', you can view the size of each object being uploaded to, and the RemoteUsedCapacity item.
 
-方式二：
-Through show tables from tableName, you can view the object size occupied by each table, and the RemoteDataSize item.
+2. Through show tables from tableName, you can view the object size occupied by each table, and the RemoteDataSize item.
 
+## cold data cache
+
+As above, cold data introduces the cache in order to optimize query performance. After the first hit after cooling, Doris will reload the cooled data to be's local disk. The cache has the following characteristics:
+- The cache is actually stored on the be local disk and does not occupy memory.
+- the cache can limit expansion and clean up data through LRU
+- The be parameter `file_cache_alive_time_sec` can set the maximum storage time of the cache data after it has not been accessed. The default is 604800, which is one week.
+- The be parameter `file_cache_max_size_per_disk` can set the disk size occupied by the cache. Once this setting is exceeded, the cache that has not been accessed for the longest time will be deleted. The default is 0, means no limit to the size, unit: byte.
+- The be parameter `file_cache_type` is optional `sub_file_cache` (segment the remote file for local caching) and `whole_file_cache` (the entire remote file for local caching), the default is "", means no file is cached, please set it when caching is required this parameter.
 
 ## Unfinished Matters
 

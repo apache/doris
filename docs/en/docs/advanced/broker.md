@@ -32,7 +32,8 @@ Broker is an optional process in the Doris cluster. It is mainly used to support
 - Aliyun OSS
 - Tencent Cloud CHDFS
 - Huawei Cloud OBS (since 1.2.0)
-- Amazon S3
+- Amazon S3 
+- JuiceFS (since 2.0.0)
 
 Broker provides services through an RPC service port. It is a stateless JVM process that is responsible for encapsulating some POSIX-like file operations for read and write operations on remote storage, such as open, pred, pwrite, and so on.
 In addition, the Broker does not record any other information, so the connection information, file information, permission information, and so on stored remotely need to be passed to the Broker process in the RPC call through parameters in order for the Broker to read and write files correctly .
@@ -232,5 +233,17 @@ Same as Apache HDFS
     "fs.s3a.access.key" = "xx",
     "fs.s3a.secret.key" = "xx",
     "fs.s3a.endpoint" = "xx"
+)
+```
+
+#### JuiceFS
+
+```
+(
+    "fs.defaultFS" = "jfs://xxx/",
+    "fs.jfs.impl" = "io.juicefs.JuiceFileSystem",
+    "fs.AbstractFileSystem.jfs.impl" = "io.juicefs.JuiceFS",
+    "juicefs.meta" = "xxx",
+    "juicefs.access-log" = "xxx"
 )
 ```

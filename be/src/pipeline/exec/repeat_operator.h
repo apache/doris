@@ -34,9 +34,13 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class RepeatOperator final : public DataStateOperator<RepeatOperatorBuilder> {
+class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
 public:
     RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
+
+    Status prepare(RuntimeState* state) override;
+
+    Status close(RuntimeState* state) override;
 };
 
 } // namespace pipeline

@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -44,11 +47,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Expression rewrite helper class.
@@ -59,6 +66,12 @@ public class ExpressionUtils {
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
+    }
+
+    public static Set<Expression> extractConjunctionToSet(Expression expr) {
+        Set<Expression> exprSet = Sets.newHashSet();
+        extract(And.class, expr, exprSet);
+        return exprSet;
     }
 
     public static List<Expression> extractDisjunction(Expression expr) {
@@ -87,7 +100,7 @@ public class ExpressionUtils {
         return result;
     }
 
-    private static void extract(Class<? extends Expression> type, Expression expr, List<Expression> result) {
+    private static void extract(Class<? extends Expression> type, Expression expr, Collection<Expression> result) {
         if (type.isInstance(expr)) {
             CompoundPredicate predicate = (CompoundPredicate) expr;
             extract(type, predicate.left(), result);
@@ -95,6 +108,12 @@ public class ExpressionUtils {
         } else {
             result.add(expr);
         }
+    }
+
+    public static Set<Expression> extractToSet(Expression predicate) {
+        Set<Expression> result = Sets.newHashSet();
+        extract(predicate.getClass(), predicate, result);
+        return result;
     }
 
     public static Optional<Expression> optionalAnd(List<Expression> expressions) {
@@ -122,6 +141,10 @@ public class ExpressionUtils {
 
     public static Optional<Expression> optionalAnd(Expression... expressions) {
         return optionalAnd(Lists.newArrayList(expressions));
+    }
+
+    public static Optional<Expression> optionalAnd(Collection<Expression> collection) {
+        return optionalAnd(ImmutableList.copyOf(collection));
     }
 
     public static Expression and(List<Expression> expressions) {
@@ -178,30 +201,6 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether lhs and rhs are intersecting.
-     */
-    public static <T> boolean isIntersecting(Set<T> lhs, List<T> rhs) {
-        for (T rh : rhs) {
-            if (lhs.contains(rh)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Check whether lhs and rhs are intersecting.
-     */
-    public static <T> boolean isIntersecting(Set<T> lhs, Set<T> rhs) {
-        for (T rh : rhs) {
-            if (lhs.contains(rh)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Choose the minimum slot from input parameter.
      */
     public static Slot selectMinimumColumn(List<Slot> slots) {
@@ -234,12 +233,20 @@ public class ExpressionUtils {
      *         Otherwise, return empty optional result.
      */
     public static Optional<ExprId> isSlotOrCastOnSlot(Expression expr) {
+        return extractSlotOrCastOnSlot(expr).map(Slot::getExprId);
+    }
+
+    /**
+     * Check whether the input expression is a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     * or at least one {@link Cast} on a {@link org.apache.doris.nereids.trees.expressions.Slot}
+     */
+    public static Optional<Slot> extractSlotOrCastOnSlot(Expression expr) {
         while (expr instanceof Cast) {
             expr = expr.child(0);
         }
 
         if (expr instanceof SlotReference) {
-            return Optional.of(((SlotReference) expr).getExprId());
+            return Optional.of((Slot) expr);
         } else {
             return Optional.empty();
         }
@@ -267,6 +274,20 @@ public class ExpressionUtils {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public static Set<Expression> replace(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return exprs.stream()
+                .map(expr -> replace(expr, replaceMap))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static <E extends Expression> List<E> rewriteDownShortCircuit(
+            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+        return exprs.stream()
+                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
+                .collect(ImmutableList.toImmutableList());
+    }
+
     private static class ExpressionReplacer
             extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
@@ -285,6 +306,7 @@ public class ExpressionUtils {
 
     /**
      * merge arguments into an expression array
+     *
      * @param arguments instance of Expression or Expression Array
      * @return Expression Array
      */
@@ -321,16 +343,50 @@ public class ExpressionUtils {
     }
 
     /**
-     * extract the predicate that is covered by `slots`
+     * infer notNulls slot from predicate
      */
-    public static List<Expression> extractCoveredConjunction(List<Expression> predicates, Set<Slot> slots) {
-        List<Expression> coveredPredicates = Lists.newArrayList();
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
+        Literal nullLiteral = Literal.of(null);
+        Set<Slot> notNullSlots = Sets.newHashSet();
         for (Expression predicate : predicates) {
-            if (slots.containsAll(predicate.getInputSlots())) {
-                coveredPredicates.add(predicate);
+            for (Slot slot : predicate.getInputSlots()) {
+                Map<Expression, Expression> replaceMap = new HashMap<>();
+                replaceMap.put(slot, nullLiteral);
+                Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
+                        ExpressionUtils.replace(predicate, replaceMap),
+                        new ExpressionRewriteContext(cascadesContext));
+                if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
+                    notNullSlots.add(slot);
+                }
             }
         }
-        return coveredPredicates;
+        return notNullSlots;
+    }
+
+    /**
+     * infer notNulls slot from predicate
+     */
+    public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
+        return inferNotNullSlots(predicates, cascadesContext).stream()
+                .map(slot -> {
+                    Not isNotNull = new Not(new IsNull(slot));
+                    isNotNull.isGeneratedIsNotNull = true;
+                    return isNotNull;
+                }).collect(Collectors.toSet());
+    }
+
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given slots.
+     */
+    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
+            CascadesContext cascadesContext) {
+        return inferNotNullSlots(predicates, cascadesContext).stream()
+                .filter(slots::contains)
+                .map(slot -> {
+                    Not isNotNull = new Not(new IsNull(slot));
+                    isNotNull.isGeneratedIsNotNull = true;
+                    return isNotNull;
+                }).collect(Collectors.toSet());
     }
 
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {
@@ -344,11 +400,22 @@ public class ExpressionUtils {
                 .anyMatch(expr -> expr.anyMatch(predicate));
     }
 
+    public static boolean containsType(List<? extends Expression> expressions, Class type) {
+        return anyMatch(expressions, type::isInstance);
+    }
+
     public static <E> Set<E> collect(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static <E> List<E> collectAll(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(ImmutableList.toImmutableList());
     }
 
     public static List<List<Expression>> rollupToGroupingSets(List<Expression> rollupExpressions) {
@@ -405,5 +472,28 @@ public class ExpressionUtils {
 
         // skip current expression
         cubeToGroupingSets(cubeExpressions, activeIndex + 1, currentGroupingSet, groupingSets);
+    }
+
+    /**
+     * Get input slot set from list of expressions.
+     */
+    public static Set<Slot> getInputSlotSet(Collection<? extends Expression> exprs) {
+        return exprs.stream()
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static boolean checkTypeSkipCast(Expression expression, Class<? extends Expression> cls) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return cls.isInstance(expression);
+    }
+
+    public static Expression getExpressionCoveredByCast(Expression expression) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
     }
 }

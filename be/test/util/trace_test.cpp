@@ -35,7 +35,6 @@
 #include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/ref_counted.h"
-#include "gutil/walltime.h"
 #include "util/countdown_latch.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"

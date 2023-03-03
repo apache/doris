@@ -219,24 +219,6 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
     DCHECK(check_integrity(false));
 }
 
-void MemPool::exchange_data(MemPool* other) {
-    int64_t delta_size = other->total_reserved_bytes_ - total_reserved_bytes_;
-    if (other->_mem_tracker != _mem_tracker) {
-        if (other->_mem_tracker) {
-            other->_mem_tracker->release(delta_size);
-        }
-        if (_mem_tracker) {
-            _mem_tracker->consume(delta_size);
-        }
-    }
-
-    std::swap(current_chunk_idx_, other->current_chunk_idx_);
-    std::swap(next_chunk_size_, other->next_chunk_size_);
-    std::swap(total_allocated_bytes_, other->total_allocated_bytes_);
-    std::swap(total_reserved_bytes_, other->total_reserved_bytes_);
-    std::swap(chunks_, other->chunks_);
-}
-
 std::string MemPool::debug_string() {
     std::stringstream out;
     char str[16];

@@ -32,7 +32,7 @@ public:
                        bool is_key, uint32_t max_rows_per_segment);
 
     // flush last segment's column
-    Status flush_columns();
+    Status flush_columns(bool is_key);
 
     // flush when all column finished, flush column footer
     Status final_flush();

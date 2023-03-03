@@ -27,20 +27,30 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.Map;
+
 /**
  * RefreshCatalogStmt
  * Manually refresh the catalog metadata.
  */
 public class RefreshCatalogStmt extends DdlStmt {
+    private static final String INVALID_CACHE = "invalid_cache";
 
     private final String catalogName;
+    private Map<String, String> properties;
+    private boolean invalidCache = false;
 
-    public RefreshCatalogStmt(String catalogName) {
+    public RefreshCatalogStmt(String catalogName, Map<String, String> properties) {
         this.catalogName = catalogName;
+        this.properties = properties;
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public boolean isInvalidCache() {
+        return invalidCache;
     }
 
     @Override
@@ -51,11 +61,14 @@ public class RefreshCatalogStmt extends DdlStmt {
             throw new AnalysisException("Internal catalog name can't be refresh.");
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
+        String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
+        // Default is to invalid cache.
+        invalidCache = invalidConfig == null ? true : invalidConfig.equalsIgnoreCase("true");
     }
 
     @Override

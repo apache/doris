@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.exceptions.ParseException;
-
 import org.junit.jupiter.api.Test;
 
 public class LimitClauseTest extends ParserTestBase {
@@ -47,27 +45,6 @@ public class LimitClauseTest extends ParserTestBase {
                                 logicalSort()
                         ).when(limit -> limit.getLimit() == 3 && limit.getOffset() == 0)
                 );
-    }
-
-    @Test
-    public void testLimitExceptionCase() {
-        parsePlan("SELECT b FROM test limit 3 offset 100")
-                .assertThrowsExactly(ParseException.class)
-                .assertMessageContains("\n"
-                        + "OFFSET requires an ORDER BY clause(line 1, pos 19)\n"
-                        + "\n"
-                        + "== SQL ==\n"
-                        + "SELECT b FROM test limit 3 offset 100\n"
-                        + "-------------------^^^");
-
-        parsePlan("SELECT b FROM test limit 100, 3")
-                .assertThrowsExactly(ParseException.class)
-                .assertMessageContains("\n"
-                        + "OFFSET requires an ORDER BY clause(line 1, pos 19)\n"
-                        + "\n"
-                        + "== SQL ==\n"
-                        + "SELECT b FROM test limit 100, 3\n"
-                        + "-------------------^^^");
     }
 
     @Test

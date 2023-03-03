@@ -105,6 +105,8 @@ public class BrokerFileGroup implements Writable {
     private boolean fuzzyParse = true;
     private boolean readJsonByLine = false;
     private boolean numAsString = false;
+    private boolean trimDoubleQuotes = false;
+    private int skipLines;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -155,6 +157,7 @@ public class BrokerFileGroup implements Writable {
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
         this.sequenceCol = dataDescription.getSequenceCol();
+        this.filePaths = dataDescription.getFilePaths();
     }
 
     // NOTE: DBLock will be held
@@ -261,6 +264,8 @@ public class BrokerFileGroup implements Writable {
             readJsonByLine = dataDescription.isReadJsonByLine();
             numAsString = dataDescription.isNumAsString();
         }
+        trimDoubleQuotes = dataDescription.getTrimDoubleQuotes();
+        skipLines = dataDescription.getSkipLines();
     }
 
     public long getTableId() {
@@ -413,6 +418,14 @@ public class BrokerFileGroup implements Writable {
             return false;
         }
         return fileFormat.equalsIgnoreCase("parquet") || fileFormat.equalsIgnoreCase("orc");
+    }
+
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
     }
 
     @Override
@@ -598,3 +611,4 @@ public class BrokerFileGroup implements Writable {
         return fileGroup;
     }
 }
+

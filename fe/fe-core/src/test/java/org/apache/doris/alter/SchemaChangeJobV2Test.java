@@ -108,8 +108,9 @@ public class SchemaChangeJobV2Test {
     public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
-    public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
+    public void setUp()
+            throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
+            NoSuchMethodException, SecurityException, AnalysisException, DdlException {
         FakeEnv.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         fakeEditLog = new FakeEditLog();
         fakeEnv = new FakeEnv();

@@ -64,7 +64,7 @@ struct TypeDescriptor {
     std::vector<std::string> field_names;
 
     // Used for complex types only.
-    bool contains_null = true;
+    std::vector<bool> contains_nulls;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
@@ -73,6 +73,9 @@ struct TypeDescriptor {
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
+        } else if (type == TYPE_DATETIMEV2) {
+            precision = 18;
+            scale = 6;
         }
     }
 
@@ -160,6 +163,11 @@ struct TypeDescriptor {
 
     void to_protobuf(PTypeDesc* ptype) const;
 
+    bool is_integer_type() const {
+        return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT ||
+               type == TYPE_BIGINT;
+    }
+
     bool is_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
                type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
@@ -184,7 +192,8 @@ struct TypeDescriptor {
     }
 
     bool is_complex_type() const {
-        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
+        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP ||
+               type == TYPE_VARIANT;
     }
 
     bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
@@ -193,8 +202,7 @@ struct TypeDescriptor {
 
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
-    /// Returns the byte size of this type.  Returns 0 for variable length types.
-    int get_byte_size() const { return ::doris::get_byte_size(type); }
+    bool is_variant_type() const { return type == TYPE_VARIANT; }
 
     int get_slot_size() const { return ::doris::get_slot_size(type); }
 
@@ -210,6 +218,13 @@ struct TypeDescriptor {
     }
 
     std::string debug_string() const;
+
+    // use to array type and map type add sub type
+    void add_sub_type(TypeDescriptor&& sub_type, bool&& is_nullable = true);
+
+    // use to struct type add sub type
+    void add_sub_type(TypeDescriptor&& sub_type, std::string&& field_name,
+                      bool&& is_nullable = true);
 
 private:
     /// Used to create a possibly nested type from the flattened Thrift representation.

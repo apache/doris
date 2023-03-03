@@ -27,6 +27,7 @@ import java.util.List;
  * Abstract class for all plan node that have no child.
  */
 public interface LeafPlan extends Plan, LeafNode<Plan> {
+
     @Override
     default Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.isEmpty());

@@ -64,14 +64,14 @@ public class SimpleScheduler {
                                           Reference<Long> backendIdRef)
             throws UserException {
         if (CollectionUtils.isEmpty(locations) || backends == null || backends.isEmpty()) {
-            throw new UserException("scan range location or candidate backends is empty");
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
         LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
         Backend backend = backends.get(backendId);
 
         if (isAvailable(backend)) {
             backendIdRef.setRef(backendId);
-            return new TNetworkAddress(backend.getHost(), backend.getBePort());
+            return new TNetworkAddress(backend.getIp(), backend.getBePort());
         } else {
             for (TScanRangeLocation location : locations) {
                 if (location.backend_id == backendId) {
@@ -81,7 +81,7 @@ public class SimpleScheduler {
                 Backend candidateBackend = backends.get(location.backend_id);
                 if (isAvailable(candidateBackend)) {
                     backendIdRef.setRef(location.backend_id);
-                    return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
+                    return new TNetworkAddress(candidateBackend.getIp(), candidateBackend.getBePort());
                 }
             }
         }
@@ -134,13 +134,13 @@ public class SimpleScheduler {
         Map.Entry<Long, Backend> backendEntry = backends.entrySet().stream().skip(id).filter(
                 e -> isAvailable(e.getValue())).findFirst().orElse(null);
         if (backendEntry == null && id > 0) {
-            backendEntry = backends.entrySet().stream().filter(
-                e -> isAvailable(e.getValue())).limit(id).findFirst().orElse(null);
+            backendEntry = backends.entrySet().stream().limit(id).filter(
+                e -> isAvailable(e.getValue())).findFirst().orElse(null);
         }
         if (backendEntry != null) {
             Backend backend = backendEntry.getValue();
             backendIdRef.setRef(backendEntry.getKey());
-            return new TNetworkAddress(backend.getHost(), backend.getBePort());
+            return new TNetworkAddress(backend.getIp(), backend.getBePort());
         }
         // no backend returned
         throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG

@@ -38,7 +38,10 @@ suite("test_bitmap_index_load") {
         table "${tbName}"
         set 'column_separator', '|'
         set 'columns', 'a,temp'
-        file """${context.sf1DataPath}/regression/bitmap_index_test.csv"""
+        
+        // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+        // also, you can stream load a http stream, e.g. http://xxx/some.csv
+        file """${getS3Url()}/regression/bitmap_index_test.csv"""
         time 10000 // limit inflight 10s
 
         // if declared a check callback, the default check condition will ignore.

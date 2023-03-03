@@ -22,15 +22,14 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "gutil/macros.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/threading/thread_collision_warner.h"
-#include "gutil/walltime.h"
 #include "util/spinlock.h"
+#include "util/time.h"
 #include "util/trace_metrics.h"
 
 namespace doris {
@@ -100,7 +99,7 @@ class Trace;
 // Construct a constant C string counter name which acts as a sort of
 // coarse-grained histogram for trace metrics.
 #define BUCKETED_COUNTER_NAME(prefix, duration_us) \
-    [=]() {                                        \
+    []() {                                         \
         if (duration_us >= 100 * 1000) {           \
             return prefix "_gt_100_ms";            \
         } else if (duration_us >= 10 * 1000) {     \
@@ -264,7 +263,7 @@ public:
 
 private:
     const char* const counter_;
-    MicrosecondsInt64 start_time_;
+    int64_t start_time_;
     DISALLOW_COPY_AND_ASSIGN(ScopedTraceLatencyCounter);
 };
 

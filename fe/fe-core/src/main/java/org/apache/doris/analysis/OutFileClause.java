@@ -19,7 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -28,7 +30,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
@@ -46,7 +47,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -624,22 +624,19 @@ public class OutFileClause {
         } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
             brokerName = StorageBackend.StorageType.HDFS.name();
             storageType = StorageBackend.StorageType.HDFS;
-            filePath = filePath.substring(HDFS_FILE_PREFIX.length() - 1);
         } else {
             return;
         }
 
         Map<String, String> brokerProps = Maps.newHashMap();
-        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<String, String> entry = iter.next();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toUpperCase().startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().contains(BrokerUtil.HADOOP_FS_NAME)
+            } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
                     && storageType == StorageBackend.StorageType.HDFS) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
@@ -651,9 +648,15 @@ public class OutFileClause {
             }
         }
         if (storageType == StorageBackend.StorageType.S3) {
-            S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
+            if (properties.containsKey(S3Resource.USE_PATH_STYLE)) {
+                brokerProps.put(S3Resource.USE_PATH_STYLE, properties.get(S3Resource.USE_PATH_STYLE));
+                processedPropKeys.add(S3Resource.USE_PATH_STYLE);
+            }
+            S3Storage.checkS3(brokerProps);
         } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HdfsStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
+            if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
+                brokerProps.put(HdfsResource.HADOOP_FS_NAME, HdfsStorage.getFsName(filePath));
+            }
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);

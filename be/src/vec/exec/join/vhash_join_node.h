@@ -187,6 +187,10 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
 
+using HashTableIteratorVariants =
+        std::variant<std::monostate, ForwardIterator<RowRefList>,
+                     ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
+
 class HashJoinNode final : public VJoinNodeBase {
 public:
     // TODO: Best prefetch step is decided by machine. We should also provide a
@@ -194,16 +198,34 @@ public:
     static constexpr int PREFETCH_STEP = 64;
 
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~HashJoinNode();
+    ~HashJoinNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
     void add_hash_buckets_info(const std::string& info);
     void add_hash_buckets_filled_info(const std::string& info);
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    bool need_more_input_data() const;
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    void prepare_for_next() override;
+
+    void debug_string(int indentation_level, std::stringstream* out) const override;
+
+    bool can_sink_write() const {
+        if (_should_build_hash_table) {
+            return true;
+        }
+        return _shared_hash_table_context && _shared_hash_table_context->signaled;
+    }
+
+    bool should_build_hash_table() const { return _should_build_hash_table; }
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
@@ -257,6 +279,10 @@ private:
 
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
+    // for full/right outer join
+    HashTableIteratorVariants _outer_join_pull_visited_iter;
+    HashTableIteratorVariants _probe_row_match_iter;
+
     std::shared_ptr<std::vector<Block>> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
@@ -281,6 +307,13 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+
+    // for cases when a probe row matches more than batch size build rows.
+    bool _is_any_probe_match_row_output = false;
+    uint8_t _build_block_idx = 0;
+    int64_t _build_side_mem_used = 0;
+    int64_t _build_side_last_mem_used = 0;
+    MutableBlock _build_side_mutable_block;
 
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 

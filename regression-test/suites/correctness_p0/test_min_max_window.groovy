@@ -43,9 +43,6 @@ suite("test_min_max_window") {
             (23,"04-23-10",1),
             (24,"02-24-10-21",1); """
 
-    // vectorized
-    sql """ set enable_vectorized_engine = true; """
-
     qt_select_default """ select *,min(state) over(partition by myday order by time_col rows between current row and 3 following) from ${tableName} order by myday, time_col, state; """
     qt_select_default """ select *,max(state) over(partition by myday order by time_col rows between current row and 3 following) from ${tableName} order by myday, time_col, state; """
 

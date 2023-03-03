@@ -88,7 +88,7 @@ public class UpdatePlanner extends OriginalPlanner {
         olapScanNode.init(analyzer);
         olapScanNode.finalize(analyzer);
         if (VectorizedUtil.isVectorized()) {
-            olapScanNode.convertToVectoriezd();
+            olapScanNode.convertToVectorized();
         }
         scanNodeList.add(olapScanNode);
         // 2. gen olap table sink
@@ -159,8 +159,8 @@ public class UpdatePlanner extends OriginalPlanner {
         for (int i = 0; i < targetTable.getFullSchema().size(); i++) {
             Column column = targetTable.getFullSchema().get(i);
             // pay attention to case ignore of column name
-            String originColumnName = (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)
-                    ? column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()) : column.getName())
+            String originColumnName = (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)
+                    ? column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()) : column.getName())
                     .toLowerCase();
             Expr setExpr = columnNameToSetExpr.get(originColumnName);
             SlotDescriptor srcSlotDesc = columnNameToSrcSlotDesc.get(originColumnName);

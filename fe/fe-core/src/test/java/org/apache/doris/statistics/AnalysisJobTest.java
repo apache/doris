@@ -82,7 +82,7 @@ public class AnalysisJobTest extends TestWithFeService {
                 return connectContext;
             }
         };
-        String sql = "ANALYZE t1";
+        String sql = "ANALYZE TABLE t1";
         Assertions.assertNotNull(getSqlStmtExecutor(sql));
     }
 

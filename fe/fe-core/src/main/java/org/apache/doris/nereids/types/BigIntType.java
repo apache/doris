@@ -19,12 +19,13 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.Int64OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * BigInt data type in Nereids.
  */
-public class BigIntType extends IntegralType {
+public class BigIntType extends IntegralType implements Int64OrLessType {
 
     public static final BigIntType INSTANCE = new BigIntType();
 

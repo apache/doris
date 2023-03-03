@@ -22,7 +22,6 @@
 #include <iostream>
 #include <string>
 
-#include "exprs/table_function/table_function.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
@@ -35,6 +34,8 @@
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -207,7 +208,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     ColumnNumbers arguments;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
-    std::vector<ColumnPtrWrapper*> constant_cols;
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
         arguments.push_back(i);
@@ -215,7 +216,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         if (desc.is_const) {
             constant_col_ptrs.push_back(
                     std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
-            constant_cols.push_back(constant_col_ptrs.back().get());
+            constant_cols.push_back(constant_col_ptrs.back());
         } else {
             constant_cols.push_back(nullptr);
         }
@@ -233,7 +234,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_INT;
-    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
+                         std::is_same_v<ReturnType, DataTypeTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
@@ -248,8 +250,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->impl()->set_constant_cols(constant_cols);
-    func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
+    func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
 
     block.insert({nullptr, return_type, "result"});
 
@@ -293,7 +295,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
                     EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
-                                     std::is_same_v<ReturnType, DataTypeFloat64>) {
+                                     std::is_same_v<ReturnType, DataTypeFloat64> ||
+                                     std::is_same_v<ReturnType, DataTypeTime>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {

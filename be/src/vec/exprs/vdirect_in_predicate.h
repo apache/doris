@@ -48,7 +48,7 @@ public:
         if (type.is_string_or_fixed_string()) {
             for (size_t i = 0; i < sz; i++) {
                 auto ele = argument_column->get_data_at(i);
-                StringValue v(ele.data, ele.size);
+                StringRef v(ele.data, ele.size);
                 ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
             }
         } else if (type.is_int_or_uint() || type.is_float()) {

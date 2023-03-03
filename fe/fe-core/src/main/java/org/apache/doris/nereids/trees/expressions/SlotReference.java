@@ -73,7 +73,7 @@ public class SlotReference extends Slot {
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
-        this.qualifier = qualifier;
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.nullable = nullable;
         this.column = column;
     }
@@ -148,7 +148,8 @@ public class SlotReference extends Slot {
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
     @Override
     public int hashCode() {
-        return Objects.hash(exprId);
+        // direct return exprId to speed up
+        return exprId.asInt();
     }
 
     public Optional<Column> getColumn() {
@@ -182,16 +183,12 @@ public class SlotReference extends Slot {
         return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
     }
 
+    public boolean isVisible() {
+        return column == null || column.isVisible();
+    }
+
     @Override
     public Slot withName(String name) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
-    }
-
-    /** withCommonGroupingSetExpression */
-    public Slot withCommonGroupingSetExpression(boolean isCommonGroupingSetExpression) {
-        if (!isCommonGroupingSetExpression) {
-            return withNullable(true);
-        }
-        return this;
     }
 }

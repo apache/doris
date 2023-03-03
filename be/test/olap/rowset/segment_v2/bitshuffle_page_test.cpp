@@ -31,6 +31,7 @@ using doris::segment_v2::PageBuilderOptions;
 using doris::OlapReaderStatistics;
 
 namespace doris {
+using namespace ErrorCode;
 
 class BitShufflePageTest : public testing::Test {
 public:
@@ -165,7 +166,7 @@ public:
         EXPECT_FALSE(exact_match);
 
         status = page_decoder.seek_at_or_after_value(bigger_than_biggest, &exact_match);
-        EXPECT_EQ(status.code(), TStatusCode::NOT_FOUND);
+        EXPECT_EQ(status.code(), NOT_FOUND);
     }
 };
 

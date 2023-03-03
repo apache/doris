@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -31,7 +32,9 @@ import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
@@ -41,6 +44,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -57,6 +61,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
@@ -85,9 +91,13 @@ public class LoadManager implements Writable {
     private LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MysqlLoadManager mysqlLoadManager;
+    private TokenManager tokenManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
+        this.tokenManager = new TokenManager();
+        this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
     }
 
     /**
@@ -136,31 +146,6 @@ public class LoadManager implements Writable {
     }
 
     /**
-     * This method will be invoked by version1 of broker or hadoop load.
-     * It is used to check the label of v1 and v2 at the same time.
-     * Finally, the v1 of broker or hadoop load will belongs to load class.
-     * Step1: lock the load manager
-     * Step2: check the label in load manager
-     * Step3: call the addLoadJob of load class
-     * Step3.1: lock the load
-     * Step3.2: check the label in load
-     * Step3.3: add the loadJob in load rather than load manager
-     * Step3.4: unlock the load
-     * Step4: unlock the load manager
-     *
-     */
-    public void createLoadJobV1FromStmt(LoadStmt stmt, EtlJobType jobType, long timestamp) throws DdlException {
-        Database database = checkDb(stmt.getLabel().getDbName());
-        writeLock();
-        try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
-            Env.getCurrentEnv().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /**
      * MultiLoadMgr use.
      **/
     public void createLoadJobV1FromMultiStart(String fullDbName, String label) throws DdlException {
@@ -173,6 +158,14 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public MysqlLoadManager getMysqlLoadManager() {
+        return mysqlLoadManager;
+    }
+
+    public TokenManager getTokenManager() {
+        return tokenManager;
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
@@ -212,7 +205,8 @@ public class LoadManager implements Writable {
      * Record finished load job by editLog.
      **/
     public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
+            long createTimestamp, String failMsg, String trackingUrl,
+            UserIdentity userInfo) throws MetaNotFoundException {
 
         // get db id
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
@@ -221,7 +215,7 @@ public class LoadManager implements Writable {
         switch (jobType) {
             case INSERT:
                 loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
-                        trackingUrl);
+                        trackingUrl, userInfo);
                 break;
             default:
                 return;
@@ -239,7 +233,8 @@ public class LoadManager implements Writable {
             throws AnalysisException {
         String label = stmt.getLabel();
         String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
         matchLoadJobs.addAll(loadJobs.stream().filter(job -> {
             if (stmt.getOperator() != null) {
                 // compound
@@ -434,6 +429,39 @@ public class LoadManager implements Writable {
                 });
     }
 
+    public List<Pair<Long, String>> getCreateLoadStmt(long dbId, String label) throws DdlException {
+        List<Pair<Long, String>> result = new ArrayList<>();
+        readLock();
+        try {
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+                if (labelToLoadJobs.containsKey(label)) {
+                    List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
+                    for (LoadJob job : labelLoadJobs) {
+                        try {
+                            Method getOriginStmt = job.getClass().getMethod("getOriginStmt");
+                            if (getOriginStmt != null) {
+                                result.add(
+                                        Pair.of(job.getId(), ((OriginStatement) getOriginStmt.invoke(job)).originStmt));
+                            } else {
+                                throw new DdlException("Not support load job type: " + job.getClass().getName());
+                            }
+                        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                            throw new DdlException("Not support load job type: " + job.getClass().getName());
+                        }
+                    }
+                } else {
+                    throw new DdlException("Label does not exist: " + label);
+                }
+            } else {
+                throw new DdlException("Database does not exist");
+            }
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
     /**
      * This method will return the jobs info which can meet the condition of input param.
      *
@@ -482,7 +510,8 @@ public class LoadManager implements Writable {
                 } else {
                     // non-accurate match
                     PatternMatcher matcher =
-                            PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                            PatternMatcherWrapper.createMysqlPattern(labelValue,
+                                    CaseSensibility.LABEL.getCaseSensibility());
                     for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                         if (matcher.match(entry.getKey())) {
                             loadJobList.addAll(entry.getValue());

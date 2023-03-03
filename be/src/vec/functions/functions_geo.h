@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "geo/geo_types.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/data_types/data_type_number.h"
@@ -24,6 +25,21 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+
+struct StConstructState {
+    StConstructState() : is_null(false) {}
+    ~StConstructState() {}
+
+    bool is_null;
+    std::string encoded_buf;
+};
+
+struct StContainsState {
+    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
+    ~StContainsState() {}
+    bool is_null;
+    std::vector<std::shared_ptr<GeoShape>> shapes;
+};
 
 template <typename Impl, typename ReturnType = DataTypeString>
 class GeoFunction : public IFunction {
@@ -49,9 +65,9 @@ public:
         }
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::prepare(context, scope);
+            return Impl::open(context, scope);
         } else {
             return Status::OK();
         }

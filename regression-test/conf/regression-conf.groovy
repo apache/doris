@@ -23,7 +23,8 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+// add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -37,8 +38,6 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
-// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
-sf1DataPath = "https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -51,9 +50,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = ""
+excludeSuites = "test_broker_load"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "segcompaction_p1"
 
 customConf1 = "test_custom_conf_value"
 
@@ -75,6 +74,8 @@ sk=""
 enableJdbcTest=false
 mysql_57_port=3316
 pg_14_port=5442
+oracle_11_port=1521
+sqlserver_2022_port=1433
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
@@ -95,6 +96,7 @@ es_8_port=39200
 enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
+extHdfsPort = 4007
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 

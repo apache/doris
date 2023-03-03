@@ -21,9 +21,11 @@ namespace doris::vectorized {
 
 TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
-                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
+                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+                       RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(std::unique_ptr<MergeSorterState>(new MergeSorterState(row_desc, offset))),
+          _state(std::unique_ptr<MergeSorterState>(
+                  new MergeSorterState(row_desc, offset, limit, state, profile))),
           _row_desc(row_desc) {}
 
 Status TopNSorter::append_block(Block* block) {
@@ -33,23 +35,11 @@ Status TopNSorter::append_block(Block* block) {
 }
 
 Status TopNSorter::prepare_for_read() {
-    _state->build_merge_tree(_sort_description);
-    return Status::OK();
+    return _state->build_merge_tree(_sort_description);
 }
 
 Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    if (_state->sorted_blocks.empty()) {
-        *eos = true;
-    } else if (_state->sorted_blocks.size() == 1) {
-        if (_offset != 0) {
-            _state->sorted_blocks[0].skip_num_rows(_offset);
-        }
-        block->swap(_state->sorted_blocks[0]);
-        *eos = true;
-    } else {
-        RETURN_IF_ERROR(_state->merge_sort_read(state, block, eos));
-    }
-    return Status::OK();
+    return _state->merge_sort_read(state, block, eos);
 }
 
 Status TopNSorter::_do_sort(Block* block) {
@@ -62,17 +52,29 @@ Status TopNSorter::_do_sort(Block* block) {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows < _limit) {
-            _state->num_rows += sorted_block.rows();
-            _state->sorted_blocks.emplace_back(std::move(sorted_block));
-            _block_priority_queue.emplace(_pool->add(
-                    new MergeSortCursorImpl(_state->sorted_blocks.back(), _sort_description)));
+        if (_state->num_rows() < _offset + _limit) {
+            _state->add_sorted_block(sorted_block);
+            // if it's spilled, sorted_block is not added into sorted block vector,
+            // so it's should not be added to _block_priority_queue, since
+            // sorted_block will be destroyed when _do_sort is finished
+            if (!_state->is_spilled()) {
+                _block_priority_queue.emplace(_pool->add(
+                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            }
         } else {
-            MergeSortBlockCursor block_cursor(
-                    _pool->add(new MergeSortCursorImpl(sorted_block, _sort_description)));
-            if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->sorted_blocks.emplace_back(std::move(sorted_block));
-                _block_priority_queue.push(block_cursor);
+            if (!_state->is_spilled()) {
+                auto tmp_cursor_impl =
+                        std::make_unique<MergeSortCursorImpl>(sorted_block, _sort_description);
+                MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
+                if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+                    _state->add_sorted_block(sorted_block);
+                    if (!_state->is_spilled()) {
+                        _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
+                                _state->last_sorted_block(), _sort_description)));
+                    }
+                }
+            } else {
+                _state->add_sorted_block(sorted_block);
             }
         }
     } else {
@@ -82,11 +84,7 @@ Status TopNSorter::_do_sort(Block* block) {
 }
 
 size_t TopNSorter::data_size() const {
-    size_t size = _state->unsorted_block->allocated_bytes();
-    for (const auto& block : _state->sorted_blocks) {
-        size += block.allocated_bytes();
-    }
-    return size;
+    return _state->data_size();
 }
 
 } // namespace doris::vectorized

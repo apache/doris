@@ -22,7 +22,6 @@
 
 #include <memory>
 
-#include "exprs/anyval_util.h"
 #include "gen_cpp/Exprs_types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/varray_literal.h"
@@ -33,8 +32,10 @@
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
 namespace doris::vectorized {
@@ -45,6 +46,7 @@ using doris::TypeDescriptor;
 
 VExpr::VExpr(const doris::TExprNode& node)
         : _node_type(node.node_type),
+          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
           _type(TypeDescriptor::from_thrift(node.type)),
           _fn_context_index(-1),
           _prepared(false) {
@@ -61,6 +63,7 @@ VExpr::VExpr(const doris::TExprNode& node)
 
 VExpr::VExpr(const VExpr& vexpr)
         : _node_type(vexpr._node_type),
+          _opcode(vexpr._opcode),
           _type(vexpr._type),
           _data_type(vexpr._data_type),
           _children(vexpr._children),
@@ -70,7 +73,10 @@ VExpr::VExpr(const VExpr& vexpr)
           _prepared(vexpr._prepared) {}
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
-        : _type(type), _fn_context_index(-1), _prepared(false) {
+        : _opcode(TExprOpcode::INVALID_OPCODE),
+          _type(type),
+          _fn_context_index(-1),
+          _prepared(false) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -79,9 +85,17 @@ VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
+    ++context->_depth_num;
+    if (context->_depth_num > config::max_depth_of_expr_tree) {
+        return Status::InternalError(
+                "The depth of the expression tree is too big, make it less than {}",
+                config::max_depth_of_expr_tree);
+    }
+
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
     }
+    --context->_depth_num;
     return Status::OK();
 }
 
@@ -113,11 +127,19 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case TExprNodeType::JSON_LITERAL:
     case TExprNodeType::NULL_LITERAL: {
         *expr = pool->add(new VLiteral(texpr_node));
-        return Status::OK();
+        break;
     }
     case TExprNodeType::ARRAY_LITERAL: {
         *expr = pool->add(new VArrayLiteral(texpr_node));
-        return Status::OK();
+        break;
+    }
+    case TExprNodeType::MAP_LITERAL: {
+        *expr = pool->add(new VMapLiteral(texpr_node));
+        break;
+    }
+    case TExprNodeType::STRUCT_LITERAL: {
+        *expr = pool->add(new VStructLiteral(texpr_node));
+        break;
     }
     case doris::TExprNodeType::SLOT_REF: {
         *expr = pool->add(new VSlotRef(texpr_node));
@@ -130,7 +152,8 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case doris::TExprNodeType::ARITHMETIC_EXPR:
     case doris::TExprNodeType::BINARY_PRED:
     case doris::TExprNodeType::FUNCTION_CALL:
-    case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
+    case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
+    case doris::TExprNodeType::MATCH_PRED: {
         *expr = pool->add(new VectorizedFnCall(texpr_node));
         break;
     }
@@ -159,6 +182,9 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     default:
         return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
+    }
+    if (!(*expr)->data_type()) {
+        return Status::InvalidArgument("Unknown expr type: {}", texpr_node.node_type);
     }
     return Status::OK();
 }
@@ -205,11 +231,12 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
     Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
-                "Expression tree only partially reconstructed. Not all thrift nodes were used.");
+                "Expression tree only partially reconstructed. Not all thrift nodes were "
+                "used.");
     }
     if (!status.ok()) {
         LOG(ERROR) << "Could not construct expr tree.\n"
-                   << status.get_error_msg() << "\n"
+                   << status << "\n"
                    << apache::thrift::ThriftDebugString(texpr);
     }
     return status;
@@ -264,6 +291,125 @@ Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, Runtim
     }
     return Status::OK();
 }
+
+FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& type) {
+    FunctionContext::TypeDesc out;
+    switch (type.type) {
+    case TYPE_BOOLEAN:
+        out.type = FunctionContext::TYPE_BOOLEAN;
+        break;
+    case TYPE_TINYINT:
+        out.type = FunctionContext::TYPE_TINYINT;
+        break;
+    case TYPE_SMALLINT:
+        out.type = FunctionContext::TYPE_SMALLINT;
+        break;
+    case TYPE_INT:
+        out.type = FunctionContext::TYPE_INT;
+        break;
+    case TYPE_BIGINT:
+        out.type = FunctionContext::TYPE_BIGINT;
+        break;
+    case TYPE_LARGEINT:
+        out.type = FunctionContext::TYPE_LARGEINT;
+        break;
+    case TYPE_FLOAT:
+        out.type = FunctionContext::TYPE_FLOAT;
+        break;
+    case TYPE_TIME:
+    case TYPE_TIMEV2:
+    case TYPE_DOUBLE:
+        out.type = FunctionContext::TYPE_DOUBLE;
+        break;
+    case TYPE_DATE:
+        out.type = FunctionContext::TYPE_DATE;
+        break;
+    case TYPE_DATETIME:
+        out.type = FunctionContext::TYPE_DATETIME;
+        break;
+    case TYPE_DATEV2:
+        out.type = FunctionContext::TYPE_DATEV2;
+        break;
+    case TYPE_DATETIMEV2:
+        out.type = FunctionContext::TYPE_DATETIMEV2;
+        break;
+    case TYPE_DECIMAL32:
+        out.type = FunctionContext::TYPE_DECIMAL32;
+        out.precision = type.precision;
+        out.scale = type.scale;
+        break;
+    case TYPE_DECIMAL64:
+        out.type = FunctionContext::TYPE_DECIMAL64;
+        out.precision = type.precision;
+        out.scale = type.scale;
+        break;
+    case TYPE_DECIMAL128I:
+        out.type = FunctionContext::TYPE_DECIMAL128I;
+        out.precision = type.precision;
+        out.scale = type.scale;
+        break;
+    case TYPE_VARCHAR:
+        out.type = FunctionContext::TYPE_VARCHAR;
+        out.len = type.len;
+        break;
+    case TYPE_HLL:
+        out.type = FunctionContext::TYPE_HLL;
+        out.len = type.len;
+        break;
+    case TYPE_OBJECT:
+        out.type = FunctionContext::TYPE_OBJECT;
+        break;
+    case TYPE_QUANTILE_STATE:
+        out.type = FunctionContext::TYPE_QUANTILE_STATE;
+        break;
+    case TYPE_CHAR:
+        out.type = FunctionContext::TYPE_CHAR;
+        out.len = type.len;
+        break;
+    case TYPE_DECIMALV2:
+        out.type = FunctionContext::TYPE_DECIMALV2;
+        // out.precision = type.precision;
+        // out.scale = type.scale;
+        break;
+    case TYPE_NULL:
+        out.type = FunctionContext::TYPE_NULL;
+        break;
+    case TYPE_ARRAY:
+        out.type = FunctionContext::TYPE_ARRAY;
+        for (const auto& t : type.children) {
+            out.children.push_back(VExpr::column_type_to_type_desc(t));
+        }
+        break;
+    case TYPE_MAP:
+        CHECK(type.children.size() == 2);
+        // only support map key is scalar
+        CHECK(!type.children[0].is_complex_type());
+        out.type = FunctionContext::TYPE_MAP;
+        for (const auto& t : type.children) {
+            out.children.push_back(VExpr::column_type_to_type_desc(t));
+        }
+        break;
+    case TYPE_STRUCT:
+        CHECK(type.children.size() >= 1);
+        out.type = FunctionContext::TYPE_STRUCT;
+        for (const auto& t : type.children) {
+            out.children.push_back(VExpr::column_type_to_type_desc(t));
+        }
+        break;
+    case TYPE_STRING:
+        out.type = FunctionContext::TYPE_STRING;
+        out.len = type.len;
+        break;
+    case TYPE_JSONB:
+        out.type = FunctionContext::TYPE_JSONB;
+        out.len = type.len;
+        break;
+    default:
+        DCHECK(false) << "Unknown type: " << type;
+    }
+    return out;
+}
+
 std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
@@ -308,14 +454,14 @@ bool VExpr::is_constant() const {
     return true;
 }
 
-Status VExpr::get_const_col(VExprContext* context, ColumnPtrWrapper** output) {
-    *output = nullptr;
+Status VExpr::get_const_col(VExprContext* context,
+                            std::shared_ptr<ColumnPtrWrapper>* column_wrapper) {
     if (!is_constant()) {
         return Status::OK();
     }
 
     if (_constant_col != nullptr) {
-        *output = _constant_col.get();
+        *column_wrapper = _constant_col;
         return Status::OK();
     }
 
@@ -328,18 +474,18 @@ Status VExpr::get_const_col(VExprContext* context, ColumnPtrWrapper** output) {
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    *output = _constant_col.get();
+    *column_wrapper = _constant_col;
     return Status::OK();
 }
 
 void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* context) {
-    FunctionContext::TypeDesc return_type = AnyValUtil::column_type_to_type_desc(_type);
+    FunctionContext::TypeDesc return_type = VExpr::column_type_to_type_desc(_type);
     std::vector<FunctionContext::TypeDesc> arg_types;
     for (int i = 0; i < _children.size(); ++i) {
-        arg_types.push_back(AnyValUtil::column_type_to_type_desc(_children[i]->type()));
+        arg_types.push_back(VExpr::column_type_to_type_desc(_children[i]->type()));
     }
 
-    _fn_context_index = context->register_func(state, return_type, arg_types, 0);
+    _fn_context_index = context->register_func(state, return_type, arg_types);
 }
 
 Status VExpr::init_function_context(VExprContext* context,
@@ -347,19 +493,19 @@ Status VExpr::init_function_context(VExprContext* context,
                                     const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        std::vector<ColumnPtrWrapper*> constant_cols;
+        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
         for (auto c : _children) {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
-            RETURN_IF_ERROR(c->get_const_col(context, &const_col_wrapper));
-            constant_cols.push_back(const_col_wrapper);
+            std::shared_ptr<ColumnPtrWrapper> const_col;
+            RETURN_IF_ERROR(c->get_const_col(context, &const_col));
+            constant_cols.push_back(const_col);
         }
         fn_ctx->impl()->set_constant_cols(constant_cols);
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
-    RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
     return Status::OK();
 }
 

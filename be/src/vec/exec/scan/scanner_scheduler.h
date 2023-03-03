@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "util/blocking_queue.hpp"
+#include "util/threadpool.h"
 #include "vec/exec/scan/scanner_context.h"
 
 namespace doris::vectorized {
@@ -50,6 +51,9 @@ public:
 
     Status submit(ScannerContext* ctx);
 
+    std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
+                                                                 int max_concurrency);
+
 private:
     // scheduling thread function
     void _schedule_thread(int queue_id);
@@ -75,8 +79,10 @@ private:
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
+    // _limited_scan_thread_pool is a special pool for queries with resource limit
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

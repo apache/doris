@@ -130,7 +130,7 @@ BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=1
+BUILD_JAVA_UDF=0
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -145,6 +145,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
+    BUILD_JAVA_UDF=1
     CLEAN=0
 else
     while true; do
@@ -153,10 +154,12 @@ else
             BUILD_FE=1
             BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --be)
             BUILD_BE=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --broker)
@@ -228,7 +231,12 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
-    "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+    else
+        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
 fi
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
@@ -274,6 +282,12 @@ fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
+if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+    USE_BTHREAD_SCANNER='OFF'
+fi
+if [[ -z "${ENABLE_STACKTRACE}" ]]; then
+    ENABLE_STACKTRACE='ON'
+fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
 fi
@@ -313,6 +327,7 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -n "${CAUSE}" ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with Java UDF due to ${CAUSE}.\033[0m"
         BUILD_JAVA_UDF=0
+        DISABLE_JAVA_UDF_IN_CONF=1
     fi
 fi
 
@@ -340,7 +355,9 @@ echo "Get params:
     STRIP_DEBUG_INFO    -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC        -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
     STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
+    ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
 "
 
 # Clean and build generated code
@@ -410,7 +427,9 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
         -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
+        -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
@@ -523,7 +542,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
 
-    if [[ "${BUILD_JAVA_UDF}" -eq 0 ]]; then
+    if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
 
@@ -563,6 +582,7 @@ EOF
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
+    cp -r -p "${DORIS_THIRDPARTY}/installed/share/dict" "${DORIS_OUTPUT}/be/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

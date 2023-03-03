@@ -214,4 +214,37 @@ create table doris_test.ex_tb19 (
     timestamp_value timestamp
 ) engine=innodb charset=utf8;
 
+create table doris_test.ex_tb20 (
+    decimal_normal decimal(38, 5),
+    decimal_unsigned decimal(37, 5) unsigned,
+    decimal_out1 decimal(39, 5),
+    decimal_unsigned_out1 decimal(38, 5) unsigned,
+    decimal_long decimal(65, 5),
+    decimal_unsigned_long decimal(65, 5) unsigned
+) engine=innodb charset=utf8;
 
+create table doris_test.test_insert (
+    `id` varchar(128) NULL,
+    `name` varchar(128) NULL,
+    `age` int NULL
+) engine=innodb charset=utf8;
+
+
+create table doris_test.test_insert2 (
+    id varchar(128) NULL,
+    k1 boolean,
+    k2 char(100),
+    k3 varchar(128),
+    k4 date,
+    k5 float,
+    k6 tinyint,
+    k7 smallint,
+    k8 int,
+    k9 bigint,
+    k10 double,
+    k11 decimal(10, 3),
+    k12 time,
+    k13 year,
+    k14 datetime,
+    k15 timestamp
+) engine=innodb charset=utf8;

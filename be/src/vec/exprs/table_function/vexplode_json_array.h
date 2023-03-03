@@ -20,25 +20,98 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "exprs/table_function/explode_json_array.h"
-#include "gutil/strings/stringpiece.h"
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
 
-class VExplodeJsonArrayTableFunction : public ExplodeJsonArrayTableFunction {
+enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING };
+
+struct ParsedData {
+    static std::string true_value;
+    static std::string false_value;
+
+    // The number parsed from json array
+    // the `_backup` saved the real number entity.
+    std::vector<void*> _data;
+    std::vector<StringRef> _data_string;
+    std::vector<int64_t> _backup_int;
+    std::vector<double> _backup_double;
+    std::vector<std::string> _backup_string;
+    std::vector<bool> _string_nulls;
+    char tmp_buf[128] = {0};
+
+    void reset(ExplodeJsonArrayType type) {
+        switch (type) {
+        case ExplodeJsonArrayType::INT:
+            _data.clear();
+            _backup_int.clear();
+            break;
+        case ExplodeJsonArrayType::DOUBLE:
+            _data.clear();
+            _backup_double.clear();
+            break;
+        case ExplodeJsonArrayType::STRING:
+            _data_string.clear();
+            _backup_string.clear();
+            _string_nulls.clear();
+            break;
+        default:
+            CHECK(false) << type;
+            break;
+        }
+    }
+
+    void get_value(ExplodeJsonArrayType type, int64_t offset, void** output, bool real = false) {
+        switch (type) {
+        case ExplodeJsonArrayType::INT:
+        case ExplodeJsonArrayType::DOUBLE:
+            *output = _data[offset];
+            break;
+        case ExplodeJsonArrayType::STRING:
+            *output = _string_nulls[offset] ? nullptr
+                      : real                ? reinterpret_cast<void*>(_backup_string[offset].data())
+                                            : &_data_string[offset];
+            break;
+        default:
+            CHECK(false) << type;
+        }
+    }
+
+    void get_value_length(ExplodeJsonArrayType type, int64_t offset, int64_t* length) {
+        switch (type) {
+        case ExplodeJsonArrayType::INT:
+        case ExplodeJsonArrayType::DOUBLE:
+            break;
+        case ExplodeJsonArrayType::STRING:
+            *length = _string_nulls[offset] ? -1 : _backup_string[offset].size();
+            break;
+        default:
+            CHECK(false) << type;
+        }
+    }
+
+    int set_output(ExplodeJsonArrayType type, rapidjson::Document& document);
+};
+
+class VExplodeJsonArrayTableFunction final : public TableFunction {
 public:
     VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
-    virtual ~VExplodeJsonArrayTableFunction() = default;
+    ~VExplodeJsonArrayTableFunction() override = default;
 
-    virtual Status process_init(vectorized::Block* block) override;
-    virtual Status process_row(size_t row_idx) override;
-    virtual Status process_close() override;
-    virtual Status get_value(void** output) override;
-    virtual Status get_value_length(int64_t* length) override;
+    Status process_init(vectorized::Block* block) override;
+    Status process_row(size_t row_idx) override;
+    Status process_close() override;
+    Status get_value(void** output) override;
+    Status get_value_length(int64_t* length) override;
+
+    Status reset() override;
 
 private:
+    ParsedData _parsed_data;
+    ExplodeJsonArrayType _type;
+
     ColumnPtr _text_column;
 };
 

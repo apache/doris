@@ -23,11 +23,12 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 #include <sstream>
 
 #include "common/config.h"
-#include "gutil/once.h"
 #include "gutil/strings/substitute.h"
+#include "jni_native_method.h"
 #include "libjvm_loader.h"
 
 using std::string;
@@ -36,7 +37,7 @@ namespace doris {
 
 namespace {
 JavaVM* g_vm;
-GoogleOnceType g_vm_once = GOOGLE_ONCE_INIT;
+std::once_flag g_vm_once;
 
 const std::string GetDorisJNIClasspath() {
     const auto* classpath = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
@@ -108,6 +109,7 @@ bool JniUtil::jvm_inited_ = false;
 __thread JNIEnv* JniUtil::tls_env_ = nullptr;
 jclass JniUtil::internal_exc_cl_ = NULL;
 jclass JniUtil::jni_util_cl_ = NULL;
+jclass JniUtil::jni_native_method_exc_cl_ = nullptr;
 jmethodID JniUtil::throwable_to_string_id_ = NULL;
 jmethodID JniUtil::throwable_to_stack_trace_id_ = NULL;
 jmethodID JniUtil::get_jvm_metrics_id_ = NULL;
@@ -147,13 +149,13 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
-    GoogleOnceInit(&g_vm_once, &FindOrCreateJavaVM);
+    std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
     }
     if (rc != 0 || tls_env_ == nullptr) {
-        return Status::InternalError("Unable to get JVM!");
+        return Status::InternalError("Unable to get JVM: {}", rc);
     }
     *env = tls_env_;
     return Status::OK();
@@ -251,6 +253,37 @@ Status JniUtil::Init() {
     if (env->ExceptionOccurred()) {
         return Status::InternalError("Failed to delete local reference to JniUtil class.");
     }
+
+    // Find JNINativeMethod class and create a global ref.
+    jclass local_jni_native_exc_cl = env->FindClass("org/apache/doris/udf/JNINativeMethod");
+    if (local_jni_native_exc_cl == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::InternalError("Failed to find JNINativeMethod class.");
+    }
+    jni_native_method_exc_cl_ =
+            reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_native_exc_cl));
+    if (jni_native_method_exc_cl_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::InternalError("Failed to create global reference to JNINativeMethod class.");
+    }
+    env->DeleteLocalRef(local_jni_native_exc_cl);
+    if (env->ExceptionOccurred()) {
+        return Status::InternalError("Failed to delete local reference to JNINativeMethod class.");
+    }
+    std::string function_name = "resizeColumn";
+    std::string function_sign = "(JI)J";
+    static JNINativeMethod java_native_methods[] = {
+            {const_cast<char*>(function_name.c_str()), const_cast<char*>(function_sign.c_str()),
+             (void*)&JavaNativeMethods::resizeColumn},
+    };
+
+    int res = env->RegisterNatives(jni_native_method_exc_cl_, java_native_methods,
+                                   sizeof(java_native_methods) / sizeof(java_native_methods[0]));
+    DCHECK_EQ(res, 0);
 
     // Throwable toString()
     throwable_to_string_id_ = env->GetStaticMethodID(jni_util_cl_, "throwableToString",

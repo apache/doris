@@ -71,6 +71,10 @@ public interface LoadTaskInfo {
 
     String getPath();
 
+    default long getFileSize() {
+        return 0;
+    }
+
     double getMaxFilterRatio();
 
     ImportColumnDescs getColumnExprDescs();
@@ -92,6 +96,14 @@ public interface LoadTaskInfo {
     String getHeaderType();
 
     List<String> getHiddenColumns();
+
+    default boolean getTrimDoubleQuotes() {
+        return false;
+    }
+
+    default int getSkipLines() {
+        return 0;
+    }
 
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
@@ -118,3 +130,4 @@ public interface LoadTaskInfo {
         }
     }
 }
+

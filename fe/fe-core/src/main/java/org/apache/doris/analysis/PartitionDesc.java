@@ -42,6 +42,8 @@ public class PartitionDesc {
 
     protected PartitionType type;
 
+    public PartitionDesc() {}
+
     public PartitionDesc(List<String> partitionColNames,
                          List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
         this.partitionColNames = partitionColNames;
@@ -106,6 +108,10 @@ public class PartitionDesc {
                         throw new AnalysisException("String Type should not be used in partition column["
                                 + columnDef.getName() + "].");
                     }
+                    if (columnDef.getType().isComplexType()) {
+                        throw new AnalysisException("Complex type column can't be partition column: "
+                                + columnDef.getType().toString());
+                    }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {
                         throw new AnalysisException("The partition column must be NOT NULL");
@@ -154,7 +160,7 @@ public class PartitionDesc {
     }
 
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
-            throws DdlException {
+            throws DdlException, AnalysisException {
         throw new NotImplementedException();
     }
 }

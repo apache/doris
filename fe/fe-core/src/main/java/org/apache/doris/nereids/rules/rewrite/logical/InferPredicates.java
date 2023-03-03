@@ -22,9 +22,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -48,9 +50,14 @@ import java.util.stream.Collectors;
  * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
  *   round of predicate push-down
  */
-public class InferPredicates extends DefaultPlanRewriter<JobContext> {
+public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
     private final PredicatePropagation propagation = new PredicatePropagation();
     private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
+
+    @Override
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, jobContext);
+    }
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
@@ -69,6 +76,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
                 break;
             case LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
                 otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
                 break;
             case RIGHT_OUTER_JOIN:
@@ -89,7 +97,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
         filter.getConjuncts().forEach(filterPredicates::remove);
         if (!filterPredicates.isEmpty()) {
             filterPredicates.addAll(filter.getConjuncts());
-            return new LogicalFilter<>(ExpressionUtils.and(Lists.newArrayList(filterPredicates)), filter.child());
+            return new LogicalFilter<>(ImmutableSet.copyOf(filterPredicates), filter.child());
         }
         return filter;
     }

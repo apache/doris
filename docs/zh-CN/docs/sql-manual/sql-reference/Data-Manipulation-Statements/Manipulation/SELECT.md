@@ -69,7 +69,7 @@ SELECT
 
 6. `INTO OUTFILE 'file_name' ` ：保存结果至新文件（之前不存在）中，区别在于保存的格式。
    
-7. `Group by having`：对结果集进行分组，having 出现则对 group by 的结果进行刷选。`Grouping Sets`、`Rollup`、`Cube` 为group by的扩展，详细可参考[GROUPING SETS 设计文档](../../../../../community/design/grouping_sets_design.md)。
+7. `Group by having`：对结果集进行分组，having 出现则对 group by 的结果进行刷选。`Grouping Sets`、`Rollup`、`Cube` 为group by的扩展，详细可参考[GROUPING SETS 设计文档](https://doris.apache.org/zh-CN/community/design/grouping_sets_design)。
 
 8. `Order by `: 对最后的结果进行排序，Order by 通过比较一列或者多列的大小来对结果集进行排序。
 
@@ -232,9 +232,9 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
 10. UNION 示例
 
     ```sql
-    SELECT a FROM t1 WHERE a = 10 AND B = 1 ORDER by LIMIT 10
+    SELECT a FROM t1 WHERE a = 10 AND B = 1 ORDER by a LIMIT 10
     UNION
-    SELECT a FROM t2 WHERE a = 11 AND B = 2 ORDER by LIMIT 10;
+    SELECT a FROM t2 WHERE a = 11 AND B = 2 ORDER by a LIMIT 10;
     ```
 
 11. WITH 子句示例

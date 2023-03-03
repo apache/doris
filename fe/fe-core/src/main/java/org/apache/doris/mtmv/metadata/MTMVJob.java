@@ -150,19 +150,19 @@ public class MTMVJob implements Writable, Comparable {
         this.createTime = createTime;
     }
 
-    public String getDbName() {
+    public String getDBName() {
         return dbName;
     }
 
-    public void setDbName(String dbName) {
+    public void setDBName(String dbName) {
         this.dbName = dbName;
     }
 
-    public String getMvName() {
+    public String getMVName() {
         return mvName;
     }
 
-    public void setMvName(String mvName) {
+    public void setMVName(String mvName) {
         this.mvName = mvName;
     }
 
@@ -259,8 +259,8 @@ public class MTMVJob implements Writable, Comparable {
         }
 
         public String toString() {
-            return " (START " + LocalDateTime.ofInstant(Instant.ofEpochSecond(startTime), ZoneId.systemDefault())
-                    + " EVERY(" + period + " " + timeUnit + "))";
+            return "START " + LocalDateTime.ofInstant(Instant.ofEpochSecond(startTime), ZoneId.systemDefault())
+                    + " EVERY(" + period + " " + timeUnit + ")";
         }
     }
 
@@ -287,8 +287,8 @@ public class MTMVJob implements Writable, Comparable {
         list.add(getName());
         list.add(getTriggerMode().toString());
         list.add(getSchedule() == null ? "NULL" : getSchedule().toString());
-        list.add(getDbName());
-        list.add(getMvName());
+        list.add(getDBName());
+        list.add(getMVName());
         list.add(getQuery().length() > 10240 ? getQuery().substring(0, 10240) : getQuery());
         list.add(getUser());
         list.add(getRetryPolicy().toString());

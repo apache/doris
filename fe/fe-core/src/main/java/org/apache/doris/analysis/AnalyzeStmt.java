@@ -33,7 +33,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -64,6 +63,8 @@ public class AnalyzeStmt extends DdlStmt {
     // time to wait for collect  statistics
     public static final String CBO_STATISTICS_TASK_TIMEOUT_SEC = "cbo_statistics_task_timeout_sec";
 
+    public boolean isHistogram = false;
+
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CBO_STATISTICS_TASK_TIMEOUT_SEC)
             .build();
@@ -76,7 +77,7 @@ public class AnalyzeStmt extends DdlStmt {
 
     private TableIf table;
 
-    private final PartitionNames optPartitionNames;
+    private PartitionNames optPartitionNames;
     private List<String> optColumnNames;
     private Map<String, String> optProperties;
 
@@ -84,6 +85,16 @@ public class AnalyzeStmt extends DdlStmt {
     private long dbId;
 
     private final List<String> partitionNames = Lists.newArrayList();
+
+    public AnalyzeStmt(TableName tableName,
+            List<String> optColumnNames,
+            Map<String, String> optProperties) {
+        this.tableName = tableName;
+        this.optColumnNames = optColumnNames;
+        wholeTbl = CollectionUtils.isEmpty(optColumnNames);
+        isHistogram = true;
+        this.optProperties = optProperties;
+    }
 
     public AnalyzeStmt(TableName tableName,
             List<String> optColumnNames,
@@ -105,7 +116,7 @@ public class AnalyzeStmt extends DdlStmt {
         String catalogName = tableName.getCtl();
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
-        CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(catalogName);
+        CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         table = db.getTableOrAnalysisException(tblName);
 
@@ -143,8 +154,8 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        PaloAuth auth = Env.getCurrentEnv().getAuth();
-        if (!auth.checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "ANALYZE",

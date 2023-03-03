@@ -78,7 +78,22 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet();
+    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
+                                                        [](Tablet* t) { return t->is_used(); }) {
+        std::vector<TabletSharedPtr> res;
+        for (const auto& tablets_shard : _tablets_shards) {
+            std::shared_lock rdlock(tablets_shard.lock);
+            for (auto& [id, tablet] : tablets_shard.tablet_map) {
+                if (filter(tablet.get())) {
+                    res.emplace_back(tablet);
+                }
+            }
+        }
+        return res;
+    }
+
+    uint64_t get_rowset_nums();
+    uint64_t get_segment_nums();
 
     // Extract tablet_id and schema_hash from given path.
     //
@@ -110,8 +125,8 @@ public:
 
     // 获取所有tables的名字
     //
-    // Return OLAP_SUCCESS, if run ok
-    //        Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), if tables is null
+    // Return OK, if run ok
+    //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
     Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
@@ -130,13 +145,15 @@ public:
 
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
-    void register_clone_tablet(int64_t tablet_id);
+    // return `true` if register success
+    bool register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
 
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
-    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
+    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
@@ -146,9 +163,9 @@ private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
     //
-    // Return OLAP_SUCCESS, if run ok
+    // Return OK, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
-    //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
+    //        Status::Error<UNINITIALIZED>(), if not inited
     Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                 bool update_meta, bool force);
 
@@ -202,6 +219,7 @@ private:
 
     // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

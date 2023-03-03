@@ -99,6 +99,14 @@ private:
             os_.write(((JsonbDoubleVal*)val)->val());
             break;
         }
+        case JsonbType::T_Float: {
+            os_.write(((JsonbFloatVal*)val)->val());
+            break;
+        }
+        case JsonbType::T_Int128: {
+            os_.write(((JsonbInt128Val*)val)->val());
+            break;
+        }
         case JsonbType::T_String: {
             string_to_json(((JsonbStringVal*)val)->getBlob(), ((JsonbStringVal*)val)->length());
             break;

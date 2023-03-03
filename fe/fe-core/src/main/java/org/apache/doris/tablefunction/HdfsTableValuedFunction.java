@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFileType;
 
@@ -65,24 +64,25 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
     private URI hdfsUri;
     private String filePath;
 
-    public HdfsTableValuedFunction(Map<String, String> params) throws UserException {
+    public HdfsTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> fileFormatParams = new CaseInsensitiveMap();
         locationProperties = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
                 fileFormatParams.put(key, params.get(key));
-            } else if (LOCATION_PROPERTIES.contains(key.toLowerCase()) || HADOOP_FS_NAME.equalsIgnoreCase(key)) {
+            } else {
                 // because HADOOP_FS_NAME contains upper and lower case
                 if (HADOOP_FS_NAME.equalsIgnoreCase(key)) {
                     locationProperties.put(HADOOP_FS_NAME, params.get(key));
                 } else {
-                    locationProperties.put(key.toLowerCase(), params.get(key));
+                    locationProperties.put(key, params.get(key));
                 }
-            } else {
-                throw new AnalysisException(key + " is invalid property");
             }
         }
 
+        if (!locationProperties.containsKey(HDFS_URI)) {
+            throw new AnalysisException(String.format("Configuration '%s' is required.", HDFS_URI));
+        }
         ExportStmt.checkPath(locationProperties.get(HDFS_URI), StorageType.HDFS);
         hdfsUri = URI.create(locationProperties.get(HDFS_URI));
         filePath = locationProperties.get(HADOOP_FS_NAME) + hdfsUri.getPath();
@@ -105,7 +105,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("S3TvfBroker", StorageType.HDFS, locationProperties);
+        return new BrokerDesc("HdfsTvfBroker", StorageType.HDFS, locationProperties);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

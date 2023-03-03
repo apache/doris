@@ -46,24 +46,36 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
+  aggregate_functions/aggregate_function_histogram.cpp
   columns/column.cpp
   columns/column_array.cpp
+  columns/column_struct.cpp
   columns/column_const.cpp
   columns/column_decimal.cpp
   columns/column_nullable.cpp
   columns/column_string.cpp
   columns/column_vector.cpp
+  columns/column_map.cpp
   columns/columns_common.cpp
+  columns/column_object.cpp
+  json/json_parser.cpp
+  json/parse2column.cpp
+  json/path_in_data.cpp
+  common/schema_util.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
+  common/string_ref.cpp
   common/sort/heap_sorter.cpp
   common/sort/sorter.cpp
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
   common/string_utils/string_utils.cpp
+  common/hex.cpp
   core/block.cpp
+  core/block_spill_reader.cpp
+  core/block_spill_writer.cpp
   core/column_with_type_and_name.cpp
   core/field.cpp
   core/field.cpp
@@ -71,6 +83,7 @@ set(VEC_FILES
   core/materialize_block.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
+  data_types/data_type_struct.cpp
   data_types/data_type_bitmap.cpp
   data_types/data_type_factory.cpp
   data_types/data_type_fixed_length_object.cpp
@@ -82,20 +95,22 @@ set(VEC_FILES
   data_types/data_type_number_base.cpp
   data_types/data_type_string.cpp
   data_types/data_type_decimal.cpp
+  data_types/data_type_map.cpp
   data_types/get_least_supertype.cpp
+  data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
+  data_types/data_type_time.cpp
+  data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
-  exec/vintersect_node.cpp
-  exec/vexcept_node.cpp
   exec/vselect_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
@@ -104,12 +119,8 @@ set(VEC_FILES
   exec/vassert_num_rows_node.cpp
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
-  exec/vbroker_scan_node.cpp
-  exec/vbroker_scanner.cpp
-  exec/vjson_scanner.cpp
   exec/vjdbc_connector.cpp
   exec/vparquet_scanner.cpp
-  exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
@@ -131,6 +142,8 @@ set(VEC_FILES
   exprs/vexpr_context.cpp
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
+  exprs/vmap_literal.cpp
+  exprs/vstruct_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
   exprs/vbitmap_predicate.cpp
@@ -140,6 +153,7 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/table_function/table_function_factory.cpp
   exprs/table_function/vexplode.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
@@ -165,6 +179,7 @@ set(VEC_FILES
   functions/array/function_array_popback.cpp
   functions/array/function_array_constructor.cpp
   functions/array/function_array_with_constant.cpp
+  functions/array/function_array_apply.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -221,12 +236,17 @@ set(VEC_FILES
   functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/function_nonnullable.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
   functions/function_running_difference.cpp
+  functions/function_width_bucket.cpp
+  functions/match.cpp
+  
+  jsonb/serialize.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
@@ -237,6 +257,7 @@ set(VEC_FILES
   sink/vresult_sink.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
+  sink/vmemory_scratch_sink.cpp
   sink/vmysql_table_writer.cpp
   sink/vmysql_table_sink.cpp
   sink/vodbc_table_sink.cpp
@@ -247,7 +268,6 @@ set(VEC_FILES
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp
-  runtime/vpartition_info.cpp
   runtime/vparquet_writer.cpp
   runtime/vorc_writer.cpp
   runtime/vsorted_run_merger.cpp
@@ -262,6 +282,11 @@ set(VEC_FILES
   exec/format/parquet/schema_desc.cpp
   exec/format/parquet/vparquet_column_reader.cpp
   exec/format/parquet/level_decoder.cpp
+  exec/format/parquet/decoder.cpp
+  exec/format/parquet/fix_length_plain_decoder.cpp
+  exec/format/parquet/byte_array_plain_decoder.cpp
+  exec/format/parquet/byte_array_dict_decoder.cpp
+  exec/format/parquet/bool_plain_decoder.cpp
   exec/format/parquet/parquet_common.cpp
   exec/scan/vscan_node.cpp
   exec/scan/vscanner.cpp
@@ -277,11 +302,23 @@ set(VEC_FILES
   exec/scan/new_jdbc_scan_node.cpp
   exec/scan/new_es_scanner.cpp
   exec/scan/new_es_scan_node.cpp
+  exec/scan/vmeta_scan_node.cpp
+  exec/scan/vmeta_scanner.cpp
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
-  exec/format/table/iceberg_reader.cpp)
+  exec/format/table/iceberg_reader.cpp
+  exec/format/file_reader/new_plain_text_line_reader.cpp
+  exec/format/file_reader/new_plain_binary_line_reader.cpp
+  )
+
+if (WITH_MYSQL)
+    set(VEC_FILES
+            ${VEC_FILES}
+            exec/scan/mysql_scanner.cpp
+            )
+endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}

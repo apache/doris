@@ -174,7 +174,7 @@ distribution_desc
 
     `ENGINE=olap`
 
-* `key_desc`
+* `keys_type`
 
     Data model.
 
@@ -202,7 +202,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_desc`
+* `partition_info`
 
     Partition information supports three writing methods:
 
@@ -352,6 +352,8 @@ distribution_desc
         If set to true, the addition and deletion of value columns can be done more quickly and synchronously.
     
         `"light_schema_change"="true"`
+
+        This feature is enabled by default after v1.2.1.
     
     * `disable_auto_compaction`
 

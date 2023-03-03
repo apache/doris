@@ -42,9 +42,9 @@ public class LiteralExprCompareTest {
         LiteralExpr boolTrue2 = new BoolLiteral(true);
 
         // value equal
-        Assert.assertTrue(boolTrue1.equals(boolTrue2));
+        Assert.assertEquals(boolTrue1, boolTrue2);
         // self equal
-        Assert.assertTrue(boolTrue1.equals(boolTrue1));
+        Assert.assertEquals(boolTrue1, boolTrue1);
 
         // value compare
         Assert.assertTrue(!boolTrue1.equals(boolFalse1) && 1 == boolTrue1.compareLiteral(boolFalse1));
@@ -249,9 +249,9 @@ public class LiteralExprCompareTest {
         LiteralExpr decimal4 = new DecimalLiteral("2.23457");
 
         // value equal
-        Assert.assertTrue(decimal1.equals(decimal2));
+        Assert.assertEquals(decimal1, decimal2);
         // self equal
-        Assert.assertTrue(decimal1.equals(decimal1));
+        Assert.assertEquals(decimal1, decimal1);
 
         // value compare
         Assert.assertTrue(!decimal3.equals(decimal2) && 1 == decimal3.compareLiteral(decimal2));
@@ -276,9 +276,9 @@ public class LiteralExprCompareTest {
 
         // float
         // value equal
-        Assert.assertTrue(float1.equals(float2));
+        Assert.assertEquals(float1, float2);
         // self equal
-        Assert.assertTrue(float1.equals(float1));
+        Assert.assertEquals(float1, float1);
 
         // value compare
         Assert.assertTrue(!float3.equals(float2) && 1 == float3.compareLiteral(float2));
@@ -291,9 +291,9 @@ public class LiteralExprCompareTest {
 
         // double
         // value equal
-        Assert.assertTrue(double1.equals(double2));
+        Assert.assertEquals(double1, double2);
         // self equal
-        Assert.assertTrue(double1.equals(double1));
+        Assert.assertEquals(double1, double1);
 
         // value compare
         Assert.assertTrue(!double3.equals(double2) && 1 == double3.compareLiteral(double2));
@@ -343,9 +343,9 @@ public class LiteralExprCompareTest {
         LiteralExpr infinity4 = LiteralExpr.createInfinity(type, false);
 
         // value equal
-        Assert.assertTrue(tinyint1.equals(tinyint1));
+        Assert.assertEquals(tinyint1, tinyint1);
         // self equal
-        Assert.assertTrue(tinyint1.equals(tinyint2));
+        Assert.assertEquals(tinyint1, tinyint2);
 
         // value compare
         Assert.assertTrue(!tinyint1.equals(tinyint3) && 1 == tinyint1.compareLiteral(tinyint3));
@@ -357,12 +357,12 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(0 == tinyint1.compareLiteral(tinyint2));
 
         // infinity
-        Assert.assertTrue(infinity1.equals(infinity1));
-        Assert.assertTrue(infinity1.equals(infinity2));
-        Assert.assertTrue(infinity3.equals(infinity3));
-        Assert.assertTrue(infinity3.equals(infinity4));
-        Assert.assertFalse(tinyint1.equals(infinity1));
-        Assert.assertTrue(tinyint3.equals(infinity3));
+        Assert.assertEquals(infinity1, infinity1);
+        Assert.assertEquals(infinity1, infinity2);
+        Assert.assertEquals(infinity3, infinity3);
+        Assert.assertEquals(infinity3, infinity4);
+        Assert.assertNotEquals(tinyint1, infinity1);
+        Assert.assertEquals(tinyint3, infinity3);
 
         Assert.assertTrue(0 == infinity1.compareLiteral(infinity1));
         Assert.assertTrue(0 == infinity1.compareLiteral(infinity2));
@@ -393,7 +393,7 @@ public class LiteralExprCompareTest {
         LiteralExpr infinity3 = new LargeIntLiteral(false);
 
         // value equal
-        Assert.assertTrue(largeInt1.equals(largeInt1));
+        Assert.assertEquals(largeInt1, largeInt1);
 
         // value compare
         Assert.assertTrue(!largeInt1.equals(largeInt3) && 1 == largeInt1.compareLiteral(largeInt3));
@@ -401,10 +401,10 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(0 == largeInt1.compareLiteral(largeInt1));
 
         // infinity
-        Assert.assertTrue(infinity1.equals(infinity1));
-        Assert.assertTrue(infinity3.equals(infinity3));
-        Assert.assertTrue(infinity1.equals(largeInt1));
-        Assert.assertTrue(infinity3.equals(largeInt3));
+        Assert.assertEquals(infinity1, infinity1);
+        Assert.assertEquals(infinity3, infinity3);
+        Assert.assertEquals(infinity1, largeInt1);
+        Assert.assertEquals(infinity3, largeInt3);
 
         Assert.assertTrue(!infinity1.equals(largeInt3) && 1 == infinity1.compareLiteral(largeInt3));
         Assert.assertTrue(!infinity3.equals(infinity1) && -1 == infinity3.compareLiteral(infinity1));

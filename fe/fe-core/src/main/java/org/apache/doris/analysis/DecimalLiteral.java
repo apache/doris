@@ -335,6 +335,7 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isDecimalV2() && type.isDecimalV2()) {
+            setType(targetType);
             return this;
         } else if ((targetType.isDecimalV3() && type.isDecimalV3()
                 && (((ScalarType) targetType).decimalPrecision() >= value.precision())
@@ -365,5 +366,20 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int len = getParmLen(data);
+        BigDecimal v = null;
+        try {
+            byte[] bytes = new byte[len];
+            data.get(bytes);
+            String value = new String(bytes);
+            v = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            // throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        }
+        init(v);
     }
 }

@@ -28,10 +28,10 @@ namespace doris {
 class SchemaVariablesScanner : public SchemaScanner {
 public:
     SchemaVariablesScanner(TVarType::type type);
-    virtual ~SchemaVariablesScanner();
+    ~SchemaVariablesScanner() override;
 
-    virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
     struct VariableStruct {
@@ -39,13 +39,12 @@ private:
         const char* value;
     };
 
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fill_block_impl(vectorized::Block* block);
 
-    static SchemaScanner::ColumnDesc _s_vars_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_vars_columns;
 
     TShowVariableResult _var_result;
     TVarType::type _type;
-    std::map<std::string, std::string>::iterator _begin;
 };
 
 } // namespace doris

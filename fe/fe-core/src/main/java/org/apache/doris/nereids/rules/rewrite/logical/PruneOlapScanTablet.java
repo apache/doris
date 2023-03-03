@@ -41,6 +41,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * prune bucket
@@ -65,7 +66,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                 }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
-    private Collection<Long> getSelectedTabletIds(List<Expression> expressions,
+    private Collection<Long> getSelectedTabletIds(Set<Expression> expressions,
             MaterializedIndex index, DistributionInfo info) {
         if (info.getType() != DistributionInfoType.HASH) {
             return index.getTabletIdsInOrder();

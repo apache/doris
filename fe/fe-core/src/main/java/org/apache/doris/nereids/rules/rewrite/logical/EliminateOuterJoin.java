@@ -19,21 +19,21 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeUtils;
+import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 
-import java.util.List;
-import java.util.Map;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Eliminate outer join.
@@ -43,24 +43,29 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(
-                    logicalJoin().when(join -> join.getJoinType().isOuterJoin())
-                ).then(filter -> {
-                    LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
-                    List<Expression> conjuncts = filter.getConjuncts();
-                    List<Expression> leftPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
-                            join.left().getOutputSet());
-                    List<Expression> rightPredicates = ExpressionUtils.extractCoveredConjunction(conjuncts,
-                            join.right().getOutputSet());
-                    boolean canFilterLeftNull = canFilterNull(leftPredicates);
-                    boolean canFilterRightNull = canFilterNull(rightPredicates);
-                    JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull,
-                            canFilterRightNull);
-                    if (newJoinType == join.getJoinType()) {
-                        return filter;
-                    } else {
-                        return filter.withChildren(join.withJoinType(newJoinType));
-                    }
-                }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
+                logicalJoin().when(join -> join.getJoinType().isOuterJoin())
+        ).then(filter -> {
+            LogicalJoin<Plan, Plan> join = filter.child();
+
+            Builder<Expression> conjunctsBuilder = ImmutableSet.builder();
+            Set<Slot> notNullSlots = new HashSet<>();
+            for (Expression predicate : filter.getConjuncts()) {
+                Optional<Slot> notNullSlot = TypeUtils.isNotNull(predicate);
+                if (notNullSlot.isPresent()) {
+                    notNullSlots.add(notNullSlot.get());
+                } else {
+                    conjunctsBuilder.add(predicate);
+                }
+            }
+            boolean canFilterLeftNull = Utils.isIntersecting(join.left().getOutputSet(), notNullSlots);
+            boolean canFilterRightNull = Utils.isIntersecting(join.right().getOutputSet(), notNullSlots);
+            if (!canFilterRightNull && !canFilterLeftNull) {
+                return null;
+            }
+
+            JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull, canFilterRightNull);
+            return filter.withChildren(join.withJoinType(newJoinType));
+        }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 
     private JoinType tryEliminateOuterJoin(JoinType joinType, boolean canFilterLeftNull, boolean canFilterRightNull) {
@@ -80,19 +85,5 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             return JoinType.RIGHT_OUTER_JOIN;
         }
         return joinType;
-    }
-
-    private boolean canFilterNull(List<Expression> predicates) {
-        Literal nullLiteral = Literal.of(null);
-        for (Expression predicate : predicates) {
-            Map<Expression, Expression> replaceMap = Maps.newHashMap();
-            predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
-            Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(ExpressionUtils.replace(predicate, replaceMap),
-                    new ExpressionRewriteContext(null));
-            if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
-                return true;
-            }
-        }
-        return false;
     }
 }

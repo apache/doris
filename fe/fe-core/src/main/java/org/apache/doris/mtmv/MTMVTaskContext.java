@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
@@ -24,11 +26,28 @@ import java.util.Map;
 public class MTMVTaskContext {
     ConnectContext ctx;
     String query;
-    String remoteIp;
     Map<String, String> properties;
+    MTMVTask task;
+    MTMVJob job;
 
     public ConnectContext getCtx() {
         return ctx;
+    }
+
+    public void setTask(MTMVTask task) {
+        this.task = task;
+    }
+
+    public MTMVTask getTask() {
+        return this.task;
+    }
+
+    public void setJob(MTMVJob job) {
+        this.job = job;
+    }
+
+    public MTMVJob getJob() {
+        return this.job;
     }
 
     public void setCtx(ConnectContext ctx) {
@@ -41,14 +60,6 @@ public class MTMVTaskContext {
 
     public void setQuery(String query) {
         this.query = query;
-    }
-
-    public String getRemoteIp() {
-        return remoteIp;
-    }
-
-    public void setRemoteIp(String remoteIp) {
-        this.remoteIp = remoteIp;
     }
 
     public Map<String, String> getProperties() {

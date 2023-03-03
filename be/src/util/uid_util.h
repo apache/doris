@@ -56,6 +56,7 @@ struct UniqueId {
     int64_t hi = 0;
     int64_t lo = 0;
 
+    UniqueId() = default;
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) {}
     UniqueId(const UniqueId& uid) : hi(uid.hi), lo(uid.lo) {}
     UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) {}
@@ -64,6 +65,8 @@ struct UniqueId {
         from_hex(&hi, hi_str);
         from_hex(&lo, lo_str);
     }
+
+    bool initialized() const { return hi != 0 || lo != 0; }
 
     // currently, the implementation is uuid, but it may change in the future
     static UniqueId gen_uid() {
@@ -167,11 +170,7 @@ bool parse_id(const std::string& s, TUniqueId* id);
 
 } // namespace doris
 
-namespace std {
-
 template <>
-struct hash<doris::UniqueId> {
+struct std::hash<doris::UniqueId> {
     size_t operator()(const doris::UniqueId& uid) const { return uid.hash(); }
 };
-
-} // namespace std

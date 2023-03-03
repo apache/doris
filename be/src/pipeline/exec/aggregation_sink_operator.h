@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "agg_context.h"
 #include "operator.h"
 
 namespace doris {
@@ -34,13 +33,13 @@ public:
     AggSinkOperatorBuilder(int32_t, ExecNode*);
 
     OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; };
+    bool is_sink() const override { return true; }
 };
 
-class AggSinkOperator final : public Operator<AggSinkOperatorBuilder> {
+class AggSinkOperator final : public StreamingOperator<AggSinkOperatorBuilder> {
 public:
     AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return true; };
+    bool can_write() override { return true; }
 };
 
 } // namespace pipeline

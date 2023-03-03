@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
@@ -389,9 +390,17 @@ public class ScalarFunction extends Function {
         if (getCloseFnSymbol() != null) {
             sb.append(",\n  \"CLOSE_FN\"=").append("\"" + getCloseFnSymbol() + "\"");
         }
-        sb.append(",\n  \"OBJECT_FILE\"=")
-                .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
-        sb.append(",\n  \"MD5\"=").append("\"" + getChecksum() + "\"");
+
+        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            sb.append(",\n  \"FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+        } else {
+            sb.append(",\n  \"OBJECT_FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+        }
+        sb.append(",\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
         sb.append("\n);");
         return sb.toString();
     }
@@ -400,12 +409,16 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
-        fn.getScalarFn().setSymbol(symbolName);
-        if (prepareFnSymbol != null) {
-            fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);
-        }
-        if (closeFnSymbol != null) {
-            fn.getScalarFn().setCloseFnSymbol(closeFnSymbol);
+        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.optRpcForPipeline()) {
+            fn.getScalarFn().setSymbol(symbolName);
+            if (prepareFnSymbol != null) {
+                fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);
+            }
+            if (closeFnSymbol != null) {
+                fn.getScalarFn().setCloseFnSymbol(closeFnSymbol);
+            }
+        } else {
+            fn.getScalarFn().setSymbol("");
         }
         return fn;
     }

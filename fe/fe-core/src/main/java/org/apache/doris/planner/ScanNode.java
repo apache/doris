@@ -30,11 +30,13 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -43,7 +45,9 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,7 +61,7 @@ import java.util.Set;
 public abstract class ScanNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected final TupleDescriptor desc;
-    // Use this if partition_prune_algorithm_version is 1.
+    // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
     // Use this if partition_prune_algorithm_version is 2.
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
@@ -103,7 +107,10 @@ public abstract class ScanNode extends PlanNode {
     protected Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
         PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
         PrimitiveType srcType = expr.getType().getPrimitiveType();
-        if (dstType != srcType) {
+        if (PrimitiveType.typeWithPrecision.contains(dstType) && PrimitiveType.typeWithPrecision.contains(srcType)
+                && !slotDesc.getType().equals(expr.getType())) {
+            return expr.castTo(slotDesc.getType());
+        } else if (dstType != srcType) {
             return expr.castTo(slotDesc.getType());
         } else {
             return expr;
@@ -120,6 +127,15 @@ public abstract class ScanNode extends PlanNode {
      */
     public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
 
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
+    public void updateRequiredSlots(PlanTranslatorContext context,
+            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
+    }
+
     // TODO(ML): move it into PrunerOptimizer
     public void computeColumnFilter() {
         for (Column column : desc.getTable().getBaseSchema()) {
@@ -135,17 +151,15 @@ public abstract class ScanNode extends PlanNode {
                 columnFilters.put(column.getName(), keyFilter);
             }
 
-            if (analyzer.partitionPruneV2Enabled()) {
-                ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
-                if (columnRange != null) {
-                    columnNameToRange.put(column.getName(), columnRange);
-                }
+            ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
+            if (columnRange != null) {
+                columnNameToRange.put(column.getName(), columnRange);
             }
         }
     }
 
-    private ColumnRange createColumnRange(SlotDescriptor desc,
-                                          List<Expr> conjuncts) {
+    public static ColumnRange createColumnRange(SlotDescriptor desc,
+            List<Expr> conjuncts) {
         ColumnRange result = ColumnRange.create();
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {
@@ -200,8 +214,8 @@ public abstract class ScanNode extends PlanNode {
         return result;
     }
 
-    private ColumnRanges expressionToRanges(Expr expr,
-                                            SlotDescriptor desc) {
+    public static ColumnRanges expressionToRanges(Expr expr,
+            SlotDescriptor desc) {
         if (expr instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
             if (isNullPredicate.isSlotRefChildren() && !isNullPredicate.isNotNull()) {
@@ -259,6 +273,26 @@ public abstract class ScanNode extends PlanNode {
             for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
                 ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
                 result.add(Range.closed(bound, bound));
+            }
+        } else if (expr instanceof CompoundPredicate) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            ColumnRanges leftChildRange = null;
+            ColumnRanges rightChildRange = null;
+            switch (compoundPredicate.getOp()) {
+                case AND:
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc);
+                    return leftChildRange.intersectRanges(rightChildRange);
+                case OR:
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc);
+                    return leftChildRange.unionRanges(rightChildRange);
+                case NOT:
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    return leftChildRange.complementOfRanges();
+                default:
+                    throw new RuntimeException("unknown OP in compound predicate: "
+                        + compoundPredicate.getOp().toString());
             }
         }
 
@@ -377,6 +411,67 @@ public abstract class ScanNode extends PlanNode {
             return IS_NULL;
         }
 
+        public ColumnRanges complementOfRanges() {
+            if (type == Type.CONVERT_SUCCESS) {
+                RangeSet<ColumnBound> rangeSet = TreeRangeSet.create();
+                rangeSet.addAll(ranges);
+                return create(Lists.newArrayList(rangeSet.complement().asRanges()));
+            }
+            return CONVERT_FAILURE;
+        }
+
+        public ColumnRanges intersectRanges(ColumnRanges other) {
+            // intersect ranges can handle isnull
+            switch (this.type) {
+                case IS_NULL:
+                    return createIsNull();
+                case CONVERT_FAILURE:
+                    return createFailure();
+                case CONVERT_SUCCESS:
+                    switch (other.type) {
+                        case IS_NULL:
+                            return createIsNull();
+                        case CONVERT_FAILURE:
+                            return createFailure();
+                        case CONVERT_SUCCESS:
+                            RangeSet<ColumnBound> rangeSet = TreeRangeSet.create();
+                            rangeSet.addAll(this.ranges);
+                            RangeSet<ColumnBound> intersectSet = TreeRangeSet.create();
+
+                            other.ranges.forEach(range -> intersectSet.addAll(rangeSet.subRangeSet(range)));
+                            return create(Lists.newArrayList(intersectSet.asRanges()));
+                        default:
+                            return createFailure();
+                    }
+                default:
+                    return createFailure();
+            }
+        }
+
+        public ColumnRanges unionRanges(ColumnRanges other) {
+            switch (this.type) {
+                case IS_NULL:
+                case CONVERT_FAILURE:
+                    return createFailure();
+                case CONVERT_SUCCESS:
+                    switch (other.type) {
+                        case IS_NULL:
+                        case CONVERT_FAILURE:
+                            return createFailure();
+                        case CONVERT_SUCCESS:
+                            RangeSet<ColumnBound> rangeSet = TreeRangeSet.create();
+                            rangeSet.addAll(this.ranges);
+                            rangeSet.addAll(other.ranges);
+                            List<Range<ColumnBound>> unionRangeList = Lists.newArrayList(rangeSet.asRanges());
+                            return create(unionRangeList);
+                        default:
+                            return createFailure();
+                    }
+                default:
+                    return createFailure();
+            }
+        }
+
         public static ColumnRanges createFailure() {
             return CONVERT_FAILURE;
         }
@@ -391,5 +486,12 @@ public abstract class ScanNode extends PlanNode {
         return MoreObjects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
                 desc.getTable().getName()).add("keyRanges", "").addValue(
                 super.debugString()).toString();
+    }
+
+    // Some of scan node(eg, DataGenScanNode) does not need to check column priv
+    // (because the it has no corresponding catalog/db/table info)
+    // Subclass may override this method.
+    public boolean needToCheckColumnPriv() {
+        return true;
     }
 }

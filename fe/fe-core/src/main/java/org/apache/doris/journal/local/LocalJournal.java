@@ -109,6 +109,11 @@ public class LocalJournal implements Journal {
     }
 
     @Override
+    public long getJournalNum() {
+        return 0;
+    }
+
+    @Override
     public void close() {
         if (outputStream == null) {
             return;

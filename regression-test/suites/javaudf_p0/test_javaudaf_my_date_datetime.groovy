@@ -69,7 +69,7 @@ suite("test_javaudaf_my_date_datetime") {
 
         qt_select2 """ select user_id, udaf_my_day_datev2(datev2_col) from ${tableName} group by user_id order by user_id; """
         
-        sql """ DROP FUNCTION udaf_my_day_datev2(datev2); """
+
 
         // test date
         sql """ CREATE AGGREGATE FUNCTION udaf_my_day_date(date) RETURNS date PROPERTIES (
@@ -83,7 +83,7 @@ suite("test_javaudaf_my_date_datetime") {
 
         qt_select4 """ select user_id, udaf_my_day_date(date_col) from ${tableName} group by user_id order by user_id; """
         
-        sql """ DROP FUNCTION udaf_my_day_date(date); """
+
 
         // test datetimev2
         sql """ CREATE AGGREGATE FUNCTION udaf_my_hour_datetimev2(datetimev2) RETURNS datetimev2 PROPERTIES (
@@ -97,7 +97,7 @@ suite("test_javaudaf_my_date_datetime") {
 
         qt_select6 """ select user_id, udaf_my_hour_datetimev2(datetimev2_col) from ${tableName} group by user_id order by user_id; """
 
-        sql """ DROP FUNCTION udaf_my_hour_datetimev2(datetimev2); """
+
 
         // test datetime
         sql """ CREATE AGGREGATE FUNCTION udaf_my_hour_datetime(datetime) RETURNS datetime PROPERTIES (
@@ -111,9 +111,13 @@ suite("test_javaudaf_my_date_datetime") {
 
         qt_select6 """ select user_id, udaf_my_hour_datetime(datetime_col) from ${tableName} group by user_id order by user_id; """
 
-        sql """ DROP FUNCTION udaf_my_hour_datetime(datetime); """
+        
 
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_hour_datetime(datetime)")
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_day_datev2(datev2);")
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_day_date(date);")
+        try_sql("DROP FUNCTION IF EXISTS udaf_my_hour_datetimev2(datetimev2);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

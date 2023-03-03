@@ -161,6 +161,8 @@ public:
         if (_execute_internal<ColumnString>(dst, left_data, right_data) ||
             _execute_internal<ColumnDate>(dst, left_data, right_data) ||
             _execute_internal<ColumnDateTime>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDateV2>(dst, left_data, right_data) ||
+            _execute_internal<ColumnDateTimeV2>(dst, left_data, right_data) ||
             _execute_internal<ColumnUInt8>(dst, left_data, right_data) ||
             _execute_internal<ColumnInt8>(dst, left_data, right_data) ||
             _execute_internal<ColumnInt16>(dst, left_data, right_data) ||

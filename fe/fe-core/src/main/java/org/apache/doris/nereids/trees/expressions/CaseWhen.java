@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * The internal representation of
@@ -43,7 +45,7 @@ public class CaseWhen extends Expression {
     private final Optional<Expression> defaultValue;
 
     public CaseWhen(List<WhenClause> whenClauses) {
-        super(whenClauses.toArray(new Expression[0]));
+        super((List) whenClauses);
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         defaultValue = Optional.empty();
     }
@@ -65,11 +67,15 @@ public class CaseWhen extends Expression {
     }
 
     public List<DataType> dataTypesForCoercion() {
-        List<DataType> result = whenClauses.stream().map(WhenClause::getDataType).collect(Collectors.toList());
-        if (defaultValue.isPresent()) {
-            result.add(defaultValue.get().getDataType());
-        }
-        return result;
+        return Stream.concat(whenClauses.stream(), defaultValue.map(Stream::of).orElseGet(Stream::empty))
+                .map(ExpressionTrait::getDataType)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public List<Expression> expressionForCoercion() {
+        List<Expression> ret = whenClauses.stream().map(WhenClause::getResult).collect(Collectors.toList());
+        defaultValue.ifPresent(ret::add);
+        return ret;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

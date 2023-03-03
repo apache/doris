@@ -61,22 +61,22 @@ public class ColumnStatTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         ColumnStats rStats1 = new ColumnStats();
         rStats1.readFields(dis);
-        Assert.assertTrue(rStats1.equals(stats1));
+        Assert.assertEquals(rStats1, stats1);
 
         ColumnStats rStats2 = new ColumnStats();
         rStats2.readFields(dis);
-        Assert.assertTrue(rStats2.equals(stats2));
+        Assert.assertEquals(rStats2, stats2);
 
         ColumnStats rStats3 = ColumnStats.read(dis);
-        Assert.assertTrue(rStats3.equals(stats3));
+        Assert.assertEquals(rStats3, stats3);
 
         ColumnStats rStats4 = ColumnStats.read(dis);
-        Assert.assertTrue(rStats4.equals(stats4));
-        Assert.assertTrue(rStats4.equals(stats3));
+        Assert.assertEquals(rStats4, stats4);
+        Assert.assertEquals(rStats4, stats3);
 
-        Assert.assertTrue(rStats3.equals(rStats3));
-        Assert.assertFalse(rStats3.equals(this));
-        Assert.assertFalse(rStats2.equals(rStats3));
+        Assert.assertEquals(rStats3, rStats3);
+        Assert.assertNotEquals(rStats3, this);
+        Assert.assertNotEquals(rStats2, rStats3);
 
         // 3. delete files
         dis.close();

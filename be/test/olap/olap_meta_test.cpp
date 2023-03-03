@@ -26,13 +26,10 @@
 #include "olap/olap_define.h"
 #include "util/file_utils.h"
 
-#ifndef BE_TEST
-#define BE_TEST
-#endif
-
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 class OlapMetaTest : public testing::Test {
 public:
@@ -75,7 +72,7 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
 
     // abnormal cases
     s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND), s);
+    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(), s);
 }
 
 TEST_F(OlapMetaTest, TestRemove) {

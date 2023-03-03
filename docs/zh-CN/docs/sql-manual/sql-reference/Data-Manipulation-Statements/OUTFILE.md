@@ -104,6 +104,7 @@ INTO OUTFILE "file_path"
     AWS_ACCESS_KEY
     AWS_SECRET_KEY
     AWS_REGION
+    use_path_stype: (选填) 默认为false 。S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或不支持virtual-hosted style 方式的访问，此时可以添加 use_path_style 参数来强制使用 path style 访问方式。
     ```
 
 ### example
@@ -252,11 +253,12 @@ INTO OUTFILE "file_path"
     )
     ```
     
-8. 使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 CSV，用户名为work。指定列分隔符为 `,`，行分隔符为 `\n`。
+8. 使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://${host}:${fileSystem_port}/path/to/result.txt`。指定导出格式为 CSV，用户名为work。指定列分隔符为 `,`，行分隔符为 `\n`。
     
     ```sql
+    -- fileSystem_port默认值为9000
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs://path/to/result_"
+    INTO OUTFILE "hdfs://${host}:${fileSystem_port}/path/to/result_"
     FORMAT AS CSV
     PROPERTIES
     (

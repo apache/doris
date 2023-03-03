@@ -40,7 +40,7 @@ suite("test_rollup_agg_date", "rollup") {
             AGGREGATE KEY (datek1, datetimek1, datetimek2, datetimek3)
             DISTRIBUTED BY HASH(datek1) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_date(datek1,datetimek1,datetimek2,datetimek3,datev1,datetimev1,datetimev2,datetimev3);"""
+    sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_date(datek1,datetimek2,datetimek1,datetimek3,datev1,datetimev1,datetimev2,datetimev3);"""
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState(tbName)

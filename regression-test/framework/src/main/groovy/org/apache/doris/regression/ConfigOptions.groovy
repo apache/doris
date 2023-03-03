@@ -39,7 +39,6 @@ class ConfigOptions {
     static Option pathOpt
     static Option dataOpt
     static Option realDataOpt
-    static Option sf1DataOpt
     static Option cacheDataOpt
     static Option pluginOpt
     static Option suiteOpt
@@ -131,14 +130,6 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("realDataPath")
                 .desc("the real data path")
-                .build()
-        sf1DataOpt = Option.builder("SD")
-                .argName("sf1DataPath")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("sf1DataPath")
-                .desc("the sf1 data path contains data file for ssb_sf1, tpcds_sf1 and tpch_sf1 cases")
                 .build()
         cacheDataOpt = Option.builder("CD")
                 .argName("cacheDataPath")

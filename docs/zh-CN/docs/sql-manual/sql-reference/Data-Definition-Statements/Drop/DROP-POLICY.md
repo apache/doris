@@ -43,6 +43,11 @@ DROP POLICY
 DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
 ```
 
+2. 删除存储策略
+```sql
+DROP STORAGE POLICY policy_name1
+```
+
 ### Example
 
 1. 删除 table1 的 test_row_policy_1
@@ -56,6 +61,12 @@ DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
    ```sql
    DROP ROW POLICY test_row_policy_1 on table1 for test
    ```
+
+3. 删除名字为policy_name1的存储策略
+```sql
+DROP STORAGE POLICY policy_name1
+```
+
 ### Keywords
 
     DROP, POLICY

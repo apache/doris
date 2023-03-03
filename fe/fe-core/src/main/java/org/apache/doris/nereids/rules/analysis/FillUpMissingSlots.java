@@ -114,13 +114,17 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 logicalHaving(aggregate()).then(having -> {
                     Aggregate aggregate = having.child();
                     Resolver resolver = new Resolver(aggregate);
-                    resolver.resolve(having.getPredicates());
+                    having.getConjuncts().forEach(resolver::resolve);
                     return createPlan(resolver, having.child(), (r, a) -> {
-                        Expression newPredicates = ExpressionUtils.replace(
-                                having.getPredicates(), r.getSubstitution());
-                        return new LogicalFilter<>(newPredicates, a);
+                        Set<Expression> newConjuncts = ExpressionUtils.replace(
+                                having.getConjuncts(), r.getSubstitution());
+                        return new LogicalFilter<>(newConjuncts, a);
                     });
                 })
+            ),
+            RuleType.FILL_UP_HAVING_PROJECT.build(
+                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getConjuncts(),
+                    having.child()))
             )
         );
     }
@@ -214,8 +218,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             return false;
         }
 
-        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction function) {
-            return function.children().stream().anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
+        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction aggregateFunction) {
+            return aggregateFunction.children()
+                    .stream()
+                    .anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {
@@ -237,13 +243,12 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         Plan apply(Resolver resolver, Aggregate aggregate);
     }
 
-    private Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate,
-            PlanGenerator planGenerator) {
+    private Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate, PlanGenerator planGenerator) {
         List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
-                .map(NamedExpression::toSlot).collect(Collectors.toList());
-        List<NamedExpression> newOutputExpressions = Streams.concat(
-                aggregate.getOutputExpressions().stream(), resolver.getNewOutputSlots().stream()
-        ).collect(Collectors.toList());
+                .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
+        List<NamedExpression> newOutputExpressions = Streams
+                .concat(aggregate.getOutputExpressions().stream(), resolver.getNewOutputSlots().stream())
+                .collect(ImmutableList.toImmutableList());
         Aggregate newAggregate = aggregate.withAggOutput(newOutputExpressions);
         Plan plan = planGenerator.apply(resolver, newAggregate);
         return new LogicalProject<>(projections, plan);

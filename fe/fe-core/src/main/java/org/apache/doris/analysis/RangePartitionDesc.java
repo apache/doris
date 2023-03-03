@@ -84,6 +84,10 @@ public class RangePartitionDesc extends PartitionDesc {
             boolean find = false;
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
+                    if (column.getType().isComplexType()) {
+                        throw new DdlException("Complex type column can't be partition column: "
+                                + column.getType().toString());
+                    }
                     try {
                         RangePartitionInfo.checkPartitionColumn(column);
                     } catch (AnalysisException e) {
@@ -93,10 +97,6 @@ public class RangePartitionDesc extends PartitionDesc {
                     partitionColumns.add(column);
                     find = true;
                     break;
-                }
-                if (column.getType().isComplexType()) {
-                    throw new DdlException("Complex type column can't be partition column: "
-                            + column.getType().toString());
                 }
             }
             if (!find) {

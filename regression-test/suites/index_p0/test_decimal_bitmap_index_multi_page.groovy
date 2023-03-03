@@ -22,4 +22,12 @@ suite("test_decimal_bitmap_index_multi_page") {
     qt_sql "select * from ${tbName} order by a ASC limit 3;"
     qt_sql "select * from ${tbName} order by a DESC limit 3;"
 
+    try {
+        test {
+            sql """select hll_union(`a`) from ${tbName};"""
+            exception "errCode = 2, detailMessage = HLL_UNION, HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column"
+        }        
+    } finally {
+    }
+
 }

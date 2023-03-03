@@ -18,28 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.statistics.AnalysisState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.IntStream;
 
 /**
@@ -49,42 +45,42 @@ import java.util.stream.IntStream;
  *        [TABLE | ID]
  *        [
  *            WHERE
- *            [STATE = ["PENDING"|"SCHEDULING"|"RUNNING"|"FINISHED"|"FAILED"|"CANCELLED"]]
+ *            [STATE = ["PENDING"|"RUNNING"|"FINISHED"|"FAILED"]]
  *        ]
  *        [ORDER BY ...]
- *        [LIMIT limit][OFFSET offset];
+ *        [LIMIT limit];
  */
 public class ShowAnalyzeStmt extends ShowStmt {
     private static final String STATE_NAME = "state";
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("id")
-            .add("create_time")
-            .add("start_time")
-            .add("finish_time")
-            .add("error_msg")
-            .add("scope")
-            .add("progress")
+            .add("job_id")
+            .add("catalog_name")
+            .add("db_name")
+            .add("tbl_name")
+            .add("col_name")
+            .add("job_type")
+            .add("analysis_type")
+            .add("message")
+            .add("last_exec_time_in_ms")
             .add("state")
+            .add("schedule_type")
             .build();
 
-    private List<Long> jobIds;
+    private Long jobId;
     private TableName dbTableName;
     private Expr whereClause;
     private LimitElement limitElement;
     private List<OrderByElement> orderByElements;
 
     // after analyzed
-    private long dbId;
-    private final Set<Long> tblIds = Sets.newHashSet();
+    private String catalogName;
+    private String dbName;
+    private String tblName;
 
     private String stateValue;
     private ArrayList<OrderByPair> orderByPairs;
 
     public ShowAnalyzeStmt() {
-    }
-
-    public ShowAnalyzeStmt(List<Long> jobIds) {
-        this.jobIds = jobIds;
     }
 
     public ShowAnalyzeStmt(TableName dbTableName,
@@ -97,32 +93,86 @@ public class ShowAnalyzeStmt extends ShowStmt {
         this.limitElement = limitElement;
     }
 
-    public List<Long> getJobIds() {
-        return jobIds;
+    public ShowAnalyzeStmt(Long jobId,
+            Expr whereClause,
+            List<OrderByElement> orderByElements,
+            LimitElement limitElement) {
+        this.jobId = jobId;
+        this.dbTableName = null;
+        this.whereClause = whereClause;
+        this.orderByElements = orderByElements;
+        this.limitElement = limitElement;
     }
 
-    public long getDbId() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The dbId must be obtained after the parsing is complete");
-        return dbId;
+    public ImmutableList<String> getTitleNames() {
+        return TITLE_NAMES;
     }
 
-    public Set<Long> getTblIds() {
+    public Long getJobId() {
+        return jobId;
+    }
+
+    public String getCatalogName() {
         Preconditions.checkArgument(isAnalyzed(),
-                "The dbId must be obtained after the parsing is complete");
-        return tblIds;
+                "The catalogName must be obtained after the parsing is complete");
+        return catalogName;
+    }
+
+    public String getDbName() {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The dbName must be obtained after the parsing is complete");
+        return dbName;
+    }
+
+    public String getTblName() {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The tblName must be obtained after the parsing is complete");
+        return tblName;
     }
 
     public String getStateValue() {
         Preconditions.checkArgument(isAnalyzed(),
-                "The tbl name must be obtained after the parsing is complete");
+                "The stateValue must be obtained after the parsing is complete");
         return stateValue;
     }
 
     public ArrayList<OrderByPair> getOrderByPairs() {
         Preconditions.checkArgument(isAnalyzed(),
-                "The tbl name must be obtained after the parsing is complete");
+                "The orderByPairs must be obtained after the parsing is complete");
         return orderByPairs;
+    }
+
+    public String getWhereClause() {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The whereClause must be obtained after the parsing is complete");
+
+        StringBuilder clauseBuilder = new StringBuilder();
+
+        if (jobId != null) {
+            clauseBuilder.append("job_Id = ").append(jobId);
+        }
+
+        if (!Strings.isNullOrEmpty(catalogName)) {
+            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
+                    .append("catalog_name = \"").append(catalogName).append("\"");
+        }
+
+        if (!Strings.isNullOrEmpty(dbName)) {
+            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
+                    .append("db_name = \"").append(dbName).append("\"");
+        }
+
+        if (!Strings.isNullOrEmpty(tblName)) {
+            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
+                    .append("tbl_name = \"").append(tblName).append("\"");
+        }
+
+        if (!Strings.isNullOrEmpty(stateValue)) {
+            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
+                    .append("state = \"").append(stateValue).append("\"");
+        }
+
+        return clauseBuilder.toString();
     }
 
     public long getLimit() {
@@ -132,51 +182,18 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return -1L;
     }
 
-    public long getOffset() {
-        if (limitElement != null && limitElement.hasOffset()) {
-            return limitElement.getOffset();
-        }
-        return -1L;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        catalogName = analyzer.getEnv().getInternalCatalog().getName();
 
         if (dbTableName != null) {
             dbTableName.analyze(analyzer);
             String dbName = dbTableName.getDb();
             String tblName = dbTableName.getTbl();
             checkShowAnalyzePriv(dbName, tblName);
-
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-            Table table = db.getTableOrAnalysisException(tblName);
-            dbId = db.getId();
-            tblIds.add(table.getId());
-        } else {
-            // analyze the current default db
-            String dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-
-            db.readLock();
-            try {
-                List<Table> tables = db.getTables();
-                for (Table table : tables) {
-                    checkShowAnalyzePriv(dbName, table.getName());
-                }
-
-                dbId = db.getId();
-                for (Table table : tables) {
-                    long tblId = table.getId();
-                    tblIds.add(tblId);
-                }
-            } finally {
-                db.readUnlock();
-            }
+            this.dbName = dbName;
+            this.tblName = tblName;
         }
 
         // analyze where clause if not null
@@ -215,8 +232,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
     }
 
     private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        PaloAuth auth = Env.getCurrentEnv().getAuth();
-        if (!auth.checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "SHOW ANALYZE",
@@ -270,7 +287,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
             stateValue = value.toUpperCase();
             try {
-                // support it later
+                AnalysisState.valueOf(stateValue);
             } catch (Exception e) {
                 valid = false;
             }
@@ -295,6 +312,12 @@ public class ShowAnalyzeStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ANALYZE");
+
+        if (jobId != null) {
+            sb.append(" ");
+            sb.append(jobId);
+        }
+
         if (dbTableName != null) {
             sb.append(" ");
             sb.append(dbTableName.toSql());
@@ -324,13 +347,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
             sb.append("LIMIT");
             sb.append(" ");
             sb.append(getLimit());
-        }
-
-        if (getOffset() != -1L) {
-            sb.append(" ");
-            sb.append("OFFSET");
-            sb.append(" ");
-            sb.append(getOffset());
         }
 
         return sb.toString();

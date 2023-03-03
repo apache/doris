@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Lists;
 
@@ -41,7 +43,8 @@ public class SearchSignature {
     // param1: signature type
     // param2: real argument type
     // return: is the real argument type matches the signature type?
-    private List<BiFunction<AbstractDataType, AbstractDataType, Boolean>> typePredicatePerRound = Lists.newArrayList();
+    private final List<BiFunction<AbstractDataType, AbstractDataType, Boolean>> typePredicatePerRound
+            = Lists.newArrayList();
 
     public SearchSignature(List<FunctionSignature> signatures, List<Expression> arguments) {
         this.signatures = signatures;
@@ -64,10 +67,20 @@ public class SearchSignature {
     public Optional<FunctionSignature> result() {
         // search every round
         for (BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate : typePredicatePerRound) {
+            int candidateNonStrictMatched = Integer.MAX_VALUE;
+            FunctionSignature candidate = null;
             for (FunctionSignature signature : signatures) {
                 if (doMatchArity(signature, arguments) && doMatchTypes(signature, arguments, typePredicate)) {
-                    return Optional.of(signature);
+                    // has most identical matched signature has the highest priority
+                    int currentNonStrictMatched = nonStrictMatchedCount(signature, arguments);
+                    if (currentNonStrictMatched < candidateNonStrictMatched) {
+                        candidateNonStrictMatched = currentNonStrictMatched;
+                        candidate = signature;
+                    }
                 }
+            }
+            if (candidate != null) {
+                return Optional.of(candidate);
             }
         }
         return Optional.empty();
@@ -96,12 +109,32 @@ public class SearchSignature {
         return true;
     }
 
+    private int nonStrictMatchedCount(FunctionSignature sig, List<Expression> arguments) {
+        int nonStrictMatched = 0;
+        int arity = arguments.size();
+        for (int i = 0; i < arity; i++) {
+            AbstractDataType sigArgType = sig.getArgType(i);
+            AbstractDataType realType = arguments.get(i).getDataType();
+            if (!IdenticalSignature.isIdentical(sigArgType, realType)) {
+                nonStrictMatched++;
+            }
+        }
+        return nonStrictMatched;
+    }
+
     private boolean doMatchTypes(FunctionSignature sig, List<Expression> arguments,
             BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate) {
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             AbstractDataType sigArgType = sig.getArgType(i);
-            AbstractDataType realType = arguments.get(i).getDataType();
+            DataType realType = arguments.get(i).getDataType();
+            // we need to try to do string literal coercion when search signature.
+            // for example, FUNC_A has two signature FUNC_A(datetime) and FUNC_A(string)
+            // if SQL block is `FUNC_A('2020-02-02 00:00:00')`, we should return signature FUNC_A(datetime).
+            if (arguments.get(i).isLiteral() && realType.isStringLikeType() && sigArgType instanceof DataType) {
+                realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) arguments.get(i)).getStringValue(),
+                                (DataType) sigArgType).orElse(arguments.get(i)).getDataType();
+            }
             if (!typePredicate.apply(sigArgType, realType)) {
                 return false;
             }

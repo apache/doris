@@ -33,7 +33,6 @@ namespace vectorized {
 class Block;
 }
 
-class RowBlock;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
@@ -45,15 +44,9 @@ public:
     virtual Status init(RowsetReaderContext* read_context) = 0;
 
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
-                                         std::vector<RowwiseIterator*>* out_iters) = 0;
+                                         std::vector<RowwiseIteratorUPtr>* out_iters,
+                                         bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
-
-    // read next block data into *block.
-    // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *block to null when there is no more block.
-    //      Others when error happens.
-    virtual Status next_block(RowBlock** block) = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;
 
@@ -70,7 +63,6 @@ public:
 
     virtual RowsetTypePB type() const = 0;
 
-    virtual int64_t oldest_write_timestamp() = 0;
     virtual int64_t newest_write_timestamp() = 0;
     virtual Status current_block_row_locations(std::vector<RowLocation>* locations) {
         return Status::NotSupported("to be implemented");

@@ -243,7 +243,6 @@ static std::pair<double, double> quadratic_equation_naive(__uint128_t a, __uint1
     __uint128_t dis = b * b - 4 * a * c;
     // assert(dis >= 0);
     // not handling complex root
-    if (dis < 0) return std::make_pair(0, 0);
     double sqrtdis = std::sqrt(static_cast<double>(dis));
     double a_r = static_cast<double>(a);
     double b_r = static_cast<double>(b);
@@ -448,7 +447,6 @@ std::string DecimalV2Value::to_string() const {
 
 // NOTE: only change abstract value, do not change sign
 void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
-    bool is_negative = (_value < 0);
     static const int64_t INT_MAX_VALUE[PRECISION] = {9ll,
                                                      99ll,
                                                      999ll,
@@ -487,7 +485,6 @@ void DecimalV2Value::to_max_decimal(int32_t precision, int32_t scale) {
     int64_t int_value = INT_MAX_VALUE[precision - scale - 1];
     int64_t frac_value = scale == 0 ? 0 : FRAC_MAX_VALUE[scale - 1];
     _value = static_cast<int128_t>(int_value) * DecimalV2Value::ONE_BILLION + frac_value;
-    if (is_negative) _value = -_value;
 }
 
 std::size_t hash_value(DecimalV2Value const& value) {

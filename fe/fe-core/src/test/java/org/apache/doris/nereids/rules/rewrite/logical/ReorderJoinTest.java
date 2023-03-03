@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class ReorderJoinTest implements PatternMatchSupported {
+class ReorderJoinTest implements MemoPatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -44,13 +44,13 @@ class ReorderJoinTest implements PatternMatchSupported {
     public void testLeftOuterJoin() {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
@@ -62,13 +62,13 @@ class ReorderJoinTest implements PatternMatchSupported {
     public void testRightOuterJoin() {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .hashJoinUsing(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
@@ -80,13 +80,13 @@ class ReorderJoinTest implements PatternMatchSupported {
     public void testLeftSemiJoin() {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .hashJoinUsing(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
@@ -96,33 +96,44 @@ class ReorderJoinTest implements PatternMatchSupported {
 
     @Test
     public void testRightSemiJoin() {
-        ImmutableList<LogicalPlan> plans = ImmutableList.of(
-                new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .filter(new EqualTo(scan3.getOutput().get(0), scan2.getOutput().get(0)))
-                        .build(),
-                new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .hashJoinUsing(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
-                        .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
-                        .build()
-        );
+        LogicalPlan plan1 = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0))
+                .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                .filter(new EqualTo(scan3.getOutput().get(0), scan2.getOutput().get(0)))
+                .build();
+        check(ImmutableList.of(plan1));
 
-        check(plans);
+        LogicalPlan plan2 = new LogicalPlanBuilder(scan2)
+                .join(
+                        new LogicalPlanBuilder(scan1)
+                                .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                                .build(),
+                        JoinType.RIGHT_SEMI_JOIN, Pair.of(0, 0)
+                )
+                .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+                .rewrite()
+                .matchesFromRoot(
+                        rightSemiLogicalJoin(
+                                leafPlan(),
+                                innerLogicalJoin()
+                        )
+                );
+
     }
 
     @Test
     public void testFullOuterJoin() {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(0, 0))
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .hashJoinUsing(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(0, 0))
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .join(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(0, 0))
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
@@ -134,13 +145,13 @@ class ReorderJoinTest implements PatternMatchSupported {
     public void testCrossJoin() {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)))
                         .build(),
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
-                        .hashJoinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                        .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)))
                         .build()
         );
@@ -171,7 +182,7 @@ class ReorderJoinTest implements PatternMatchSupported {
         }
     }
 
-    /**
+    /*
      *                                  join
      *      crossjoin                   /  \
      *       /     \                  join  D
@@ -183,14 +194,14 @@ class ReorderJoinTest implements PatternMatchSupported {
     @Test
     public void testInnerOrCrossJoin() {
         LogicalPlan leftJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .build();
         LogicalPlan rightJoin = new LogicalPlanBuilder(scan3)
-                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .build();
 
         LogicalPlan plan = new LogicalPlanBuilder(leftJoin)
-                .hashJoinEmptyOn(rightJoin, JoinType.CROSS_JOIN)
+                .joinEmptyOn(rightJoin, JoinType.CROSS_JOIN)
                 .filter(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)))
                 .build();
 

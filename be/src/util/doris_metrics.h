@@ -79,6 +79,8 @@ public:
     IntCounter* delete_requests_failed;
     IntCounter* clone_requests_total;
     IntCounter* clone_requests_failed;
+    IntCounter* alter_inverted_index_requests_total;
+    IntCounter* alter_inverted_index_requests_failed;
 
     IntCounter* finish_task_requests_total;
     IntCounter* finish_task_requests_failed;
@@ -137,6 +139,9 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
+    IntGauge* all_rowsets_num;
+    IntGauge* all_segments_num;
+
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;
     // permits required by the compaction task which is waiting for permits
@@ -147,13 +152,12 @@ public:
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* query_scan_bytes_per_second;
-    IntGauge* max_disk_io_util_percent;
-    IntGauge* max_network_send_bytes_rate;
-    IntGauge* max_network_receive_bytes_rate;
 
     // Metrics related with file reader/writer
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;
+    IntCounter* hdfs_file_reader_total;
+    IntCounter* broker_file_reader_total;
     IntCounter* local_file_writer_total;
     IntCounter* s3_file_writer_total;
     IntCounter* file_created_total;
@@ -164,6 +168,8 @@ public:
     IntCounter* s3_bytes_written_total;
     IntGauge* local_file_open_reading;
     IntGauge* s3_file_open_reading;
+    IntGauge* hdfs_file_open_reading;
+    IntGauge* broker_file_open_reading;
     IntGauge* local_file_open_writing;
     IntGauge* s3_file_open_writing;
 
@@ -181,6 +187,7 @@ public:
     UIntGauge* routine_load_task_count;
     UIntGauge* small_file_cache_count;
     UIntGauge* stream_load_pipe_count;
+    UIntGauge* new_stream_load_pipe_count;
     UIntGauge* brpc_endpoint_stub_count;
     UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
@@ -215,6 +222,16 @@ public:
     IntCounter* upload_rowset_count;
     IntCounter* upload_fail_count;
 
+    UIntGauge* light_work_pool_queue_size;
+    UIntGauge* heavy_work_pool_queue_size;
+    UIntGauge* heavy_work_active_threads;
+    UIntGauge* light_work_active_threads;
+
+    UIntGauge* heavy_work_pool_max_queue_size;
+    UIntGauge* light_work_pool_max_queue_size;
+    UIntGauge* heavy_work_max_threads;
+    UIntGauge* light_work_max_threads;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;
@@ -229,7 +246,6 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    bool is_inited() { return _is_inited; }
 
 private:
     // Don't allow constructor
@@ -248,8 +264,6 @@ private:
     std::unique_ptr<SystemMetrics> _system_metrics;
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
-
-    bool _is_inited = false;
 };
 
 }; // namespace doris

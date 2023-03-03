@@ -18,20 +18,16 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr.h"
-#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/common/schema_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-class Tuple;
 class TupleDescriptor;
-class TupleRow;
 class RowDescriptor;
 class RuntimeState;
-class ExprContext;
 
 namespace vectorized {
 class VExprContext;
@@ -56,23 +52,11 @@ public:
                 const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    virtual ~BaseScanner() {
-        Expr::close(_dest_expr_ctx, _state);
-        if (_state->enable_vectorized_exec()) {
-            vectorized::VExpr::close(_dest_vexpr_ctx, _state);
-        }
-    }
-
-    // Register conjuncts for push down
-    virtual void reg_conjunct_ctxs(const TupleId& tupleId,
-                                   const std::vector<ExprContext*>& conjunct_ctxs);
+    virtual ~BaseScanner() { vectorized::VExpr::close(_dest_vexpr_ctx, _state); }
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
     virtual Status open();
-
-    // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
 
     // Get next block
     virtual Status get_next(vectorized::Block* block, bool* eof) {
@@ -81,12 +65,8 @@ public:
 
     // Close this scanner
     virtual void close() = 0;
-    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
 
-    void fill_slots_of_columns_from_path(int start,
-                                         const std::vector<std::string>& columns_from_path);
-
-    void free_expr_local_allocations();
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
 
 protected:
     Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
@@ -110,15 +90,9 @@ protected:
     // slots for value read from broker file
     std::vector<SlotDescriptor*> _src_slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
-    Tuple* _src_tuple;
-    TupleRow* _src_tuple_row;
-
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    std::unique_ptr<MemPool> _mem_pool;
 
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
-    std::vector<ExprContext*> _dest_expr_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -127,10 +101,8 @@ protected:
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 
     // to filter src tuple directly
-    // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
-    // and will be converted to `_pre_filter_ctxs` when scanner is open.
+    // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node.
     const std::vector<TExpr> _pre_filter_texprs;
-    std::vector<ExprContext*> _pre_filter_ctxs;
 
     bool _strict_mode;
 
@@ -154,13 +126,15 @@ protected:
 
     // slot_ids for parquet predicate push down are in tuple desc
     TupleId _tupleId = -1;
-    std::vector<ExprContext*> _conjunct_ctxs;
+
+    bool _is_dynamic_schema = false;
+    // for tracing dynamic schema
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
 private:
     Status _filter_src_block();
     void _fill_columns_from_path();
     Status _materialize_dest_block(vectorized::Block* output_block);
-    Status _fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 };
 
 } /* namespace doris */

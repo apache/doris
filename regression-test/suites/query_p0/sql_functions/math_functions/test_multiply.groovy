@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_multiply") {
-    sql """ set enable_vectorized_engine = true """
-
     def tableName = "test_multiply"
     sql """DROP TABLE IF EXISTS `${tableName}`"""
     sql """ CREATE TABLE `${tableName}` (

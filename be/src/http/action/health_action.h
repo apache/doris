@@ -28,7 +28,7 @@ class HealthAction : public HttpHandler {
 public:
     HealthAction();
 
-    virtual ~HealthAction() {};
+    ~HealthAction() override = default;
 
     void handle(HttpRequest* req) override;
 };

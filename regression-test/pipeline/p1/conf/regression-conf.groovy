@@ -20,7 +20,7 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://172.19.0.2:9132/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://172.19.0.2:9132/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -34,7 +34,6 @@ beHttpAddress = "172.19.0.2:8142"
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
-sf1DataPath = "/data"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -43,3 +42,7 @@ testGroups = ""
 testSuites = ""
 
 cacheDataPath="/data/regression/"
+
+s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3BucketName = "doris-build-hk-1308700295"
+s3Region = "ap-hongkong"

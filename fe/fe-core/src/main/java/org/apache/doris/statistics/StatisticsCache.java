@@ -31,40 +31,64 @@ public class StatisticsCache {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
 
-    private final AsyncLoadingCache<StatisticsCacheKey, ColumnStatistic> cache = Caffeine.newBuilder()
+    private final AsyncLoadingCache<StatisticsCacheKey, Statistic> cache = Caffeine.newBuilder()
             .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
             .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
             .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
             .buildAsync(new StatisticsCacheLoader());
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
-        if (ConnectContext.get().getSessionVariable().internalSession) {
+        return getColumnStatistics(tblId, -1, colName);
+    }
+
+    public ColumnStatistic getColumnStatistics(long tblId, long idxId, String colName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().internalSession) {
             return ColumnStatistic.DEFAULT;
         }
-        StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
+        StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
-            CompletableFuture<ColumnStatistic> f = cache.get(k);
-            if (f.isDone()) {
-                return f.get();
+            CompletableFuture<Statistic> f = cache.get(k);
+            if (f.isDone() && f.get() != null) {
+                return f.get().getColumnStatistic();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
-            return ColumnStatistic.DEFAULT;
         }
         return ColumnStatistic.DEFAULT;
     }
 
+    public Histogram getHistogram(long tblId, String colName) {
+        return getHistogram(tblId, -1, colName);
+    }
+
+    public Histogram getHistogram(long tblId, long idxId, String colName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().internalSession) {
+            return Histogram.DEFAULT;
+        }
+        StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
+        try {
+            CompletableFuture<Statistic> f = cache.get(k);
+            if (f.isDone() && f.get() != null) {
+                return f.get().getHistogram();
+            }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning Histogram", e);
+        }
+        return Histogram.DEFAULT;
+    }
+
     // TODO: finish this method.
-    public void eraseExpiredCache(long tblId, String colName) {
-        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, colName));
+    public void eraseExpiredCache(long tblId, long idxId, String colName) {
+        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
     }
 
-    public void updateCache(long tblId, String colName, ColumnStatistic statistic) {
-
-        cache.synchronous().put(new StatisticsCacheKey(tblId, colName), statistic);
+    public void updateCache(long tblId, long idxId, String colName, Statistic statistic) {
+        cache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), statistic);
     }
 
-    public void refreshSync(long tblId, String colName) {
-        cache.synchronous().refresh(new StatisticsCacheKey(tblId, colName));
+    public void refreshSync(long tblId, long idxId, String colName) {
+        cache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
 }

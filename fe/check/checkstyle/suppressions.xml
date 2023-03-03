@@ -58,4 +58,9 @@ under the License.
     <suppress files="org[\\/]apache[\\/]doris[\\/]common[\\/]ErrorCode\.java" checks="LineLength" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]udf[\\/]UdafExecutor\.java" checks="NoFinalizer" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]udf[\\/]UdfExecutor\.java" checks="NoFinalizer" />
+
+    <!-- ignore hive meta store client copied from hive/aliyun/aws -->
+    <suppress files="HiveMetaStoreClient\.java" checks="[a-zA-Z0-9]*"/>
+    <suppress files="[\\/]com[\\/]amazonaws[\\/]glue[\\/]catalog[\\/]" checks="[a-zA-Z0-9]*"/>
+    <suppress files="[\\/]com[\\/]aliyun[\\/]datalake[\\/]metastore[\\/]hive2[\\/]" checks="[a-zA-Z0-9]*"/>
 </suppressions>

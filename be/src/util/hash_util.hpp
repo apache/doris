@@ -169,16 +169,22 @@ public:
         switch (len & 7) {
         case 7:
             h ^= uint64_t(data2[6]) << 48;
+            [[fallthrough]];
         case 6:
             h ^= uint64_t(data2[5]) << 40;
+            [[fallthrough]];
         case 5:
             h ^= uint64_t(data2[4]) << 32;
+            [[fallthrough]];
         case 4:
             h ^= uint64_t(data2[3]) << 24;
+            [[fallthrough]];
         case 3:
             h ^= uint64_t(data2[2]) << 16;
+            [[fallthrough]];
         case 2:
             h ^= uint64_t(data2[1]) << 8;
+            [[fallthrough]];
         case 1:
             h ^= uint64_t(data2[0]);
             h *= MURMUR_PRIME;
@@ -261,20 +267,26 @@ public:
         switch (len & 7) {
         case 7:
             h ^= (uint64_t)data[6] << 48;
+            [[fallthrough]];
         case 6:
             h ^= (uint64_t)data[5] << 40;
+            [[fallthrough]];
         case 5:
             h ^= (uint64_t)data[4] << 32;
+            [[fallthrough]];
         case 4:
             h ^= (uint64_t)data[3] << 24;
+            [[fallthrough]];
         case 3:
             h ^= (uint64_t)data[2] << 16;
+            [[fallthrough]];
         case 2:
             h ^= (uint64_t)data[1] << 8;
+            [[fallthrough]];
         case 1:
             h ^= (uint64_t)data[0];
             h *= m;
-        };
+        }
 
         h ^= h >> r;
         h *= m;
@@ -339,9 +351,8 @@ public:
 
 } // namespace doris
 
-namespace std {
 template <>
-struct hash<doris::TUniqueId> {
+struct std::hash<doris::TUniqueId> {
     std::size_t operator()(const doris::TUniqueId& id) const {
         std::size_t seed = 0;
         seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
@@ -351,7 +362,7 @@ struct hash<doris::TUniqueId> {
 };
 
 template <>
-struct hash<doris::TNetworkAddress> {
+struct std::hash<doris::TNetworkAddress> {
     size_t operator()(const doris::TNetworkAddress& address) const {
         std::size_t seed = 0;
         seed = doris::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
@@ -363,7 +374,7 @@ struct hash<doris::TNetworkAddress> {
 #if __GNUC__ < 6 && !defined(__clang__)
 // Cause this is builtin function
 template <>
-struct hash<__int128> {
+struct std::hash<__int128> {
     std::size_t operator()(const __int128& val) const {
         return doris::HashUtil::hash(&val, sizeof(val), 0);
     }
@@ -371,7 +382,7 @@ struct hash<__int128> {
 #endif
 
 template <>
-struct hash<std::pair<doris::TUniqueId, int64_t>> {
+struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
     size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
         size_t seed = 0;
         seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
@@ -380,5 +391,3 @@ struct hash<std::pair<doris::TUniqueId, int64_t>> {
         return seed;
     }
 };
-
-} // namespace std

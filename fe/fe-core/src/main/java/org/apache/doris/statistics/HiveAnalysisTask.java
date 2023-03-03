@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -28,6 +29,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.Decimal;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
@@ -36,7 +38,10 @@ import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -50,6 +55,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     public static final String NUM_ROWS = "numRows";
     public static final String NUM_FILES = "numFiles";
     public static final String TIMESTAMP = "transient_lastDdlTime";
+    public static final String DELIMITER = "-";
 
     public HiveAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
         super(analysisTaskScheduler, info);
@@ -57,12 +63,12 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
 
     private static final String ANALYZE_PARTITION_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '${colId}', '${partId}', "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', '${partId}', "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     private static final String ANALYZE_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '${colId}', NULL, "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', NULL, "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     @Override
@@ -81,7 +87,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         // Collect table level row count, null number and timestamp.
         setParameterData(parameters, params);
-        params.put("id", String.valueOf(tbl.getId()) + "-" + String.valueOf(col.getName()));
+        params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), null));
         List<ColumnStatisticsObj> tableStats = table.getHiveTableColumnStats(columns);
         // Collect table level ndv, nulls, min and max. tableStats contains at most 1 item;
         for (ColumnStatisticsObj tableStat : tableStats) {
@@ -113,7 +119,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             parameters = partition.getParameters();
             // Collect row count, null number and timestamp.
             setParameterData(parameters, params);
-            params.put("id", String.valueOf(tbl.getId()) + "-" + String.valueOf(col.getName()) + "-" + partName);
+            params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), partName));
             params.put("partId", partName);
             List<ColumnStatisticsObj> value = entry.getValue();
             Preconditions.checkState(value.size() == 1);
@@ -134,13 +140,14 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
                 this.stmtExecutor.execute();
             }
         }
+        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
     }
 
     private void getStatData(ColumnStatisticsData data, Map<String, String> params) {
         long ndv = 0;
         long nulls = 0;
-        String min;
-        String max;
+        String min = "";
+        String max = "";
         // Collect ndv, nulls, min and max for different data type.
         if (data.isSetLongStats()) {
             LongColumnStatsData longStats = data.getLongStats();
@@ -152,15 +159,25 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             StringColumnStatsData stringStats = data.getStringStats();
             ndv = stringStats.getNumDVs();
             nulls = stringStats.getNumNulls();
-            min = "No value";
-            max = String.valueOf(stringStats.getMaxColLen());
         } else if (data.isSetDecimalStats()) {
-            // TODO: Need a more accurate way to collect decimal values.
             DecimalColumnStatsData decimalStats = data.getDecimalStats();
             ndv = decimalStats.getNumDVs();
             nulls = decimalStats.getNumNulls();
-            min = decimalStats.getLowValue().toString();
-            max = decimalStats.getHighValue().toString();
+            if (decimalStats.isSetLowValue()) {
+                Decimal lowValue = decimalStats.getLowValue();
+                if (lowValue != null) {
+                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
+                    min = lowDecimal.toString();
+                }
+            }
+            if (decimalStats.isSetHighValue()) {
+                Decimal highValue = decimalStats.getHighValue();
+                if (highValue != null) {
+                    BigDecimal highDecimal = new BigDecimal(
+                            new BigInteger(highValue.getUnscaled()), highValue.getScale());
+                    max = highDecimal.toString();
+                }
+            }
         } else if (data.isSetDoubleStats()) {
             DoubleColumnStatsData doubleStats = data.getDoubleStats();
             ndv = doubleStats.getNumDVs();
@@ -168,12 +185,23 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             min = String.valueOf(doubleStats.getLowValue());
             max = String.valueOf(doubleStats.getHighValue());
         } else if (data.isSetDateStats()) {
-            // TODO: Need a more accurate way to collect date values.
             DateColumnStatsData dateStats = data.getDateStats();
             ndv = dateStats.getNumDVs();
             nulls = dateStats.getNumNulls();
-            min = dateStats.getLowValue().toString();
-            max = dateStats.getHighValue().toString();
+            if (dateStats.isSetLowValue()) {
+                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
+                if (lowValue != null) {
+                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
+                    min = lowDate.toString();
+                }
+            }
+            if (dateStats.isSetHighValue()) {
+                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
+                if (highValue != null) {
+                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
+                    max = highDate.toString();
+                }
+            }
         } else {
             throw new RuntimeException("Not supported data type.");
         }
@@ -200,5 +228,19 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         params.put("numRows", String.valueOf(numRows));
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         params.put("update_time", sdf.format(new Date(timestamp * 1000)));
+    }
+
+    private String genColumnStatId(long tableId, long indexId, String columnName, String partitionName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(tableId);
+        sb.append(DELIMITER);
+        sb.append(indexId);
+        sb.append(DELIMITER);
+        sb.append(columnName);
+        if (partitionName != null) {
+            sb.append(DELIMITER);
+            sb.append(partitionName);
+        }
+        return sb.toString();
     }
 }

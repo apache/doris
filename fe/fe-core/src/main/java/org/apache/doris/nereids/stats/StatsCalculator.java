@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -30,41 +30,62 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -83,7 +104,6 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
-
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -154,8 +174,31 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalSchemaScan(LogicalSchemaScan schemaScan, Void context) {
+        return computeScan(schemaScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
+        fileScan.getExpressions();
+        return computeScan(fileScan);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
         return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Void context) {
+        jdbcScan.getExpressions();
+        return computeScan(jdbcScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalEsScan(LogicalEsScan esScan, Void context) {
+        esScan.getExpressions();
+        return computeScan(esScan);
     }
 
     @Override
@@ -186,12 +229,44 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalUnion(
+            LogicalUnion union, Void context) {
+        return computeUnion(union);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalExcept(
+            LogicalExcept except, Void context) {
+        return computeExcept(except);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalIntersect(
+            LogicalIntersect intersect, Void context) {
+        return computeIntersect(intersect);
+    }
+
+    @Override
+    public StatsDeriveResult visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, Void context) {
+        return computeGenerate(generate);
+    }
+
+    public StatsDeriveResult visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
+        return computeWindow(window);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalWindow(PhysicalWindow window, Void context) {
+        return computeWindow(window);
+    }
+
+    @Override
     public StatsDeriveResult visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
         return computeEmptyRelation(emptyRelation);
     }
 
     @Override
-    public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, Void context) {
+    public StatsDeriveResult visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
         return computeAggregate(agg);
     }
 
@@ -211,8 +286,34 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
+        return computeScan(schemaScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
+        return computeScan(fileScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, Void context) {
+        return storageLayerAggregate.getRelation().accept(this, context);
+    }
+
+    @Override
     public StatsDeriveResult visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, Void context) {
         return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
+        return computeScan(jdbcScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalEsScan(PhysicalEsScan esScan, Void context) {
+        return computeScan(esScan);
     }
 
     @Override
@@ -223,10 +324,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN);
-    }
-
-    public StatsDeriveResult visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, Void context) {
-        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -267,9 +364,29 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
     }
 
+    @Override
+    public StatsDeriveResult visitPhysicalUnion(PhysicalUnion union, Void context) {
+        return computeUnion(union);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalExcept(PhysicalExcept except, Void context) {
+        return computeExcept(except);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalIntersect(PhysicalIntersect intersect, Void context) {
+        return computeIntersect(intersect);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, Void context) {
+        return computeGenerate(generate);
+    }
+
     private StatsDeriveResult computeAssertNumRows(long desiredNumOfRows) {
         StatsDeriveResult statsDeriveResult = groupExpression.childStatistics(0);
-        statsDeriveResult.updateRowCountByLimit(1);
+        statsDeriveResult.updateByLimit(1);
         return statsDeriveResult;
     }
 
@@ -277,7 +394,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         StatsDeriveResult stats = groupExpression.childStatistics(0);
         FilterEstimation filterEstimation =
                 new FilterEstimation(stats);
-        return filterEstimation.estimate(filter.getPredicates());
+        return filterEstimation.estimate(filter.getPredicate());
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -287,7 +404,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
-        Table table = scan.getTable();
+        TableIf table = scan.getTable();
         double rowCount = scan.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
@@ -298,7 +415,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
             if (!colStats.isUnKnown) {
                 rowCount = colStats.count;
-
             }
             columnStatisticMap.put(slotReference.getExprId(), colStats);
         }
@@ -308,12 +424,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private StatsDeriveResult computeTopN(TopN topN) {
         StatsDeriveResult stats = groupExpression.childStatistics(0);
-        return stats.updateRowCountByLimit(topN.getLimit());
+        return stats.updateByLimit(topN.getLimit());
     }
 
     private StatsDeriveResult computeLimit(Limit limit) {
         StatsDeriveResult stats = groupExpression.childStatistics(0);
-        return stats.updateRowCountByLimit(limit.getLimit());
+        return stats.updateByLimit(limit.getLimit());
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
@@ -426,5 +542,130 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 .collect(Collectors.toMap(Pair::key, Pair::value));
         int rowCount = 0;
         return new StatsDeriveResult(rowCount, columnStatsMap);
+    }
+
+    private StatsDeriveResult computeUnion(SetOperation setOperation) {
+
+        StatsDeriveResult leftStatsResult = groupExpression.childStatistics(0);
+        Map<Id, ColumnStatistic> leftStatsSlotIdToColumnStats = leftStatsResult.getSlotIdToColumnStats();
+        Map<Id, ColumnStatistic> newColumnStatsMap = new HashMap<>();
+        double rowCount = leftStatsResult.getRowCount();
+
+        for (int j = 0; j < setOperation.getArity() - 1; ++j) {
+            StatsDeriveResult rightStatsResult = groupExpression.childStatistics(j + 1);
+            Map<Id, ColumnStatistic> rightStatsSlotIdToColumnStats = rightStatsResult.getSlotIdToColumnStats();
+
+            for (int i = 0; i < setOperation.getOutputs().size(); ++i) {
+                Slot leftSlot = getLeftSlot(j, i, setOperation);
+                Slot rightSlot = setOperation.getChildOutput(j + 1).get(i);
+
+                ColumnStatistic leftStats = getLeftStats(j, leftSlot, leftStatsSlotIdToColumnStats, newColumnStatsMap);
+                ColumnStatistic rightStats = rightStatsSlotIdToColumnStats.get(rightSlot.getExprId());
+                newColumnStatsMap.put(setOperation.getOutputs().get(i).getExprId(), new ColumnStatistic(
+                        leftStats.count + rightStats.count,
+                        leftStats.ndv + rightStats.ndv,
+                        leftStats.avgSizeByte,
+                        leftStats.numNulls + rightStats.numNulls,
+                        leftStats.dataSize + rightStats.dataSize,
+                        Math.min(leftStats.minValue, rightStats.minValue),
+                        Math.max(leftStats.maxValue, rightStats.maxValue),
+                        1.0 / (leftStats.ndv + rightStats.ndv),
+                        leftStats.minExpr,
+                        leftStats.maxExpr,
+                        leftStats.isUnKnown));
+            }
+            rowCount = Math.min(rowCount, rightStatsResult.getRowCount());
+        }
+        return new StatsDeriveResult(rowCount, newColumnStatsMap);
+    }
+
+    private Slot getLeftSlot(int fistSetOperation, int outputSlotIdx, SetOperation setOperation) {
+        return fistSetOperation == 0
+                ? setOperation.getFirstOutput().get(outputSlotIdx)
+                : setOperation.getOutputs().get(outputSlotIdx).toSlot();
+    }
+
+    private ColumnStatistic getLeftStats(int fistSetOperation,
+            Slot leftSlot,
+            Map<Id, ColumnStatistic> leftStatsSlotIdToColumnStats,
+            Map<Id, ColumnStatistic> newColumnStatsMap) {
+        return fistSetOperation == 0
+                ? leftStatsSlotIdToColumnStats.get(leftSlot.getExprId())
+                : newColumnStatsMap.get(leftSlot.getExprId());
+    }
+
+    private StatsDeriveResult computeExcept(SetOperation setOperation) {
+        StatsDeriveResult leftStatsResult = groupExpression.childStatistics(0);
+        return new StatsDeriveResult(leftStatsResult.getRowCount(),
+                replaceExprIdWithCurrentOutput(setOperation, leftStatsResult));
+    }
+
+    private StatsDeriveResult computeIntersect(SetOperation setOperation) {
+        StatsDeriveResult leftStatsResult = groupExpression.childStatistics(0);
+        double rowCount = leftStatsResult.getRowCount();
+        for (int i = 1; i < setOperation.getArity(); ++i) {
+            rowCount = Math.min(rowCount, groupExpression.childStatistics(i).getRowCount());
+        }
+        return new StatsDeriveResult(rowCount, replaceExprIdWithCurrentOutput(setOperation, leftStatsResult));
+    }
+
+    private Map<Id, ColumnStatistic> replaceExprIdWithCurrentOutput(
+            SetOperation setOperation, StatsDeriveResult leftStatsResult) {
+        Map<Id, ColumnStatistic> newColumnStatsMap = new HashMap<>();
+        for (int i = 0; i < setOperation.getOutputs().size(); i++) {
+            NamedExpression namedExpression = setOperation.getOutputs().get(i);
+            Slot childSlot = setOperation.getChildOutput(0).get(i);
+            newColumnStatsMap.put(namedExpression.getExprId(),
+                    leftStatsResult.getSlotIdToColumnStats().get(childSlot.getExprId()));
+        }
+        return newColumnStatsMap;
+    }
+
+    private StatsDeriveResult computeGenerate(Generate generate) {
+        StatsDeriveResult stats = groupExpression.childStatistics(0);
+        double count = stats.getRowCount() * generate.getGeneratorOutput().size() * 5;
+        Map<Id, ColumnStatistic> columnStatsMap = Maps.newHashMap();
+        for (Map.Entry<Id, ColumnStatistic> entry : stats.getSlotIdToColumnStats().entrySet()) {
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).setCount(count).build();
+            columnStatsMap.put(entry.getKey(), columnStatistic);
+        }
+        for (Slot output : generate.getGeneratorOutput()) {
+            ColumnStatistic columnStatistic = new ColumnStatisticBuilder()
+                    .setCount(count)
+                    .setMinValue(Double.MAX_VALUE)
+                    .setMaxValue(Double.MIN_VALUE)
+                    .setNdv(count)
+                    .setNumNulls(0)
+                    .setAvgSizeByte(output.getDataType().width())
+                    .build();
+            columnStatsMap.put(output.getExprId(), columnStatistic);
+        }
+        return new StatsDeriveResult(count, columnStatsMap);
+    }
+
+    private StatsDeriveResult computeWindow(Window windowOperator) {
+        StatsDeriveResult stats = groupExpression.childStatistics(0);
+        Map<Id, ColumnStatistic> childColumnStats = stats.getSlotIdToColumnStats();
+        Map<Id, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
+                .map(expr -> {
+                    ColumnStatistic value = null;
+                    Set<Slot> slots = expr.getInputSlots();
+                    if (slots.isEmpty()) {
+                        value = ColumnStatistic.DEFAULT;
+                    } else {
+                        for (Slot slot : slots) {
+                            if (childColumnStats.containsKey(slot.getExprId())) {
+                                value = childColumnStats.get(slot.getExprId());
+                                break;
+                            }
+                        }
+                        if (value == null) {
+                            // todo: how to set stats?
+                            value = ColumnStatistic.DEFAULT;
+                        }
+                    }
+                    return Pair.of(expr.toSlot().getExprId(), value);
+                }).collect(Collectors.toMap(Pair::key, Pair::value));
+        return new StatsDeriveResult(stats.getRowCount(), columnStatisticMap);
     }
 }

@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -31,7 +34,9 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MemoTestUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
@@ -43,21 +48,29 @@ public abstract class ExpressionRewriteTestHelper {
     protected static final NereidsParser PARSER = new NereidsParser();
     protected ExpressionRuleExecutor executor;
 
+    protected ExpressionRewriteContext context;
+
+    public ExpressionRewriteTestHelper() {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        context = new ExpressionRewriteContext(cascadesContext);
+    }
+
     protected final void assertRewrite(String expression, String expected) {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
         Expression expectedExpression = PARSER.parseExpression(expected);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
+        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
     protected void assertRewrite(String expression, Expression expectedExpression) {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
+        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
     protected void assertRewrite(Expression expression, Expression expectedExpression) {
-        Expression rewrittenExpression = executor.rewrite(expression);
+        Expression rewrittenExpression = executor.rewrite(expression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
@@ -66,9 +79,8 @@ public abstract class ExpressionRewriteTestHelper {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
         needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
         Expression expectedExpression = PARSER.parseExpression(expected);
-        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assertions.assertEquals(expectedExpression, rewrittenExpression);
+        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
+        Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }
 
     private Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {

@@ -167,16 +167,22 @@ Status S3FileWriter::_upload_part() {
     UploadPartOutcome upload_part_outcome = upload_part_callable.get();
     _reset_stream();
     if (!upload_part_outcome.IsSuccess()) {
-        return Status::IOError(
-                "failed to upload part (endpoint={}, bucket={}, key={}, part_num = {}): {}",
-                _s3_conf.endpoint, _s3_conf.bucket, _path.native(), _cur_part_num,
-                upload_part_outcome.GetError().GetMessage());
+        LOG(ERROR) << "failed to upload part (endpoint=" << _s3_conf.endpoint
+                   << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
+                   << ", part_num=" << _cur_part_num
+                   << ") Error msg: " << upload_part_outcome.GetError().GetMessage();
+        return Status::IOError("failed to upload part.");
     }
 
     std::shared_ptr<CompletedPart> completed_part = std::make_shared<CompletedPart>();
     completed_part->SetPartNumber(_cur_part_num);
     auto etag = upload_part_outcome.GetResult().GetETag();
-    DCHECK(etag.empty());
+    if (etag.empty()) {
+        LOG(ERROR) << "upload part success but etag is empty (endpoint=" << _s3_conf.endpoint
+                   << ", bucket=" << _s3_conf.bucket << ", key=" << _path.native()
+                   << ", part_num=" << _cur_part_num << ")";
+        return Status::IOError("upload part success but etag is empty.");
+    }
     completed_part->SetETag(etag);
     _completed_parts.emplace_back(completed_part);
     return Status::OK();

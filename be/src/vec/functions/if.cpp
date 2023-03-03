@@ -122,7 +122,10 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return get_least_supertype({arguments[1], arguments[2]});
+        DataTypePtr type = nullptr;
+        get_least_supertype(DataTypes {arguments[1], arguments[2]}, &type);
+        DCHECK_NE(type, nullptr);
+        return type;
     }
 
     static ColumnPtr materialize_column_if_const(const ColumnPtr& column) {
@@ -206,7 +209,6 @@ public:
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using T0 = typename Types::LeftType;
-            using T1 = typename Types::RightType;
             using result_type = typename Types::LeftType;
 
             // for doris, args type and return type must be sanme beacause of type cast has already done before, so here just need one type;

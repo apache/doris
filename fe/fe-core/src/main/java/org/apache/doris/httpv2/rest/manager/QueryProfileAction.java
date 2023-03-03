@@ -29,7 +29,7 @@ import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -234,7 +234,7 @@ public class QueryProfileAction extends RestBaseController {
         // Only admin or root user can see all profile.
         // Common user can only review the query of their own.
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
+        if (!user.equalsIgnoreCase(Auth.ADMIN_USER) && !user.equalsIgnoreCase(Auth.ROOT_USER)) {
             queryStream = queryStream.filter(q -> q.get(1).equals(user));
         }
         if (!Strings.isNullOrEmpty(queryId)) {
@@ -471,7 +471,7 @@ public class QueryProfileAction extends RestBaseController {
 
     private void checkAuthByUserAndQueryId(String queryId) throws AuthenticationException {
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        if (!user.equalsIgnoreCase(PaloAuth.ADMIN_USER) && !user.equalsIgnoreCase(PaloAuth.ROOT_USER)) {
+        if (!user.equalsIgnoreCase(Auth.ADMIN_USER) && !user.equalsIgnoreCase(Auth.ROOT_USER)) {
             ProfileManager.getInstance().checkAuthByUserAndQueryId(user, queryId);
         }
     }

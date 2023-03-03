@@ -24,7 +24,7 @@ import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -64,7 +64,8 @@ public class SparkResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -72,9 +73,9 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -136,7 +137,8 @@ public class SparkResourceTest {
     }
 
     @Test
-    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -144,9 +146,9 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -173,7 +175,8 @@ public class SparkResourceTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -181,9 +184,9 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = false;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };

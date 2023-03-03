@@ -21,8 +21,8 @@
 #include <map>
 
 #include "common/logging.h"
-#include "runtime/string_value.h"
 #include "util/coding.h"
+#include "vec/common/string_ref.h"
 
 using std::map;
 using std::nothrow;

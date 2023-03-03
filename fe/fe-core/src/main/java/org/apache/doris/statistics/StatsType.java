@@ -26,6 +26,7 @@ public enum StatsType {
     NUM_NULLS("num_nulls"),
     MIN_VALUE("min_value"),
     MAX_VALUE("max_value"),
+    HISTOGRAM("histogram"),
     // only for test
     UNKNOWN("unknown");
 

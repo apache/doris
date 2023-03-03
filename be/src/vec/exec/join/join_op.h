@@ -92,6 +92,8 @@ template <typename RowRefListType>
 class ForwardIterator {
 public:
     using RowRefType = typename RowRefListType::RowRefType;
+    ForwardIterator() : root(nullptr), first(false), batch(nullptr), position(0) {}
+
     ForwardIterator(RowRefListType* begin)
             : root(begin), first(true), batch(root->next), position(0) {}
 
@@ -136,8 +138,6 @@ private:
     bool first;
     Batch<RowRefType>* batch;
     size_t position;
-
-    ForwardIterator() : root(nullptr), first(false), batch(nullptr), position(0) {}
 };
 
 struct RowRefList : RowRef {

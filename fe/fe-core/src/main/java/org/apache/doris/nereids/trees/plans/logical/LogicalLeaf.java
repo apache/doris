@@ -29,15 +29,7 @@ import java.util.Optional;
 /**
  * Abstract class for all logical plan that have no child.
  */
-public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPlan {
-
-    public LogicalLeaf(PlanType nodeType) {
-        super(nodeType);
-    }
-
-    public LogicalLeaf(PlanType nodeType, Optional<LogicalProperties> logicalProperties) {
-        super(nodeType, logicalProperties);
-    }
+public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPlan, OutputSavePoint {
 
     public LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {

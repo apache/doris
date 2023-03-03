@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
@@ -37,19 +38,21 @@ public class DecimalV2Type extends FractionalType {
     public static int MAX_PRECISION = 27;
     public static int MAX_SCALE = 9;
     public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(MAX_PRECISION, MAX_SCALE);
+    public static final DecimalV2Type CATALOG_DEFAULT = new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE);
 
     private static final DecimalV2Type BOOLEAN_DECIMAL = new DecimalV2Type(1, 0);
     private static final DecimalV2Type TINYINT_DECIMAL = new DecimalV2Type(3, 0);
     private static final DecimalV2Type SMALLINT_DECIMAL = new DecimalV2Type(5, 0);
     private static final DecimalV2Type INTEGER_DECIMAL = new DecimalV2Type(10, 0);
     private static final DecimalV2Type BIGINT_DECIMAL = new DecimalV2Type(20, 0);
-    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(MAX_PRECISION, 0);
+    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(27, 0);
     private static final DecimalV2Type FLOAT_DECIMAL = new DecimalV2Type(14, 7);
-    private static final DecimalV2Type DOUBLE_DECIMAL = DecimalV2Type.SYSTEM_DEFAULT;
+    private static final DecimalV2Type DOUBLE_DECIMAL = new DecimalV2Type(27, 9);
 
     private static final int WIDTH = 16;
 
     private static final Map<DataType, DecimalV2Type> FOR_TYPE_MAP = ImmutableMap.<DataType, DecimalV2Type>builder()
+            .put(BooleanType.INSTANCE, BOOLEAN_DECIMAL)
             .put(TinyIntType.INSTANCE, TINYINT_DECIMAL)
             .put(SmallIntType.INSTANCE, SMALLINT_DECIMAL)
             .put(IntegerType.INSTANCE, INTEGER_DECIMAL)
@@ -75,6 +78,9 @@ public class DecimalV2Type extends FractionalType {
         if (precision == SYSTEM_DEFAULT.precision && scale == SYSTEM_DEFAULT.scale) {
             return SYSTEM_DEFAULT;
         }
+        if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
+            return CATALOG_DEFAULT;
+        }
         return new DecimalV2Type(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE));
     }
 
@@ -84,11 +90,18 @@ public class DecimalV2Type extends FractionalType {
         return createDecimalV2Type(precision, scale);
     }
 
+    /**
+     * create DecimalV2Type with appropriate scale and precision.
+     */
     public static DecimalV2Type forType(DataType dataType) {
         if (FOR_TYPE_MAP.containsKey(dataType)) {
             return FOR_TYPE_MAP.get(dataType);
         }
-        throw new RuntimeException("Could not create decimal for type " + dataType);
+        if (dataType instanceof DecimalV3Type) {
+            return createDecimalV2Type(
+                    ((DecimalV3Type) dataType).getPrecision(), ((DecimalV3Type) dataType).getScale());
+        }
+        return SYSTEM_DEFAULT;
     }
 
     public static DecimalV2Type widerDecimalV2Type(DecimalV2Type left, DecimalV2Type right) {
@@ -105,7 +118,7 @@ public class DecimalV2Type extends FractionalType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.MAX_DECIMALV2_TYPE;
+        return ScalarType.createDecimalType(precision, scale);
     }
 
     public int getPrecision() {

@@ -98,7 +98,18 @@ public enum ExpressionFunctions {
             FEFunctionInvoker invoker = getFunction(signature);
             if (invoker != null) {
                 try {
-                    return invoker.invoke(constExpr.getChildrenWithoutCast());
+                    if (fn.getReturnType().isDateType()) {
+                        Expr dateLiteral = invoker.invoke(constExpr.getChildrenWithoutCast());
+                        Preconditions.checkArgument(dateLiteral instanceof DateLiteral);
+                        try {
+                            ((DateLiteral) dateLiteral).checkValueValid();
+                        } catch (AnalysisException e) {
+                            return NullLiteral.create(dateLiteral.getType());
+                        }
+                        return dateLiteral;
+                    } else {
+                        return invoker.invoke(constExpr.getChildrenWithoutCast());
+                    }
                 } catch (AnalysisException e) {
                     LOG.debug("failed to invoke", e);
                     return constExpr;

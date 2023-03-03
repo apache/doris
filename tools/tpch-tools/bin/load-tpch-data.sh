@@ -112,7 +112,6 @@ export MYSQL_PWD=${PASSWORD}
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
-echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 
 function load_region() {
@@ -165,13 +164,14 @@ function load_lineitem() {
 }
 
 # start load
-date
+start_time=$(date +%s)
+echo "Start time: $(date)"
 load_region "${TPCH_DATA_DIR}"/region.tbl
 load_nation "${TPCH_DATA_DIR}"/nation.tbl
 load_supplier "${TPCH_DATA_DIR}"/supplier.tbl
 load_customer "${TPCH_DATA_DIR}"/customer.tbl
 load_part "${TPCH_DATA_DIR}"/part.tbl
-date
+
 # set parallelism
 
 # 以PID为名, 防止创建命名管道时与已有文件重名，从而失败
@@ -232,6 +232,8 @@ done
 wait
 # 删除文件标识符
 exec 3>&-
-date
 
-echo "DONE."
+end_time=$(date +%s)
+echo "End time: $(date)"
+
+echo "Finish load tpch data, Time taken: $((end_time - start_time)) seconds"

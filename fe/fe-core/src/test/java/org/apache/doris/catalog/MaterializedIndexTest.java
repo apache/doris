@@ -78,7 +78,7 @@ public class MaterializedIndexTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         MaterializedIndex rIndex = MaterializedIndex.read(dis);
-        Assert.assertTrue(index.equals(rIndex));
+        Assert.assertEquals(index, rIndex);
 
         // 3. delete files
         dis.close();

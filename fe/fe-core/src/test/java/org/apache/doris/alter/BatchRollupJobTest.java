@@ -72,7 +72,7 @@ public class BatchRollupJobTest {
         Env.getCurrentEnv().createTable(createTableStmt);
 
         // batch add 3 rollups
-        String stmtStr = "alter table db1.tbl1 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
+        String stmtStr = "alter table db1.tbl1 add rollup r1(k3) duplicate key(k3), r2(k2, k1) duplicate key(k2), r3(k2) duplicate key(k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
 
@@ -92,7 +92,7 @@ public class BatchRollupJobTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(1000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -122,7 +122,7 @@ public class BatchRollupJobTest {
         Env.getCurrentEnv().createTable(createTableStmt);
 
         // batch add 3 rollups
-        String stmtStr = "alter table db1.tbl2 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
+        String stmtStr = "alter table db1.tbl2 add rollup r1(k3) duplicate key(k3), r2(k2, k1) duplicate key(k2), r3(k2) duplicate key(k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
 
@@ -142,7 +142,7 @@ public class BatchRollupJobTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(1000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());

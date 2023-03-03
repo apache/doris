@@ -6,14 +6,5 @@
 -- !sql --
 2	2	2	bbb
 3	3	3	ccc
-
--- !sql --
-2	2	2	bbb
-3	3	3	ccc
-4	4	efg	ddd
-
--- !sql --
-2	2	2	bbb
-3	3	3	ccc
 4	4	efg	ddd
 
