@@ -130,21 +130,21 @@ public class DeployManager extends MasterDaemon {
     //if 'true',Actively pull node information from external systems.
     //if 'false',The external system actively pushes the node change information,
     // and only needs to listen to 'nodeChangeQueue'
-    protected boolean pollingRequired;
+    protected boolean listenRequired;
     protected BlockingQueue<Event> nodeChangeQueue;
     protected Map<NodeType, NodeTypeAttr> nodeTypeAttrMap = Maps.newHashMap();
     private boolean isRunning;
 
     public DeployManager(Env env, long intervalMs) {
-        this(env, intervalMs, true);
+        this(env, intervalMs, false);
     }
 
-    public DeployManager(Env env, long intervalMs, boolean pollingRequired) {
+    public DeployManager(Env env, long intervalMs, boolean listenRequired) {
         super("deployManager", intervalMs);
         this.env = env;
-        this.pollingRequired = pollingRequired;
+        this.listenRequired = listenRequired;
         this.isRunning = false;
-        if (!pollingRequired) {
+        if (listenRequired) {
             this.maxMissingTime = 0;
             this.nodeChangeQueue = Queues.newLinkedBlockingDeque();
         }
@@ -208,6 +208,16 @@ public class DeployManager extends MasterDaemon {
                         + " brokerServiceGroup: {}, cnServiceGroup: {}",
                 electableFeServiceGroup, observerFeServiceGroup, backendServiceGroup, brokerServiceGroup,
                 cnServiceGroup);
+    }
+
+    public void startListener() {
+        if (listenRequired) {
+            startListenerInternal();
+        }
+    }
+
+    public void startListenerInternal() {
+        throw new NotImplementedException();
     }
 
     // Call init before each runOneCycle
@@ -319,7 +329,8 @@ public class DeployManager extends MasterDaemon {
         LOG.info("sorted fe host list: {}", feHostInfos);
 
         // 4. return the first one as helper
-        return Lists.newArrayList(new HostInfo(feHostInfos.get(0).getIp(), null, feHostInfos.get(0).getPort()));
+        return Lists.newArrayList(new HostInfo(feHostInfos.get(0).getIp(), feHostInfos.get(0).getHostName(),
+                feHostInfos.get(0).getPort()));
     }
 
     private boolean checkIpIfNotNull(List<HostInfo> hostInfos) {
@@ -349,7 +360,7 @@ public class DeployManager extends MasterDaemon {
         }
         isRunning = true;
 
-        if (!pollingRequired && processQueue()) {
+        if (listenRequired && processQueue()) {
             isRunning = false;
             return;
         }

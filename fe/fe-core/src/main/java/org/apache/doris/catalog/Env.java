@@ -1310,8 +1310,8 @@ public class Env {
         // because checkpoint thread need this info to select non-master FE to push image
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
                 Env.getCurrentEnv().getSelfNode().getHostName(),
-                Config.rpc_port,
-                Config.http_port);
+                Config.http_port,
+                Config.rpc_port);
         editLog.logMasterInfo(masterInfo);
 
         // for master, the 'isReady' is set behind.
@@ -1403,6 +1403,7 @@ public class Env {
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
             LOG.info("deploy manager {} start", deployManager.getName());
             deployManager.start();
+            deployManager.startListener();
         }
         // start routine load scheduler
         routineLoadScheduler.start();

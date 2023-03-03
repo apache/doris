@@ -92,11 +92,8 @@ public class K8sDeployManager extends DeployManager {
 
     public K8sDeployManager(Env env, long intervalMs) {
         // if enable fqdn,we wait for k8s to actively push the statefulset change
-        super(env, intervalMs, !Config.enable_fqdn_mode);
+        super(env, intervalMs, Config.enable_fqdn_mode);
         initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE, ENV_CN_SERVICE);
-        if (!pollingRequired) {
-            statefulSetWatch = getWatch(client());
-        }
     }
 
     @Override
@@ -139,6 +136,12 @@ public class K8sDeployManager extends DeployManager {
             }
         }
 
+    }
+
+    @Override
+    public void startListenerInternal() {
+        statefulSetWatch = getWatch(client());
+        LOG.info("Start listen statefulSets change event.");
     }
 
     private String getStatefulSetEnvName(NodeType nodeType) {
