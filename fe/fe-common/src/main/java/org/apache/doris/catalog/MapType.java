@@ -146,7 +146,12 @@ public class MapType extends Type {
                 specificMapType.valueType, specializedTypeMap, useSpecializedType);
         }
 
-        return new MapType(newKeyType, newValueType);
+        Type newMapType = new MapType(newKeyType, newValueType);
+        if (Type.canCastTo(specificType, newMapType)) {
+            return newMapType;
+        } else {
+            throw new TypeException(specificType + " can not cast to specialize type " + newMapType);
+        }
     }
 
     @Override

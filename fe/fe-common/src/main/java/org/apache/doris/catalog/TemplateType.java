@@ -26,7 +26,8 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Map;
 
 /**
- * Describes a TemplateType type.
+ * Describes a TemplateType type, used for SQL function argument and return type,
+ *  NOT used for table column type.
  */
 public class TemplateType extends Type {
 
@@ -65,7 +66,7 @@ public class TemplateType extends Type {
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
-        if (specificType.hasTemplateType()) {
+        if (specificType.hasTemplateType() && !specificType.isNull()) {
             throw new TypeException(specificType + " should not hasTemplateType");
         }
 
