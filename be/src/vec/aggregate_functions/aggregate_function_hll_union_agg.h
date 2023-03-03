@@ -77,6 +77,9 @@ template <typename Data>
 struct AggregateFunctionHLLUnionImpl : Data {
     static constexpr bool is_nullable = std::is_same_v<AggregateFunctionHLLData<true>, Data>;
     void insert_result_into(IColumn& to) const {
+        if constexpr (is_nullable) {
+            assert_cast<ColumnNullable&>(to).get_null_map_data().emplace_back(0);
+        }
         ColumnHLL& column = assert_cast<ColumnHLL&>(
                 is_nullable ? assert_cast<ColumnNullable&>(to).get_nested_column() : to);
         column.get_data().emplace_back(this->get());
@@ -96,6 +99,9 @@ template <typename Data>
 struct AggregateFunctionHLLUnionAggImpl : Data {
     static constexpr bool is_nullable = std::is_same_v<AggregateFunctionHLLData<true>, Data>;
     void insert_result_into(IColumn& to) const {
+        if constexpr (is_nullable) {
+            assert_cast<ColumnNullable&>(to).get_null_map_data().emplace_back(0);
+        }
         ColumnInt64& column = assert_cast<ColumnInt64&>(
                 is_nullable ? assert_cast<ColumnNullable&>(to).get_nested_column() : to);
         column.get_data().emplace_back(this->get_cardinality());
