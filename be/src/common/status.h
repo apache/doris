@@ -142,7 +142,7 @@ class PStatus;
     M(OLAP_ERR_PUSH_ACQUIRE_DATASOURCE_ERROR, -905, "", true)            \
     M(OLAP_ERR_PUSH_CREAT_CUMULATIVE_ERROR, -906, "", true)              \
     M(OLAP_ERR_PUSH_BUILD_DELTA_ERROR, -907, "", true)                   \
-    M(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST, -908, "", true)               \
+    M(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST, -908, "", false)               \
     M(OLAP_ERR_PUSH_TABLE_NOT_EXIST, -909, "", true)                     \
     M(OLAP_ERR_PUSH_INPUT_DATA_ERROR, -910, "", true)                    \
     M(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST, -911, "", true)           \
