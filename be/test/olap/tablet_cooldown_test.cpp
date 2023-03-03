@@ -24,10 +24,10 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/local_file_writer.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/remote_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/local_file_writer.h"
+#include "io/fs/remote_file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -278,7 +278,7 @@ TEST_F(TabletCooldownTest, normal) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {kTabletId, kSchemaHash, WriteType::LOAD, 20003, 30003,
+    WriteRequest write_req = {kTabletId, kSchemaHash, WriteType::LOAD,        20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
