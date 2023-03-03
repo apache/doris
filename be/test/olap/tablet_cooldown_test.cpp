@@ -64,7 +64,7 @@ public:
             io::global_local_filesystem()->create_file(get_remote_path(_path), &_local_file_writer);
         }
 
-        ~FileWriterMock() = default;
+        ~FileWriterMock() override = default;
 
         Status close() override { return _local_file_writer->close(); }
 
@@ -85,16 +85,18 @@ public:
         size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
 
         io::FileSystemSPtr fs() const override { return s_fs; }
+
     private:
         std::unique_ptr<io::FileWriter> _local_file_writer;
     };
 
     class RemoteFileSystemMock : public io::RemoteFileSystem {
+    public:
         RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
                 : RemoteFileSystem(std::move(root_path), std::move(id), type) {
             _local_fs = io::LocalFileSystem::create(get_remote_path(_root_path));
         }
-        ~RemoteFileSystemMock() = default;
+        ~RemoteFileSystemMock() override = default;
 
         Status create_file(const Path& path, io::FileWriterPtr* writer) override {
             Path fs_path = path;
@@ -159,11 +161,11 @@ public:
         }
 
         Status connect() override { return Status::OK(); }
+
     private:
         std::shared_ptr<io::LocalFileSystem> _local_fs;
     };
 
-public:
     static void SetUpTestSuite() {
         s_fs.reset(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
                                             io::FileSystemType::S3));
@@ -279,7 +281,7 @@ TEST_F(TabletCooldownTest, normal) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {kTabletId, kSchemaHash, WriteType::LOAD,        20003, 30003,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+                              load_id,   tuple_desc,  &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
