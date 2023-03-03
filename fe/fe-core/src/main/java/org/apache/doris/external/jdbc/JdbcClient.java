@@ -81,9 +81,8 @@ public class JdbcClient {
             // set parent ClassLoader to null, we can achieve class loading isolation.
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
-            LOG.debug("parent ClassLoader: " + parent.toString());
-            LOG.debug("old ClassLoader: " + oldClassLoader.toString());
-            LOG.debug("class Loader: " + classLoader.toString());
+            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                    parent, oldClassLoader, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
