@@ -552,7 +552,7 @@ public class SlotRef extends Expr {
             return true; // means this is alias of other expr.
         }
         SlotRef aliasExpr = (SlotRef) originExpr;
-        if (aliasExpr.getColumnName() == null) {
+        if (aliasExpr.getColumnName() == null && desc.getSourceExprs() == null) {
             return true; // means this is alias of other expr.
         }
         if (aliasExpr.desc != null) {
