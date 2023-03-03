@@ -66,17 +66,11 @@ public:
 
         ~FileWriterMock() = default;
 
-        Status close() override {
-            return _local_file_writer->close();
-        }
+        Status close() override { return _local_file_writer->close(); }
 
-        Status abort() override {
-            return _local_file_writer->abort();
-        }
+        Status abort() override { return _local_file_writer->abort(); }
 
-        Status append(const Slice& data) override {
-            return _local_file_writer->append(data);
-        }
+        Status append(const Slice& data) override { return _local_file_writer->append(data); }
 
         Status appendv(const Slice* data, size_t data_cnt) override {
             return _local_file_writer->appendv(data, data_cnt);
@@ -86,9 +80,7 @@ public:
             return _local_file_writer->write_at(offset, data);
         }
 
-        Status finalize() override {
-            return _local_file_writer->finalize();
-        }
+        Status finalize() override { return _local_file_writer->finalize(); }
 
         size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
 
@@ -166,9 +158,7 @@ public:
             return Status::OK();
         }
 
-        Status connect() override {
-            return Status::OK();
-        }
+        Status connect() override { return Status::OK(); }
     private:
         std::shared_ptr<io::LocalFileSystem> _local_fs;
     };
@@ -288,7 +278,7 @@ TEST_F(TabletCooldownTest, normal) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {kTabletId,   kSchemaHash,  WriteType::LOAD,        20003, 30003,
+    WriteRequest write_req = {kTabletId, kSchemaHash, WriteType::LOAD, 20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
