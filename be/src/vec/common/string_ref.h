@@ -198,7 +198,7 @@ using namespace doris_udf;
 /// User should make sure data source is const.
 /// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
 struct StringRef {
-    // TODO: opening member accessing really damages.
+    // FIXME: opening member accessing really damages.
     const char* data = nullptr;
     size_t size = 0;
 

@@ -1579,7 +1579,7 @@ public:
 
     // Serialize the bitmap value to dst, which should be large enough.
     // Client should call `getSizeInBytes` first to get the serialized size.
-    void write(char* dst) {
+    void write_to(char* dst) const {
         switch (_type) {
         case EMPTY:
             *dst = BitmapTypeCode::EMPTY;
