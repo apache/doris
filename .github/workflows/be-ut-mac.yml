@@ -79,6 +79,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
+            'llvm'
           )
           brew install "${cellars[@]}"
 
