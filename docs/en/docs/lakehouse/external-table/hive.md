@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.0">
 
-Please use [Hive Catalog](../multi-catalog/hive) to visit Hive。
+Please use [Hive Catalog](../multi-catalog/hive.md) to visit Hive。
  
 </version>
 

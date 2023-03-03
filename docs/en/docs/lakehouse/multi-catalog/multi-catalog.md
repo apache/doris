@@ -86,7 +86,7 @@ Multi-Catalog works as an additional and enhanced external table connection meth
 
 The followings are the instruction on how to connect to a Hive catalog using the Catalog feature.
 
-For more information about Hive, please see [Hive](./hive).
+For more information about Hive, please see [Hive](./hive.md).
 
 1. Create Catalog
 
@@ -253,19 +253,19 @@ For more information about Hive, please see [Hive](./hive).
 
 ### Connect to Iceberg
 
-See [Iceberg](./iceberg)
+See [Iceberg](./iceberg.md)
 
 ### Connect to Hudi
 
-See [Hudi](./hudi)
+See [Hudi](./hudi.md)
 
 ### Connect to Elasticsearch
 
-See [Elasticsearch](./es)
+See [Elasticsearch](./es.md)
 
 ### Connect to JDBC
 
-See [JDBC](./jdbc)
+See [JDBC](./jdbc.md)
 
 ## Column Type Mapping
 
