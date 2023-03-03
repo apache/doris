@@ -341,7 +341,7 @@ struct DateTimeV2Val : public AnyVal {
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
-// TODO: need to set explicit align?
+// FIXME: for view using we should use StringRef. StringVal need to be rewrite to deep-copy type.
 // Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {
