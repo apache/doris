@@ -24,6 +24,8 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.system.Frontend;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,6 +41,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/rest/v1")
 public class HaController {
+    private static final Logger LOG = LogManager.getLogger(HaController.class);
 
     @RequestMapping(path = "/ha", method = RequestMethod.GET)
     public Object ha() {
@@ -145,7 +148,7 @@ public class HaController {
             result.put("CheckpointInfo", list);
 
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
