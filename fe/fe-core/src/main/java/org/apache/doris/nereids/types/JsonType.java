@@ -36,7 +36,7 @@ public class JsonType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.QUANTILE_STATE;
+        return Type.JSONB;
     }
 
     @Override
