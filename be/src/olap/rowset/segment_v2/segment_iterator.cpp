@@ -1688,7 +1688,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
         return;
     }
 
-    for (auto iter : _rowid_result_for_index) {
+    for (auto& iter : _rowid_result_for_index) {
         block->insert({vectorized::ColumnUInt8::create(),
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {
