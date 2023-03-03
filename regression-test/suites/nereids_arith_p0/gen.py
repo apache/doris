@@ -20,7 +20,7 @@ import itertools
 from typing import List, Dict
 
 unary_op = ['~', '!', '~']
-binary_op = ['+', '-', '*', '/', 'DIV', '%', '&', '|', '^']
+binary_op = [['+', '-'], ['*', '/', '%'], ['DIV'], ['&', '|', '^']]
 bit_op = ['BITAND', 'BITOR', 'BITXOR']
 
 type_to_column_map = {
@@ -52,18 +52,20 @@ type_set: Dict[str, List[str]] = {
 
 def genBinaryExpr() -> List[str]:
     tables = ['expr_test', 'expr_test_not_nullable']
-    count = 0
     SQLs = []
     for i in itertools.product(list(itertools.chain(*tuple(type_set.values()))), repeat=2):
         i = tuple(type_to_column_map[k][0] for k in i)
-        cols = ', '.join([f'{i[0]} {t} {i[1]}' for t in binary_op])
-        count += 1
-        for tbl in tables:
-            sql = f'select id, {cols} from {tbl} order by id'
-            tag = f'qt_sql_test_{count}'
-            if tbl != 'expr_test':
-                tag += '_notn'
-            SQLs.append(f'\t{tag} """\n\t\t{sql}"""\n')
+        count = 0
+        for ops in binary_op:
+            cols = ', '.join([f'{i[0]} {t} {i[1]}' for t in ops])
+            count += 1
+            for tbl in tables:
+                sql = f'select id, {cols} from {tbl} order by id'
+                tag = f'qt_sql_test_{count}'
+                if tbl != 'expr_test':
+                    tag += '_notn'
+                SQLs.append(sql + ';\n')
+                # SQLs.append(f'\t{tag} """\n\t\t{sql}"""\n')
     return SQLs
 
 
@@ -91,8 +93,9 @@ suite('nereids_arith_p0') {
 '''
 
 sqls = genBinaryExpr()
-f = open('binary.groovy', 'w')
-f.write(header)
-f.writelines(sqls)
-f.write('}')
-f.close()
+open('binary.sql', 'w').writelines(sqls)
+# f = open('binary.groovy', 'w')
+# f.write(header)
+# f.writelines(sqls)
+# f.write('}')
+# f.close()
