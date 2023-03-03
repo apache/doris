@@ -116,6 +116,12 @@ public class MysqlLoadManager {
         List<String> filePaths = dataDesc.getFilePaths();
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();
+        int oldTimeout = context.getExecTimeout();
+        int newTimeOut = extractTimeOut(dataDesc);
+        if (newTimeOut > oldTimeout) {
+            // set exec timeout avoid by killed TimeoutChecker
+            context.setExecTimeout(newTimeOut);
+        }
         String token = tokenManager.acquireToken();
         LOG.info("execute MySqlLoadJob for id: {}.", loadId);
         try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
@@ -156,6 +162,10 @@ public class MysqlLoadManager {
             }
         } finally {
             loadContextMap.remove(loadId);
+            // revert the exec timeout
+            if (newTimeOut > oldTimeout) {
+                context.setExecTimeout(oldTimeout);
+            }
         }
         return loadResult;
     }
@@ -168,6 +178,13 @@ public class MysqlLoadManager {
         } else {
             LOG.info("Load id: {} may be already finished.", loadId);
         }
+    }
+
+    public int extractTimeOut(DataDescription desc) {
+        if (desc.getProperties() != null && desc.getProperties().containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(desc.getProperties().get(LoadStmt.TIMEOUT_PROPERTY));
+        }
+        return -1;
     }
 
     private String getColumns(DataDescription desc) {
