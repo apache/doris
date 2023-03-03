@@ -63,9 +63,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
     SCOPED_ATTACH_TASK(_mem_tracker);
-    if (StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-        return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-    }
+    StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id);
     Status st = _do_clone();
     StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
     return st;
@@ -83,13 +81,6 @@ Status EngineCloneTask::_do_clone() {
     std::vector<Version> missed_versions;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
-        if (tablet->replica_id() != _clone_req.replica_id) {
-            // `tablet` may be a dropped replica in FE, e.g: BE1 migrates replica of tablet_1 to BE2,
-            // but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
-            // If we allow to clone success on dropped replica, replica id may never be consistent between FE and BE.
-            return Status::InternalError("replica_id not match({} vs {})", tablet->replica_id(),
-                                         _clone_req.replica_id);
-        }
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
             return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
@@ -105,7 +96,7 @@ Status EngineCloneTask::_do_clone() {
         // completed. Or remote be will just return header not the rowset files. clone will failed.
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
-                      << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
+                      << _clone_req.tablet_id;
             _set_tablet_info(is_new_tablet);
             return Status::OK();
         }
@@ -113,8 +104,7 @@ Status EngineCloneTask::_do_clone() {
         LOG(INFO) << "clone to existed tablet. missed_versions_size=" << missed_versions.size()
                   << ", allow_incremental_clone=" << allow_incremental_clone
                   << ", signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version
-                  << ", replica_id=" << _clone_req.replica_id;
+                  << ", committed_version=" << _clone_req.committed_version;
 
         // try to download missing version from src backend.
         // if tablet on src backend does not contains missing version, it will download all versions,
@@ -122,6 +112,7 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet->data_dir()), local_data_path,
                                                      &src_host, &src_file_path, missed_versions,
                                                      &allow_incremental_clone));
+
         RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
                                       allow_incremental_clone));
     } else {
