@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_select_decimal") {
-    qt_select1 'select cast(19888.8999999 as decimal(12,2));'
-    qt_select2 'select cast(19888.9999999 as decimal(12,2));'
-    qt_select2 'select cast(19888.666 as decimal(12,2));'
-    qt_select2 'select cast(19888.444 as decimal(12,2));'
+    qt_select1 'select cast(19888.8999999 as decimalv3(12,2));'
+    qt_select2 'select cast(19888.9999999 as decimalv3(12,2));'
+    qt_select2 'select cast(19888.666 as decimalv3(12,2));'
+    qt_select2 'select cast(19888.444 as decimalv3(12,2));'
 }
