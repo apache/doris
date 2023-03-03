@@ -617,6 +617,7 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
+            LOG.warn("", e);
             // analysis exception only print message, not print the stack
             LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(),
                                     e.getMessage());
