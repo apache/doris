@@ -36,8 +36,8 @@ import java.util.Map;
 @EnableConfigurationProperties
 @ServletComponentScan
 public class HttpServer extends SpringBootServletInitializer {
-
     private int port;
+    private int httpsPort;
     private int acceptors;
     private int selectors;
     private int maxHttpPostSize;
@@ -97,6 +97,10 @@ public class HttpServer extends SpringBootServletInitializer {
         this.port = port;
     }
 
+    public void setHttpsPort(int httpsPort) {
+        this.httpsPort = httpsPort;
+    }
+
     public void setKeyStorePath(String keyStorePath) {
         this.keyStorePath = keyStorePath;
     }
@@ -124,7 +128,19 @@ public class HttpServer extends SpringBootServletInitializer {
 
     public void start() {
         Map<String, Object> properties = new HashMap<>();
-        properties.put("server.port", port);
+        if (enableHttps) {
+            properties.put("server.http.port", port);
+            properties.put("server.port", httpsPort);
+            // ssl config
+            properties.put("server.ssl.key-store", keyStorePath);
+            properties.put("server.ssl.key-store-password", keyStorePassword);
+            properties.put("server.ssl.key-store-type", keyStoreType);
+            properties.put("server.ssl.keyalias", keyStoreAlias);
+            properties.put("server.ssl.enabled", enableHttps);
+        } else {
+            properties.put("server.port", port);
+            properties.put("server.ssl.enabled", enableHttps);
+        }
         if (FrontendOptions.isBindIPV6()) {
             properties.put("server.address", "::0");
         } else {
@@ -135,12 +151,6 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
-        // ssl config
-        properties.put("server.ssl.key-store", keyStorePath);
-        properties.put("server.ssl.key-store-password", keyStorePassword);
-        properties.put("server.ssl.key-store-type", keyStoreType);
-        properties.put("server.ssl.keyalias", keyStoreAlias);
-        properties.put("server.ssl.enabled", enableHttps);
         // enable jetty config
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);

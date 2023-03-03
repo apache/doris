@@ -339,15 +339,21 @@ public class Config extends ConfigBase {
     @ConfField public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
     /**
+     * Whether to enable all http interface authentication
+     */
+    @ConfField public static boolean enable_all_http_auth = false;
+
+    /**
      * Fe http port
      * Currently, all FEs' http port must be same.
      */
     @ConfField public static int http_port = 8030;
-
+    
     /**
-     * Whether to enable all http interface authentication
+     * Fe https port
+     * Currently, all FEs' https port must be same.
      */
-    @ConfField public static boolean enable_all_http_auth = false;
+    @ConfField public static int https_port = 8050;
 
     /**
      * ssl key store path.

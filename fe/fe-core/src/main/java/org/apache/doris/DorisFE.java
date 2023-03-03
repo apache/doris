@@ -158,6 +158,7 @@ public class DorisFE {
             if (options.enableHttpServer) {
                 HttpServer httpServer = new HttpServer();
                 httpServer.setPort(Config.http_port);
+                httpServer.setHttpsPort(Config.https_port);
                 httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
                 httpServer.setAcceptors(Config.jetty_server_acceptors);
                 httpServer.setSelectors(Config.jetty_server_selectors);
@@ -196,6 +197,10 @@ public class DorisFE {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
                 "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
+        }
+        if (Config.enable_https && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(),
+                Config.https_port, "Https port", NetUtils.HTTPS_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.https_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
                 "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
