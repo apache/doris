@@ -69,10 +69,8 @@ public class MySumReturnArrayInt {
     }
 
     public ArrayList<Integer> getValue(State state) {
-        System.out.println("getValue before : " +state.counter.toString());
         //sort for regression test
         state.counter.sort(Comparator.naturalOrder());
-        System.out.println("getValue after : "state.counter);
         return state.counter;
     }
 }
