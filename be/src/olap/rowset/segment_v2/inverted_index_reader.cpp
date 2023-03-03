@@ -165,8 +165,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 try {
                     SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
                     index_searcher->_search(
-                            query.get(), [&term_match_bitmap](const int32_t docid,
-                                                                     const float_t /*score*/) {
+                            query.get(),
+                            [&term_match_bitmap](const int32_t docid, const float_t /*score*/) {
                                 // docid equal to rowid in segment
                                 term_match_bitmap->add(docid);
                             });
