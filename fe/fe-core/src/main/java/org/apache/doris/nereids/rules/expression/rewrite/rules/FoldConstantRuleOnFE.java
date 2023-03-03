@@ -50,14 +50,17 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
 
@@ -366,6 +369,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         }
         List<Literal> arguments = (List) array.getArguments();
         return new ArrayLiteral(arguments);
+    }
+
+    @Override
+    public Expression visitVersion(Version version, ExpressionRewriteContext context) {
+        return new StringLiteral(GlobalVariable.version);
     }
 
     private Expression rewriteChildren(Expression expr, ExpressionRewriteContext ctx) {

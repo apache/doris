@@ -136,7 +136,7 @@ public:
 
     /// Override this when function need to store state in the `FunctionContext`, or do some
     /// preparation work according to information from `FunctionContext`.
-    virtual Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    virtual Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 
@@ -441,7 +441,7 @@ public:
         __builtin_unreachable();
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 
@@ -518,8 +518,8 @@ public:
         return std::make_shared<DefaultExecutable>(function);
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return function->prepare(context, scope);
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        return function->open(context, scope);
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {

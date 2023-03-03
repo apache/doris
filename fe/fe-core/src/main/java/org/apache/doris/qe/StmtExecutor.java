@@ -109,6 +109,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
+import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -197,6 +198,11 @@ public class StmtExecutor implements ProfileWriter {
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
     private String stmtName;
     private PrepareStmt prepareStmt;
+
+    // The result schema if "dry_run_query" is true.
+    // Only one column to indicate the real return row numbers.
+    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
+            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -899,7 +905,7 @@ public class StmtExecutor implements ProfileWriter {
             rewriter.reset();
             if (context.getSessionVariable().isEnableFoldConstantByBe()) {
                 // fold constant expr
-                parsedStmt.foldConstant(rewriter);
+                parsedStmt.foldConstant(rewriter, tQueryOptions);
 
             }
             // Apply expr and subquery rewrites.
@@ -1289,7 +1295,17 @@ public class StmtExecutor implements ProfileWriter {
             }
             if (!isSendFields) {
                 if (!isOutfileQuery) {
-                    sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                        // Return a one row one column result set, with the real result number
+                        List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
+                                : batch.getQueryStatistics().getReturnedRows() + "");
+                        ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
+                                Collections.singletonList(data));
+                        sendResultSet(resultSet);
+                        return;
+                    } else {
+                        sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    }
                 } else {
                     sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                 }

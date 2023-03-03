@@ -65,9 +65,9 @@ public:
         }
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::prepare(context, scope);
+            return Impl::open(context, scope);
         } else {
             return Status::OK();
         }
