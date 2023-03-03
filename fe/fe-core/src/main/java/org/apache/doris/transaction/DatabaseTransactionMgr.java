@@ -1385,7 +1385,9 @@ public class DatabaseTransactionMgr {
                 dbExpiredTxnIds.put(dbId, expiredTxnIds);
                 BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
                 editLog.logBatchRemoveTransactions(op);
-                LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+                }
             }
         } finally {
             writeUnlock();
@@ -1418,7 +1420,9 @@ public class DatabaseTransactionMgr {
             if (txnIds.isEmpty()) {
                 labelToTxnIds.remove(transactionState.getLabel());
             }
-            LOG.info("transaction [" + txnId + "] is expired, remove it from transaction manager");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction [" + txnId + "] is expired, remove it from transaction manager");
+            }
         } else {
             // should not happen, add a warn log to observer
             LOG.warn("transaction state is not found when clear transaction: " + txnId);
