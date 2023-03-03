@@ -15,6 +15,7 @@
 # limitations under the License.
 #
 
+
 version: "3.8"
 
 networks:
@@ -34,8 +35,9 @@ services:
       - "50070"
       - "8020"
       - "9000"
+      - "${FS_PORT}"
     ports:
-      - "${FS_PORT}:50070"
+      - "${FS_PORT}:${FS_PORT}"
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:50070/" ]
       interval: 5s
@@ -43,9 +45,6 @@ services:
       retries: 120
     networks:
       - doris--network
-    # network_mode: "host"
-
-
 
   doris--datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
@@ -57,8 +56,6 @@ services:
     container_name: doris--datanode
     expose:
       - "50075"
-    # ports:
-    #   - "50075:50075"
     healthcheck:
       test: [ "CMD", "curl", "http://localhost:50075" ]
       interval: 5s
@@ -66,7 +63,6 @@ services:
       retries: 120
     networks:
       - doris--network
-    # network_mode: "host"
 
   doris--hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
@@ -89,7 +85,6 @@ services:
       retries: 120
     networks:
       - doris--network
-    # network_mode: "host"
 
 
   doris--hive-metastore:
@@ -112,7 +107,6 @@ services:
       - doris--hive-metastore-postgresql
     networks:
       - doris--network
-    # network_mode: "host"
 
   doris--hive-metastore-postgresql:
     image: bde2020/hive-metastore-postgresql:2.3.0
@@ -121,8 +115,6 @@ services:
     container_name: doris--hive-metastore-postgresql
     expose:
       - "5432"
-    # ports:
-    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -130,4 +122,3 @@ services:
       retries: 120
     networks:
       - doris--network
-    # network_mode: "host"

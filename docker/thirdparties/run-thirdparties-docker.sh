@@ -227,8 +227,10 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo sed -i '/${CONTAINER_UID}namenode/d' /etc/hosts
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
+        sudo docker-compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo echo "127.0.0.1 ${CONTAINER_UID}namenode" >> /etc/hosts
     fi
 fi
 

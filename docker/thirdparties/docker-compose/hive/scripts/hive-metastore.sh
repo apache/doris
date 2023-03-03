@@ -26,9 +26,11 @@ if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     exit 1
 else
-    wget https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz -P /mnt/scripts/
-    tar -zxvf /data/regression/load/tpch1_parquet/tpch1.db.tar.gz -C /mnt/scripts/
-    rm /data/regression/load/tpch1_parquet/tpch1.db.tar.gz
+    wget -P /mnt/scripts https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz
+    cd /mnt/scripts/
+    tar -zxf tpch1.db.tar.gz
+    rm -rf tpch1.db.tar.gz
+    cd -
 fi
 
 
