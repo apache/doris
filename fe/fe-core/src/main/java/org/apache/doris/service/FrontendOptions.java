@@ -28,14 +28,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.Inet4Address;
-// import java.net.Inet6Address;  // add
 import java.net.InetAddress;
-// import java.net.InterfaceAddress; // add
-import java.net.NetworkInterface;  // add
+import java.net.NetworkInterface;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.Collections; //ad
-import java.util.Enumeration; //add
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 
 
