@@ -117,7 +117,11 @@ public class MVColumnItem {
         this.type = type;
     }
 
-    public void setIsKey(boolean key) {
+    public void setIsKey(boolean key) throws AnalysisException {
+        if (!type.supportsTableKey()) {
+            throw new AnalysisException("materialized view column " + name
+                        + " of type " + type + " can not be key");
+        }
         isKey = key;
     }
 
