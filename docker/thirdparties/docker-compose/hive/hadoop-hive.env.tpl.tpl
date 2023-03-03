@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://doris--hive-metastore-postgresql/metastore
+HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://doris--hive-metastore-postgresql:5432/metastore
 HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
 HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
@@ -47,4 +47,5 @@ YARN_CONF_yarn_timeline___service_hostname=historyserver
 YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
 YARN_CONF_yarn_resourcemanager_scheduler_address=resourcemanager:8030
 YARN_CONF_yarn_resourcemanager_resource__tracker_address=resourcemanager:8031
+
 
