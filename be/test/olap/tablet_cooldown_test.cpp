@@ -270,8 +270,8 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     return desc_tbl_builder.desc_tbl();
 }
 
-void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
-                  int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
+void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replica_id,
+                  int32_t schema_hash, int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
     // create tablet
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
@@ -292,7 +292,7 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
     load_id.set_lo(0);
 
     WriteRequest write_req = {tablet_id, schema_hash, WriteType::LOAD,        txn_id, partition_id,
-                              load_id,   tuple_desc,  &(tuple_desc->slots()), false, &param};
+                              load_id,   tuple_desc,  &(tuple_desc->slots()), false,  &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -337,8 +337,8 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
     version.first = (*tablet)->rowset_with_max_version()->end_version() + 1;
     version.second = (*tablet)->rowset_with_max_version()->end_version() + 1;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    engine->txn_manager()->get_txn_related_tablets(
-            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    engine->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                   &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         st = engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
@@ -349,7 +349,6 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
         ASSERT_EQ(Status::OK(), st);
     }
     EXPECT_EQ(1, (*tablet)->num_rows());
-
 }
 
 TEST_F(TabletCooldownTest, normal) {
@@ -401,7 +400,6 @@ TEST_F(TabletCooldownTest, normal) {
     st = std::static_pointer_cast<BetaRowset>(rs2)->load_segments(&segments2);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_EQ(segments2.size(), 1);
-
 }
 
 } // namespace doris
