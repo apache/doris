@@ -187,6 +187,9 @@ public class InsertStreamTxnExecutor {
 
     public void setLoadId(TUniqueId loadId) {
         this.loadId = loadId;
+        this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
+                .setHi(loadId.getHi())
+                .setLo(loadId.getLo()).build());
     }
 
     public long getTxnId() {
