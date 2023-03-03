@@ -164,8 +164,7 @@ private:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
-    explicit ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values,
-                       MutableColumnPtr&& offsets);
+    ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
 
     ColumnMap(const ColumnMap&) = default;
 };

@@ -808,21 +808,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         const ColumnMap* column_map, const DataTypeMap* data_type_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
-    const UInt8* key_null_map = nullptr;
-    const UInt8* val_null_map = nullptr;
-    if (column_map->get_keys().is_nullable()) {
-        const auto& key_nullable_column =
-                assert_cast<const ColumnNullable&>(column_map->get_keys());
-        key_data = key_nullable_column.get_nested_column_ptr();
-        key_null_map = key_nullable_column.get_null_map_data().data();
-    }
-
-    if (column_map->get_values().is_nullable()) {
-        const auto& val_nullable_column =
-                assert_cast<const ColumnNullable&>(column_map->get_values());
-        value_data = val_nullable_column.get_nested_column_ptr();
-        val_null_map = val_nullable_column.get_null_map_data().data();
-    }
 
     // offsets data
     auto& offsets = column_map->get_offsets();
@@ -838,13 +823,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     auto start = offsets[start_index];
     auto size = offsets[end_index] - start;
 
-    ColumnWithTypeAndName key_typed_column = {
-            key_data, remove_nullable(data_type_map->get_key_type()), "map.key"};
+    ColumnWithTypeAndName key_typed_column = {key_data, data_type_map->get_key_type(), "map.key"};
     _key_convertor->set_source_column(key_typed_column, start, size);
     _key_convertor->convert_to_olap();
 
-    ColumnWithTypeAndName value_typed_column = {
-            value_data, remove_nullable(data_type_map->get_value_type()), "map.value"};
+    ColumnWithTypeAndName value_typed_column = {value_data, data_type_map->get_value_type(),
+                                                "map.value"};
     _value_convertor->set_source_column(value_typed_column, start, size);
     _value_convertor->convert_to_olap();
 
@@ -852,8 +836,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _results[1] = _offsets.data();
     _results[2] = _key_convertor->get_data();
     _results[3] = _value_convertor->get_data();
-    _results[4] = key_null_map;
-    _results[5] = val_null_map;
+    _results[4] = _key_convertor->get_nullmap();
+    _results[5] = _value_convertor->get_nullmap();
 
     return Status::OK();
 }

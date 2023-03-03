@@ -408,7 +408,7 @@ private:
                                    OlapColumnDataConvertorBaseUPtr value_convertor)
                 : _key_convertor(std::move(key_convertor)),
                   _value_convertor(std::move(value_convertor)) {
-            _results.resize(6); // size + offset + k_data + k_nullmap + v_data + v_nullmap
+            _results.resize(6); // size + offset + k_data + v_data +  k_nullmap + v_nullmap
         }
 
         Status convert_to_olap() override;

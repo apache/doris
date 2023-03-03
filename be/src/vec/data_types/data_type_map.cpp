@@ -43,7 +43,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         if (nested_keys_column.is_null_at(i)) {
             ss << "null";
         } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
-            ss << "'" << key_type->to_string(nested_keys_column, i) << "'";
+            ss << "\"" << key_type->to_string(nested_keys_column, i) << "\"";
         } else {
             ss << key_type->to_string(nested_keys_column, i);
         }
@@ -51,7 +51,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         if (nested_values_column.is_null_at(i)) {
             ss << "null";
         } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
-            ss << "'" << value_type->to_string(nested_values_column, i) << "'";
+            ss << "\"" << value_type->to_string(nested_values_column, i) << "\"";
         } else {
             ss << value_type->to_string(nested_values_column, i);
         }
@@ -176,6 +176,7 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
             StringRef key_element(rb.position(), rb.count());
             bool has_quota = false;
             if (!next_slot_from_string(rb, key_element, has_quota)) {
+                map_column->pop_back(element_num);
                 return Status::InvalidArgument("Cannot read map key from text '{}'",
                                                key_element.to_string());
             }
@@ -190,6 +191,7 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
             has_quota = false;
             StringRef value_element(rb.position(), rb.count());
             if (!next_slot_from_string(rb, value_element, has_quota)) {
+                map_column->pop_back(element_num);
                 return Status::InvalidArgument("Cannot read map value from text '{}'",
                                                value_element.to_string());
             }

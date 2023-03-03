@@ -162,6 +162,12 @@ void ColumnMap::pop_back(size_t n) {
     auto& offsets_data = get_offsets();
     DCHECK(n <= offsets_data.size());
     size_t elems_size = offsets_data.back() - offset_at(offsets_data.size() - n);
+
+    if (keys_column->size() > values_column->size()) {
+        keys_column->pop_back(keys_column->size() - values_column->size());
+    } else if (keys_column->size() < values_column->size()) {
+        values_column->pop_back(values_column->size() - keys_column->size());
+    }
     if (elems_size) {
         keys_column->pop_back(elems_size);
         values_column->pop_back(elems_size);
@@ -203,27 +209,52 @@ void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin
 }
 
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
-    StringRef res(begin, 0);
-    auto keys_ref = keys_column->serialize_value_into_arena(n, arena, begin);
-    res.data = keys_ref.data - res.size;
-    res.size += keys_ref.size;
-    auto value_ref = values_column->serialize_value_into_arena(n, arena, begin);
-    res.data = value_ref.data - res.size;
-    res.size += value_ref.size;
+    size_t array_size = size_at(n);
+    size_t offset = offset_at(n);
+
+    char* pos = arena.alloc_continue(2 * sizeof(array_size), begin);
+    memcpy(pos, &array_size, 2 * sizeof(array_size));
+    StringRef res(pos, 2 * sizeof(array_size));
+
+    for (size_t i = 0; i < array_size; ++i) {
+        auto value_ref = get_keys().serialize_value_into_arena(offset + i, arena, begin);
+        res.data = value_ref.data - res.size;
+        res.size += value_ref.size;
+    }
+
+    for (size_t i = 0; i < array_size; ++i) {
+        auto value_ref = get_values().serialize_value_into_arena(offset + i, arena, begin);
+        res.data = value_ref.data - res.size;
+        res.size += value_ref.size;
+    }
 
     return res;
 }
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
-    pos = keys_column->deserialize_and_insert_from_arena(pos);
-    pos = values_column->deserialize_and_insert_from_arena(pos);
+    size_t array_size = unaligned_load<size_t>(pos);
+    pos += 2 * sizeof(array_size);
 
+    for (size_t i = 0; i < array_size; ++i) {
+        pos = get_keys().deserialize_and_insert_from_arena(pos);
+    }
+
+    for (size_t i = 0; i < array_size; ++i) {
+        pos = get_values().deserialize_and_insert_from_arena(pos);
+    }
+
+    get_offsets().push_back(get_offsets().back() + array_size);
     return pos;
 }
 
 void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
-    keys_column->update_hash_with_value(n, hash);
-    values_column->update_hash_with_value(n, hash);
+    size_t array_size = size_at(n);
+    size_t offset = offset_at(n);
+
+    for (size_t i = 0; i < array_size; ++i) {
+        get_keys().update_hash_with_value(offset + i, hash);
+        get_values().update_hash_with_value(offset + i, hash);
+    }
 }
 
 void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t length) {
@@ -276,7 +307,7 @@ ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const 
 }
 
 size_t ColumnMap::filter(const Filter& filter) {
-    return this->filter(filter, 0);
+    return this->filter(filter, 0)->size();
 }
 
 Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
