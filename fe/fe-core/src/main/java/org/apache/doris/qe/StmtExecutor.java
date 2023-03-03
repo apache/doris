@@ -905,7 +905,7 @@ public class StmtExecutor implements ProfileWriter {
             rewriter.reset();
             if (context.getSessionVariable().isEnableFoldConstantByBe()) {
                 // fold constant expr
-                parsedStmt.foldConstant(rewriter);
+                parsedStmt.foldConstant(rewriter, tQueryOptions);
 
             }
             // Apply expr and subquery rewrites.
