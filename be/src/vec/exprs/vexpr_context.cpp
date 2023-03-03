@@ -28,15 +28,12 @@ VExprContext::VExprContext(VExpr* expr)
           _prepared(false),
           _opened(false),
           _closed(false),
-          _last_result_column_id(-1),
-          _stale(false) {}
+          _last_result_column_id(-1) {}
 
 VExprContext::~VExprContext() {
+    // Do not delete this code, this code here is used to check if forget to close the opened context
+    // Or there will be memory leak
     DCHECK(!_prepared || _closed) << get_stack_trace();
-
-    for (int i = 0; i < _fn_contexts.size(); ++i) {
-        delete _fn_contexts[i];
-    }
 }
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
@@ -95,8 +92,9 @@ void VExprContext::clone_fn_contexts(VExprContext* other) {
     }
 }
 
-int VExprContext::register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                                const std::vector<FunctionContext::TypeDesc>& arg_types) {
+int VExprContext::register_function_context(RuntimeState* state,
+                                            const doris::TypeDescriptor& return_type,
+                                            const std::vector<doris::TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContextImpl::create_context(state, return_type, arg_types));
     _fn_contexts.back()->impl()->set_check_overflow_for_decimal(
             state->check_overflow_for_decimal());
