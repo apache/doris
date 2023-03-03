@@ -268,7 +268,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
         while (bitmap_value_cur != bitmap_value_end) {
             if (!*nullmap_cur) {
                 slice_size = bitmap_value_cur->getSizeInBytes();
-                bitmap_value_cur->write(raw_data);
+                bitmap_value_cur->write_to(raw_data);
 
                 slice->data = raw_data;
                 slice->size = slice_size;
@@ -286,7 +286,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     } else {
         while (bitmap_value_cur != bitmap_value_end) {
             slice_size = bitmap_value_cur->getSizeInBytes();
-            bitmap_value_cur->write(raw_data);
+            bitmap_value_cur->write_to(raw_data);
 
             slice->data = raw_data;
             slice->size = slice_size;
