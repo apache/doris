@@ -84,7 +84,7 @@ WITH BROKER broker_name
 
     Specify the file path to be imported. Can be multiple. Wildcards can be used. The path must eventually match to a file, if it only matches a directory the import will fail.
 
-  - `NEGTIVE`
+  - `NEGATIVE`
 
     This keyword is used to indicate that this import is a batch of "negative" imports. This method is only for aggregate data tables with integer SUM aggregate type. This method will reverse the integer value corresponding to the SUM aggregate column in the imported data. Mainly used to offset previously imported wrong data.
 
