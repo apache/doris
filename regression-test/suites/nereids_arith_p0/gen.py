@@ -52,17 +52,17 @@ type_set: Dict[str, List[str]] = {
 
 def genBinaryExpr() -> List[str]:
     tables = ['expr_test', 'expr_test_not_nullable']
-    count = 1
+    count = 0
     SQLs = []
     for i in itertools.product(list(itertools.chain(*tuple(type_set.values()))), repeat=2):
         i = tuple(type_to_column_map[k][0] for k in i)
         cols = ', '.join([f'{i[0]} {t} {i[1]}' for t in binary_op])
+        count += 1
         for tbl in tables:
             sql = f'select id, {cols} from {tbl} order by id'
             tag = f'qt_sql_test_{count}'
             if tbl != 'expr_test':
                 tag += '_notn'
-            count += 1
             SQLs.append(f'\t{tag} """\n\t\t{sql}"""\n')
     return SQLs
 
