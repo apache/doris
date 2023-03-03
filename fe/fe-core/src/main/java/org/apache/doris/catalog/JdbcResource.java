@@ -39,6 +39,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Map;
 
 
@@ -80,7 +81,22 @@ public class JdbcResource extends Resource {
     public static final String DRIVER_CLASS = "driver_class";
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
+    public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
+    public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CHECK_SUM = "checksum";
+
+    private static final List<String> OPTIONAL_PROPERTIES = Lists.newArrayList(
+            ONLY_SPECIFIED_DATABASE,
+            LOWER_CASE_TABLE_NAMES
+    );
+
+    // The default value of optional properties
+    private static final Map<String, String> OPTIONAL_PROPERTIES_DEFAULT_VALUE = Maps.newHashMap();
+
+    static {
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
+    }
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
@@ -121,6 +137,8 @@ public class JdbcResource extends Resource {
         replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        replaceIfEffectiveValue(this.configs, ONLY_SPECIFIED_DATABASE, properties.get(ONLY_SPECIFIED_DATABASE));
+        replaceIfEffectiveValue(this.configs, LOWER_CASE_TABLE_NAMES, properties.get(LOWER_CASE_TABLE_NAMES));
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         super.modifyProperties(properties);
     }
@@ -135,6 +153,8 @@ public class JdbcResource extends Resource {
         copiedProperties.remove(USER);
         copiedProperties.remove(PASSWORD);
         copiedProperties.remove(TYPE);
+        copiedProperties.remove(ONLY_SPECIFIED_DATABASE);
+        copiedProperties.remove(LOWER_CASE_TABLE_NAMES);
         if (!copiedProperties.isEmpty()) {
             throw new AnalysisException("Unknown JDBC catalog resource properties: " + copiedProperties);
         }
@@ -144,20 +164,44 @@ public class JdbcResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
         for (String key : properties.keySet()) {
-            if (!DRIVER_URL.equals(key) && !JDBC_URL.equals(key) && !USER.equals(key) && !PASSWORD.equals(key)
-                    && !TYPE.equals(key) && !DRIVER_CLASS.equals(key)) {
-                throw new DdlException("JDBC resource Property of " + key + " is unknown");
+            switch (key) {
+                case DRIVER_URL:
+                case JDBC_URL:
+                case USER:
+                case PASSWORD:
+                case TYPE:
+                case DRIVER_CLASS:
+                case ONLY_SPECIFIED_DATABASE: // optional argument
+                case LOWER_CASE_TABLE_NAMES: // optional argument
+                    break;
+                default:
+                    throw new DdlException("JDBC resource Property of " + key + " is unknown");
             }
         }
         configs = properties;
+        handleOptionalArguments();
         checkProperties(DRIVER_URL);
         checkProperties(DRIVER_CLASS);
         checkProperties(JDBC_URL);
         checkProperties(USER);
         checkProperties(PASSWORD);
         checkProperties(TYPE);
+        checkProperties(ONLY_SPECIFIED_DATABASE);
+        checkProperties(LOWER_CASE_TABLE_NAMES);
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
+    }
+
+    /**
+     * This function used to handle optional arguments
+     * eg: only_specified_database、lower_case_table_names
+     */
+    private void handleOptionalArguments() {
+        for (String s : OPTIONAL_PROPERTIES) {
+            if (!configs.containsKey(s)) {
+                configs.put(s, OPTIONAL_PROPERTIES_DEFAULT_VALUE.get(s));
+            }
+        }
     }
 
     @Override

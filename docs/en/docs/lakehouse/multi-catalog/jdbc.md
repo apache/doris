@@ -37,11 +37,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Create Catalog
 
-<version since="1.2.0">
-
 1. MySQL
 
-</version>
+<version since="1.2.0"></version>
 
    ```sql
    CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -54,11 +52,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    )
    ```
 
-<version since="1.2.2">
-
 2. PostgreSQL
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -79,11 +75,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | Schema     |
    | Table    | Table      |
 
-<version since="1.2.2">
-
 3. Oracle
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -96,19 +90,17 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User (for example, "helowin" in `jdbc_url`  above), and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
+   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
 
-   | Doris    | PostgreSQL |
+   | Doris    | Oracle |
    | -------- | ---------- |
    | Catalog  | Database   |
    | Database | User       |
    | Table    | Table      |
 
-<version since="1.2.2">
-
 4. Clickhouse
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -121,11 +113,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-<version since="1.2.2">
-
 5. SQLServer
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG sqlserver_catalog PROPERTIES (
@@ -145,12 +135,10 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Catalog  | Database  |
    | Database | Schema    |
    | Table    | Table     |
-
-<version since="dev">
     
 6. Doris
 
-</version>
+<version since="dev"></version>
 
 Jdbc Catalog also support to connect another Doris database:
 
@@ -176,6 +164,8 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 | `jdbc_url `     | Yes             |               | JDBC connection string                             |
 | `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
+| `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
+| `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
 
 > `driver_url` can be specified in three ways:
 >
@@ -184,6 +174,12 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 > 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 >
 > 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
+
+> `only_specified_database`:
+>
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. `only_specified_database` specifies whether only the database specified to be synchronized.
+> 
+> If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
 
 
 ## Query

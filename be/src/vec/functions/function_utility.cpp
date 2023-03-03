@@ -110,7 +110,7 @@ public:
     }
 };
 
-const std::string FunctionVersion::version = "5.1.0";
+const std::string FunctionVersion::version = "5.7.99";
 
 void register_function_utility(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSleep>();

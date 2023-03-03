@@ -25,6 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -276,7 +277,9 @@ public class QueryStmtTest {
                 + "FROM\n"
                 + "  (SELECT curdate()) a;";
         StatementBase stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
+        SessionVariable sessionVariable = new SessionVariable();
+        TQueryOptions queryOptions = sessionVariable.getQueryOptionVariables();
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter(), queryOptions);
 
         // reAnalyze
         reAnalyze(stmt, ctx);
@@ -298,7 +301,7 @@ public class QueryStmtTest {
                 + "   t2.k2 = @@language\n"
                 + ")";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter(), queryOptions);
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("Apache License, Version 2.0"));
@@ -319,7 +322,7 @@ public class QueryStmtTest {
                 + "   t2.k2 = CONNECTION_ID()\n"
                 + ")";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter(), queryOptions);
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));
@@ -332,7 +335,7 @@ public class QueryStmtTest {
                 + "   (select USER() k1, CURRENT_USER() k2, SCHEMA() k3) t1,\n"
                 + "   (select @@license k1, @@version k2) t2\n";
         stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
+        stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter(), queryOptions);
         // reAnalyze
         reAnalyze(stmt, ctx);
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));

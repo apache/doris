@@ -129,7 +129,7 @@ PROPERTIES ("key"="value", ...);
    );
    ```
 
-   如果 s3 reource 在[冷热分离](../../../../../docs/advanced/cold_hot_separation)中使用，需要添加额外的字段。
+   如果 s3 reource 在[冷热分离](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段。
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES
@@ -202,7 +202,7 @@ PROPERTIES ("key"="value", ...);
 
 6. 创建 HMS resource
 
-   HMS resource 用于 [hms catalog](../../../../ecosystem/external-table/multi-catalog)
+   HMS resource 用于 [hms catalog](../../../../lakehouse/multi-catalog/multi-catalog.md)
    ```sql
    CREATE RESOURCE hms_resource PROPERTIES (
       'type'='hms',

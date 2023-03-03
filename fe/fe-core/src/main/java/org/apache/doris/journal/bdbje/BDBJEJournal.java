@@ -156,7 +156,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 try {
                     Thread.sleep(5 * 1000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             }
         }
@@ -221,7 +221,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 try {
                     ret.readFields(in);
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 }
             } else {
                 System.out.println("No record found for key '" + journalId + "'.");
