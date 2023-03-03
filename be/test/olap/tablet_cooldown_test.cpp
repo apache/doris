@@ -154,13 +154,14 @@ class TabletCooldownTest : public testing::Test {
         }
 
         Status upload(const Path& local_path, const Path& dest_path) override {
-            return link_file(local_path, dest_path);
+            return _local_fs->link_file(local_path.string(), fmt::format(
+                    "{}/{}", config::storage_root_path, dest_path.string()));
         }
 
         Status batch_upload(const std::vector<Path>& local_paths,
                             const std::vector<Path>& dest_paths) override {
             for (int i = 0; i < local_paths.size(); ++i) {
-                RETURN_IF_ERROR(link_file(local_paths[i], dest_paths[i]));
+                RETURN_IF_ERROR(upload(local_paths[i], dest_paths[i]));
             }
             return Status::OK();
         }
