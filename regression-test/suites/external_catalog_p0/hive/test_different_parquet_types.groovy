@@ -58,7 +58,7 @@ suite("test_different_parquet_types", "p0") {
     // }
 
 
-    // 发现问题二： 
+    // 发现问题二： hive查询出的数据全为空，doris catalog查询报错 tvf不报错 返回为空
     def q03 = {   //hive查询出的数据全为空
 
         //查询报错  [INTERNAL_ERROR]Only support csv data in utf8 codec
@@ -100,7 +100,7 @@ suite("test_different_parquet_types", "p0") {
         logger.info("record res" + res4_3.toString())
     }
 
-    // hive查询报错  doris查询全部为空
+     // 发现问题三： hive查询报错  doris查询全部为空
     def q05 = {
         def res5_1 = sql """
         select * from delta_encoding_optional_column limit 10;
@@ -120,7 +120,7 @@ suite("test_different_parquet_types", "p0") {
     }
 
 
-
+    // 发现问题四：tvf查询报错 Can not get first file, please check uri.
     def q06 = {
         def res6_1 = sql """
         select * from datapage_v1_snappy_compressed_checksum limit 10;
@@ -158,8 +158,8 @@ suite("test_different_parquet_types", "p0") {
         logger.info("record res" + res7_3.toString())
     }
 
-
-    def q08 = {  //通过
+    //通过
+    def q08 = {
         def res8_1 = sql """
         select * from alltypes_tiny_pages limit 10;
     """
@@ -176,7 +176,7 @@ suite("test_different_parquet_types", "p0") {
         """ 
         logger.info("record res" + res8_3.toString())
     }
-
+    //通过
     def q09 = {
         def res9_1 = sql """
         select * from alltypes_tiny_pages_plain limit 10;
