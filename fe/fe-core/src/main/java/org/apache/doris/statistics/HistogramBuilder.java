@@ -25,9 +25,7 @@ import java.util.List;
 public class HistogramBuilder {
     private Type dataType;
 
-    private int maxBucketNum;
-
-    private int bucketNum;
+    private int numBuckets;
 
     private double sampleRate;
 
@@ -38,8 +36,7 @@ public class HistogramBuilder {
 
     public HistogramBuilder(Histogram histogram) {
         this.dataType = histogram.dataType;
-        this.maxBucketNum = histogram.maxBucketNum;
-        this.bucketNum = histogram.bucketNum;
+        this.numBuckets = histogram.numBuckets;
         this.sampleRate = histogram.sampleRate;
         this.buckets = histogram.buckets;
     }
@@ -49,13 +46,8 @@ public class HistogramBuilder {
         return this;
     }
 
-    public HistogramBuilder setMaxBucketNum(int maxBucketNum) {
-        this.maxBucketNum = maxBucketNum;
-        return this;
-    }
-
-    public HistogramBuilder setBucketNum(int bucketNum) {
-        this.bucketNum = bucketNum;
+    public HistogramBuilder setNumBuckets(int numBuckets) {
+        this.numBuckets = numBuckets;
         return this;
     }
 
@@ -78,12 +70,8 @@ public class HistogramBuilder {
         return dataType;
     }
 
-    public int getMaxBucketNum() {
-        return maxBucketNum;
-    }
-
-    public int getBucketNum() {
-        return bucketNum;
+    public int getNumBuckets() {
+        return numBuckets;
     }
 
     public double getSampleRate() {
@@ -95,6 +83,6 @@ public class HistogramBuilder {
     }
 
     public Histogram build() {
-        return new Histogram(dataType, maxBucketNum, bucketNum, sampleRate, buckets);
+        return new Histogram(dataType, numBuckets, sampleRate, buckets);
     }
 }
