@@ -124,8 +124,6 @@ Status NewOlapScanNode::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
-    _inverted_index_searcher_bitmap_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexSearcherGenBitmapTime");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
