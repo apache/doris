@@ -175,7 +175,7 @@ public class Text implements Writable {
             return -1; // not found
         } catch (CharacterCodingException e) {
             // can't get here
-            e.printStackTrace();
+            LOG.warn("", e);
             return -1;
         }
     }

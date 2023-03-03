@@ -31,3 +31,6 @@ select 1 not in (null, 1);
 select 1 not in (null, 2);
 
 
+select timestamp '2008-08-08 00:00:00' in ('2008-08-08');
+select case when true then timestamp '2008-08-08 00:00:00' else '2008-08-08' end;
+

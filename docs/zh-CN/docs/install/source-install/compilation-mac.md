@@ -31,15 +31,14 @@ under the License.
 ## 环境要求
 
 1. macOS 12 (Monterey) 及以上（_**Intel和Apple Silicon均支持**_）
-2. Apple Clang 13及以上（最好使用最新版本）
-3. [Homebrew](https://brew.sh/)
+2. [Homebrew](https://brew.sh/)
 
 ## 编译步骤
 
 1. 使用[Homebrew](https://brew.sh/)安装依赖
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python cmake ninja ccache bison byacc gettext wget pcre maven openjdk@11 npm
+        python cmake ninja ccache bison byacc gettext wget pcre maven llvm openjdk@11 npm
     ```
 
 2. 编译源码

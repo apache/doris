@@ -42,8 +42,7 @@ public:
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
     int register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                      const std::vector<FunctionContext::TypeDesc>& arg_types,
-                      int varargs_buffer_size);
+                      const std::vector<FunctionContext::TypeDesc>& arg_types);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
     /// register_func(). This should only be called by VExprs.
@@ -95,10 +94,10 @@ private:
     /// and owned by this VExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
-    /// Pool backing fn_contexts_.
-    std::unique_ptr<MemPool> _pool;
-
     int _last_result_column_id;
+
+    /// The depth of expression-tree.
+    int _depth_num = 0;
 
     bool _stale;
 };

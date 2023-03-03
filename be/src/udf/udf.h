@@ -139,10 +139,6 @@ public:
     // Returns the version of Doris that's currently running.
     DorisVersion version() const;
 
-    // Returns the user that is running the query. Returns nullptr if it is not
-    // available.
-    const char* user() const;
-
     // Returns the query_id for the current query.
     UniqueId query_id() const;
 
@@ -152,52 +148,11 @@ public:
     // ensure the function return value is null.
     void set_error(const char* error_msg);
 
-    // when you reused this FunctionContext, you maybe need clear the error status and message.
-    void clear_error_msg();
-
     // Adds a warning that is returned to the user. This can include things like
     // overflow or other recoverable error conditions.
     // Warnings are capped at a maximum number. Returns true if the warning was
     // added and false if it was ignored due to the cap.
     bool add_warning(const char* warning_msg);
-
-    // Returns true if there's been an error set.
-    bool has_error() const;
-
-    // Returns the current error message. Returns nullptr if there is no error.
-    const char* error_msg() const;
-
-    // Allocates memory for UDAs. All UDA allocations should use this if possible instead of
-    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
-    // by Allocate().
-    // If this Allocate causes the memory limit to be exceeded, the error will be set
-    // in this object causing the query to fail.
-    uint8_t* allocate(int byte_size);
-
-    // Allocate and align memory for UDAs. All UDA allocations should use this if possible instead of
-    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
-    // by Allocate().
-    // If this Allocate causes the memory limit to be exceeded, the error will be set
-    // in this object causing the query to fail.
-    uint8_t* aligned_allocate(int alignment, int byte_size);
-
-    // Reallocates 'ptr' to the new byte_size. If the currently underlying allocation
-    // is big enough, the original ptr will be returned. If the allocation needs to
-    // grow, a new allocation is made that is at least 'byte_size' and the contents
-    // of 'ptr' will be copied into it.
-    // This should be used for buffers that constantly get appended to.
-    uint8_t* reallocate(uint8_t* ptr, int byte_size);
-
-    // Frees a buffer returned from Allocate() or Reallocate()
-    void free(uint8_t* buffer);
-
-    // For allocations that cannot use the Allocate() API provided by this
-    // object, TrackAllocation()/Free() can be used to just keep count of the
-    // byte sizes. For each call to TrackAllocation(), the UDF/UDA must call
-    // the corresponding Free().
-    void track_allocation(int64_t byte_size);
-
-    void free(int64_t byte_size);
 
     // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
     // through the query. E.g. "select UDA(col, 'sample=true') from tbl".
@@ -209,7 +164,7 @@ public:
 
     // Returns the underlying opaque implementation object. The UDF/UDA should not
     // use this. This is used internally.
-    doris::FunctionContextImpl* impl() { return _impl; }
+    doris::FunctionContextImpl* impl() { return _impl.get(); }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
     /// be used to store a pointer that can then be retrieved via GetFunctionState(). If
@@ -223,10 +178,6 @@ public:
     // Returns the return type information of this function. For UDAs, this is the final
     // return type of the UDA (e.g., the type returned by the finalize function).
     const TypeDesc& get_return_type() const;
-
-    // Returns the intermediate type for UDAs, i.e., the one returned by
-    // update and merge functions. Returns INVALID_TYPE for UDFs.
-    const TypeDesc& get_intermediate_type() const;
 
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
@@ -246,7 +197,10 @@ public:
     // Init() or Close() functions.
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
-    ~FunctionContext();
+    // Creates a StringVal, which memory is available when this function context is used next time
+    StringVal create_temp_string_val(int64_t len);
+
+    ~FunctionContext() = default;
 
 private:
     friend class doris::FunctionContextImpl;
@@ -258,7 +212,7 @@ private:
 
     FunctionContext& operator=(const FunctionContext& other);
 
-    doris::FunctionContextImpl* _impl; // Owned by this object.
+    std::unique_ptr<doris::FunctionContextImpl> _impl; // Owned by this object.
 };
 
 //----------------------------------------------------------------------------
@@ -387,7 +341,7 @@ struct DateTimeV2Val : public AnyVal {
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
-// TODO: need to set explicit align?
+// FIXME: for view using we should use StringRef. StringVal need to be rewrite to deep-copy type.
 // Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {
@@ -416,16 +370,6 @@ struct StringVal : public AnyVal {
         return sv;
     }
 
-    // Creates a StringVal, allocating a new buffer with 'len'. This should
-    // be used to return StringVal objects in UDF/UDAs that need to allocate new
-    // string memory.
-    StringVal(FunctionContext* context, int64_t len);
-
-    // Creates a StringVal, which memory is available when this function context is used next time
-    static StringVal create_temp_string_val(FunctionContext* ctx, int64_t len);
-
-    bool resize(FunctionContext* context, int64_t len);
-
     bool operator==(const StringVal& other) const {
         if (is_null != other.is_null) {
             return false;
@@ -443,19 +387,6 @@ struct StringVal : public AnyVal {
     }
 
     bool operator!=(const StringVal& other) const { return !(*this == other); }
-
-    /// Will create a new StringVal with the given dimension and copy the data from the
-    /// parameters. In case of an error will return a nullptr string and set an error on the
-    /// function context.
-    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len);
-
-    /// Append the passed buffer to this StringVal. Reallocate memory to fit the buffer. If
-    /// the memory allocation becomes too large, will set an error on FunctionContext and
-    /// return a nullptr string.
-    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
-
-    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
-                int64_t buf2_len);
 
     std::string to_string() const { return std::string((char*)ptr, len); }
 };

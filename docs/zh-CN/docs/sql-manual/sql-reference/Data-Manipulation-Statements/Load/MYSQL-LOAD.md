@@ -61,7 +61,7 @@ INTO TABLE tbl_name
 6. `COLUMNS TERMINATED BY`指定列分隔符
 7. `LINES TERMINATED BY`指定行分隔符
 8. `IGNORE num LINES`用户跳过CSV的表头, 可以跳过任意行数. 该语法也可以用`IGNORE num ROWS`代替
-9. 列映射语法, 具体参数详见[导入的数据转换](../../../data-operate/import/import-way/mysql-load-manual.md) 的列映射章节
+9. 列映射语法, 具体参数详见[导入的数据转换](../../../../data-operate/import/import-way/mysql-load-manual.md) 的列映射章节
 10. `PROPERTIES`参数配置, 详见下文
 
 ### PROPERTIES

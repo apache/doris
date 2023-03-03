@@ -96,18 +96,24 @@ HeartbeatFailureCounter: 0
 ```
 
 ### Usage
-When using the [MultiCatalog](../lakehouse/multi-catalog/multi-catalog) , the query will be preferentially scheduled to the compute node.
-In order to balance task scheduling, FE has a `backend_num_for_federation` configuration item, which defaults to 3.
-When executing a federated query, the optimizer will select `backend_num_for_federation` as an alternative to the scheduler,
-and the scheduler will decide which node to execute on to prevent the task from being skewed.
-If the number of compute nodes is less than `backend_num_for_federation`, the mixed nodes will be randomly selected to meet the number.
-If the compute node is greater than `backend_num_for_federation`, the federated query task will only be scheduled on the compute node.
+
+Add configuration items in fe.conf
+
+```
+prefer_compute_node_for_external_table=true
+min_backend_num_for_external_table=3
+```
+
+> For parameter description, please refer to: [FE configuration item](../admin-manual/config/fe-config.md)
+
+When using the [MultiCatalog](../lakehouse/multi-catalog/multi-catalog.md) function when querying, the query will be dispatched to the computing node first.
 
 ### some restrictions
-- The compute node currently only supports the query for Hive MetaStore of MultiCatalog and the others are still on the hybrid node.
+
 - Compute nodes are controlled by configuration items, so do not configure mixed type nodes, modify the configuration to compute nodes.
   
-## Unfinished business
+## TODO
+
 - Computational spillover: Doris inner table query, when the cluster load is high, the upper layer (outside TableScan) operator can be scheduled to the compute node.
 - Graceful offline:
   - When the compute node goes offline, the new task of the task is automatically scheduled to online nodes

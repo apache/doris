@@ -33,7 +33,7 @@ How to submit your document modification, please refer to
 
 [Contribute to Doris](./)
 
-[Code Submission Guidelines](./pull-request)
+[Code Submission Guidelines](./pull-request.md)
 
 Documents of historical versions can be submitted directly on [apache/doris-website](https://github.com/apache/doris-website) PR, if it is the latest version, it needs to be in [apache/doris-website] (https://github.com/apache/doris-website) and the [apache/doris](https://github.com/apache/doris) codebase at the same time commit changes.
 

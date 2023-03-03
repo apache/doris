@@ -17,6 +17,8 @@
 
 #include "data_type_map.h"
 
+#include <string>
+
 namespace doris::vectorized {
 
 DataTypeMap::DataTypeMap(const DataTypePtr& key, const DataTypePtr& value) {
@@ -34,36 +36,35 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
 
-    std::stringstream ss;
-    ss << "{";
+    std::string str;
+    str += "{";
     for (size_t i = offset; i < next_offset; ++i) {
         if (i != offset) {
-            ss << ", ";
+            str += ", ";
         }
         if (nested_keys_column.is_null_at(i)) {
-            ss << "null";
+            str += "null";
         } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
-            ss << "\"" << key_type->to_string(nested_keys_column, i) << "\"";
+            str += "\"" + key_type->to_string(nested_keys_column, i) + "\"";
         } else {
-            ss << key_type->to_string(nested_keys_column, i);
+            str += key_type->to_string(nested_keys_column, i);
         }
-        ss << ":";
+        str += ":";
         if (nested_values_column.is_null_at(i)) {
-            ss << "null";
+            str += "null";
         } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
-            ss << "\"" << value_type->to_string(nested_values_column, i) << "\"";
+            str += "\"" + value_type->to_string(nested_values_column, i) + "\"";
         } else {
-            ss << value_type->to_string(nested_values_column, i);
+            str += value_type->to_string(nested_values_column, i);
         }
     }
-    ss << "}";
-    return ss.str();
+    str += "}";
+    return str;
 }
 
-void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                            class doris::vectorized::BufferWritable& ostr) const {
-    std::string ss = to_string(column, row_num);
-    ostr.write(ss.c_str(), strlen(ss.c_str()));
+void DataTypeMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    std::string str = to_string(column, row_num);
+    ostr.write(str.c_str(), str.size());
 }
 
 bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {

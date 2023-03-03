@@ -33,9 +33,7 @@ FunctionUtils::FunctionUtils() {
     _state = new RuntimeState(globals);
     doris_udf::FunctionContext::TypeDesc return_type;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
-                                                  false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, return_type, arg_types);
 }
 
 FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
@@ -46,15 +44,11 @@ FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
     _state = new RuntimeState(globals);
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types,
-                                                  varargs_buffer_size, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, return_type, arg_types);
 }
 
 FunctionUtils::~FunctionUtils() {
-    _fn_ctx->impl()->close();
     delete _fn_ctx;
-    delete _memory_pool;
     if (_state) {
         delete _state;
     }
