@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "olap/hll.h"
 #include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -73,22 +75,38 @@ struct AggregateFunctionHLLData {
 
 template <typename Data>
 struct AggregateFunctionHLLUnionImpl : Data {
+    static constexpr bool is_nullable = std::is_same_v<AggregateFunctionHLLData<true>, Data>;
     void insert_result_into(IColumn& to) const {
-        assert_cast<ColumnHLL&>(to).get_data().emplace_back(this->get());
+        ColumnHLL& column = assert_cast<ColumnHLL&>(
+                is_nullable ? assert_cast<ColumnNullable&>(to).get_nested_column() : to);
+        column.get_data().emplace_back(this->get());
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeHLL>(); }
+    static DataTypePtr get_return_type() {
+        if constexpr (is_nullable) {
+            return make_nullable(std::make_shared<DataTypeHLL>());
+        }
+        return std::make_shared<DataTypeHLL>();
+    }
 
     static const char* name() { return "hll_union"; }
 };
 
 template <typename Data>
 struct AggregateFunctionHLLUnionAggImpl : Data {
+    static constexpr bool is_nullable = std::is_same_v<AggregateFunctionHLLData<true>, Data>;
     void insert_result_into(IColumn& to) const {
-        assert_cast<ColumnInt64&>(to).get_data().emplace_back(this->get_cardinality());
+        ColumnInt64& column = assert_cast<ColumnInt64&>(
+                is_nullable ? assert_cast<ColumnNullable&>(to).get_nested_column() : to);
+        column.get_data().emplace_back(this->get_cardinality());
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
+    static DataTypePtr get_return_type() {
+        if constexpr (is_nullable) {
+            return make_nullable(std::make_shared<DataTypeInt64>());
+        }
+        return std::make_shared<DataTypeInt64>();
+    }
 
     static const char* name() { return "hll_union_agg"; }
 };
