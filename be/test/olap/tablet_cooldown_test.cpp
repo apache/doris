@@ -45,8 +45,16 @@ static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 static constexpr int64_t kTabletId = 10005;
+static constexpr int64_t kTabletId2 = 10006;
 static constexpr int64_t kReplicaId = 10009;
-static constexpr int64_t kSchemaHash = 270068377;
+static constexpr int32_t kSchemaHash = 270068377;
+static constexpr int64_t kReplicaId2 = 10010;
+static constexpr int32_t kSchemaHash2 = 270068381;
+
+static constexpr int32_t kTxnId = 20003;
+static constexpr int32_t kPartitionId = 30003;
+static constexpr int32_t kTxnId2 = 40003;
+static constexpr int32_t kPartitionId2 = 50003;
 
 using io::Path;
 
@@ -186,6 +194,7 @@ public:
         FileUtils::remove_all(config::storage_root_path);
         FileUtils::create_dir(config::storage_root_path);
         FileUtils::create_dir(get_remote_path(fmt::format("data/{}", kTabletId)));
+        FileUtils::create_dir(get_remote_path(fmt::format("data/{}", kTabletId2)));
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -261,12 +270,13 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     return desc_tbl_builder.desc_tbl();
 }
 
-TEST_F(TabletCooldownTest, normal) {
+void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
+                  int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
     // create tablet
     TCreateTabletReq request;
-    create_tablet_request_with_sequence_col(kTabletId, kSchemaHash, &request);
-    request.__set_replica_id(kReplicaId);
-    Status st = k_engine->create_tablet(request);
+    create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
+    request.__set_replica_id(replica_id);
+    Status st = engine->create_tablet(request);
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -280,7 +290,8 @@ TEST_F(TabletCooldownTest, normal) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {kTabletId, kSchemaHash, WriteType::LOAD,        20003, 30003,
+
+    WriteRequest write_req = {tablet_id, schema_hash, WriteType::LOAD,        txn_id, partition_id,
                               load_id,   tuple_desc,  &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
@@ -320,37 +331,43 @@ TEST_F(TabletCooldownTest, normal) {
     delete delta_writer;
 
     // publish version success
-    TabletSharedPtr tablet =
-            k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
-    OlapMeta* meta = tablet->data_dir()->get_meta();
+    *tablet = engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    OlapMeta* meta = (*tablet)->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = (*tablet)->rowset_with_max_version()->end_version() + 1;
+    version.second = (*tablet)->rowset_with_max_version()->end_version() + 1;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
+    engine->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
-        st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                  tablet->tablet_id(), tablet->schema_hash(),
-                                                  tablet->tablet_uid(), version);
+        st = engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                (*tablet)->tablet_id(), (*tablet)->schema_hash(),
+                                                (*tablet)->tablet_uid(), version);
         ASSERT_EQ(Status::OK(), st);
-        st = tablet->add_inc_rowset(rowset);
+        st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
     }
-    EXPECT_EQ(1, tablet->num_rows());
+    EXPECT_EQ(1, (*tablet)->num_rows());
 
+}
+
+TEST_F(TabletCooldownTest, normal) {
+    TabletSharedPtr tablet1;
+    TabletSharedPtr tablet2;
+    createTablet(k_engine, &tablet1, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId);
+    createTablet(k_engine, &tablet2, kReplicaId2, kSchemaHash2, kTabletId2, kTxnId2, kPartitionId2);
     // test cooldown
-    tablet->set_storage_policy_id(kStoragePolicyId);
-    st = tablet->cooldown(); // rowset [0-1]
+    tablet1->set_storage_policy_id(kStoragePolicyId);
+    Status st = tablet1->cooldown(); // rowset [0-1]
     ASSERT_NE(Status::OK(), st);
-    tablet->update_cooldown_conf(1, kReplicaId);
+    tablet1->update_cooldown_conf(1, kReplicaId);
     // cooldown for upload node
-    st = tablet->cooldown(); // rowset [0-1]
+    st = tablet1->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
-    st = tablet->cooldown(); // rowset [2-2]
+    st = tablet1->cooldown(); // rowset [2-2]
     ASSERT_EQ(Status::OK(), st);
-    auto rs = tablet->get_rowset_by_version({2, 2});
+    auto rs = tablet1->get_rowset_by_version({2, 2});
     ASSERT_FALSE(rs->is_local());
 
     // test read
@@ -359,6 +376,32 @@ TEST_F(TabletCooldownTest, normal) {
     st = std::static_pointer_cast<BetaRowset>(rs)->load_segments(&segments);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_EQ(segments.size(), 1);
+
+    st = io::global_local_filesystem()->link_file(
+            get_remote_path(fmt::format("data/{}/{}.meta", kTabletId, kReplicaId)),
+            get_remote_path(fmt::format("data/{}/{}.meta", kTabletId2, kReplicaId)));
+    ASSERT_EQ(Status::OK(), st);
+    // follow cooldown
+    tablet2->set_storage_policy_id(kStoragePolicyId);
+    tablet2->update_cooldown_conf(1, 111111111);
+    st = tablet2->cooldown(); // rowset [0-1]
+    ASSERT_NE(Status::OK(), st);
+    tablet2->update_cooldown_conf(1, kReplicaId);
+    st = tablet2->cooldown(); // rowset [0-1]
+    ASSERT_NE(Status::OK(), st);
+    tablet2->update_cooldown_conf(2, kReplicaId);
+    st = tablet2->cooldown(); // rowset [0-1]
+    ASSERT_EQ(Status::OK(), st);
+    auto rs2 = tablet2->get_rowset_by_version({2, 2});
+    ASSERT_FALSE(rs2->is_local());
+
+    // test read tablet2
+    ASSERT_EQ(Status::OK(), st);
+    std::vector<segment_v2::SegmentSharedPtr> segments2;
+    st = std::static_pointer_cast<BetaRowset>(rs2)->load_segments(&segments2);
+    ASSERT_EQ(Status::OK(), st);
+    ASSERT_EQ(segments2.size(), 1);
+
 }
 
 } // namespace doris
