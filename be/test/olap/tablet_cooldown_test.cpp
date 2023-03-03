@@ -56,8 +56,8 @@ class TabletCooldownTest : public testing::Test {
     class FileWriterMock : public io::FileWriter {
     public:
         FileWriterMock(Path path) : io::FileWriter(std::move(path)) {
-            _local_file_writer = std::make_unique<io::LocalFileWriter>(fmt::format(
-                    "{}/{}", config::storage_root_path, _path.string()), 0);
+            io::global_local_filesystem()->create_file(fmt::format(
+                    "{}/{}", config::storage_root_path, _path.string()), &_local_file_writer);
         }
 
         ~FileWriterMock() {}
@@ -90,7 +90,7 @@ class TabletCooldownTest : public testing::Test {
 
         io::FileSystemSPtr fs() const override { return s_fs; }
     private:
-        std::unique_ptr<io::LocalFileWriter> _local_file_writer;
+        std::unique_ptr<io::FileWriter> _local_file_writer;
     };
 
     class RemoteFileSystemMock : public io::RemoteFileSystem {
@@ -199,8 +199,7 @@ public:
 
         FileUtils::remove_all(config::storage_root_path);
         FileUtils::create_dir(config::storage_root_path);
-        FileUtils::create_dir(fmt::format("{}/data/{}/{}.meta", config::storage_root_path,
-                                          kTabletId, kReplicaId);
+        FileUtils::create_dir(fmt::format("{}/data/{}", config::storage_root_path, kTabletId));
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
