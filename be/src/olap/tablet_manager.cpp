@@ -436,7 +436,8 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
     auto& shard = _get_tablets_shard(tablet_id);
     std::lock_guard wrlock(shard.lock);
     if (shard.tablets_under_clone.count(tablet_id) > 0) {
-        return Status::Aborted("tablet {} is under clone, skip drop task", tablet_id);
+        LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
+        return Status::Aborted("aborted");
     }
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, replica_id, false, is_drop_table_or_partition);
@@ -458,9 +459,12 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     // We should compare replica id to avoid dropping new cloned tablet.
     // Iff request replica id is 0, FE may be an older release, then we drop this tablet as before.
     if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
-        return Status::Aborted("replica_id not match({} vs {})", to_drop_tablet->replica_id(),
-                               replica_id);
+        LOG(WARNING) << "fail to drop tablet because replica id not match. "
+                     << "tablet_id=" << tablet_id << ", replica_id=" << to_drop_tablet->replica_id()
+                     << ", request replica_id=" << replica_id;
+        return Status::Aborted("aborted");
     }
+
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map.erase(tablet_id);
@@ -1039,10 +1043,10 @@ Status TabletManager::start_trash_sweep() {
     return Status::OK();
 } // start_trash_sweep
 
-bool TabletManager::register_clone_tablet(int64_t tablet_id) {
+void TabletManager::register_clone_tablet(int64_t tablet_id) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
     std::lock_guard<std::shared_mutex> wrlock(shard.lock);
-    return shard.tablets_under_clone.insert(tablet_id).second;
+    shard.tablets_under_clone.insert(tablet_id);
 }
 
 void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
