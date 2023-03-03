@@ -52,12 +52,15 @@ using io::Path;
 
 static io::FileSystemSPtr s_fs;
 
+static std::string get_remote_path(const Path& path) {
+    return fmt::format("{}/remote/{}", config::storage_root_path, path.string());
+}
+
 class TabletCooldownTest : public testing::Test {
     class FileWriterMock : public io::FileWriter {
     public:
         FileWriterMock(Path path) : io::FileWriter(std::move(path)) {
-            io::global_local_filesystem()->create_file(fmt::format(
-                    "{}/{}", config::storage_root_path, _path.string()), &_local_file_writer);
+            io::global_local_filesystem()->create_file(get_remote_path(_path), &_local_file_writer);
         }
 
         ~FileWriterMock() {}
@@ -96,8 +99,7 @@ class TabletCooldownTest : public testing::Test {
     class RemoteFileSystemMock : public io::RemoteFileSystem {
         RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
                 : RemoteFileSystem(std::move(root_path), std::move(id), type) {
-            _local_fs = io::LocalFileSystem::create(fmt::format("{}/{}", config::storage_root_path,
-                                                                _root_path.string()));
+            _local_fs = io::LocalFileSystem::create(get_remote_path(_root_path));
         }
         ~RemoteFileSystemMock() override {}
 
@@ -107,46 +109,36 @@ class TabletCooldownTest : public testing::Test {
         }
 
         Status open_file(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx) override {
-            return _local_fs->open_file(fmt::format("{}/{}", config::storage_root_path,
-                                                    path.string()), reader, io_ctx);
+            return _local_fs->open_file(get_remote_path(path), reader, io_ctx);
         }
 
         Status delete_file(const Path& path) override {
-            return _local_fs->delete_file(fmt::format("{}/{}", config::storage_root_path,
-                                                      path.string()));
+            return _local_fs->delete_file(get_remote_path(path));
         }
 
         Status create_directory(const Path& path) override {
-            return _local_fs->create_directory(fmt::format("{}/{}", config::storage_root_path,
-                                                           path.string()));
+            return _local_fs->create_directory(get_remote_path(path));
         }
 
         Status delete_directory(const Path& path) override {
-            return _local_fs->delete_directory(fmt::format("{}/{}", config::storage_root_path,
-                                                           path.string()));
+            return _local_fs->delete_directory(get_remote_path(path));
         }
 
         Status link_file(const Path& src, const Path& dest) override {
-            return _local_fs->link_file(fmt::format("{}/{}", config::storage_root_path,
-                                                    src.string()),
-                                        fmt::format("{}/{}", config::storage_root_path,
-                                                    dest.string()));
+            return _local_fs->link_file(get_remote_path(src), get_remote_path(dest));
         }
 
         Status exists(const Path& path, bool* res) const override {
-            return _local_fs->exists(fmt::format("{}/{}", config::storage_root_path, path.string()),
-                                     res);
+            return _local_fs->exists(get_remote_path(path), res);
         }
 
         Status file_size(const Path& path, size_t* file_size) const override {
-            return _local_fs->file_size(fmt::format("{}/{}", config::storage_root_path,
-                                                    path.string()), file_size);
+            return _local_fs->file_size(get_remote_path(path), file_size);
         }
 
         Status list(const Path& path, std::vector<Path>* files) override {
             std::vector<Path> local_paths;
-            RETURN_IF_ERROR(_local_fs->list(fmt::format("{}/{}", config::storage_root_path,
-                                                        path.string()), &local_paths));
+            RETURN_IF_ERROR(_local_fs->list(get_remote_path(path), &local_paths));
             for (Path path : local_paths) {
                 files->emplace_back(path.string().substr(config::storage_root_path.size() + 1));
             }
@@ -154,8 +146,7 @@ class TabletCooldownTest : public testing::Test {
         }
 
         Status upload(const Path& local_path, const Path& dest_path) override {
-            return _local_fs->link_file(local_path.string(), fmt::format(
-                    "{}/{}", config::storage_root_path, dest_path.string()));
+            return _local_fs->link_file(local_path.string(), get_remote_path(dest_path));
         }
 
         Status batch_upload(const std::vector<Path>& local_paths,
@@ -200,7 +191,7 @@ public:
 
         FileUtils::remove_all(config::storage_root_path);
         FileUtils::create_dir(config::storage_root_path);
-        FileUtils::create_dir(fmt::format("{}/data/{}", config::storage_root_path, kTabletId));
+        FileUtils::create_dir(get_remote_path(fmt::format("data/{}", kTabletId)));
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -367,6 +358,13 @@ TEST_F(TabletCooldownTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     auto rs = tablet->get_rowset_by_version({2, 2});
     ASSERT_FALSE(rs->is_local());
+
+    // test read
+    ASSERT_EQ(Status::OK(), st);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    st = std::static_pointer_cast<BetaRowset>(rs)->load_segments(&segments);
+    ASSERT_EQ(Status::OK(), st);
+    ASSERT_EQ(segments.size(), 1);
 }
 
 } // namespace doris
