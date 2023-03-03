@@ -2061,6 +2061,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return hasNullableChild();
             }
         }
+        if (fn.functionName().equalsIgnoreCase("group_concat")) {
+            int size = Math.min(fn.getNumArgs(), children.size());
+            for (int i = 0; i < size; ++i) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
         return true;
     }
 

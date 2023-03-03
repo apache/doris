@@ -705,6 +705,11 @@ public class FunctionCallExpr extends Expr {
                 }
             }
 
+            if (fnParams.isDistinct() && !orderByElements.isEmpty()) {
+                throw new AnalysisException(
+                        "group_concat don't support using distinct with order by together: " + this.toSql());
+            }
+
             return;
         }
         if (fnName.getFunction().equalsIgnoreCase("field")) {
