@@ -124,8 +124,8 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
-    public void setInvalid() {
-        this.desc.setInvalid();
+    public void setNeedMaterialize(boolean needMaterialize) {
+        this.desc.setNeedMaterialize(needMaterialize);
     }
 
     public boolean isInvalid() {
@@ -575,5 +575,27 @@ public class SlotRef extends Expr {
             }
         }
         return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
+    }
+
+    @Override
+    public Expr getResultValue(boolean foldSlot) throws AnalysisException {
+        if (!foldSlot) {
+            return this;
+        }
+        if (!isConstant() || desc == null) {
+            return this;
+        }
+        List<Expr> exprs = desc.getSourceExprs();
+        if (CollectionUtils.isEmpty(exprs)) {
+            return this;
+        }
+        Expr expr = exprs.get(0);
+        if (expr instanceof SlotRef) {
+            return expr.getResultValue(foldSlot);
+        }
+        if (expr.isConstant()) {
+            return expr;
+        }
+        return this;
     }
 }

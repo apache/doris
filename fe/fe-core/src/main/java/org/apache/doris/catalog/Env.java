@@ -61,6 +61,7 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -171,6 +172,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -998,7 +1000,7 @@ public class Env {
                         Thread.sleep(5000);
                         continue;
                     } catch (InterruptedException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                         System.exit(-1);
                     }
                 }
@@ -1345,10 +1347,12 @@ public class Env {
                 try {
                     Thread.sleep(10 * 1000);
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 }
             }
         }
+
+        auth.rectifyPrivs();
     }
 
     // start all daemon threads only running on Master
@@ -1820,10 +1824,10 @@ public class Env {
         return checksum;
     }
 
-    public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
+    public long loadAuth(DataInputStream dis, long checksum) throws IOException {
         // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
-        LOG.info("finished replay paloAuth from image");
+        LOG.info("finished replay auth from image");
         return checksum;
     }
 
@@ -2094,7 +2098,7 @@ public class Env {
         return checksum;
     }
 
-    public long savePaloAuth(CountingDataOutputStream dos, long checksum) throws IOException {
+    public long saveAuth(CountingDataOutputStream dos, long checksum) throws IOException {
         auth.write(dos);
         return checksum;
     }
@@ -3042,7 +3046,8 @@ public class Env {
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.getMaxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isEnableKeywordSniff()).append("\",\n");
             sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\",\n");
-            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\"\n");
+            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\",\n");
+            sb.append("\"like_push_down\" = \"").append(esTable.isLikePushDown()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
             HiveTable hiveTable = (HiveTable) table;
@@ -3665,7 +3670,8 @@ public class Env {
     }
 
     public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        this.alter.processAlterMaterializedView(stmt);
+        AlterMultiMaterializedView alter = new AlterMultiMaterializedView(stmt.getTable(), stmt.getRefreshInfo());
+        this.alter.processAlterMaterializedView(alter, false);
     }
 
     /**
@@ -4049,24 +4055,31 @@ public class Env {
             if (entry.getValue().getColumnByName(newColName) != null) {
                 throw new DdlException("Column name[" + newColName + "] is already used");
             }
+
+            // check if have materialized view on rename column
+            for (Column column : entry.getValue().getSchema()) {
+                Expr expr = column.getDefineExpr();
+                if (expr == null) {
+                    continue;
+                }
+                List<SlotRef> slots = new ArrayList<>();
+                expr.collect(SlotRef.class, slots);
+                for (SlotRef slot : slots) {
+                    String name = MaterializedIndexMeta
+                            .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slot.toSqlWithoutTbl()));
+                    if (!isReplay && name.equals(colName)) {
+                        throw new DdlException("Column[" + colName + "] have materialized view index");
+                    }
+                }
+            }
         }
 
-        // 1. modify MaterializedIndexMeta
+        // 1. modify old MaterializedIndexMeta
         boolean hasColumn = false;
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
             Column column = entry.getValue().getColumnByName(colName);
             if (column != null) {
                 column.setName(newColName);
-                hasColumn = true;
-            }
-
-            // todo: need change complex expr name also
-            Column mvColumn = entry.getValue().getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(colName));
-            if (mvColumn != null) {
-                mvColumn.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
-                SlotRef slot = (SlotRef) mvColumn.getDefineExpr();
-                slot.setCol(newColName);
-                slot.setLabel('`' + newColName + '`');
                 hasColumn = true;
             }
         }
@@ -4081,12 +4094,6 @@ public class Env {
             if (column.getName().equalsIgnoreCase(colName)) {
                 column.setName(newColName);
             }
-            if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
-                column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
-                SlotRef slot = (SlotRef) column.getDefineExpr();
-                slot.setCol(newColName);
-                slot.setLabel('`' + newColName + '`');
-            }
         }
 
         // 3. modify index
@@ -4096,9 +4103,6 @@ public class Env {
             for (int i = 0; i < columns.size(); i++) {
                 if (columns.get(i).equalsIgnoreCase(colName)) {
                     columns.set(i, newColName);
-                }
-                if (columns.get(i).equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
-                    columns.set(i, CreateMaterializedViewStmt.mvColumnBuilder(newColName));
                 }
             }
         }
@@ -4110,12 +4114,6 @@ public class Env {
             for (Column column : distributionColumns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     column.setName(newColName);
-                }
-                if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
-                    column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
-                    SlotRef slot = (SlotRef) column.getDefineExpr();
-                    slot.setCol(newColName);
-                    slot.setLabel('`' + newColName + '`');
                 }
             }
         }
@@ -5135,7 +5133,7 @@ public class Env {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.cleanTrash(); // async
                 ok = true;

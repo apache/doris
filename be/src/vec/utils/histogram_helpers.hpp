@@ -46,8 +46,7 @@ public:
 
 template <typename T>
 bool build_bucket_from_data(std::vector<Bucket<T>>& buckets,
-                            const std::map<T, uint64_t>& ordered_map, double sample_rate,
-                            uint32_t max_bucket_num) {
+                            const std::map<T, uint64_t>& ordered_map, uint32_t max_bucket_num) {
     if (ordered_map.size() == 0) {
         return false;
     }
@@ -57,55 +56,12 @@ bool build_bucket_from_data(std::vector<Bucket<T>>& buckets,
         element_number += it.second;
     }
 
-    auto sample_number = (uint64_t)std::ceil(element_number * sample_rate);
-    auto num_per_bucket = (uint64_t)std::ceil((Float64)sample_number / max_bucket_num);
-
-    LOG(INFO) << fmt::format(
-            "histogram bucket info: element number {}, sample number:{}, num per bucket:{}",
-            element_number, sample_number, num_per_bucket);
-
-    if (sample_rate == 1) {
-        for (auto it : ordered_map) {
-            for (auto i = it.second; i > 0; --i) {
-                auto v = it.first;
-                value_to_bucket(buckets, v, num_per_bucket);
-            }
-        }
-        return true;
-    }
-
-    // if sampling is required (0<sample_rate<1),
-    // we need to build the sampled data index
-    boost::dynamic_bitset<> sample_index(element_number);
-
-    // use a same seed value so that we get
-    // same result each time we run this function
-    srand(element_number * sample_rate * max_bucket_num);
-
-    while (sample_index.count() < sample_number) {
-        uint64_t num = (rand() % (element_number));
-        sample_index[num] = true;
-    }
-
-    uint64_t element_cnt = 0;
-    uint64_t sample_cnt = 0;
-    bool break_flag = false;
+    auto num_per_bucket = (uint64_t)std::ceil((Float64)element_number / max_bucket_num);
 
     for (auto it : ordered_map) {
-        if (break_flag) {
-            break;
-        }
         for (auto i = it.second; i > 0; --i) {
-            if (sample_cnt >= sample_number) {
-                break_flag = true;
-                break;
-            }
-            if (sample_index[element_cnt]) {
-                sample_cnt += 1;
-                auto v = it.first;
-                value_to_bucket(buckets, v, num_per_bucket);
-            }
-            element_cnt += 1;
+            auto v = it.first;
+            value_to_bucket(buckets, v, num_per_bucket);
         }
     }
 

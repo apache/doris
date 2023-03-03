@@ -51,9 +51,9 @@ CREATE TABLE `tbl_point_query` (
   `v6` float NULL,
   `v7` datev2 NULL
 ) ENGINE=OLAP
-UNIQUE KEY(key)
+UNIQUE KEY(`key`)
 COMMENT 'OLAP'
-DISTRIBUTED BY HASH(key) BUCKETS 1
+DISTRIBUTED BY HASH(`key)` BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1",
 "enable_unique_key_merge_on_write" = "true",
@@ -71,8 +71,8 @@ In order to reduce CPU cost for parsing query SQL and SQL expressions, we provid
 
 1. Setup JDBC url and enable server side prepared statement
 ```
-url = jdbc:mysql://127.0.0.1:9137/ycsb?useServerPrepStmts=true
-``
+url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
+```
 
 2. Using `PreparedStatement`
 ```java
@@ -87,5 +87,9 @@ resultSet = readStatement.executeQuery();
 ...
 ```
 
+## Enable row cache
+Doris has a page-level cache that stores data for a specific column in each page. Therefore, the page cache is a column-based cache. For the row storage mentioned earlier, a row contains data for multiple columns, and the cache may be evicted by large queries, which can reduce the hit rate. To increase the hit rate of the row cache, a separate row cache is introduced, which reuses the LRU cache mechanism in Doris to ensure memory usage. You can enable it by specifying the following BE configuration:
 
+- `disable_storage_row_cache` : Whether to enable the row cache. It is not enabled by default.
+- `row_cache_mem_limit` : Specifies the percentage of memory occupied by the row cache. The default is 20% of memory.
 

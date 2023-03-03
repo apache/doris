@@ -27,11 +27,12 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -136,6 +137,18 @@ public class CostCalculator {
         }
 
         @Override
+        public CostEstimate visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.getRowCount());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.getRowCount());
+        }
+
+        @Override
         public CostEstimate visitPhysicalQuickSort(
                 PhysicalQuickSort<? extends Plan> physicalQuickSort, PlanContext context) {
             // TODO: consider two-phase sort and enforcer.
@@ -164,19 +177,6 @@ public class CostCalculator {
                     childStatistics.getRowCount(),
                     statistics.getRowCount(),
                     childStatistics.getRowCount());
-        }
-
-        @Override
-        public CostEstimate visitPhysicalLocalQuickSort(
-                PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
-            // TODO: consider two-phase sort and enforcer.
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            StatsDeriveResult childStatistics = context.getChildStatistics(0);
-
-            return CostEstimate.of(
-                    childStatistics.getRowCount(),
-                    statistics.getRowCount(),
-                    0);
         }
 
         @Override

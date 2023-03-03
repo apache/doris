@@ -31,12 +31,12 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -57,12 +57,10 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
@@ -73,11 +71,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -86,7 +81,6 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -211,12 +205,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, PlanTranslatorContext context) {
+    public Expr visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, PlanTranslatorContext context) {
         // BE not support date v2 literal and datetime v2 literal
-        if (dateTimeLiteral instanceof DateTimeV2Literal) {
-            return new CastExpr(Type.DATETIMEV2, new StringLiteral(dateTimeLiteral.toString()));
-        }
-        return super.visitDateTimeLiteral(dateTimeLiteral, context);
+        int scale = dateTimeV2Literal.getDataType().getScale();
+        return new CastExpr(ScalarType.createDatetimeV2Type(scale),
+                new StringLiteral(dateTimeV2Literal.getStringValue()));
     }
 
     @Override
@@ -238,22 +231,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 org.apache.doris.analysis.CompoundPredicate.Operator.OR,
                 or.child(0).accept(this, context),
                 or.child(1).accept(this, context));
-    }
-
-    @Override
-    public Expr visitLike(Like like, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.LikePredicate(
-                LikePredicate.Operator.LIKE,
-                like.left().accept(this, context),
-                like.right().accept(this, context));
-    }
-
-    @Override
-    public Expr visitRegexp(Regexp regexp, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.LikePredicate(
-                LikePredicate.Operator.REGEXP,
-                regexp.left().accept(this, context),
-                regexp.right().accept(this, context));
     }
 
     @Override
@@ -538,36 +515,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
      * special arguments for backends, e.g. the json data type string in the json_object function.
      */
     private List<Expression> adaptFunctionArgumentsForBackends(BoundFunction function) {
-        if (function instanceof JsonObject || function instanceof JsonArray) {
-            return fillJsonTypeArgument(function);
-        }
         return function.getArguments();
-    }
-
-    private List<Expression> fillJsonTypeArgument(BoundFunction function) {
-        List<Expression> arguments = function.getArguments();
-        try {
-            List<Expression> newArguments = Lists.newArrayList();
-            StringBuilder jsonTypeStr = new StringBuilder("");
-            for (int i = 0; i < arguments.size(); i++) {
-                Expression argument = arguments.get(i);
-                Type type = argument.getDataType().toCatalogDataType();
-                int jsonType = FunctionCallExpr.computeJsonDataType(type);
-                jsonTypeStr.append(jsonType);
-
-                if (type.isNull()) {
-                    // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("NULL"));
-                } else {
-                    newArguments.add(argument);
-                }
-            }
-            // add json type string to the last
-            newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                    jsonTypeStr.toString()));
-            return newArguments;
-        } catch (Throwable t) {
-            throw new AnalysisException(t.getMessage());
-        }
     }
 }

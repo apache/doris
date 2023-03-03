@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.mysql.nio.NMysqlServer;
+import org.apache.doris.mysql.MysqlServer;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -31,7 +31,7 @@ public class QeService {
 
     private int port;
     // MySQL protocol service
-    private NMysqlServer mysqlServer;
+    private MysqlServer mysqlServer;
 
     @Deprecated
     public QeService(int port) {
@@ -40,13 +40,13 @@ public class QeService {
 
     public QeService(int port, ConnectScheduler scheduler) {
         this.port = port;
-        this.mysqlServer = new NMysqlServer(port, scheduler);
+        this.mysqlServer = new MysqlServer(port, scheduler);
     }
 
     public void start() throws Exception {
         // Set up help module
         try {
-            HelpModule.getInstance().setUpModule();
+            HelpModule.getInstance().setUpModule(HelpModule.HELP_ZIP_FILE_NAME);
         } catch (Exception e) {
             LOG.warn("Help module failed, because:", e);
             throw e;

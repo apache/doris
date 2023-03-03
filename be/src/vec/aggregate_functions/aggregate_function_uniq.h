@@ -90,8 +90,7 @@ class AggregateFunctionUniq final
 public:
     using KeyType = std::conditional_t<std::is_same_v<T, String>, UInt128, T>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_,
-                                                                                 {}) {}
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 
     String get_name() const override { return Data::get_name(); }
 

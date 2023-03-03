@@ -53,7 +53,7 @@ tar zxf apache-doris-x.x.x.tar.gz
 cd apache-doris-x.x.x/fe
 ```
 
-修改 FE 配置文件 `conf/fe.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `meta_dir` ，如果你需要更多优化配置，请参考 [FE 参数配置](../admin-manual/config/fe-config)说明，进行调整。
+修改 FE 配置文件 `conf/fe.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `meta_dir` ，如果你需要更多优化配置，请参考 [FE 参数配置](../admin-manual/config/fe-config.md)说明，进行调整。
 
 1. 添加 priority_networks 参数
 
@@ -126,7 +126,7 @@ mysql -uroot -P9030 -h127.0.0.1
 
 >注意：
 >
->1. 这里使用的 root 用户是 doris 内置的默认用户，也是超级管理员用户，具体的用户权限查看 [权限管理](../admin-manual/privilege-ldap/user-privilege)
+>1. 这里使用的 root 用户是 doris 内置的默认用户，也是超级管理员用户，具体的用户权限查看 [权限管理](../admin-manual/privilege-ldap/user-privilege.md)
 >2. -P ：这里是我们连接 Doris 的查询端口，默认端口是 9030，对应的是fe.conf里的 `query_port`
 >3. -h ： 这里是我们连接的 FE IP地址，如果你的客户端和 FE 安装在同一个节点可以使用127.0.0.1，这种也是 Doris 提供的如果你忘记 root 密码，可以通过这种方式不需要密码直接连接登录，进行对 root 密码进行重置
 
@@ -179,7 +179,7 @@ Doris FE 的停止可以通过下面的命令完成
 cd apache-doris-x.x.x/be
 ```
 
-修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config)说明，进行调整。
+修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config.md)说明，进行调整。
 
 1. 添加 priority_networks 参数
 

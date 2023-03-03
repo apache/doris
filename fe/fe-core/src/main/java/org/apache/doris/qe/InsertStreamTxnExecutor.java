@@ -84,9 +84,9 @@ public class InsertStreamTxnExecutor {
         txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
 
         Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
-        txnConf.setUserIp(backend.getHost());
+        txnConf.setUserIp(backend.getIp());
         txnEntry.setBackend(backend);
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
         try {
             TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
             paramsList.addToParamsList(tRequest);
@@ -110,7 +110,7 @@ public class InsertStreamTxnExecutor {
                 .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend backend = txnEntry.getBackend();
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
         try {
             Future<InternalService.PCommitResult> future = BackendServiceProxy
                     .getInstance().commit(address, fragmentInstanceId);
@@ -132,7 +132,7 @@ public class InsertStreamTxnExecutor {
                 .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend be = txnEntry.getBackend();
-        TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
         try {
             Future<InternalService.PRollbackResult> future = BackendServiceProxy.getInstance().rollback(address,
                     fragmentInstanceId);
@@ -158,7 +158,7 @@ public class InsertStreamTxnExecutor {
                 .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend backend = txnEntry.getBackend();
-        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
         try {
             Future<InternalService.PSendDataResult> future = BackendServiceProxy.getInstance().sendData(
                     address, fragmentInstanceId, txnEntry.getDataToSend());

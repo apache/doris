@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.qe.ConnectContext;
 
 /**
  * Constant evaluation of an expression.
@@ -32,15 +31,9 @@ public class FoldConstantRule extends AbstractExpressionRewriteRule {
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         if (ctx.connectContext != null && ctx.connectContext.getSessionVariable().isEnableFoldConstantByBe()) {
-            return FoldConstantRuleOnBE.INSTANCE.rewrite(expr, ctx);
+            return new FoldConstantRuleOnBE().rewrite(expr, ctx);
         }
         return FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
     }
-
-    public Expression rewrite(Expression expr) {
-        ExpressionRewriteContext ctx = new ExpressionRewriteContext(ConnectContext.get());
-        return rewrite(expr, ctx);
-    }
-
 }
 

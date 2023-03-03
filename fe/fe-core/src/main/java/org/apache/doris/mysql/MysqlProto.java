@@ -122,8 +122,8 @@ public class MysqlProto {
     // send response packet(OK/EOF/ERR).
     // before call this function, should set information in state of ConnectContext
     public static void sendResponsePacket(ConnectContext context) throws IOException {
-        MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSerializer serializer = channel.getSerializer();
         MysqlPacket packet = context.getState().toResponsePacket();
 
         // send response packet to client
@@ -156,8 +156,8 @@ public class MysqlProto {
      * IOException:
      */
     public static boolean negotiate(ConnectContext context) throws IOException {
-        MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSerializer serializer = channel.getSerializer();
         context.getState().setOk();
 
         // Server send handshake packet to client.
@@ -298,7 +298,7 @@ public class MysqlProto {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
                     return false;
                 }
-                if (catalogIf.getDbNullable(dbName) == null) {
+                if (catalogIf.getDbNullable(dbFullName) == null) {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + db);
                     return false;
                 }

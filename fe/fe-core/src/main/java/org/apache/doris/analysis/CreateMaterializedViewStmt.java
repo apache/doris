@@ -158,6 +158,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     + selectStmt.getHavingPred().toSql());
         }
         analyzeOrderByClause();
+        analyzeGroupByClause();
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
@@ -237,6 +238,39 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         TableName tableName = tableRefList.get(0).getName();
         baseIndexName = tableName.getTbl();
         dbName = tableName.getDb();
+    }
+
+    private void analyzeGroupByClause() throws AnalysisException {
+        if (selectStmt.getGroupByClause() == null) {
+            return;
+        }
+        List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
+        List<FunctionCallExpr> aggregateExprs = selectStmt.getAggInfo().getAggregateExprs();
+        List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
+        for (Expr expr : selectExprs) {
+            boolean match = false;
+            String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            for (Expr groupExpr : groupingExprs) {
+                String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+                if (lhs.equalsIgnoreCase(rhs)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (!match) {
+                for (Expr groupExpr : aggregateExprs) {
+                    String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+                    if (lhs.equalsIgnoreCase(rhs)) {
+                        match = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!match) {
+                throw new AnalysisException("The select expr " + lhs + " not in grouping or aggregate columns");
+            }
+        }
     }
 
     private void analyzeOrderByClause() throws AnalysisException {
@@ -513,16 +547,20 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return name;
     }
 
+    private static boolean mvMatch(String name, String prefix) {
+        return MaterializedIndexMeta.normalizeName(name).startsWith(prefix);
+    }
+
     public static boolean isMVColumn(String name) {
         return isMVColumnAggregate(name) || isMVColumnNormal(name);
     }
 
     public static boolean isMVColumnAggregate(String name) {
-        return name.startsWith(MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+        return mvMatch(name, MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 
     public static boolean isMVColumnNormal(String name) {
-        return name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX);
+        return mvMatch(name, MATERIALIZED_VIEW_NAME_PREFIX);
     }
 
     @Override

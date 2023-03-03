@@ -357,7 +357,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `doris_max_scan_key_num`
 
 * 类型：int
-* 描述：用于限制一个查询请求中，scan node 节点能拆分的最大 scan key 的个数。当一个带有条件的查询请求到达 scan node 节点时，scan node 会尝试将查询条件中 key 列相关的条件拆分成多个 scan key range。之后这些 scan key range 会被分配给多个 scanner 线程进行数据扫描。较大的数值通常意味着可以使用更多的 scanner 线程来提升扫描操作的并行度。但在高并发场景下，过多的线程可能会带来更大的调度开销和系统负载，反而会降低查询响应速度。一个经验数值为 50。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables) 中 `max_scan_key_num` 的说明。
+* 描述：用于限制一个查询请求中，scan node 节点能拆分的最大 scan key 的个数。当一个带有条件的查询请求到达 scan node 节点时，scan node 会尝试将查询条件中 key 列相关的条件拆分成多个 scan key range。之后这些 scan key range 会被分配给多个 scanner 线程进行数据扫描。较大的数值通常意味着可以使用更多的 scanner 线程来提升扫描操作的并行度。但在高并发场景下，过多的线程可能会带来更大的调度开销和系统负载，反而会降低查询响应速度。一个经验数值为 50。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables.md) 中 `max_scan_key_num` 的说明。
   - 当在高并发场景下发下并发度无法提升时，可以尝试降低该数值并观察影响。
 * 默认值：48
 
@@ -396,6 +396,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：Scanner线程池线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
 * 默认值：48
 
+#### `doris_max_remote_scanner_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：Remote scanner thread pool 的最大线程数。Remote scanner thread pool 用于除内表外的所有 scan 任务的执行。
+* 默认值：512
+
 #### `enable_prefetch`
 
 * 类型：bool
@@ -417,7 +423,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `max_pushdown_conditions_per_column`
 
 * 类型：int
-* 描述：用于限制一个查询请求中，针对单个列，能够下推到存储引擎的最大条件数量。在查询计划执行的过程中，一些列上的过滤条件可以下推到存储引擎，这样可以利用存储引擎中的索引信息进行数据过滤，减少查询需要扫描的数据量。比如等值条件、IN 谓词中的条件等。这个参数在绝大多数情况下仅影响包含 IN 谓词的查询。如 `WHERE colA IN (1,2,3,4,...)`。较大的数值意味值 IN 谓词中更多的条件可以推送给存储引擎，但过多的条件可能会导致随机读的增加，某些情况下可能会降低查询效率。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables) 中 `max_pushdown_conditions_per_column ` 的说明。
+* 描述：用于限制一个查询请求中，针对单个列，能够下推到存储引擎的最大条件数量。在查询计划执行的过程中，一些列上的过滤条件可以下推到存储引擎，这样可以利用存储引擎中的索引信息进行数据过滤，减少查询需要扫描的数据量。比如等值条件、IN 谓词中的条件等。这个参数在绝大多数情况下仅影响包含 IN 谓词的查询。如 `WHERE colA IN (1,2,3,4,...)`。较大的数值意味值 IN 谓词中更多的条件可以推送给存储引擎，但过多的条件可能会导致随机读的增加，某些情况下可能会降低查询效率。该配置可以单独进行会话级别的配置，具体可参阅 [变量](../../advanced/variables.md) 中 `max_pushdown_conditions_per_column ` 的说明。
 * 默认值：1024
 
 * 示例
@@ -1432,5 +1438,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
 * 默认值: true
+
+#### `enable_simdjson_reader`
+
+* 描述: 是否在导入json数据时用simdjson来解析。
+* 默认值: false
 
 </version>

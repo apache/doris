@@ -267,7 +267,7 @@ public class Coordinator {
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(backend.getHost().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(backend.getIp().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putInt(backend.getBePort());
         }
     }
@@ -315,12 +315,6 @@ public class Coordinator {
             }
         } else {
             this.descTable = planner.getDescTable().toThrift();
-        }
-
-        for (PlanFragment fragment : fragments) {
-            if (fragment.hasTargetNode()) {
-                LOG.info("Log for ISSUE-16517: " + this.descTable.toString());
-            }
         }
 
         this.returnedAllResults = false;
@@ -542,7 +536,7 @@ public class Coordinator {
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("backend: {}-{}-{}", backendID, backend.getHost(), backend.getBePort());
+                LOG.debug("backend: {}-{}-{}", backendID, backend.getIp(), backend.getBePort());
             }
         }
     }
@@ -1125,7 +1119,10 @@ public class Coordinator {
     private void updateErrorTabletInfos(List<TErrorTabletInfo> errorTabletInfos) {
         lock.lock();
         try {
-            this.errorTabletInfos.addAll(errorTabletInfos);
+            if (this.errorTabletInfos.size() <= Config.max_error_tablet_of_broker_load) {
+                this.errorTabletInfos.addAll(errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load
+                        - this.errorTabletInfos.size()).collect(Collectors.toList()));
+            }
         } finally {
             lock.unlock();
         }
@@ -1215,6 +1212,10 @@ public class Coordinator {
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
                 cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
+            }
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                numReceivedRows = 0;
+                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
             }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
@@ -1407,7 +1408,7 @@ public class Coordinator {
         if (backend == null) {
             throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
-        TNetworkAddress dest = new TNetworkAddress(backend.getHost(), backend.getBeRpcPort());
+        TNetworkAddress dest = new TNetworkAddress(backend.getIp(), backend.getBeRpcPort());
         return dest;
     }
 
@@ -1420,7 +1421,7 @@ public class Coordinator {
         if (backend.getBrpcPort() < 0) {
             return null;
         }
-        return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+        return new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
     }
 
     // estimate if this fragment contains UnionNode
@@ -1942,7 +1943,7 @@ public class Coordinator {
         Reference<Long> backendIdRef = new Reference<Long>();
         selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
-        TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
+        TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
@@ -2020,7 +2021,7 @@ public class Coordinator {
         for (TScanRangeLocations scanRangeLocations : locations) {
             TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
             Backend backend = consistentHash.getNode(scanRangeLocations);
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backend.getId());
             // Why only increase 1 in other implementations ?
             if (scanRangeLocations.getScanRange().isSetExtScanRange()) {
@@ -2058,7 +2059,7 @@ public class Coordinator {
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
                     assignedBytesPerHost, replicaNumPerHost, backendIdRef);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort,
@@ -2551,7 +2552,7 @@ public class Coordinator {
             this.instanceId = fi.instanceId;
             this.address = fi.host;
             this.backend = idToBackend.get(addressToBackendID.get(address));
-            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
             this.profile = new RuntimeProfile(name);
@@ -2698,7 +2699,7 @@ public class Coordinator {
 
             this.address = addr;
             this.backend = idToBackend.get(addressToBackendID.get(address));
-            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
 
             String name = "Fragment " + profileFragmentId + " (host=" + address + ")";
             this.profile = new RuntimeProfile(name);
@@ -3326,4 +3327,5 @@ public class Coordinator {
         }
     }
 }
+
 

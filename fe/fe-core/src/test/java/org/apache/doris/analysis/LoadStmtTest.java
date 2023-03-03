@@ -110,7 +110,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
         Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
@@ -121,7 +121,7 @@ public class LoadStmtTest {
 
         // test ResourceDesc
         stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
-                            new ResourceDesc(resourceName, null), null);
+                            new ResourceDesc(resourceName, null), null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals(EtlJobType.SPARK, stmt.getResourceDesc().getEtlJobType());
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
@@ -137,7 +137,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null, "");
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
@@ -220,7 +220,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap());
+        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap(), "");
         try {
             stmt.analyze(analyzer);
         } catch (AnalysisException ae) {

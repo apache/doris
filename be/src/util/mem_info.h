@@ -76,7 +76,7 @@ public:
 #ifdef USE_JEMALLOC
         size_t value = 0;
         size_t sz = sizeof(value);
-        if (je_mallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
+        if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
             return value;
         }
 #endif

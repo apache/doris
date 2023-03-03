@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "vec/core/block.h"
@@ -141,6 +142,8 @@ private:
             const RowGroupReader::RowGroupIndex& row_group_index);
     Status _init_read_columns();
     Status _init_row_groups(const bool& is_filter_groups);
+    void _init_system_properties();
+    void _init_file_description();
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
     Status _process_page_index(const tparquet::RowGroup& row_group,
@@ -160,6 +163,8 @@ private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
     std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
@@ -176,6 +181,9 @@ private:
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
+
+    // should turn off filtering by page index and lazy read if having complex type
+    bool _has_complex_type = false;
 
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;

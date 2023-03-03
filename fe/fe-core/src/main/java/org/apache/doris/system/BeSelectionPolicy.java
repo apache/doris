@@ -100,8 +100,8 @@ public class BeSelectionPolicy {
             return this;
         }
 
-        public Builder preferComputeNode() {
-            policy.preferComputeNode = true;
+        public Builder preferComputeNode(boolean prefer) {
+            policy.preferComputeNode = prefer;
             return this;
         }
 
@@ -172,14 +172,7 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("cluster|query|load|schedule|tags|medium: ");
-        sb.append(cluster).append("|");
-        sb.append(needQueryAvailable).append("|");
-        sb.append(needLoadAvailable).append("|");
-        sb.append(needScheduleAvailable).append("|");
-        sb.append(resourceTags).append("|");
-        sb.append(storageMedium);
-        return sb.toString();
+        return String.format("cluster=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
+                cluster, needLoadAvailable, needLoadAvailable, needScheduleAvailable, resourceTags, storageMedium);
     }
 }

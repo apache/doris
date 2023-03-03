@@ -157,6 +157,25 @@ ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const 
                              values->filter(filt, result_size_hint));
 }
 
+size_t ColumnMap::filter(const Filter& filter) {
+    const auto key_result_size = keys->filter(filter);
+    const auto value_result_size = values->filter(filter);
+    CHECK_EQ(key_result_size, value_result_size);
+    return value_result_size;
+}
+
+Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    auto to = reinterpret_cast<vectorized::ColumnMap*>(col_ptr);
+
+    auto& array_keys = assert_cast<vectorized::ColumnArray&>(*keys);
+    array_keys.filter_by_selector(sel, sel_size, &to->get_keys());
+
+    auto& array_values = assert_cast<vectorized::ColumnArray&>(*values);
+    array_values.filter_by_selector(sel, sel_size, &to->get_values());
+
+    return Status::OK();
+}
+
 ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     return ColumnMap::create(keys->permute(perm, limit), values->permute(perm, limit));
 }

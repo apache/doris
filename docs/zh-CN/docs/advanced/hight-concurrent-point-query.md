@@ -26,14 +26,14 @@ under the License.
 
 # 基于主键的高并发点查询
 
-<version since="1.2.1">
+<version since="2.0.0">
 </version>
 
 ## 背景 
 Doris 基于列存格式引擎构建，在高并发服务场景中，用户总是希望从系统中获取整行数据。但是，当表宽时，列存格式将大大放大随机读取 IO。Doris 查询引擎和计划对于某些简单的查询（如点查询）来说太重了。需要一个在FE的查询规划中规划短路径来处理这样的查询。FE 是 SQL 查询的访问层服务，使用 Java 编写，分析和解析 SQL 也会导致高并发查询的高 CPU 开销。为了解决上诉问题，我们在Doris中引入了行存、短查询路径、PreparedStatment来解决上诉问题， 下面是开启这些优化的指南。
 
 ## 行存
-用户可以在Olap表中开启行存模式，但是需要额外的空建来存储行存。目前的行存实现是将行存编码后存在单独的一列中，这样做是用于简化行存的实现。行存模式默认是关闭的，如果您想开启则可以在建表语句的property中指定如下属性
+用户可以在Olap表中开启行存模式，但是需要额外的空间来存储行存。目前的行存实现是将行存编码后存在单独的一列中，这样做是用于简化行存的实现。行存模式默认是关闭的，如果您想开启则可以在建表语句的property中指定如下属性
 ```
 "store_row_column" = "true"
 ```
@@ -51,9 +51,9 @@ CREATE TABLE `tbl_point_query` (
   `v6` float NULL,
   `v7` datev2 NULL
 ) ENGINE=OLAP
-UNIQUE KEY(key)
+UNIQUE KEY(`key`)
 COMMENT 'OLAP'
-DISTRIBUTED BY HASH(key) BUCKETS 1
+DISTRIBUTED BY HASH(`key`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1",
 "enable_unique_key_merge_on_write" = "true",
@@ -70,8 +70,8 @@ PROPERTIES (
 为了减少SQL解析和表达式计算的开销， 我们在FE端提供了与mysql协议完全兼容的`PreparedStatement`特性（目前只支持主键点查）。当`PreparedStatement`在FE开启，SQL和其表达式将被提前计算并缓存到session级别的内存缓存中，后续的查询直接使用缓存对象即可。当CPU成为主键点查的瓶颈， 在开启`PreparedStatement`后，将会有4倍+的性能提升。下面是在JDBC中使用`PreparedStatement`的例子
 1. 设置JDB url并在server端开启prepared statement
 ```
-url = jdbc:mysql://127.0.0.1:9137/ycsb?useServerPrepStmts=true
-``
+url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
+```
 
 2. 使用 `PreparedStatement`
 ```java
@@ -85,3 +85,9 @@ readStatement.setInt(1235);
 resultSet = readStatement.executeQuery();
 ...
 ```
+
+## 开启行缓存
+Doris中有针对page级别的cache，每个page中存的是某一列的数据, 所以page cache是针对列的缓存，对于前面提到的行存，一行里包括了多列数据，缓存可能被大查询给刷掉，为了增加行缓存命中率，单独引入了行存缓存，行缓存复用了Doris中的LRU cache机制来保障内存的使用，通过指定下面的的BE配置来开启
+
+- `disable_storage_row_cache` 是否开启行缓存， 默认不开启
+- `row_cache_mem_limit` 指定row cache占用内存的百分比， 默认20%内存

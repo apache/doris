@@ -85,4 +85,35 @@ suite("literal_view_test") {
     FROM test_v
     WHERE substring('2022-12',6,2)='01';
     """
+
+    sql """DROP TABLE IF EXISTS `test_insert`"""
+
+    sql """
+        CREATE TABLE `test_insert` (
+            `id` varchar(11) NULL COMMENT '唯一标识',
+            `name` varchar(10) NULL COMMENT '采集时间',
+            `age` int(11) NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        COMMENT 'test'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into test_insert values (1,'doris',10),(2,'spark',2),(3,'flink',20);
+    """
+
+    qt_sql1 """
+        select id, name
+        from (
+        select '123' as id,
+        '1234' as name,
+        age
+        from test_insert
+        ) a
+        where name != '1234';
+    """
 }

@@ -934,10 +934,10 @@ public class TabletScheduler extends MasterDaemon {
                 // this case should be handled in deleteBackendDropped()
                 return false;
             }
-            List<Replica> replicas = hostToReplicas.get(be.getHost());
+            List<Replica> replicas = hostToReplicas.get(be.getIp());
             if (replicas == null) {
                 replicas = Lists.newArrayList();
-                hostToReplicas.put(be.getHost(), replicas);
+                hostToReplicas.put(be.getIp(), replicas);
             }
             replicas.add(replica);
         }

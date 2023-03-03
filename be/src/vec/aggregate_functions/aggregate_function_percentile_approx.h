@@ -127,8 +127,7 @@ class AggregateFunctionPercentileApprox
 public:
     AggregateFunctionPercentileApprox(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<PercentileApproxState,
-                                           AggregateFunctionPercentileApprox>(argument_types_, {}) {
-    }
+                                           AggregateFunctionPercentileApprox>(argument_types_) {}
 
     String get_name() const override { return "percentile_approx"; }
 
@@ -358,7 +357,7 @@ class AggregateFunctionPercentile final
 public:
     AggregateFunctionPercentile(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentile>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     String get_name() const override { return "percentile"; }
 
@@ -401,7 +400,7 @@ class AggregateFunctionPercentileArray final
 public:
     AggregateFunctionPercentileArray(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     String get_name() const override { return "percentile_array"; }
 

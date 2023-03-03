@@ -32,6 +32,7 @@ namespace doris::vectorized {
 /** A column of array values.
   * In memory, it is represented as one column of a nested type, whose size is equal to the sum of the sizes of all arrays,
   *  and as an array of offsets in it, which allows you to get each element.
+  * NOTE: the ColumnArray won't nest multi-layers. That means the nested type will be concrete data-type.
   */
 class ColumnArray final : public COWHelper<IColumn, ColumnArray> {
 private:
@@ -104,6 +105,7 @@ public:
     void insert_default() override;
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
     template <typename Type>
@@ -227,9 +229,16 @@ private:
     template <typename T>
     ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
 
+    template <typename T>
+    size_t filter_number(const Filter& filter);
+
     ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;
     ColumnPtr filter_nullable(const Filter& filt, ssize_t result_size_hint) const;
     ColumnPtr filter_generic(const Filter& filt, ssize_t result_size_hint) const;
+
+    size_t filter_string(const Filter& filter);
+    size_t filter_nullable(const Filter& filter);
+    size_t filter_generic(const Filter& filter);
 };
 
 } // namespace doris::vectorized

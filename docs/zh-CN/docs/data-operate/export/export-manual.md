@@ -141,8 +141,8 @@ EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
 ```
 
 - `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问对象存储的ACCESS_KEY/SECRET_KEY
-- `AWS_ENDPOINT`：表示对象存储数据中心所在的地域.
-- `AWS_REGION`：Endpoint表示对象存储对外服务的访问域名.
+- `AWS_ENDPOINT`：Endpoint表示对象存储对外服务的访问域名.
+- `AWS_REGION`：表示对象存储数据中心所在的地域.
 
 
 ### 查看导出状态
@@ -187,9 +187,9 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout：作业超时时间。单位是秒。该时间从 CreateTime 开始计算。
 * ErrorMsg：如果作业出现错误，这里会显示错误原因。
 
-<version since="dev">
-
 ### 取消导出任务
+
+<version since="1.2.2"></version>
 
 提交作业后，可以通过  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md) 命令取消导出作业。取消命令举例如下：
 
@@ -198,8 +198,6 @@ CANCEL EXPORT
 FROM example_db
 WHERE LABEL like "%example%";
 ````
-
-</version>
 
 ## 最佳实践
 
@@ -234,4 +232,4 @@ WHERE LABEL like "%example%";
 
 ## 更多帮助
 
-关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。
+关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。

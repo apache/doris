@@ -627,8 +627,14 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
             DCHECK_EQ(inverted_index.columns.size(), 1);
             auto index_id = inverted_index.index_id;
             auto column_name = inverted_index.columns[0];
-            auto column = _tablet_schema->column(column_name);
             auto column_idx = _tablet_schema->field_index(column_name);
+            if (column_idx < 0) {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name << " referenced_column=" << column_idx
+                             << "]";
+                return Status::Error<CE_CMD_PARAMS_ERROR>();
+            }
+            auto column = _tablet_schema->column(column_idx);
             return_columns.emplace_back(column_idx);
             _olap_data_convertor->add_column_data_convertor(column);
 
@@ -731,7 +737,6 @@ Status SchemaChangeForInvertedIndex::_add_nullable(
             auto step = next_run_step();
             if (null_map[offset]) {
                 RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(step));
-                *ptr += field->size() * step;
             } else {
                 if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                     DCHECK(field->get_sub_field_count() == 1);
@@ -743,6 +748,7 @@ Status SchemaChangeForInvertedIndex::_add_nullable(
                             column_name, *ptr, step));
                 }
             }
+            *ptr += field->size() * step;
             offset += step;
         } while (offset < num_rows);
     } catch (const std::exception& e) {
@@ -782,7 +788,13 @@ Status SchemaChangeForInvertedIndex::_write_inverted_index(int32_t segment_idx,
     int idx = 0;
     for (auto& inverted_index : _alter_inverted_indexs) {
         auto column_name = inverted_index.columns[0];
-        auto column = _tablet_schema->column(column_name);
+        auto column_idx = _tablet_schema->field_index(column_name);
+        if (column_idx < 0) {
+            LOG(WARNING) << "referenced column was missing. "
+                         << "[column=" << column_name << " referenced_column=" << column_idx << "]";
+            return Status::Error<CE_CMD_PARAMS_ERROR>();
+        }
+        auto column = _tablet_schema->column(column_idx);
         auto index_id = inverted_index.index_id;
 
         auto converted_result = _olap_data_convertor->convert_column_data(idx++);
@@ -1275,6 +1287,11 @@ Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
         DCHECK_EQ(inverted_index.columns.size(), 1);
         auto column_name = inverted_index.columns[0];
         auto idx = tablet_schema->field_index(column_name);
+        if (idx < 0) {
+            LOG(WARNING) << "referenced column was missing. "
+                         << "[column=" << column_name << " referenced_column=" << idx << "]";
+            return Status::Error<CE_CMD_PARAMS_ERROR>();
+        }
         return_columns.emplace_back(idx);
     }
 
@@ -1382,7 +1399,14 @@ Status SchemaChangeHandler::_drop_inverted_index(std::vector<RowsetReaderSharedP
                                                                      rowset_meta->rowset_id(), i);
             for (auto& inverted_index : alter_inverted_indexs) {
                 auto column_name = inverted_index.columns[0];
-                auto column = tablet_schema->column(column_name);
+                auto column_idx = tablet_schema->field_index(column_name);
+                if (column_idx < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << column_name << " referenced_column=" << column_idx
+                                 << "]";
+                    return Status::Error<CE_CMD_PARAMS_ERROR>();
+                }
+                auto column = tablet_schema->column(column_idx);
                 auto index_id = inverted_index.index_id;
 
                 std::string inverted_index_file =
@@ -1516,6 +1540,10 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // a.Parse the Alter request and convert it into an internal representation
     Status res = _parse_request(sc_params, &rb_changer, &sc_sorting, &sc_directly);
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly
+              << ", base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
 
     auto process_alter_exit = [&]() -> Status {
         {

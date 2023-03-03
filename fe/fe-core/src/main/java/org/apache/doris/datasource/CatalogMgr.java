@@ -76,6 +76,10 @@ import java.util.stream.Collectors;
 public class CatalogMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
+    public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
+    public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
+    public static final String CATALOG_TYPE_PROP = "type";
+
     private static final String YES = "yes";
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -246,7 +250,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
-            replayCreateCatalog(log);
+            CatalogIf catalog = replayCreateCatalog(log);
+            if (catalog instanceof ExternalCatalog) {
+                ((ExternalCatalog) catalog).checkProperties();
+            }
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
@@ -454,11 +461,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for create catalog event.
      */
-    public void replayCreateCatalog(CatalogLog log) throws DdlException {
+    public CatalogIf replayCreateCatalog(CatalogLog log) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
             addCatalog(catalog);
+            return catalog;
         } finally {
             writeUnlock();
         }

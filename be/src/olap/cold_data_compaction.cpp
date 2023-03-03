@@ -19,6 +19,7 @@
 
 #include "common/compiler_util.h"
 #include "olap/compaction.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 
 namespace doris {
@@ -44,6 +45,10 @@ Status ColdDataCompaction::execute_compact_impl() {
 #endif
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t permits = get_compaction_permits();
+    std::shared_lock cooldown_conf_rlock(_tablet->get_cooldown_conf_lock());
+    if (_tablet->cooldown_conf_unlocked().first != _tablet->replica_id()) {
+        return Status::Aborted("this replica is not cooldown replica");
+    }
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
     return Status::OK();
@@ -59,19 +64,24 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
     return check_version_continuity(_input_rowsets);
 }
 
-Status ColdDataCompaction::modify_rowsets() {
+Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
+    UniqueId cooldown_meta_id = UniqueId::gen_uid();
     {
         std::lock_guard wlock(_tablet->get_header_lock());
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
         _tablet->delete_rowsets(_input_rowsets, false);
         _tablet->add_rowsets({_output_rowset});
         // TODO(plat1ko): process primary key
-        _tablet->tablet_meta()->set_cooldown_meta_id(UniqueId::gen_uid());
+        _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
+    Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
+    // write remote tablet meta
+    // TODO(AlexYue): async call `write_cooldown_meta`
+    RETURN_IF_ERROR(_tablet->write_cooldown_meta());
     return Status::OK();
 }
 

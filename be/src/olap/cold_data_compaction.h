@@ -34,7 +34,7 @@ private:
     ReaderType compaction_type() const override { return ReaderType::READER_COLD_DATA_COMPACTION; }
 
     Status pick_rowsets_to_compact() override;
-    Status modify_rowsets() override;
+    Status modify_rowsets(const Merger::Statistics* stats = nullptr) override;
 };
 
 } // namespace doris

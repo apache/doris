@@ -372,7 +372,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
                             break;
                         }
-                        if (columnDef.getType().isCollectionType()) {
+                        if (columnDef.getType().isComplexType()) {
                             break;
                         }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -435,6 +435,14 @@ public class CreateTableStmt extends DdlStmt {
         }
         if (enableStoreRowColumn) {
             columnDefs.add(ColumnDef.newRowStoreColumnDef());
+        }
+        if (Config.enable_hidden_version_column_by_default && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.NONE));
+            } else {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
+            }
         }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";

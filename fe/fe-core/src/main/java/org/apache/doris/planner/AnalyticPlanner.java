@@ -787,7 +787,7 @@ public class AnalyticPlanner {
 
             for (WindowGroup g : windowGroups) {
                 TupleDescriptor outputTuple = g.physicalOutputTuple;
-                Preconditions.checkState(outputTuple.getIsMaterialized());
+                Preconditions.checkState(outputTuple.isMaterialized());
                 Preconditions.checkState(outputTuple.getByteSize() != -1);
                 totalOutputTupleSize += outputTuple.getByteSize();
             }

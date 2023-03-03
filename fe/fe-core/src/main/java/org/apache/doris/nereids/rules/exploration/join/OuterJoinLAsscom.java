@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -63,24 +62,21 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
 
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            topJoin.getHashJoinConjuncts(), topJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                            a, c, bottomJoin.getJoinReorderContext());
+                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(a, c);
+                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            bottomJoin.getJoinType(),
-                            bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                            newBottomJoin, b, topJoin.getJoinReorderContext());
+                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(newBottomJoin, b);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     return newTopJoin;

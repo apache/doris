@@ -22,7 +22,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Set;
 
-public class PushdownExpressionsInHashConditionTest extends TestWithFeService implements PatternMatchSupported {
+public class PushdownExpressionsInHashConditionTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

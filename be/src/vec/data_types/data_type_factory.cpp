@@ -169,6 +169,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_MAP:
         DCHECK(col_desc.children.size() == 2);
+        DCHECK_EQ(col_desc.contains_nulls.size(), 2);
         nested = std::make_shared<vectorized::DataTypeMap>(
                 create_data_type(col_desc.children[0], col_desc.contains_nulls[0]),
                 create_data_type(col_desc.children[1], col_desc.contains_nulls[1]));

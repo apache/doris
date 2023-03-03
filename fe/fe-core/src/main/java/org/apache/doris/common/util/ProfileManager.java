@@ -79,6 +79,12 @@ public class ProfileManager {
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
 
     public static final String TRACE_ID = "Trace ID";
+    public static final String ANALYSIS_TIME = "Analysis Time";
+    public static final String FETCH_RESULT_TIME = "Fetch Result Time";
+    public static final String PLAN_TIME = "Plan Time";
+    public static final String SCHEDULE_TIME = "Schedule Time";
+    public static final String WRITE_RESULT_TIME = "Write Result Time";
+    public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
     public enum ProfileType {
         QUERY,
@@ -88,6 +94,9 @@ public class ProfileManager {
     public static final List<String> PROFILE_HEADERS = Collections.unmodifiableList(
             Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
+    public static final List<String> EXECUTION_HEADERS = Collections.unmodifiableList(
+            Arrays.asList(ANALYSIS_TIME, PLAN_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME,
+              WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME));
 
     private class ProfileElement {
         public ProfileElement(RuntimeProfile profile) {
@@ -145,6 +154,10 @@ public class ProfileManager {
         RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
         for (String header : PROFILE_HEADERS) {
             element.infoStrings.put(header, summaryProfile.getInfoString(header));
+        }
+        RuntimeProfile executionProfile = summaryProfile.getChildList().get(0).first;
+        for (String header : EXECUTION_HEADERS) {
+            element.infoStrings.put(header, executionProfile.getInfoString(header));
         }
 
         MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
@@ -213,6 +226,9 @@ public class ProfileManager {
 
                 List<String> row = Lists.newArrayList();
                 for (String str : PROFILE_HEADERS) {
+                    row.add(infoStrings.get(str));
+                }
+                for (String str : EXECUTION_HEADERS) {
                     row.add(infoStrings.get(str));
                 }
                 result.add(row);

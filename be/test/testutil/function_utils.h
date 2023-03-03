@@ -38,7 +38,6 @@ public:
 
 private:
     RuntimeState* _state = nullptr;
-    MemPool* _memory_pool = nullptr;
     doris_udf::FunctionContext* _fn_ctx = nullptr;
 };
 

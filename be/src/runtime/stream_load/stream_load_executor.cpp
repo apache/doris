@@ -39,15 +39,15 @@ TLoadTxnRollbackResult k_stream_load_rollback_result;
 Status k_stream_load_plan_status;
 #endif
 
-Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
+Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
 // submit this params
 #ifndef BE_TEST
-    ctx->ref();
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
             ctx->put_result.params, [ctx, this](RuntimeState* state, Status* status) {
+                ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
                 ctx->commit_infos = std::move(state->tablet_commit_infos());
                 if (status->ok()) {
                     ctx->number_total_rows = state->num_rows_load_total();
@@ -110,19 +110,14 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 if (ctx->need_commit_self && ctx->body_sink != nullptr) {
                     if (ctx->body_sink->cancelled() || !status->ok()) {
                         ctx->status = *status;
-                        this->rollback_txn(ctx);
+                        this->rollback_txn(ctx.get());
                     } else {
-                        this->commit_txn(ctx);
+                        this->commit_txn(ctx.get());
                     }
-                }
-
-                if (ctx->unref()) {
-                    delete ctx;
                 }
             });
     if (!st.ok()) {
         // no need to check unref's return value
-        ctx->unref();
         return st;
     }
 #else
@@ -203,6 +198,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
         if (status.is<PUBLISH_TIMEOUT>()) {
             ctx->need_rollback = false;
         }
+        ctx->status = status;
         return status;
     }
     // precommit success, set need_rollback to false
@@ -284,6 +280,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
         if (status.is<PUBLISH_TIMEOUT>()) {
             ctx->need_rollback = false;
         }
+        ctx->status = status;
         return status;
     }
     // commit success, set need_rollback to false

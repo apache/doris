@@ -41,6 +41,7 @@ import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
@@ -287,7 +288,9 @@ public class ShowExecutor {
             handleShowRoutineLoadTask();
         } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
             handleShowCreateRoutineLoad();
-        } else if (stmt instanceof ShowDeleteStmt) {
+        } else if (stmt instanceof ShowCreateLoadStmt) {
+            handleShowCreateLoad();
+        }  else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
@@ -1932,7 +1935,7 @@ public class ShowExecutor {
                             dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods,
                                     dynamicPartitionProperty.getTimeUnit().toUpperCase())));
                 } catch (DdlException e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 } finally {
                     olapTable.readUnlock();
                 }
@@ -2125,6 +2128,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
+    private void handleShowCreateLoad() throws AnalysisException {
+        ShowCreateLoadStmt showCreateLoadStmt = (ShowCreateLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        String labelName = showCreateLoadStmt.getLabel();
+
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        Env env = ctx.getEnv();
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateLoadStmt.getDb());
+        long dbId = db.getId();
+        try {
+            List<Pair<Long, String>> result = env.getLoadManager().getCreateLoadStmt(dbId, labelName);
+            rows.addAll(result.stream().map(pair -> Lists.newArrayList(String.valueOf(pair.first), pair.second))
+                    .collect(Collectors.toList()));
+        } catch (DdlException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
+    }
+
     private void handleShowDataSkew() throws AnalysisException {
         ShowDataSkewStmt showStmt = (ShowDataSkewStmt) stmt;
         try {
@@ -2228,7 +2251,7 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Lists.newArrayList();
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isQueryAvailable() && be.isLoadAvailable()) {
-                AgentClient client = new AgentClient(be.getHost(), be.getBePort());
+                AgentClient client = new AgentClient(be.getIp(), be.getBePort());
                 TCheckStorageFormatResult result = client.checkStorageFormat();
                 if (result == null) {
                     throw new AnalysisException("get tablet data from backend: " + be.getId() + "error.");
@@ -2432,7 +2455,7 @@ public class ShowExecutor {
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(tabletId));
             row.add(String.valueOf(backendId));
-            row.add(be.getHost());
+            row.add(be.getIp());
             row.add(task.getResultSnapshotPath());
             row.add(String.valueOf(copyStmt.getExpirationMinutes()));
             row.add(createTableStmt.get(0));

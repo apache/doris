@@ -37,6 +37,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_struct.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -846,36 +847,6 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
-    _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
-    _min_decimalv2_val.resize(_output_tuple_desc->slots().size());
-    // check if need validate batch
-    for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
-        auto slot = _output_tuple_desc->slots()[i];
-        switch (slot->type().type) {
-        // For DECIMAL32,DECIMAL64,DECIMAL128, we have done precision and scale conversion so just
-        // skip data validation here.
-        case TYPE_DECIMALV2:
-            _max_decimalv2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
-            _min_decimalv2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
-            _need_validate_data = true;
-            break;
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATEV2:
-        case TYPE_DATETIMEV2:
-        case TYPE_HLL:
-        case TYPE_OBJECT:
-        case TYPE_STRING:
-        case TYPE_ARRAY:
-            _need_validate_data = true;
-            break;
-        default:
-            break;
-        }
-    }
-
     // add all counter
     _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _output_rows_counter = ADD_COUNTER(_profile, "RowsReturned", TUnit::UNIT);
@@ -1017,6 +988,11 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         if (stop_processing) {
             return Status::EndOfFile("Encountered unqualified data, stop processing");
         }
+        is_continue = true;
+        return status;
+    }
+    if (!(*partition)->is_mutable) {
+        _number_immutable_partition_filtered_rows++;
         is_continue = true;
         return status;
     }
@@ -1227,6 +1203,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                       state->num_rows_load_unselected();
         state->set_num_rows_load_total(num_rows_load_total);
         state->update_num_rows_load_filtered(_number_filtered_rows);
+        state->update_num_rows_load_unselected(_number_immutable_partition_filtered_rows);
 
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
@@ -1264,6 +1241,32 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     _close_status = status;
     DataSink::close(state, exec_status);
     return status;
+}
+
+template <bool is_min>
+DecimalV2Value VOlapTableSink::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
+    std::map<std::pair<int, int>, DecimalV2Value>* pmap = nullptr;
+    if constexpr (is_min) {
+        pmap = &_min_decimalv2_val;
+    } else {
+        pmap = &_max_decimalv2_val;
+    }
+
+    // found
+    auto iter = pmap->find({type.precision, type.scale});
+    if (iter != pmap->end()) {
+        return iter->second;
+    }
+
+    // save min or max DecimalV2Value for next time
+    DecimalV2Value value;
+    if constexpr (is_min) {
+        value.to_min_decimal(type.precision, type.scale);
+    } else {
+        value.to_max_decimal(type.precision, type.scale);
+    }
+    pmap->emplace(std::pair<int, int> {type.precision, type.scale}, value);
+    return value;
 }
 
 Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescriptor& type,
@@ -1381,12 +1384,15 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         invalid = true;
                     }
                 }
-                if (dec_val > _max_decimalv2_val[slot_index] ||
-                    dec_val < _min_decimalv2_val[slot_index]) {
+                const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
+                const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
+                if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                    fmt::format_to(error_msg, ", precision={}, scale={}; ", type.precision,
+                    fmt::format_to(error_msg, ", precision={}, scale={}", type.precision,
                                    type.scale);
+                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimalv2.to_string(),
+                                   max_decimalv2.to_string());
                     invalid = true;
                 }
 
@@ -1419,7 +1425,17 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         }
         break;
     }
-    // TODO(xy): add struct type validate
+    case TYPE_STRUCT: {
+        const auto column_struct =
+                assert_cast<const vectorized::ColumnStruct*>(real_column_ptr.get());
+        DCHECK(type.children.size() == column_struct->tuple_size());
+        for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
+            RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
+                                             column_struct->get_column_ptr(sc), slot_index,
+                                             filter_bitmap, stop_processing, error_prefix));
+        }
+        break;
+    }
     default:
         break;
     }

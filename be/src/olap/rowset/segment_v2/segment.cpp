@@ -129,7 +129,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(load_index());
-    if (read_options.col_id_to_del_predicates.empty() &&
+    if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), schema));
     } else {
@@ -198,6 +198,7 @@ Status Segment::_load_pk_bloom_filter() {
     return _load_pk_bf_once.call([this] {
         RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, _footer.primary_key_index_meta()));
         _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+        _segment_meta_mem_tracker->consume(_pk_index_reader->get_bf_memory_size());
         return Status::OK();
     });
 }
@@ -214,6 +215,7 @@ Status Segment::load_index() {
             RETURN_IF_ERROR(
                     _pk_index_reader->parse_index(_file_reader, _footer.primary_key_index_meta()));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
+            _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -363,6 +365,22 @@ Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
         }
     }
 
+    return Status::OK();
+}
+
+Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
+    RETURN_IF_ERROR(load_pk_index_and_bf());
+    std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&iter));
+
+    auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+            _pk_index_reader->type_info()->type(), 1, 0);
+    auto index_column = index_type->create_column();
+    RETURN_IF_ERROR(iter->seek_to_ordinal(row_id));
+    size_t num_read = 1;
+    RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
+    CHECK(num_read == 1);
+    *key = index_column->get_data_at(0).to_string();
     return Status::OK();
 }
 

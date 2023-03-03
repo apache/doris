@@ -261,6 +261,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _storage_policy_id(b._storage_policy_id),
+          _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap) {};
 
@@ -323,9 +324,11 @@ Status TabletMeta::create_from_file(const string& file_path) {
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
-    if (file_handler.open(file_path, O_RDONLY) != Status::OK()) {
+    auto open_status = file_handler.open(file_path, O_RDONLY);
+
+    if (!open_status.ok()) {
         LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return Status::Error<IO_ERROR>();
+        return open_status;
     }
 
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
@@ -399,9 +402,11 @@ Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
-    if (!file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR)) {
+    auto open_status =
+            file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (!open_status.ok()) {
         LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return Status::Error<IO_ERROR>();
+        return open_status;
     }
 
     try {
@@ -617,14 +622,14 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     if (_enable_unique_key_merge_on_write) {
-        std::set<RowsetId> rs_ids;
-        for (const auto& rowset : _rs_metas) {
-            rs_ids.insert(rowset->rowset_id());
+        std::set<RowsetId> stale_rs_ids;
+        for (const auto& rowset : _stale_rs_metas) {
+            stale_rs_ids.insert(rowset->rowset_id());
         }
         DeleteBitmapPB* delete_bitmap_pb = tablet_meta_pb->mutable_delete_bitmap();
         for (auto& [id, bitmap] : delete_bitmap().snapshot().delete_bitmap) {
             auto& [rowset_id, segment_id, ver] = id;
-            if (rs_ids.count(rowset_id) == 0) {
+            if (stale_rs_ids.count(rowset_id) != 0) {
                 continue;
             }
             delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
@@ -981,6 +986,14 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
     }
+}
+
+uint64_t DeleteBitmap::cardinality() {
+    uint64_t cardinality = 0;
+    for (auto entry : delete_bitmap) {
+        cardinality += entry.second.cardinality();
+    }
+    return cardinality;
 }
 
 // We cannot just copy the underlying memory to construct a string

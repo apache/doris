@@ -102,6 +102,7 @@ struct VOlapTablePartition {
     std::vector<BlockRow> in_keys;
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
+    bool is_mutable;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}
@@ -188,6 +189,8 @@ private:
 
     bool _is_in_partition = false;
     uint32_t _mem_usage = 0;
+    // only works when using list partition, the resource is owned by _partitions
+    VOlapTablePartition* _default_partition = nullptr;
 };
 
 using TabletLocation = TTabletLocation;

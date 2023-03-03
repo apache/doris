@@ -47,6 +47,7 @@ public class JdbcExternalTable extends ExternalTable {
         super(id, name, catalog, dbName, TableType.JDBC_EXTERNAL_TABLE);
     }
 
+    @Override
     protected synchronized void makeSureInitialized() {
         if (!objectCreated) {
             jdbcTable = toJdbcTable();

@@ -33,9 +33,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
-import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -110,6 +110,12 @@ public class EsScanNode extends ScanNode {
         buildQuery();
     }
 
+    public void init() throws UserException {
+        computeColumnFilter();
+        assignBackends();
+        buildQuery();
+    }
+
     @Override
     public int getNumInstances() {
         return shardScanRanges.size();
@@ -122,6 +128,21 @@ public class EsScanNode extends ScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
+        if (isFinalized) {
+            return;
+        }
+
+        try {
+            shardScanRanges = getShardLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+
+        isFinalized = true;
+    }
+
+    @Override
+    public void finalizeForNereids() throws UserException {
         if (isFinalized) {
             return;
         }
@@ -192,7 +213,7 @@ public class EsScanNode extends ScanNode {
         backendList = Lists.newArrayList();
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
-                backendMap.put(be.getHost(), be);
+                backendMap.put(be.getIp(), be);
                 backendList.add(be);
             }
         }
@@ -265,7 +286,7 @@ public class EsScanNode extends ScanNode {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = candidateBeList.get(i);
                     location.setBackendId(be.getId());
-                    location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+                    location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
                     locations.addToLocations(location);
                 }
 
@@ -362,7 +383,9 @@ public class EsScanNode extends ScanNode {
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             List<Expr> notPushDownList = new ArrayList<>();
             for (Expr expr : conjuncts) {
-                QueryBuilder queryBuilder = EsUtil.toEsDsl(expr, notPushDownList, fieldsContext);
+                QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
+                        BuilderOptions.builder().likePushDown(table.isLikePushDown())
+                                .needCompatDateFields(table.needCompatDateFields()).build());
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

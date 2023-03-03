@@ -1,5 +1,3 @@
-SET enable_nereids_planner=TRUE;
-SET enable_fallback_to_original_planner=FALSE;
 -- Licensed to the Apache Software Foundation (ASF) under one
 -- or more contributor license agreements.  See the NOTICE file
 -- distributed with this work for additional information
@@ -17,6 +15,10 @@ SET enable_fallback_to_original_planner=FALSE;
 -- specific language governing permissions and limitations
 -- under the License.
 --Q4.1
+SET enable_nereids_planner=true;
+SET enable_vectorized_engine=true;
+SET enable_fallback_to_original_planner=false;
+
 SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
     C_NATION,
     SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit

@@ -78,6 +78,11 @@ public abstract class SubqueryExpr extends Expression {
     }
 
     @Override
+    public boolean hasUnbound() {
+        return super.hasUnbound() || !queryPlan.bound();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -86,39 +91,8 @@ public abstract class SubqueryExpr extends Expression {
             return false;
         }
         SubqueryExpr other = (SubqueryExpr) o;
-        return checkEquals(queryPlan, other.queryPlan)
-                && Objects.equals(correlateSlots, other.correlateSlots);
-    }
-
-    /**
-     * Compare whether all logical nodes under query are the same.
-     * @param i original query.
-     * @param o compared query.
-     * @return equal ? true : false;
-     */
-    protected boolean checkEquals(Object i, Object o) {
-        if (!(i instanceof LogicalPlan) || !(o instanceof LogicalPlan)) {
-            return false;
-        }
-        LogicalPlan other = (LogicalPlan) o;
-        LogicalPlan input = (LogicalPlan) i;
-        if (other.children().size() != input.children().size()) {
-            return false;
-        }
-        boolean equal;
-        for (int j = 0; j < input.children().size(); j++) {
-            LogicalPlan childInput = (LogicalPlan) input.child(j);
-            LogicalPlan childOther = (LogicalPlan) other.child(j);
-            equal = Objects.equals(childInput, childOther);
-            if (!equal) {
-                return false;
-            }
-            if (childInput.children().size() != childOther.children().size()) {
-                return false;
-            }
-            checkEquals(childInput, childOther);
-        }
-        return true;
+        return Objects.equals(correlateSlots, other.correlateSlots)
+                && queryPlan.deepEquals(other.queryPlan);
     }
 
     @Override

@@ -35,7 +35,8 @@ CONF_Int32(be_port, "9060");
 // port for brpc
 CONF_Int32(brpc_port, "8060");
 
-// the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
+// the number of bthreads for brpc, the default value is set to -1,
+// which means the number of bthreads is #cpu-cores
 CONF_Int32(brpc_num_threads, "-1");
 
 // port to brpc server for single replica load
@@ -178,8 +179,11 @@ CONF_mInt32(status_report_interval, "5");
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
 CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
-// number of olap scanner thread pool size
+// number of scanner thread pool size for olap table
+// and the min thread num of remote scanner thread pool
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
+// max number of remote scanner thread pool size
+CONF_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
 // number of olap scanner thread pool queue size
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
@@ -216,7 +220,7 @@ CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-CONF_mInt32(cache_clean_interval, "1800");
+CONF_mInt32(cache_clean_interval, "60");
 // the clean interval of tablet lookup cache
 CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
@@ -261,7 +265,7 @@ CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-CONF_Bool(disable_storage_row_cache, "false");
+CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -385,8 +389,15 @@ CONF_Int32(single_replica_load_download_num_workers, "64");
 CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 CONF_mInt64(load_error_log_reserve_hours, "48");
-CONF_Int32(number_tablet_writer_threads, "16");
-CONF_Int32(number_slave_replica_download_threads, "64");
+
+// be brpc interface is classified into two categories: light and heavy
+// each category has diffrent thread number
+// threads to handle heavy api interface, such as transmit_data/transmit_block etc
+CONF_Int32(brpc_heavy_work_pool_threads, "192");
+// threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
+CONF_Int32(brpc_light_work_pool_threads, "32");
+CONF_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
+CONF_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");
@@ -489,7 +500,11 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "100");
+
+// After full gc, no longer full gc and minor gc during sleep.
+// After minor gc, no minor gc during sleep, but full gc is possible.
+CONF_mInt32(memory_gc_sleep_time_s, "1");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -564,6 +579,7 @@ CONF_mInt32(path_gc_check_interval_second, "86400");
 CONF_mInt32(path_gc_check_step, "1000");
 CONF_mInt32(path_gc_check_step_interval_ms, "10");
 CONF_mInt32(path_scan_interval_second, "86400");
+CONF_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -897,6 +913,7 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
+CONF_Int32(inverted_index_fd_number_limit_percent, "50"); // 50%
 
 // inverted index match bitmap cache size
 CONF_String(inverted_index_query_cache_limit, "10%");
@@ -912,6 +929,13 @@ CONF_Int32(max_depth_in_bkd_tree, "32");
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "200");
+
+// Report a tablet as bad when io errors occurs more than this value.
+CONF_mInt64(max_tablet_io_errors, "-1");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

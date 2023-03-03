@@ -220,7 +220,7 @@ public:
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
-            kv.second.write(writer);
+            kv.second.write_to(writer);
             writer += kv.second.getSizeInBytes();
         }
     }
@@ -307,7 +307,7 @@ public:
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
-            kv.second.write(writer);
+            kv.second.write_to(writer);
             writer += kv.second.getSizeInBytes();
         }
     }

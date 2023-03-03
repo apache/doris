@@ -40,7 +40,7 @@ class AggregateFunctionCount final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount> {
 public:
     AggregateFunctionCount(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "count"; }
 
@@ -121,13 +121,14 @@ public:
     DataTypePtr get_serialized_type() const override { return std::make_shared<DataTypeUInt64>(); }
 };
 
-/// Simply count number of not-NULL values.
+// TODO: Maybe AggregateFunctionCountNotNullUnary should be a subclass of AggregateFunctionCount
+// Simply count number of not-NULL values.
 class AggregateFunctionCountNotNullUnary final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData,
                                               AggregateFunctionCountNotNullUnary> {
 public:
     AggregateFunctionCountNotNullUnary(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "count"; }
 

@@ -79,17 +79,19 @@ using apache::thrift::transport::TTransportException;
 class RuntimeProfile;
 class FragmentExecState {
 public:
+    using report_status_callback_impl = std::function<void(const ReportStatusRequest)>;
     // Constructor by using QueryFragmentsCtx
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
-                      ExecEnv* exec_env, std::shared_ptr<QueryFragmentsCtx> fragments_ctx);
+                      ExecEnv* exec_env, std::shared_ptr<QueryFragmentsCtx> fragments_ctx,
+                      const report_status_callback_impl& report_status_cb_impl);
 
     Status prepare(const TExecPlanFragmentParams& params);
-
-    std::string to_http_path(const std::string& file_name);
 
     Status execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    bool is_canceled() { return _cancelled; }
+
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
     TUniqueId query_id() const { return _query_id; }
@@ -146,7 +148,6 @@ private:
     TUniqueId _fragment_instance_id;
     // Used to report to coordinator which backend is over
     int _backend_num;
-    ExecEnv* _exec_env;
     TNetworkAddress _coord_addr;
 
     PlanFragmentExecutor _executor;
@@ -171,22 +172,24 @@ private:
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
+    report_status_callback_impl _report_status_cb_impl;
 };
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                      const TUniqueId& fragment_instance_id, int backend_num,
                                      ExecEnv* exec_env,
-                                     std::shared_ptr<QueryFragmentsCtx> fragments_ctx)
+                                     std::shared_ptr<QueryFragmentsCtx> fragments_ctx,
+                                     const report_status_callback_impl& report_status_cb_impl)
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
-          _exec_env(exec_env),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
           _set_rsc_info(false),
           _timeout_second(-1),
-          _fragments_ctx(std::move(fragments_ctx)) {
+          _fragments_ctx(std::move(fragments_ctx)),
+          _report_status_cb_impl(report_status_cb_impl) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
@@ -256,154 +259,19 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
     return Status::OK();
 }
 
-std::string FragmentExecState::to_http_path(const std::string& file_name) {
-    std::stringstream url;
-    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
-        << "/api/_download_load?"
-        << "token=" << _exec_env->token() << "&file=" << file_name;
-    return url.str();
-}
-
 // There can only be one of these callbacks in-flight at any moment, because
 // it is only invoked from the executor's reporting thread.
 // Also, the reported status will always reflect the most recent execution status,
 // including the final status when execution finishes.
 void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfile* profile,
                                              bool done) {
+    _report_status_cb_impl(
+            {status, profile, done, _coord_addr, _query_id, -1, _fragment_instance_id, _backend_num,
+             _executor.runtime_state(),
+             std::bind(&FragmentExecState::update_status, this, std::placeholders::_1),
+             std::bind(&PlanFragmentExecutor::cancel, &_executor, std::placeholders::_1,
+                       std::placeholders::_2)});
     DCHECK(status.ok() || done); // if !status.ok() => done
-    Status exec_status = update_status(status);
-
-    Status coord_status;
-    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
-    if (!coord_status.ok()) {
-        std::stringstream ss;
-        UniqueId uid(_query_id.hi, _query_id.lo);
-        ss << "couldn't get a client for " << _coord_addr << ", reason: " << coord_status;
-        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
-        update_status(Status::InternalError(ss.str()));
-        return;
-    }
-
-    TReportExecStatusParams params;
-    params.protocol_version = FrontendServiceVersion::V1;
-    params.__set_query_id(_query_id);
-    params.__set_backend_num(_backend_num);
-    params.__set_fragment_instance_id(_fragment_instance_id);
-    exec_status.set_t_status(&params);
-    params.__set_done(done);
-
-    RuntimeState* runtime_state = _executor.runtime_state();
-    DCHECK(runtime_state != nullptr);
-    if (runtime_state->query_type() == TQueryType::LOAD && !done && status.ok()) {
-        // this is a load plan, and load is not finished, just make a brief report
-        params.__set_loaded_rows(runtime_state->num_rows_load_total());
-        params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
-    } else {
-        if (runtime_state->query_type() == TQueryType::LOAD) {
-            params.__set_loaded_rows(runtime_state->num_rows_load_total());
-            params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
-        }
-        if (profile == nullptr) {
-            params.__isset.profile = false;
-        } else {
-            profile->to_thrift(&params.profile);
-            params.__isset.profile = true;
-        }
-
-        if (!runtime_state->output_files().empty()) {
-            params.__isset.delta_urls = true;
-            for (auto& it : runtime_state->output_files()) {
-                params.delta_urls.push_back(to_http_path(it));
-            }
-        }
-        if (runtime_state->num_rows_load_total() > 0 ||
-            runtime_state->num_rows_load_filtered() > 0) {
-            params.__isset.load_counters = true;
-
-            static std::string s_dpp_normal_all = "dpp.norm.ALL";
-            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-            static std::string s_unselected_rows = "unselected.rows";
-
-            params.load_counters.emplace(s_dpp_normal_all,
-                                         std::to_string(runtime_state->num_rows_load_success()));
-            params.load_counters.emplace(s_dpp_abnormal_all,
-                                         std::to_string(runtime_state->num_rows_load_filtered()));
-            params.load_counters.emplace(s_unselected_rows,
-                                         std::to_string(runtime_state->num_rows_load_unselected()));
-        }
-        if (!runtime_state->get_error_log_file_path().empty()) {
-            params.__set_tracking_url(
-                    to_load_error_http_path(runtime_state->get_error_log_file_path()));
-        }
-        if (!runtime_state->export_output_files().empty()) {
-            params.__isset.export_files = true;
-            params.export_files = runtime_state->export_output_files();
-        }
-        if (!runtime_state->tablet_commit_infos().empty()) {
-            params.__isset.commitInfos = true;
-            params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
-            for (auto& info : runtime_state->tablet_commit_infos()) {
-                params.commitInfos.push_back(info);
-            }
-        }
-        if (!runtime_state->error_tablet_infos().empty()) {
-            params.__isset.errorTabletInfos = true;
-            params.errorTabletInfos.reserve(runtime_state->error_tablet_infos().size());
-            for (auto& info : runtime_state->error_tablet_infos()) {
-                params.errorTabletInfos.push_back(info);
-            }
-        }
-
-        // Send new errors to coordinator
-        runtime_state->get_unreported_errors(&(params.error_log));
-        params.__isset.error_log = (params.error_log.size() > 0);
-    }
-
-    if (_exec_env->master_info()->__isset.backend_id) {
-        params.__set_backend_id(_exec_env->master_info()->backend_id);
-    }
-
-    TReportExecStatusResult res;
-    Status rpc_status;
-
-    VLOG_DEBUG << "reportExecStatus params is "
-               << apache::thrift::ThriftDebugString(params).c_str();
-    if (!exec_status.ok()) {
-        LOG(WARNING) << "report error status: " << exec_status.to_string()
-                     << " to coordinator: " << _coord_addr << ", query id: " << print_id(_query_id)
-                     << ", instance id: " << print_id(_fragment_instance_id);
-    }
-    try {
-        try {
-            coord->reportExecStatus(res, params);
-        } catch (TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_query_id)
-                         << ", instance id: " << print_id(_fragment_instance_id) << " to "
-                         << _coord_addr << ", err: " << e.what();
-            rpc_status = coord.reopen();
-
-            if (!rpc_status.ok()) {
-                // we need to cancel the execution of this fragment
-                update_status(rpc_status);
-                _executor.cancel();
-                return;
-            }
-            coord->reportExecStatus(res, params);
-        }
-
-        rpc_status = Status(res.status);
-    } catch (TException& e) {
-        std::stringstream msg;
-        msg << "ReportExecStatus() to " << _coord_addr << " failed:\n" << e.what();
-        LOG(WARNING) << msg.str();
-        rpc_status = Status::InternalError(msg.str());
-    }
-
-    if (!rpc_status.ok()) {
-        // we need to cancel the execution of this fragment
-        update_status(rpc_status);
-        _executor.cancel();
-    }
 }
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
@@ -449,9 +317,163 @@ FragmentMgr::~FragmentMgr() {
     }
 }
 
+std::string FragmentMgr::to_http_path(const std::string& file_name) {
+    std::stringstream url;
+    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+        << "/api/_download_load?"
+        << "token=" << _exec_env->token() << "&file=" << file_name;
+    return url.str();
+}
+
+// There can only be one of these callbacks in-flight at any moment, because
+// it is only invoked from the executor's reporting thread.
+// Also, the reported status will always reflect the most recent execution status,
+// including the final status when execution finishes.
+void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
+    DCHECK(req.status.ok() || req.done); // if !status.ok() => done
+    Status exec_status = req.update_fn(req.status);
+
+    Status coord_status;
+    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
+                                    &coord_status);
+    if (!coord_status.ok()) {
+        std::stringstream ss;
+        UniqueId uid(req.query_id.hi, req.query_id.lo);
+        ss << "couldn't get a client for " << req.coord_addr << ", reason: " << coord_status;
+        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
+        req.update_fn(Status::InternalError(ss.str()));
+        return;
+    }
+
+    TReportExecStatusParams params;
+    params.protocol_version = FrontendServiceVersion::V1;
+    params.__set_query_id(req.query_id);
+    params.__set_backend_num(req.backend_num);
+    params.__set_fragment_instance_id(req.fragment_instance_id);
+    params.__set_fragment_id(req.fragment_id);
+    exec_status.set_t_status(&params);
+    params.__set_done(req.done);
+
+    DCHECK(req.runtime_state != nullptr);
+    if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
+        // this is a load plan, and load is not finished, just make a brief report
+        params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+        params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
+    } else {
+        if (req.runtime_state->query_type() == TQueryType::LOAD) {
+            params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+            params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
+        }
+        if (req.profile == nullptr) {
+            params.__isset.profile = false;
+        } else {
+            req.profile->to_thrift(&params.profile);
+            params.__isset.profile = true;
+        }
+
+        if (!req.runtime_state->output_files().empty()) {
+            params.__isset.delta_urls = true;
+            for (auto& it : req.runtime_state->output_files()) {
+                params.delta_urls.push_back(to_http_path(it));
+            }
+        }
+        if (req.runtime_state->num_rows_load_total() > 0 ||
+            req.runtime_state->num_rows_load_filtered() > 0) {
+            params.__isset.load_counters = true;
+
+            static std::string s_dpp_normal_all = "dpp.norm.ALL";
+            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+            static std::string s_unselected_rows = "unselected.rows";
+
+            params.load_counters.emplace(
+                    s_dpp_normal_all, std::to_string(req.runtime_state->num_rows_load_success()));
+            params.load_counters.emplace(
+                    s_dpp_abnormal_all,
+                    std::to_string(req.runtime_state->num_rows_load_filtered()));
+            params.load_counters.emplace(
+                    s_unselected_rows,
+                    std::to_string(req.runtime_state->num_rows_load_unselected()));
+        }
+        if (!req.runtime_state->get_error_log_file_path().empty()) {
+            params.__set_tracking_url(
+                    to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
+        }
+        if (!req.runtime_state->export_output_files().empty()) {
+            params.__isset.export_files = true;
+            params.export_files = req.runtime_state->export_output_files();
+        }
+        if (!req.runtime_state->tablet_commit_infos().empty()) {
+            params.__isset.commitInfos = true;
+            params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
+            for (auto& info : req.runtime_state->tablet_commit_infos()) {
+                params.commitInfos.push_back(info);
+            }
+        }
+        if (!req.runtime_state->error_tablet_infos().empty()) {
+            params.__isset.errorTabletInfos = true;
+            params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
+            for (auto& info : req.runtime_state->error_tablet_infos()) {
+                params.errorTabletInfos.push_back(info);
+            }
+        }
+
+        // Send new errors to coordinator
+        req.runtime_state->get_unreported_errors(&(params.error_log));
+        params.__isset.error_log = (params.error_log.size() > 0);
+    }
+
+    if (_exec_env->master_info()->__isset.backend_id) {
+        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    }
+
+    TReportExecStatusResult res;
+    Status rpc_status;
+
+    VLOG_DEBUG << "reportExecStatus params is "
+               << apache::thrift::ThriftDebugString(params).c_str();
+    if (!exec_status.ok()) {
+        LOG(WARNING) << "report error status: " << exec_status.to_string()
+                     << " to coordinator: " << req.coord_addr
+                     << ", query id: " << print_id(req.query_id)
+                     << ", instance id: " << print_id(req.fragment_instance_id);
+    }
+    try {
+        try {
+            coord->reportExecStatus(res, params);
+        } catch (TTransportException& e) {
+            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
+                         << ", instance id: " << print_id(req.fragment_instance_id) << " to "
+                         << req.coord_addr << ", err: " << e.what();
+            rpc_status = coord.reopen();
+
+            if (!rpc_status.ok()) {
+                // we need to cancel the execution of this fragment
+                req.update_fn(rpc_status);
+                req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
+                return;
+            }
+            coord->reportExecStatus(res, params);
+        }
+
+        rpc_status = Status(res.status);
+    } catch (TException& e) {
+        std::stringstream msg;
+        msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
+        LOG(WARNING) << msg.str();
+        rpc_status = Status::InternalError(msg.str());
+    }
+
+    if (!rpc_status.ok()) {
+        // we need to cancel the execution of this fragment
+        req.update_fn(rpc_status);
+        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "rpc fail 2");
+    }
+}
+
 static void empty_function(RuntimeState*, Status*) {}
 
-void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
+void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
+                               const FinishCallback& cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
@@ -496,7 +518,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     if (params.txn_conf.need_txn) {
-        StreamLoadContext* stream_load_ctx = new StreamLoadContext(_exec_env);
+        std::shared_ptr<StreamLoadContext> stream_load_ctx =
+                std::make_shared<StreamLoadContext>(_exec_env);
         stream_load_ctx->db = params.txn_conf.db;
         stream_load_ctx->db_id = params.txn_conf.db_id;
         stream_load_ctx->table = params.txn_conf.tbl;
@@ -516,9 +539,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 -1 /* total_length */, true /* use_proto */);
         stream_load_ctx->body_sink = pipe;
+        stream_load_ctx->pipe = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
 
-        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, pipe));
+        RETURN_IF_ERROR(
+                _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
 
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         set_pipe(params.params.fragment_instance_id, pipe,
@@ -597,7 +622,8 @@ void FragmentMgr::remove_pipeline_context(
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     VLOG_ROW << "exec_plan_fragment params is "
@@ -703,9 +729,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
     fragments_ctx->fragment_ids.push_back(fragment_instance_id);
 
-    exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
-                                           params.params.fragment_instance_id, params.backend_num,
-                                           _exec_env, fragments_ctx));
+    exec_state.reset(
+            new FragmentExecState(fragments_ctx->query_id, params.params.fragment_instance_id,
+                                  params.backend_num, _exec_env, fragments_ctx,
+                                  std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback),
+                                                  this, std::placeholders::_1)));
     if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
         // set need_wait_execution_trigger means this instance will not actually being executed
         // until the execPlanFragmentStart RPC trigger to start it.
@@ -756,7 +784,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineFragmentContext>(
                         fragments_ctx->query_id, fragment_instance_id, -1, params.backend_num,
-                        fragments_ctx, _exec_env, cb);
+                        fragments_ctx, _exec_env, cb,
+                        std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                        std::placeholders::_1));
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);
@@ -782,7 +812,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     VLOG_ROW << "exec_plan_fragment params is "
@@ -889,8 +920,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, Fi
 
         fragments_ctx->fragment_ids.push_back(fragment_instance_id);
 
-        exec_state.reset(new FragmentExecState(fragments_ctx->query_id, fragment_instance_id,
-                                               local_params.backend_num, _exec_env, fragments_ctx));
+        exec_state.reset(new FragmentExecState(
+                fragments_ctx->query_id, fragment_instance_id, local_params.backend_num, _exec_env,
+                fragments_ctx,
+                std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                std::placeholders::_1)));
         if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
             // set need_wait_execution_trigger means this instance will not actually being executed
             // until the execPlanFragmentStart RPC trigger to start it.
@@ -906,7 +940,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, Fi
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineFragmentContext>(
                         fragments_ctx->query_id, fragment_instance_id, params.fragment_id,
-                        local_params.backend_num, fragments_ctx, _exec_env, cb);
+                        local_params.backend_num, fragments_ctx, _exec_env, cb,
+                        std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                        std::placeholders::_1));
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params, i);
@@ -1038,6 +1074,25 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
     for (auto it : cancel_fragment_ids) {
         cancel(it, reason, msg);
     }
+}
+
+bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
+    std::lock_guard<std::mutex> lock(_lock);
+    auto ctx = _fragments_ctx_map.find(query_id);
+    if (ctx != _fragments_ctx_map.end()) {
+        for (auto it : ctx->second->fragment_ids) {
+            auto exec_state_iter = _fragment_map.find(it);
+            if (exec_state_iter != _fragment_map.end() && exec_state_iter->second) {
+                return exec_state_iter->second->is_canceled();
+            }
+
+            auto pipeline_ctx_iter = _pipeline_map.find(it);
+            if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
+                return pipeline_ctx_iter->second->is_canceled();
+            }
+        }
+    }
+    return true;
 }
 
 void FragmentMgr::cancel_worker() {

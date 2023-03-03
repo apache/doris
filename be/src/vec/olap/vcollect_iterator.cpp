@@ -129,21 +129,27 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             std::advance(base_reader_child, base_reader_idx);
 
             std::list<LevelIterator*> cumu_children;
-            int i = 0;
-            for (const auto& child : _children) {
-                if (i != base_reader_idx) {
-                    cumu_children.push_back(child);
+            for (auto iter = _children.begin(); iter != _children.end();) {
+                if (iter != base_reader_child) {
+                    cumu_children.push_back(*iter);
+                    iter = _children.erase(iter);
+                } else {
+                    ++iter;
                 }
-                ++i;
             }
-            Level1Iterator* cumu_iter = new Level1Iterator(
+            auto cumu_iter = std::make_unique<Level1Iterator>(
                     cumu_children, _reader, cumu_children.size() > 1, _is_reverse, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
-            children.push_back(cumu_iter);
-            _inner_iter.reset(
-                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same));
+            children.push_back(cumu_iter.get());
+            auto level1_iter =
+                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same);
+            cumu_iter.release();
+            _inner_iter.reset(level1_iter);
+            // need to clear _children here, or else if the following _inner_iter->init() return early
+            // base_reader_child will be double deleted
+            _children.clear();
         } else {
             // _children.size() == 1
             _inner_iter.reset(
@@ -240,6 +246,11 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     auto cloneBlock = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+
+    if (!_reader->_reader_context.read_orderby_key_columns) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "read_orderby_key_columns should not be nullptr");
+    }
 
     size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;

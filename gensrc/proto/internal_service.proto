@@ -276,6 +276,7 @@ enum PCacheStatus {
     INVALID_KEY_RANGE = 6;
     DATA_OVERDUE = 7;
     EMPTY_DATA = 8;
+    CANCELED = 9;
 };
 
 enum CacheType {

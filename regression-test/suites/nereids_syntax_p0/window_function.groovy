@@ -67,6 +67,8 @@ suite("test_window_function") {
     order_qt_last_value "SELECT last_value(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_lead "SELECT lead(c1, 1, 111) over(partition by c3 order by c2) FROM window_test"
     order_qt_lag "SELECT lag(c1, 1, 222) over(partition by c3 order by c2) FROM window_test"
+    order_qt_lead "SELECT lead(c1, 3, null) over(partition by c3 order by c2) FROM window_test"
+    order_qt_lag "SELECT lag(c1, 2, null) over(partition by c3 order by c2) FROM window_test"
     order_qt_max "SELECT max(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_min "SELECT min(c1) over(partition by c3 order by c2) FROM window_test"
 

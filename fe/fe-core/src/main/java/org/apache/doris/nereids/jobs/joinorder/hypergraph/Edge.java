@@ -19,9 +19,16 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+
+import com.google.common.base.Preconditions;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Edge in HyperGraph
@@ -35,6 +42,10 @@ public class Edge {
     // left and right may not overlap, and both must have at least one bit set.
     private long left = LongBitmap.newBitmap();
     private long right = LongBitmap.newBitmap();
+
+    private long originalLeft = LongBitmap.newBitmap();
+    private long originalRight = LongBitmap.newBitmap();
+
     private long referenceNodes = LongBitmap.newBitmap();
 
     /**
@@ -100,6 +111,22 @@ public class Edge {
         this.right = right;
     }
 
+    public long getOriginalLeft() {
+        return originalLeft;
+    }
+
+    public void setOriginalLeft(long left) {
+        this.originalLeft = left;
+    }
+
+    public long getOriginalRight() {
+        return originalRight;
+    }
+
+    public void setOriginalRight(long right) {
+        this.originalRight = right;
+    }
+
     public boolean isSub(Edge edge) {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
         long otherBitmap = edge.getReferenceNodes();
@@ -122,7 +149,18 @@ public class Edge {
     }
 
     public Expression getExpression() {
+        Preconditions.checkArgument(join.getExpressions().size() == 1);
         return join.getExpressions().get(0);
+    }
+
+    public List<? extends Expression> getExpressions() {
+        return join.getExpressions();
+    }
+
+    public final Set<Slot> getInputSlots() {
+        Set<Slot> slots = new HashSet<>();
+        join.getExpressions().stream().forEach(expression -> slots.addAll(expression.getInputSlots()));
+        return slots;
     }
 
     @Override

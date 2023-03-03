@@ -62,11 +62,11 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        auto* state = new InState();
+        std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         if (context->get_arg_type(0)->type == FunctionContext::Type::TYPE_CHAR ||
             context->get_arg_type(0)->type == FunctionContext::Type::TYPE_VARCHAR ||
@@ -156,7 +156,6 @@ public:
                 }
 
             } else { // non-nullable
-                DCHECK(!in_state->null_in_set);
 
                 auto search_hash_set = [&](auto* col_ptr) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -176,6 +175,12 @@ public:
                     search_hash_set(column_string_ptr);
                 } else {
                     search_hash_set(materialized_column.get());
+                }
+
+                if (in_state->null_in_set) {
+                    for (size_t i = 0; i < input_rows_count; ++i) {
+                        vec_null_map_to[i] = negative == vec_res[i];
+                    }
                 }
             }
         } else {
@@ -223,10 +228,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            delete reinterpret_cast<InState*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        }
         return Status::OK();
     }
 };

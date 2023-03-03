@@ -93,8 +93,10 @@ public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
     public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
 
+    public static int scheduler_interval_millisecond = 333;
+
     public MaterializedViewHandler() {
-        super("materialized view");
+        super("materialized view", scheduler_interval_millisecond);
     }
 
     // for batch submit rollup job, tableId -> jobId
@@ -555,10 +557,11 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
-        // if the column is array type, we forbid to create materialized view
+        // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType() == PrimitiveType.ARRAY) {
-                throw new DdlException("The array column[" + column + "] not support to create materialized view");
+            if (column.getDataType().isComplexType()) {
+                throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
+                        + "to create materialized view");
             }
             if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
                     && (column.getType().isBitmapType() || column.getType().isHllType())) {

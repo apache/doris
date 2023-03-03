@@ -61,8 +61,6 @@ public:
     // task to be fail, even if there is enough space on other disks
     Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
 
-    void add_tablet(const TabletSharedPtr& tablet);
-
     // Drop a tablet by description.
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
@@ -147,7 +145,8 @@ public:
 
     void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
-    void register_clone_tablet(int64_t tablet_id);
+    // return `true` if register success
+    bool register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
 
     void get_tablets_distribution_on_different_disks(

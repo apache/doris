@@ -319,7 +319,7 @@ public class GroupExpressionMatchingTest {
         }
     }
 
-    private org.apache.doris.nereids.pattern.GeneratedPatterns patterns() {
+    private org.apache.doris.nereids.pattern.GeneratedMemoPatterns patterns() {
         return () -> RulePromise.REWRITE;
     }
 

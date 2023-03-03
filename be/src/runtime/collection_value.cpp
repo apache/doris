@@ -24,7 +24,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
 #include "runtime/types.h"
-#include "util/mem_util.hpp"
 #include "vec/common/string_ref.h"
 
 namespace doris {
