@@ -32,6 +32,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_struct.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
@@ -1209,7 +1210,9 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         break;
     }
     case OLAP_FIELD_TYPE_ARRAY: {
-        dst->insert_many_defaults(n);
+        for (int i = 0; i < n; i++) {
+            dst->insert(doris::vectorized::Array(0));
+        }
         break;
     }
     default: {
