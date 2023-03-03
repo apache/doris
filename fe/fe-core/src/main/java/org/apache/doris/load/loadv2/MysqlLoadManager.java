@@ -103,8 +103,9 @@ public class MysqlLoadManager {
 
 
     public MysqlLoadManager(TokenManager tokenManager) {
-        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(
-                Config.mysql_load_thread_pool, 20, "Mysql Load", true);
+        int poolSize = Config.mysql_load_thread_pool;
+        // MySqlLoad pool can accept 4 + 4 * 5 = 24  requests by default.
+        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5, "Mysql Load", true);
         this.tokenManager = tokenManager;
     }
 
