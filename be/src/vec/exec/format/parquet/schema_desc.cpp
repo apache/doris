@@ -54,15 +54,11 @@ static int num_children_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.num_children ? schema.num_children : 0;
 }
 
-static void set_child_node_level(FieldSchema* parent, size_t rep_inc = 0, size_t def_inc = 0) {
+static void set_child_node_level(FieldSchema* parent, int16_t repeated_parent_def_level) {
     for (auto& child : parent->children) {
-        child.repetition_level = parent->repetition_level + rep_inc;
-        child.definition_level = parent->definition_level + def_inc;
-        if (is_repeated_node(parent->parquet_schema)) {
-            child.repeated_parent_def_level = parent->definition_level;
-        } else {
-            child.repeated_parent_def_level = parent->repeated_parent_def_level;
-        }
+        child.repetition_level = parent->repetition_level;
+        child.definition_level = parent->definition_level;
+        child.repeated_parent_def_level = repeated_parent_def_level;
     }
 }
 
@@ -132,7 +128,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         node_field->repetition_level++;
         node_field->definition_level++;
         node_field->children.resize(1);
-        set_child_node_level(node_field);
+        set_child_node_level(node_field, node_field->definition_level);
         auto child = &node_field->children[0];
         parse_physical_field(t_schema, false, child);
 
@@ -317,7 +313,7 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         group_field->repetition_level++;
         group_field->definition_level++;
         group_field->children.resize(1);
-        set_child_node_level(group_field);
+        set_child_node_level(group_field, group_field->definition_level);
         auto struct_field = &group_field->children[0];
         // the list of struct:
         // repeated group <name> (LIST) {
@@ -380,16 +376,16 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
             // optional field, and the third level element is the nested structure in list
             // produce nested structure like: LIST<INT>, LIST<MAP>, LIST<LIST<...>>
             // skip bag/list, it's a repeated element.
-            set_child_node_level(list_field);
+            set_child_node_level(list_field, list_field->definition_level);
             RETURN_IF_ERROR(parse_node_field(t_schemas, curr_pos + 2, list_child));
         } else {
             // required field, produce the list of struct
-            set_child_node_level(list_field);
+            set_child_node_level(list_field, list_field->definition_level);
             RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, list_child));
         }
     } else if (num_children == 0) {
         // required two level list, for compatibility reason.
-        set_child_node_level(list_field);
+        set_child_node_level(list_field, list_field->definition_level);
         parse_physical_field(second_level, false, list_child);
         _next_schema_pos = curr_pos + 2;
     }
@@ -451,7 +447,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->definition_level++;
 
     map_field->children.resize(1);
-    set_child_node_level(map_field);
+    set_child_node_level(map_field, map_field->repeated_parent_def_level);
     auto map_kv_field = &map_field->children[0];
     // produce MAP<STRUCT<KEY, VALUE>>
     RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));
@@ -473,7 +469,7 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     }
     auto num_children = struct_schema.num_children;
     struct_field->children.resize(num_children);
-    set_child_node_level(struct_field);
+    set_child_node_level(struct_field, struct_field->repeated_parent_def_level);
     _next_schema_pos = curr_pos + 1;
     for (int i = 0; i < num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &struct_field->children[i]));
