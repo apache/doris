@@ -397,6 +397,7 @@ Status S3FileSystem::list(const Path& path, std::vector<Path>* files) {
             files->push_back(obj.GetKey().substr(prefix.size()));
         }
         is_trucated = outcome.GetResult().GetIsTruncated();
+        request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
     } while (is_trucated);
     return Status::OK();
 }
