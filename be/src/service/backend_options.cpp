@@ -18,6 +18,8 @@
 #include "service/backend_options.h"
 
 #include <algorithm>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -35,13 +37,13 @@ std::vector<std::string> BackendOptions::_s_net_interfaces;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
 
 bool BackendOptions::init() {
-    bool interfaceResult = get_network_interfaces();
+    bool interfaceResult = analyze_network_interfaces();
     bool cidrResult = analyze_priority_cidrs();
 
     if (!interfaceResult && !cidrResult) {
         return false;
     }
-    
+
     std::vector<InetAddress> hosts;
     Status status = get_hosts_v4(&hosts);
 
@@ -110,34 +112,29 @@ bool BackendOptions::analyze_priority_cidrs() {
     return true;
 }
 
-bool BackendOptions::get_network_interfaces() {
+bool BackendOptions::analyze_network_interfaces() {
     if (config::network_interfaces == "") {
         return true;
     }
-    LOG(INFO) << "network name in conf: " << config::network_interfaces;
+    LOG(INFO) << "network interfaces in conf: " << config::network_interfaces;
 
-    struct ifaddrs * ifAddrStruct = NULL;
+    struct ifaddrs * if_Addr_Struct = NULL;
     void * tmpAddrPtr = NULL;
+    getifaddrs(&if_Addr_Struct); 
 
-    getifaddrs(&ifAddrStruct); 
-
-    std::vector<std::string> name_strs =
+    std::vector<std::string> nic_names =
             strings::Split(config::network_interfaces, PRIORITY_CIDR_SEPARATOR);
     bool flag = false;
 
-    for (auto& name_str : name_strs) {
-        while (ifAddrStruct!=NULL) {
-            if (ifAddrStruct->ifa_addr->sa_family==AF_INET) { // check it is IP4
-                // is a valid IP4 Address
-                if (name_str == ifAddrStruct->ifa_name) {
-                    tmpAddrPtr=&((struct sockaddr_in *)ifAddrStruct->ifa_addr)->sin_addr;
-                    char addressBuffer[INET_ADDRSTRLEN];
-                    inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
-                    _s_net_interfaces.push_back(addressBuffer);
-                    flag = true;
-                }
-            } 
-            ifAddrStruct=ifAddrStruct->ifa_next;    
+    for (auto& nic_name : nic_names) {
+        for (;if_Addr_Struct != nullptr; if_Addr_Struct = if_Addr_Struct->ifa_next) {
+            if (nic_name == if_Addr_Struct->ifa_name) {
+                tmpAddrPtr = &((struct sockaddr_in *)if_Addr_Struct->ifa_addr)->sin_addr;
+                char addressBuffer[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+                _s_net_interfaces.push_back(addressBuffer);
+                flag = true;
+            }
         }
     }
     return flag;

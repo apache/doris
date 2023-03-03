@@ -132,20 +132,20 @@ public class FrontendOptions {
     }
 
     private static void analyzeNetworkInterfaces() throws Exception {
-        String netNames = Config.network_interfaces;
-        if (Strings.isNullOrEmpty(netNames)) {
+        String nicNames = Config.network_interfaces;
+        if (Strings.isNullOrEmpty(nicNames)) {
             return;
         }
-        LOG.info("configured Network Interface value: {}", netNames);
+        LOG.info("configured Network Interfaces value: {}", nicNames);
 
-        String[] nameList = netNames.split(PRIORITY_CIDR_SEPARATOR);
-        List<String> netinterLists = Lists.newArrayList(nameList);
+        String[] nicList = nicNames.split(PRIORITY_CIDR_SEPARATOR);
+        List<String> netinterLists = Lists.newArrayList(nicList);
         Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
 
-        for (String nameStr : netinterLists) {
+        for (String nicStr : netinterLists) {
             for (NetworkInterface netint : Collections.list(nets)) {
                 Enumeration<InetAddress> inetAddresses = netint.getInetAddresses();
-                if (nameStr.equals(netint.getName())) {
+                if (nicStr.equals(netint.getName())) {
                     for (InetAddress inetAddress : Collections.list(inetAddresses)) {
                         if (inetAddress instanceof Inet4Address) {
                             netInterfaces.add(inetAddress);

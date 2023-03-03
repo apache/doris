@@ -21,8 +21,6 @@
 
 #include <string>
 #include <vector>
-#include <ifaddrs.h>
-#include <arpa/inet.h>
 
 namespace doris {
 
@@ -34,7 +32,7 @@ public:
     static std::string get_localhost();
 
 private:
-    static bool get_network_interfaces();
+    static bool analyze_network_interfaces();
     static bool analyze_priority_cidrs();
     static bool is_in_prior_network(const std::string& ip);
     static bool is_in_net_interface(const std::string& ip);
