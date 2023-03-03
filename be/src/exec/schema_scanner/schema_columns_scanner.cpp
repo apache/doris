@@ -350,10 +350,11 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // TABLE_NAME
     {
-        StringRef str = StringRef(_table_result.tables[_table_index - 1].c_str(),
-                                  _table_result.tables[_table_index - 1].length());
+        StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            datas[i] = &str;
+            strs[i] = StringRef(_desc_result.tables_name[i].c_str(),
+                                _desc_result.tables_name[i].length());
+            datas[i] = strs + i;
         }
         fill_dest_column_for_range(block, 2, datas);
     }

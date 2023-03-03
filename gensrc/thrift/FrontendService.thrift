@@ -92,7 +92,8 @@ struct TDescribeTablesParams {
 
 // Results of a call to describeTable()
 struct TDescribeTablesResult {
-  1: required list<TColumnDef> columns
+  1: required list<string> tables_name
+  2: required list<TColumnDef> columns
 }
 
 struct TShowVariableRequest {
