@@ -61,6 +61,7 @@ CELLARS=(
     wget
     pcre
     maven
+    llvm
 )
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
