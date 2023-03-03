@@ -38,7 +38,7 @@ When connecting to Iceberg, Doris:
 
 ### Hive Metastore Catalog
 
-Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive) for more information.
+Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive.md) for more information.
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -121,7 +121,7 @@ If you want to use S3 storage, the following properties need to be set.
 
 ## Column Type Mapping
 
-Same as that in Hive Catalogs. See the relevant section in [Hive](./hive).
+Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
 
 ## Time Travel
 
