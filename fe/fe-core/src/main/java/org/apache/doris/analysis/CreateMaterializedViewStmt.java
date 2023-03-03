@@ -307,6 +307,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         + "the order of columns in select list, " + mvColumnItem.getName() + " vs "
                         + slotRef.getColumnName());
             }
+            if (!slotRef.getType().supportsComparison()) {
+                throw new AnalysisException(mvColumnItem.getName() + " of type " + mvColumnItem.getType()
+                    + " can not be in order by in materialized view");
+            }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
             mvColumnItem.setIsKey(true);
         }
@@ -336,6 +340,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (mvColumnItem.getAggregationType() != null) {
                     break;
                 }
+                if (!mvColumnItem.getType().supportsTableKey()) {
+                    throw new AnalysisException(mvColumnItem.getName() + " of type " + mvColumnItem.getType()
+                        + " can not be key in materialized view");
+                }
                 mvColumnItem.setIsKey(true);
             }
         } else if (mvKeysType == KeysType.DUP_KEYS) {
@@ -362,6 +370,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         column.setIsKey(true);
                         theBeginIndexOfValue++;
                     }
+                    break;
+                }
+                if (!column.getType().supportsTableKey()) {
+                    LOG.info(column.getName() + " of type " + column.getType() + " stop key in materialized view");
                     break;
                 }
                 if (column.getType().isFloatingPointType()) {

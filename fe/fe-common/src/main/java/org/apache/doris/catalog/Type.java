@@ -527,6 +527,21 @@ public abstract class Type {
         return false;
     }
 
+    /**
+     * Indicates whether this type can be used as key of table.
+     */
+    public boolean supportsTableKey() {
+        return supportsComparison();
+    }
+
+    /**
+     * Indicates whether this type can be used as key of table.
+     */
+    public boolean supportsComparison() {
+        return !(isHllType() || isBitmapType() || isJsonbType()
+                    || isArrayType() || isMapType() || isStructType());
+    }
+
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.INVALID_TYPE;
     }
