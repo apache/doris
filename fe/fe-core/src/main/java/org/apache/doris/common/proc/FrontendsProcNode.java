@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
@@ -86,7 +87,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
         // get all node which are joined in bdb group
         List<InetSocketAddress> allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(env.getHaProtocol().getObserverNodes());
-        List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
         List<HostInfo> helperNodes = env.getHelperNodes();
 
         // Because the `show frontend` stmt maybe forwarded from other FE.
@@ -121,7 +121,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(String.valueOf(socketAddress.equals(master)));
 
             info.add(Integer.toString(env.getClusterId()));
-            info.add(String.valueOf(isJoin(allFeHosts, fe)));
+            info.add(String.valueOf(isJoin(allFe, fe)));
 
             if (fe.getIp().equals(env.getSelfNode().getIp())) {
                 info.add("true");
@@ -145,9 +145,25 @@ public class FrontendsProcNode implements ProcNodeInterface {
         return helperNodes.stream().anyMatch(p -> p.getIp().equals(fe.getIp()) && p.getPort() == fe.getEditLogPort());
     }
 
-    private static boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
-        for (Pair<String, Integer> pair : allFeHosts) {
-            if (fe.getIp().equals(pair.first) && fe.getEditLogPort() == pair.second) {
+    private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
+        for (InetSocketAddress addr : allFeHosts) {
+            if (fe.getEditLogPort() != addr.getPort()) {
+                continue;
+            }
+            if (!Strings.isNullOrEmpty(addr.getHostName())) {
+                if (addr.getHostName().equals(fe.getHostName())
+                        || addr.getHostName().equals(fe.getIp())) {
+                    return true;
+                }
+            }
+            // if hostname of InetSocketAddress is ip, addr.getHostName() may be not equal to fe.getIp()
+            // so we need to compare fe.getIp() with address.getHostAddress()
+            InetAddress address = addr.getAddress();
+            if (null == address) {
+                LOG.warn("Failed to get InetAddress {}", addr);
+                continue;
+            }
+            if (fe.getIp().equals(address.getHostAddress())) {
                 return true;
             }
         }
