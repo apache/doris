@@ -61,10 +61,6 @@ public:
     static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
-    static std::string remote_tablet_path(int64_t tablet_id);
-
-    static std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id);
-
     Status remove() override;
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,

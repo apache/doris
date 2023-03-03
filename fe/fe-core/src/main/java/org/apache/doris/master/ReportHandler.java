@@ -1147,18 +1147,40 @@ public class ReportHandler extends Daemon {
                 if (backendTabletInfo.isSetCooldownMetaId()) {
                     // replica has cooldowned data
                     do {
-                        if (backendTabletInfo.getReplicaId() == tablet.getCooldownConf().first) {
+                        Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+                        if (backendTabletInfo.getCooldownTerm() > cooldownConf.second) {
+                            // should not be here
+                            LOG.warn("report cooldownTerm({}) > cooldownTerm in TabletMeta({}), tabletId={}",
+                                    backendTabletInfo.getCooldownTerm(), cooldownConf.second, tabletId);
+                            return false;
+                        }
+                        if (backendTabletInfo.getReplicaId() == cooldownConf.first) {
                             // this replica is true cooldown replica, so replica's cooldowned data must not be deleted
                             break;
                         }
-                        if (backendTabletInfo.getReplicaId() != backendTabletInfo.getCooldownReplicaId()
-                                && Env.getCurrentInvertedIndex().getReplicas(tabletId).stream()
-                                .anyMatch(r -> backendTabletInfo.getCooldownMetaId().equals(r.getCooldownMetaId()))) {
-                            // this replica can not cooldown data, and shares same cooldowned data with others replica,
-                            // so replica's cooldowned data must not be deleted
-                            break;
+                        List<Replica> replicas = Env.getCurrentInvertedIndex().getReplicas(tabletId);
+                        if (backendTabletInfo.getCooldownTerm() <= 0) {
+                            if (replicas.stream().anyMatch(
+                                    r -> backendTabletInfo.getCooldownMetaId().equals(r.getCooldownMetaId()))) {
+                                // this backend is just restarted, and shares same cooldowned data with others replica,
+                                // so replica's cooldowned data must not be deleted
+                                break;
+                            }
                         }
-                        LOG.warn("replica's cooldowned data may have been deleted");
+                        long minCooldownTerm = Long.MAX_VALUE;
+                        for (Replica r : replicas) {
+                            minCooldownTerm = Math.min(r.getCooldownTerm(), minCooldownTerm);
+                        }
+                        if (backendTabletInfo.getCooldownTerm() >= minCooldownTerm) {
+                            if (replicas.stream().anyMatch(
+                                    r -> backendTabletInfo.getCooldownMetaId().equals(r.getCooldownMetaId()))) {
+                                // this replica shares same cooldowned data with others replica, and won't follow data
+                                // of lower cooldown term, so replica's cooldowned data must not be deleted
+                                break;
+                            }
+                        }
+                        LOG.warn("replica's cooldowned data may have been deleted. tabletId={}, replicaId={}", tabletId,
+                                replicaId);
                         return false;
                     } while (false);
                 }
