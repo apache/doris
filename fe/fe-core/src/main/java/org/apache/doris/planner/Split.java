@@ -15,20 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
-
-import org.apache.doris.planner.Split;
+package org.apache.doris.planner;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
 @Data
-public class HiveSplit extends Split {
-    public HiveSplit() {}
+public class Split {
 
-    public HiveSplit(Path file, long start, long length, String[] hosts) {
-        super(file, start, length, hosts);
+    private Path path;
+    private long start;
+    private long length;
+    private String[] hosts;
+    private long id;
+
+    public Split() {}
+
+    public Split(Path path, long start, long length, String[] hosts) {
+        this.path = path;
+        this.start = start;
+        this.length = length;
+        this.hosts = hosts;
     }
 
-    protected TableFormatType tableFormatType;
+    public String[] getHosts() {
+        if (this.hosts == null) {
+            return new String[]{};
+        } else {
+            return this.hosts;
+        }
+    }
+
 }
