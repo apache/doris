@@ -57,13 +57,14 @@ static std::string get_remote_path(const Path& path) {
 }
 
 class TabletCooldownTest : public testing::Test {
+public:
     class FileWriterMock : public io::FileWriter {
     public:
         FileWriterMock(Path path) : io::FileWriter(std::move(path)) {
             io::global_local_filesystem()->create_file(get_remote_path(_path), &_local_file_writer);
         }
 
-        ~FileWriterMock() {}
+        ~FileWriterMock() = default;
 
         Status close() override {
             return _local_file_writer->close();
@@ -101,10 +102,11 @@ class TabletCooldownTest : public testing::Test {
                 : RemoteFileSystem(std::move(root_path), std::move(id), type) {
             _local_fs = io::LocalFileSystem::create(get_remote_path(_root_path));
         }
-        ~RemoteFileSystemMock() override {}
+        ~RemoteFileSystemMock() = default;
 
         Status create_file(const Path& path, io::FileWriterPtr* writer) override {
-            *writer = std::make_unique<FileWriterMock>(path);
+            Path fs_path = path;
+            *writer = std::make_unique<FileWriterMock>(fs_path);
             return Status::OK();
         }
 
