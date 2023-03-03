@@ -17,7 +17,10 @@
 
 #include "vec/data_types/data_type_bitmap.h"
 
+#include "util/bitmap_value.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/io/io_helper.h"
 
@@ -57,7 +60,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
     char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
     for (size_t i = 0; i < meta_ptr[0]; ++i) {
         auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-        bitmap.write(data_ptr);
+        bitmap.write_to(data_ptr);
         data_ptr += meta_ptr[i + 1];
     }
 
@@ -92,7 +95,7 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
     std::string memory_buffer;
     int bytesize = value.getSizeInBytes();
     memory_buffer.resize(bytesize);
-    value.write(const_cast<char*>(memory_buffer.data()));
+    value.write_to(const_cast<char*>(memory_buffer.data()));
     write_string_binary(memory_buffer, buf);
 }
 
@@ -102,13 +105,16 @@ void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& b
     value.deserialize(ref.data);
 }
 
-void DataTypeBitMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                               doris::vectorized::BufferWritable& ostr) const {
-    auto& data =
-            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
-    std::string result(data.getSizeInBytes(), '0');
-    data.write((char*)result.data());
+void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
 
-    ostr.write(result.data(), result.size());
+    auto& data =
+            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num));
+
+    std::string buffer(data.getSizeInBytes(), '0');
+    data.write_to(const_cast<char*>(buffer.data()));
+    ostr.write(buffer.c_str(), buffer.size());
 }
 } // namespace doris::vectorized
