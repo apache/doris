@@ -39,7 +39,7 @@ suite("load") {
             `kdt` date null,
             `kdtv2` datev2 null,
             `kdtm` datetime null,
-            `kdtmv2` datetimev2(0) null,
+            `kdtmv2` datetimev2(0) null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
@@ -63,7 +63,7 @@ suite("load") {
             `kdt` date not null,
             `kdtv2` datev2 not null,
             `kdtm` datetime not null,
-            `kdtmv2` datetimev2(0) not null,
+            `kdtmv2` datetimev2(0) not null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
