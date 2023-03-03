@@ -262,7 +262,7 @@ public class SparkEtlJob {
             new SparkEtlJob(args[0]).run();
         } catch (Exception e) {
             System.err.println("spark etl job run failed");
-            e.printStackTrace();
+            LOG.warn("", e);
             System.exit(-1);
         }
     }

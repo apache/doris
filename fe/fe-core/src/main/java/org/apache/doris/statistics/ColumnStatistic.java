@@ -134,7 +134,6 @@ public class ColumnStatistic {
             columnStatisticBuilder.setSelectivity(1.0);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
-            e.printStackTrace();
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
             return ColumnStatistic.DEFAULT;
         }

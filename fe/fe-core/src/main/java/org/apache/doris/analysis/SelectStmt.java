@@ -469,7 +469,7 @@ public class SelectStmt extends QueryStmt {
                         tableRef.setOnClause(expr.trySubstitute(mvSMap, analyzer, false));
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 }
             }
         }
