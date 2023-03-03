@@ -25,320 +25,7 @@ import com.amazonaws.AmazonWebServiceRequest;
 import com.amazonaws.ResponseMetadata;
 import com.amazonaws.regions.Region;
 import com.amazonaws.services.glue.AWSGlue;
-import com.amazonaws.services.glue.model.BatchCreatePartitionRequest;
-import com.amazonaws.services.glue.model.BatchCreatePartitionResult;
-import com.amazonaws.services.glue.model.BatchDeleteConnectionRequest;
-import com.amazonaws.services.glue.model.BatchDeleteConnectionResult;
-import com.amazonaws.services.glue.model.BatchDeletePartitionRequest;
-import com.amazonaws.services.glue.model.BatchDeletePartitionResult;
-import com.amazonaws.services.glue.model.BatchDeleteTableRequest;
-import com.amazonaws.services.glue.model.BatchDeleteTableResult;
-import com.amazonaws.services.glue.model.BatchDeleteTableVersionRequest;
-import com.amazonaws.services.glue.model.BatchDeleteTableVersionResult;
-import com.amazonaws.services.glue.model.BatchGetCrawlersRequest;
-import com.amazonaws.services.glue.model.BatchGetCrawlersResult;
-import com.amazonaws.services.glue.model.BatchGetDevEndpointsRequest;
-import com.amazonaws.services.glue.model.BatchGetDevEndpointsResult;
-import com.amazonaws.services.glue.model.BatchGetJobsRequest;
-import com.amazonaws.services.glue.model.BatchGetJobsResult;
-import com.amazonaws.services.glue.model.BatchGetPartitionRequest;
-import com.amazonaws.services.glue.model.BatchGetPartitionResult;
-import com.amazonaws.services.glue.model.BatchGetTriggersRequest;
-import com.amazonaws.services.glue.model.BatchGetTriggersResult;
-import com.amazonaws.services.glue.model.BatchGetWorkflowsRequest;
-import com.amazonaws.services.glue.model.BatchGetWorkflowsResult;
-import com.amazonaws.services.glue.model.BatchStopJobRunRequest;
-import com.amazonaws.services.glue.model.BatchStopJobRunResult;
-import com.amazonaws.services.glue.model.BatchUpdatePartitionRequest;
-import com.amazonaws.services.glue.model.BatchUpdatePartitionResult;
-import com.amazonaws.services.glue.model.CancelMLTaskRunRequest;
-import com.amazonaws.services.glue.model.CancelMLTaskRunResult;
-import com.amazonaws.services.glue.model.CheckSchemaVersionValidityRequest;
-import com.amazonaws.services.glue.model.CheckSchemaVersionValidityResult;
-import com.amazonaws.services.glue.model.CreateClassifierRequest;
-import com.amazonaws.services.glue.model.CreateClassifierResult;
-import com.amazonaws.services.glue.model.CreateConnectionRequest;
-import com.amazonaws.services.glue.model.CreateConnectionResult;
-import com.amazonaws.services.glue.model.CreateCrawlerRequest;
-import com.amazonaws.services.glue.model.CreateCrawlerResult;
-import com.amazonaws.services.glue.model.CreateDatabaseRequest;
-import com.amazonaws.services.glue.model.CreateDatabaseResult;
-import com.amazonaws.services.glue.model.CreateDevEndpointRequest;
-import com.amazonaws.services.glue.model.CreateDevEndpointResult;
-import com.amazonaws.services.glue.model.CreateJobRequest;
-import com.amazonaws.services.glue.model.CreateJobResult;
-import com.amazonaws.services.glue.model.CreateMLTransformRequest;
-import com.amazonaws.services.glue.model.CreateMLTransformResult;
-import com.amazonaws.services.glue.model.CreatePartitionIndexRequest;
-import com.amazonaws.services.glue.model.CreatePartitionIndexResult;
-import com.amazonaws.services.glue.model.CreatePartitionRequest;
-import com.amazonaws.services.glue.model.CreatePartitionResult;
-import com.amazonaws.services.glue.model.CreateRegistryRequest;
-import com.amazonaws.services.glue.model.CreateRegistryResult;
-import com.amazonaws.services.glue.model.CreateSchemaRequest;
-import com.amazonaws.services.glue.model.CreateSchemaResult;
-import com.amazonaws.services.glue.model.CreateScriptRequest;
-import com.amazonaws.services.glue.model.CreateScriptResult;
-import com.amazonaws.services.glue.model.CreateSecurityConfigurationRequest;
-import com.amazonaws.services.glue.model.CreateSecurityConfigurationResult;
-import com.amazonaws.services.glue.model.CreateTableRequest;
-import com.amazonaws.services.glue.model.CreateTableResult;
-import com.amazonaws.services.glue.model.CreateTriggerRequest;
-import com.amazonaws.services.glue.model.CreateTriggerResult;
-import com.amazonaws.services.glue.model.CreateUserDefinedFunctionRequest;
-import com.amazonaws.services.glue.model.CreateUserDefinedFunctionResult;
-import com.amazonaws.services.glue.model.CreateWorkflowRequest;
-import com.amazonaws.services.glue.model.CreateWorkflowResult;
-import com.amazonaws.services.glue.model.DeleteClassifierRequest;
-import com.amazonaws.services.glue.model.DeleteClassifierResult;
-import com.amazonaws.services.glue.model.DeleteColumnStatisticsForPartitionRequest;
-import com.amazonaws.services.glue.model.DeleteColumnStatisticsForPartitionResult;
-import com.amazonaws.services.glue.model.DeleteColumnStatisticsForTableRequest;
-import com.amazonaws.services.glue.model.DeleteColumnStatisticsForTableResult;
-import com.amazonaws.services.glue.model.DeleteConnectionRequest;
-import com.amazonaws.services.glue.model.DeleteConnectionResult;
-import com.amazonaws.services.glue.model.DeleteCrawlerRequest;
-import com.amazonaws.services.glue.model.DeleteCrawlerResult;
-import com.amazonaws.services.glue.model.DeleteDatabaseRequest;
-import com.amazonaws.services.glue.model.DeleteDatabaseResult;
-import com.amazonaws.services.glue.model.DeleteDevEndpointRequest;
-import com.amazonaws.services.glue.model.DeleteDevEndpointResult;
-import com.amazonaws.services.glue.model.DeleteJobRequest;
-import com.amazonaws.services.glue.model.DeleteJobResult;
-import com.amazonaws.services.glue.model.DeleteMLTransformRequest;
-import com.amazonaws.services.glue.model.DeleteMLTransformResult;
-import com.amazonaws.services.glue.model.DeletePartitionIndexRequest;
-import com.amazonaws.services.glue.model.DeletePartitionIndexResult;
-import com.amazonaws.services.glue.model.DeletePartitionRequest;
-import com.amazonaws.services.glue.model.DeletePartitionResult;
-import com.amazonaws.services.glue.model.DeleteRegistryRequest;
-import com.amazonaws.services.glue.model.DeleteRegistryResult;
-import com.amazonaws.services.glue.model.DeleteResourcePolicyRequest;
-import com.amazonaws.services.glue.model.DeleteResourcePolicyResult;
-import com.amazonaws.services.glue.model.DeleteSchemaRequest;
-import com.amazonaws.services.glue.model.DeleteSchemaResult;
-import com.amazonaws.services.glue.model.DeleteSchemaVersionsRequest;
-import com.amazonaws.services.glue.model.DeleteSchemaVersionsResult;
-import com.amazonaws.services.glue.model.DeleteSecurityConfigurationRequest;
-import com.amazonaws.services.glue.model.DeleteSecurityConfigurationResult;
-import com.amazonaws.services.glue.model.DeleteTableRequest;
-import com.amazonaws.services.glue.model.DeleteTableResult;
-import com.amazonaws.services.glue.model.DeleteTableVersionRequest;
-import com.amazonaws.services.glue.model.DeleteTableVersionResult;
-import com.amazonaws.services.glue.model.DeleteTriggerRequest;
-import com.amazonaws.services.glue.model.DeleteTriggerResult;
-import com.amazonaws.services.glue.model.DeleteUserDefinedFunctionRequest;
-import com.amazonaws.services.glue.model.DeleteUserDefinedFunctionResult;
-import com.amazonaws.services.glue.model.DeleteWorkflowRequest;
-import com.amazonaws.services.glue.model.DeleteWorkflowResult;
-import com.amazonaws.services.glue.model.GetCatalogImportStatusRequest;
-import com.amazonaws.services.glue.model.GetCatalogImportStatusResult;
-import com.amazonaws.services.glue.model.GetClassifierRequest;
-import com.amazonaws.services.glue.model.GetClassifierResult;
-import com.amazonaws.services.glue.model.GetClassifiersRequest;
-import com.amazonaws.services.glue.model.GetClassifiersResult;
-import com.amazonaws.services.glue.model.GetConnectionRequest;
-import com.amazonaws.services.glue.model.GetColumnStatisticsForPartitionResult;
-import com.amazonaws.services.glue.model.GetColumnStatisticsForPartitionRequest;
-import com.amazonaws.services.glue.model.GetColumnStatisticsForTableResult;
-import com.amazonaws.services.glue.model.GetColumnStatisticsForTableRequest;
-import com.amazonaws.services.glue.model.GetConnectionResult;
-import com.amazonaws.services.glue.model.GetConnectionsRequest;
-import com.amazonaws.services.glue.model.GetConnectionsResult;
-import com.amazonaws.services.glue.model.GetCrawlerMetricsRequest;
-import com.amazonaws.services.glue.model.GetCrawlerMetricsResult;
-import com.amazonaws.services.glue.model.GetCrawlerRequest;
-import com.amazonaws.services.glue.model.GetCrawlerResult;
-import com.amazonaws.services.glue.model.GetCrawlersRequest;
-import com.amazonaws.services.glue.model.GetCrawlersResult;
-import com.amazonaws.services.glue.model.GetDataCatalogEncryptionSettingsRequest;
-import com.amazonaws.services.glue.model.GetDataCatalogEncryptionSettingsResult;
-import com.amazonaws.services.glue.model.GetDatabaseRequest;
-import com.amazonaws.services.glue.model.GetDatabaseResult;
-import com.amazonaws.services.glue.model.GetDatabasesRequest;
-import com.amazonaws.services.glue.model.GetDatabasesResult;
-import com.amazonaws.services.glue.model.GetDataflowGraphRequest;
-import com.amazonaws.services.glue.model.GetDataflowGraphResult;
-import com.amazonaws.services.glue.model.GetDevEndpointRequest;
-import com.amazonaws.services.glue.model.GetDevEndpointResult;
-import com.amazonaws.services.glue.model.GetDevEndpointsRequest;
-import com.amazonaws.services.glue.model.GetDevEndpointsResult;
-import com.amazonaws.services.glue.model.GetJobBookmarkRequest;
-import com.amazonaws.services.glue.model.GetJobBookmarkResult;
-import com.amazonaws.services.glue.model.GetJobRequest;
-import com.amazonaws.services.glue.model.GetJobResult;
-import com.amazonaws.services.glue.model.GetJobRunRequest;
-import com.amazonaws.services.glue.model.GetJobRunResult;
-import com.amazonaws.services.glue.model.GetJobRunsRequest;
-import com.amazonaws.services.glue.model.GetJobRunsResult;
-import com.amazonaws.services.glue.model.GetJobsRequest;
-import com.amazonaws.services.glue.model.GetJobsResult;
-import com.amazonaws.services.glue.model.GetMLTaskRunRequest;
-import com.amazonaws.services.glue.model.GetMLTaskRunResult;
-import com.amazonaws.services.glue.model.GetMLTaskRunsRequest;
-import com.amazonaws.services.glue.model.GetMLTaskRunsResult;
-import com.amazonaws.services.glue.model.GetMLTransformRequest;
-import com.amazonaws.services.glue.model.GetMLTransformResult;
-import com.amazonaws.services.glue.model.GetMLTransformsRequest;
-import com.amazonaws.services.glue.model.GetMLTransformsResult;
-import com.amazonaws.services.glue.model.GetMappingRequest;
-import com.amazonaws.services.glue.model.GetMappingResult;
-import com.amazonaws.services.glue.model.GetPartitionIndexesRequest;
-import com.amazonaws.services.glue.model.GetPartitionIndexesResult;
-import com.amazonaws.services.glue.model.GetPartitionRequest;
-import com.amazonaws.services.glue.model.GetPartitionResult;
-import com.amazonaws.services.glue.model.GetPartitionsRequest;
-import com.amazonaws.services.glue.model.GetPartitionsResult;
-import com.amazonaws.services.glue.model.GetPlanRequest;
-import com.amazonaws.services.glue.model.GetPlanResult;
-import com.amazonaws.services.glue.model.GetRegistryRequest;
-import com.amazonaws.services.glue.model.GetRegistryResult;
-import com.amazonaws.services.glue.model.GetResourcePoliciesRequest;
-import com.amazonaws.services.glue.model.GetResourcePoliciesResult;
-import com.amazonaws.services.glue.model.GetResourcePolicyRequest;
-import com.amazonaws.services.glue.model.GetResourcePolicyResult;
-import com.amazonaws.services.glue.model.GetSchemaByDefinitionRequest;
-import com.amazonaws.services.glue.model.GetSchemaByDefinitionResult;
-import com.amazonaws.services.glue.model.GetSchemaRequest;
-import com.amazonaws.services.glue.model.GetSchemaResult;
-import com.amazonaws.services.glue.model.GetSchemaVersionRequest;
-import com.amazonaws.services.glue.model.GetSchemaVersionResult;
-import com.amazonaws.services.glue.model.GetSchemaVersionsDiffRequest;
-import com.amazonaws.services.glue.model.GetSchemaVersionsDiffResult;
-import com.amazonaws.services.glue.model.GetSecurityConfigurationRequest;
-import com.amazonaws.services.glue.model.GetSecurityConfigurationResult;
-import com.amazonaws.services.glue.model.GetSecurityConfigurationsRequest;
-import com.amazonaws.services.glue.model.GetSecurityConfigurationsResult;
-import com.amazonaws.services.glue.model.GetTableRequest;
-import com.amazonaws.services.glue.model.GetTableResult;
-import com.amazonaws.services.glue.model.GetTableVersionRequest;
-import com.amazonaws.services.glue.model.GetTableVersionResult;
-import com.amazonaws.services.glue.model.GetTableVersionsRequest;
-import com.amazonaws.services.glue.model.GetTableVersionsResult;
-import com.amazonaws.services.glue.model.GetTablesRequest;
-import com.amazonaws.services.glue.model.GetTablesResult;
-import com.amazonaws.services.glue.model.GetTagsRequest;
-import com.amazonaws.services.glue.model.GetTagsResult;
-import com.amazonaws.services.glue.model.GetTriggerRequest;
-import com.amazonaws.services.glue.model.GetTriggerResult;
-import com.amazonaws.services.glue.model.GetTriggersRequest;
-import com.amazonaws.services.glue.model.GetTriggersResult;
-import com.amazonaws.services.glue.model.GetUserDefinedFunctionRequest;
-import com.amazonaws.services.glue.model.GetUserDefinedFunctionResult;
-import com.amazonaws.services.glue.model.GetUserDefinedFunctionsRequest;
-import com.amazonaws.services.glue.model.GetUserDefinedFunctionsResult;
-import com.amazonaws.services.glue.model.GetWorkflowRequest;
-import com.amazonaws.services.glue.model.GetWorkflowResult;
-import com.amazonaws.services.glue.model.GetWorkflowRunPropertiesRequest;
-import com.amazonaws.services.glue.model.GetWorkflowRunPropertiesResult;
-import com.amazonaws.services.glue.model.GetWorkflowRunRequest;
-import com.amazonaws.services.glue.model.GetWorkflowRunResult;
-import com.amazonaws.services.glue.model.GetWorkflowRunsRequest;
-import com.amazonaws.services.glue.model.GetWorkflowRunsResult;
-import com.amazonaws.services.glue.model.ImportCatalogToGlueRequest;
-import com.amazonaws.services.glue.model.ImportCatalogToGlueResult;
-import com.amazonaws.services.glue.model.ListCrawlersRequest;
-import com.amazonaws.services.glue.model.ListCrawlersResult;
-import com.amazonaws.services.glue.model.ListDevEndpointsRequest;
-import com.amazonaws.services.glue.model.ListDevEndpointsResult;
-import com.amazonaws.services.glue.model.ListJobsRequest;
-import com.amazonaws.services.glue.model.ListJobsResult;
-import com.amazonaws.services.glue.model.ListMLTransformsRequest;
-import com.amazonaws.services.glue.model.ListMLTransformsResult;
-import com.amazonaws.services.glue.model.ListRegistriesRequest;
-import com.amazonaws.services.glue.model.ListRegistriesResult;
-import com.amazonaws.services.glue.model.ListSchemaVersionsRequest;
-import com.amazonaws.services.glue.model.ListSchemaVersionsResult;
-import com.amazonaws.services.glue.model.ListSchemasRequest;
-import com.amazonaws.services.glue.model.ListSchemasResult;
-import com.amazonaws.services.glue.model.ListTriggersRequest;
-import com.amazonaws.services.glue.model.ListTriggersResult;
-import com.amazonaws.services.glue.model.ListWorkflowsRequest;
-import com.amazonaws.services.glue.model.ListWorkflowsResult;
-import com.amazonaws.services.glue.model.PutDataCatalogEncryptionSettingsRequest;
-import com.amazonaws.services.glue.model.PutDataCatalogEncryptionSettingsResult;
-import com.amazonaws.services.glue.model.PutResourcePolicyRequest;
-import com.amazonaws.services.glue.model.PutResourcePolicyResult;
-import com.amazonaws.services.glue.model.PutSchemaVersionMetadataRequest;
-import com.amazonaws.services.glue.model.PutSchemaVersionMetadataResult;
-import com.amazonaws.services.glue.model.PutWorkflowRunPropertiesRequest;
-import com.amazonaws.services.glue.model.PutWorkflowRunPropertiesResult;
-import com.amazonaws.services.glue.model.QuerySchemaVersionMetadataRequest;
-import com.amazonaws.services.glue.model.QuerySchemaVersionMetadataResult;
-import com.amazonaws.services.glue.model.RegisterSchemaVersionRequest;
-import com.amazonaws.services.glue.model.RegisterSchemaVersionResult;
-import com.amazonaws.services.glue.model.RemoveSchemaVersionMetadataRequest;
-import com.amazonaws.services.glue.model.RemoveSchemaVersionMetadataResult;
-import com.amazonaws.services.glue.model.ResetJobBookmarkRequest;
-import com.amazonaws.services.glue.model.ResetJobBookmarkResult;
-import com.amazonaws.services.glue.model.ResumeWorkflowRunRequest;
-import com.amazonaws.services.glue.model.ResumeWorkflowRunResult;
-import com.amazonaws.services.glue.model.SearchTablesRequest;
-import com.amazonaws.services.glue.model.SearchTablesResult;
-import com.amazonaws.services.glue.model.StartCrawlerRequest;
-import com.amazonaws.services.glue.model.StartCrawlerResult;
-import com.amazonaws.services.glue.model.StartCrawlerScheduleRequest;
-import com.amazonaws.services.glue.model.StartCrawlerScheduleResult;
-import com.amazonaws.services.glue.model.StartExportLabelsTaskRunRequest;
-import com.amazonaws.services.glue.model.StartExportLabelsTaskRunResult;
-import com.amazonaws.services.glue.model.StartImportLabelsTaskRunRequest;
-import com.amazonaws.services.glue.model.StartImportLabelsTaskRunResult;
-import com.amazonaws.services.glue.model.StartJobRunRequest;
-import com.amazonaws.services.glue.model.StartJobRunResult;
-import com.amazonaws.services.glue.model.StartMLEvaluationTaskRunRequest;
-import com.amazonaws.services.glue.model.StartMLEvaluationTaskRunResult;
-import com.amazonaws.services.glue.model.StartMLLabelingSetGenerationTaskRunRequest;
-import com.amazonaws.services.glue.model.StartMLLabelingSetGenerationTaskRunResult;
-import com.amazonaws.services.glue.model.StartTriggerRequest;
-import com.amazonaws.services.glue.model.StartTriggerResult;
-import com.amazonaws.services.glue.model.StartWorkflowRunRequest;
-import com.amazonaws.services.glue.model.StartWorkflowRunResult;
-import com.amazonaws.services.glue.model.StopCrawlerRequest;
-import com.amazonaws.services.glue.model.StopCrawlerResult;
-import com.amazonaws.services.glue.model.StopCrawlerScheduleRequest;
-import com.amazonaws.services.glue.model.StopCrawlerScheduleResult;
-import com.amazonaws.services.glue.model.StopTriggerRequest;
-import com.amazonaws.services.glue.model.StopTriggerResult;
-import com.amazonaws.services.glue.model.StopWorkflowRunRequest;
-import com.amazonaws.services.glue.model.StopWorkflowRunResult;
-import com.amazonaws.services.glue.model.TagResourceRequest;
-import com.amazonaws.services.glue.model.TagResourceResult;
-import com.amazonaws.services.glue.model.UntagResourceRequest;
-import com.amazonaws.services.glue.model.UntagResourceResult;
-import com.amazonaws.services.glue.model.UpdateClassifierRequest;
-import com.amazonaws.services.glue.model.UpdateClassifierResult;
-import com.amazonaws.services.glue.model.UpdateColumnStatisticsForPartitionRequest;
-import com.amazonaws.services.glue.model.UpdateColumnStatisticsForPartitionResult;
-import com.amazonaws.services.glue.model.UpdateColumnStatisticsForTableRequest;
-import com.amazonaws.services.glue.model.UpdateColumnStatisticsForTableResult;
-import com.amazonaws.services.glue.model.UpdateConnectionRequest;
-import com.amazonaws.services.glue.model.UpdateConnectionResult;
-import com.amazonaws.services.glue.model.UpdateCrawlerRequest;
-import com.amazonaws.services.glue.model.UpdateCrawlerResult;
-import com.amazonaws.services.glue.model.UpdateCrawlerScheduleRequest;
-import com.amazonaws.services.glue.model.UpdateCrawlerScheduleResult;
-import com.amazonaws.services.glue.model.UpdateDatabaseRequest;
-import com.amazonaws.services.glue.model.UpdateDatabaseResult;
-import com.amazonaws.services.glue.model.UpdateDevEndpointRequest;
-import com.amazonaws.services.glue.model.UpdateDevEndpointResult;
-import com.amazonaws.services.glue.model.UpdateJobRequest;
-import com.amazonaws.services.glue.model.UpdateJobResult;
-import com.amazonaws.services.glue.model.UpdateMLTransformRequest;
-import com.amazonaws.services.glue.model.UpdateMLTransformResult;
-import com.amazonaws.services.glue.model.UpdatePartitionRequest;
-import com.amazonaws.services.glue.model.UpdatePartitionResult;
-import com.amazonaws.services.glue.model.UpdateRegistryRequest;
-import com.amazonaws.services.glue.model.UpdateRegistryResult;
-import com.amazonaws.services.glue.model.UpdateSchemaRequest;
-import com.amazonaws.services.glue.model.UpdateSchemaResult;
-import com.amazonaws.services.glue.model.UpdateTableRequest;
-import com.amazonaws.services.glue.model.UpdateTableResult;
-import com.amazonaws.services.glue.model.UpdateTriggerRequest;
-import com.amazonaws.services.glue.model.UpdateTriggerResult;
-import com.amazonaws.services.glue.model.UpdateUserDefinedFunctionRequest;
-import com.amazonaws.services.glue.model.UpdateUserDefinedFunctionResult;
-import com.amazonaws.services.glue.model.UpdateWorkflowRequest;
-import com.amazonaws.services.glue.model.UpdateWorkflowResult;
+import com.amazonaws.services.glue.model.*;
 
 /**
  * Base decorator for AWSGlue interface. It doesn't decorate any functionality but just proxy all methods to
@@ -347,6 +34,9 @@ import com.amazonaws.services.glue.model.UpdateWorkflowResult;
  * All @Override methods are generated by IntelliJ IDEA.
  */
 public class AWSGlueDecoratorBase implements AWSGlue {
+
+
+
     private AWSGlue decoratedAwsGlue;
 
     public AWSGlueDecoratorBase(AWSGlue awsGlueToBeDecorated) {
@@ -381,6 +71,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public BatchGetCrawlersResult batchGetCrawlers(BatchGetCrawlersRequest batchGetCrawlersRequest) {
         return decoratedAwsGlue.batchGetCrawlers(batchGetCrawlersRequest);
+    }
+
+    @Override
+    public BatchGetCustomEntityTypesResult batchGetCustomEntityTypes(BatchGetCustomEntityTypesRequest batchGetCustomEntityTypesRequest) {
+        return decoratedAwsGlue.batchGetCustomEntityTypes(batchGetCustomEntityTypesRequest);
     }
 
     @Override
@@ -424,8 +119,18 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public CancelStatementResult cancelStatement(CancelStatementRequest cancelStatementRequest) {
+        return decoratedAwsGlue.cancelStatement(cancelStatementRequest);
+    }
+
+    @Override
     public CheckSchemaVersionValidityResult checkSchemaVersionValidity(CheckSchemaVersionValidityRequest checkSchemaVersionValidityRequest) {
-        return null;
+        return decoratedAwsGlue.checkSchemaVersionValidity(checkSchemaVersionValidityRequest);
+    }
+
+    @Override
+    public CreateBlueprintResult createBlueprint(CreateBlueprintRequest createBlueprintRequest) {
+        return decoratedAwsGlue.createBlueprint(createBlueprintRequest);
     }
 
     @Override
@@ -441,6 +146,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public CreateCrawlerResult createCrawler(CreateCrawlerRequest createCrawlerRequest) {
         return decoratedAwsGlue.createCrawler(createCrawlerRequest);
+    }
+
+    @Override
+    public CreateCustomEntityTypeResult createCustomEntityType(CreateCustomEntityTypeRequest createCustomEntityTypeRequest) {
+        return decoratedAwsGlue.createCustomEntityType(createCustomEntityTypeRequest);
     }
 
     @Override
@@ -470,7 +180,7 @@ public class AWSGlueDecoratorBase implements AWSGlue {
 
     @Override
     public CreatePartitionIndexResult createPartitionIndex(CreatePartitionIndexRequest createPartitionIndexRequest) {
-        return null;
+        return decoratedAwsGlue.createPartitionIndex(createPartitionIndexRequest);
     }
 
     @Override
@@ -494,6 +204,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public CreateSessionResult createSession(CreateSessionRequest createSessionRequest) {
+        return decoratedAwsGlue.createSession(createSessionRequest);
+    }
+
+    @Override
     public CreateTableResult createTable(CreateTableRequest createTableRequest) {
         return decoratedAwsGlue.createTable(createTableRequest);
     }
@@ -514,6 +229,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public DeleteBlueprintResult deleteBlueprint(DeleteBlueprintRequest deleteBlueprintRequest) {
+        return decoratedAwsGlue.deleteBlueprint(deleteBlueprintRequest);
+    }
+
+    @Override
     public DeleteClassifierResult deleteClassifier(DeleteClassifierRequest deleteClassifierRequest) {
         return decoratedAwsGlue.deleteClassifier(deleteClassifierRequest);
     }
@@ -526,6 +246,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public DeleteCrawlerResult deleteCrawler(DeleteCrawlerRequest deleteCrawlerRequest) {
         return decoratedAwsGlue.deleteCrawler(deleteCrawlerRequest);
+    }
+
+    @Override
+    public DeleteCustomEntityTypeResult deleteCustomEntityType(DeleteCustomEntityTypeRequest deleteCustomEntityTypeRequest) {
+        return decoratedAwsGlue.deleteCustomEntityType(deleteCustomEntityTypeRequest);
     }
 
     @Override
@@ -575,12 +300,17 @@ public class AWSGlueDecoratorBase implements AWSGlue {
 
     @Override
     public DeleteSchemaVersionsResult deleteSchemaVersions(DeleteSchemaVersionsRequest deleteSchemaVersionsRequest) {
-        return null;
+        return decoratedAwsGlue.deleteSchemaVersions(deleteSchemaVersionsRequest);
     }
 
     @Override
     public DeleteSecurityConfigurationResult deleteSecurityConfiguration(DeleteSecurityConfigurationRequest deleteSecurityConfigurationRequest) {
         return decoratedAwsGlue.deleteSecurityConfiguration(deleteSecurityConfigurationRequest);
+    }
+
+    @Override
+    public DeleteSessionResult deleteSession(DeleteSessionRequest deleteSessionRequest) {
+        return decoratedAwsGlue.deleteSession(deleteSessionRequest);
     }
 
     @Override
@@ -606,6 +336,21 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public DeleteWorkflowResult deleteWorkflow(DeleteWorkflowRequest deleteWorkflowRequest) {
         return decoratedAwsGlue.deleteWorkflow(deleteWorkflowRequest);
+    }
+
+    @Override
+    public GetBlueprintResult getBlueprint(GetBlueprintRequest getBlueprintRequest) {
+        return decoratedAwsGlue.getBlueprint(getBlueprintRequest);
+    }
+
+    @Override
+    public GetBlueprintRunResult getBlueprintRun(GetBlueprintRunRequest getBlueprintRunRequest) {
+        return decoratedAwsGlue.getBlueprintRun(getBlueprintRunRequest);
+    }
+
+    @Override
+    public GetBlueprintRunsResult getBlueprintRuns(GetBlueprintRunsRequest getBlueprintRunsRequest) {
+        return decoratedAwsGlue.getBlueprintRuns(getBlueprintRunsRequest);
     }
 
     @Override
@@ -646,6 +391,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public GetCrawlersResult getCrawlers(GetCrawlersRequest getCrawlersRequest) {
         return decoratedAwsGlue.getCrawlers(getCrawlersRequest);
+    }
+
+    @Override
+    public GetCustomEntityTypeResult getCustomEntityType(GetCustomEntityTypeRequest getCustomEntityTypeRequest) {
+        return decoratedAwsGlue.getCustomEntityType(getCustomEntityTypeRequest);
     }
 
     @Override
@@ -765,17 +515,17 @@ public class AWSGlueDecoratorBase implements AWSGlue {
 
     @Override
     public GetSchemaByDefinitionResult getSchemaByDefinition(GetSchemaByDefinitionRequest getSchemaByDefinitionRequest) {
-        return null;
+        return decoratedAwsGlue.getSchemaByDefinition(getSchemaByDefinitionRequest);
     }
 
     @Override
     public GetSchemaVersionResult getSchemaVersion(GetSchemaVersionRequest getSchemaVersionRequest) {
-        return null;
+        return decoratedAwsGlue.getSchemaVersion(getSchemaVersionRequest);
     }
 
     @Override
     public GetSchemaVersionsDiffResult getSchemaVersionsDiff(GetSchemaVersionsDiffRequest getSchemaVersionsDiffRequest) {
-        return null;
+        return decoratedAwsGlue.getSchemaVersionsDiff(getSchemaVersionsDiffRequest);
     }
 
     @Override
@@ -786,6 +536,16 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public GetSecurityConfigurationsResult getSecurityConfigurations(GetSecurityConfigurationsRequest getSecurityConfigurationsRequest) {
         return decoratedAwsGlue.getSecurityConfigurations(getSecurityConfigurationsRequest);
+    }
+
+    @Override
+    public GetSessionResult getSession(GetSessionRequest getSessionRequest) {
+        return decoratedAwsGlue.getSession(getSessionRequest);
+    }
+
+    @Override
+    public GetStatementResult getStatement(GetStatementRequest getStatementRequest) {
+        return decoratedAwsGlue.getStatement(getStatementRequest);
     }
 
     @Override
@@ -824,6 +584,21 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public GetUnfilteredPartitionMetadataResult getUnfilteredPartitionMetadata(GetUnfilteredPartitionMetadataRequest getUnfilteredPartitionMetadataRequest) {
+        return decoratedAwsGlue.getUnfilteredPartitionMetadata(getUnfilteredPartitionMetadataRequest);
+    }
+
+    @Override
+    public GetUnfilteredPartitionsMetadataResult getUnfilteredPartitionsMetadata(GetUnfilteredPartitionsMetadataRequest getUnfilteredPartitionsMetadataRequest) {
+        return decoratedAwsGlue.getUnfilteredPartitionsMetadata(getUnfilteredPartitionsMetadataRequest);
+    }
+
+    @Override
+    public GetUnfilteredTableMetadataResult getUnfilteredTableMetadata(GetUnfilteredTableMetadataRequest getUnfilteredTableMetadataRequest) {
+        return decoratedAwsGlue.getUnfilteredTableMetadata(getUnfilteredTableMetadataRequest);
+    }
+
+    @Override
     public GetUserDefinedFunctionResult getUserDefinedFunction(GetUserDefinedFunctionRequest getUserDefinedFunctionRequest) {
         return decoratedAwsGlue.getUserDefinedFunction(getUserDefinedFunctionRequest);
     }
@@ -859,8 +634,23 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public ListBlueprintsResult listBlueprints(ListBlueprintsRequest listBlueprintsRequest) {
+        return decoratedAwsGlue.listBlueprints(listBlueprintsRequest);
+    }
+
+    @Override
     public ListCrawlersResult listCrawlers(ListCrawlersRequest listCrawlersRequest) {
         return decoratedAwsGlue.listCrawlers(listCrawlersRequest);
+    }
+
+    @Override
+    public ListCrawlsResult listCrawls(ListCrawlsRequest listCrawlsRequest) {
+        return decoratedAwsGlue.listCrawls(listCrawlsRequest);
+    }
+
+    @Override
+    public ListCustomEntityTypesResult listCustomEntityTypes(ListCustomEntityTypesRequest listCustomEntityTypesRequest) {
+        return decoratedAwsGlue.listCustomEntityTypes(listCustomEntityTypesRequest);
     }
 
     @Override
@@ -885,12 +675,22 @@ public class AWSGlueDecoratorBase implements AWSGlue {
 
     @Override
     public ListSchemaVersionsResult listSchemaVersions(ListSchemaVersionsRequest listSchemaVersionsRequest) {
-        return null;
+        return decoratedAwsGlue.listSchemaVersions(listSchemaVersionsRequest);
     }
 
     @Override
     public ListSchemasResult listSchemas(ListSchemasRequest listSchemasRequest) {
         return null;
+    }
+
+    @Override
+    public ListSessionsResult listSessions(ListSessionsRequest listSessionsRequest) {
+        return decoratedAwsGlue.listSessions(listSessionsRequest);
+    }
+
+    @Override
+    public ListStatementsResult listStatements(ListStatementsRequest listStatementsRequest) {
+        return decoratedAwsGlue.listStatements(listStatementsRequest);
     }
 
     @Override
@@ -949,6 +749,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public StartBlueprintRunResult startBlueprintRun(StartBlueprintRunRequest startBlueprintRunRequest) {
+        return decoratedAwsGlue.startBlueprintRun(startBlueprintRunRequest);
+    }
+
+    @Override
     public StartCrawlerResult startCrawler(StartCrawlerRequest startCrawlerRequest) {
         return decoratedAwsGlue.startCrawler(startCrawlerRequest);
     }
@@ -1004,6 +809,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public StopSessionResult stopSession(StopSessionRequest stopSessionRequest) {
+        return decoratedAwsGlue.stopSession(stopSessionRequest);
+    }
+
+    @Override
     public StopTriggerResult stopTrigger(StopTriggerRequest stopTriggerRequest) {
         return decoratedAwsGlue.stopTrigger(stopTriggerRequest);
     }
@@ -1021,6 +831,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     @Override
     public UntagResourceResult untagResource(UntagResourceRequest untagResourceRequest) {
         return decoratedAwsGlue.untagResource(untagResourceRequest);
+    }
+
+    @Override
+    public UpdateBlueprintResult updateBlueprint(UpdateBlueprintRequest updateBlueprintRequest) {
+        return decoratedAwsGlue.updateBlueprint(updateBlueprintRequest);
     }
 
     @Override
@@ -1125,6 +940,11 @@ public class AWSGlueDecoratorBase implements AWSGlue {
     }
 
     @Override
+    public RunStatementResult runStatement(RunStatementRequest runStatementRequest) {
+        return decoratedAwsGlue.runStatement(runStatementRequest);
+    }
+
+    @Override
     public GetResourcePoliciesResult getResourcePolicies(GetResourcePoliciesRequest getResourcePoliciesRequest) {
         return decoratedAwsGlue.getResourcePolicies(getResourcePoliciesRequest);
     }
@@ -1149,5 +969,9 @@ public class AWSGlueDecoratorBase implements AWSGlue {
         return decoratedAwsGlue.deleteColumnStatisticsForPartition(deleteColumnStatisticsForPartitionRequest);
     }
 
+    @Override
+    public BatchGetBlueprintsResult batchGetBlueprints(BatchGetBlueprintsRequest batchGetBlueprintsRequest) {
+        return decoratedAwsGlue.batchGetBlueprints(batchGetBlueprintsRequest);
+    }
 }
 

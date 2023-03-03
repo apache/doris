@@ -58,6 +58,7 @@ under the License.
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
             <version>${hive.version}</version>
             <exclusions>
                 <exclusion>
@@ -96,19 +97,11 @@ under the License.
             <artifactId>druid</artifactId>
             <version>1.2.5</version>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
-        <dependency>
-            <groupId>org.junit.vintage</groupId>
-            <artifactId>junit-vintage-engine</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <version>2.18.0</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
     <build>
