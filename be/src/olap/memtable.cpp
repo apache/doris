@@ -147,13 +147,8 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
                                *_pblock, -1);
 }
 
-template void MemTable::insert<true>(const vectorized::Block* block,
-                                     const std::vector<int>& row_idxs);
-template void MemTable::insert<false>(const vectorized::Block* block,
-                                      const std::vector<int>& row_idxs);
-
-template <bool is_append>
-void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
+void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs,
+                      bool is_append) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     vectorized::Block target_block = *input_block;
     if (!_tablet_schema->is_dynamic_schema()) {
@@ -182,7 +177,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    if constexpr (is_append) {
+    if (is_append) {
         // Append the block, call insert range from
         _input_mutable_block.add_rows(&target_block, 0, target_block.rows());
         num_rows = target_block.rows();

@@ -24,7 +24,6 @@
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/defer_op.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"

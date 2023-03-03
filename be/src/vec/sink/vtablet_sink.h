@@ -177,10 +177,10 @@ public:
 
     Status open_wait();
 
-    template <bool is_append>
     Status add_block(vectorized::Block* block,
                      const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
-                                     std::vector<int64_t>>& payload);
+                                     std::vector<int64_t>>& payload,
+                     bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
@@ -423,6 +423,15 @@ private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
+    using ChannelDistributionPayload = std::vector<std::unordered_map<
+            VNodeChannel*,
+            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>;
+
+    // payload for each row
+    void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
+                                            const VOlapTablePartition* partition,
+                                            uint32_t tablet_index, int row_idx, size_t row_cnt);
+
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
@@ -438,7 +447,6 @@ private:
                             bool* stop_processing, fmt::memory_buffer& error_prefix,
                             vectorized::IColumn::Permutation* rows = nullptr);
 
-    Status _append_block_to_single_tablet(RuntimeState* state, vectorized::Block& block);
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);

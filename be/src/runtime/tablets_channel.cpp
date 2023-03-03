@@ -364,7 +364,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     } else {
         for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
             RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](DeltaWriter* writer) {
-                return writer->write<false>(&send_data, tablet_to_rowidxs_it.second);
+                return writer->write(&send_data, tablet_to_rowidxs_it.second);
             }));
         }
     }

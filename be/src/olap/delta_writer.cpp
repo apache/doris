@@ -159,16 +159,11 @@ Status DeltaWriter::init() {
 }
 
 Status DeltaWriter::append(const vectorized::Block* block) {
-    return write<true>(block, {});
+    return write(block, {}, true);
 }
 
-template Status DeltaWriter::write<true>(const vectorized::Block* block,
-                                         const std::vector<int>& row_idxs);
-template Status DeltaWriter::write<false>(const vectorized::Block* block,
-                                          const std::vector<int>& row_idxs);
-
-template <bool is_append = false>
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+                          bool is_append) {
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
@@ -187,12 +182,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::Error<ALREADY_CLOSED>();
     }
 
-    if constexpr (is_append) {
+    if (is_append) {
         _total_received_rows += block->rows();
     } else {
         _total_received_rows += row_idxs.size();
     }
-    _mem_table->insert<is_append>(block, row_idxs);
+    _mem_table->insert(block, row_idxs, is_append);
 
     if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();

@@ -60,8 +60,8 @@ public:
 
     Status init();
 
-    template <bool is_append>
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
+    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+                 bool is_append = false);
 
     Status append(const vectorized::Block* block);
 
