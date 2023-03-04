@@ -939,7 +939,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
-                && children.size() == 3) {
+                && (children.size() == 2 || children.size() == 3)) {
             String blockEncryptionMode = "";
             Set<String> aesModes = new HashSet<>(Arrays.asList(
                     "AES_128_ECB",
@@ -981,6 +981,12 @@ public class FunctionCallExpr extends Expr {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "AES_128_ECB";
                     }
+                    if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
+                            && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
+                            && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'aes_encrypt' or 'aes_decrypt'");
+                    }
                     if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
 
@@ -990,6 +996,10 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "SM4_128_ECB";
+                    }
+                    if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("SM4_128_ECB")) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'sm4_encrypt' or 'sm4_decrypt'");
                     }
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
