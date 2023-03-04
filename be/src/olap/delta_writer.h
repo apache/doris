@@ -27,12 +27,9 @@ namespace doris {
 class FlushToken;
 class MemTable;
 class MemTracker;
-class RowBatch;
 class Schema;
 class StorageEngine;
-class Tuple;
 class TupleDescriptor;
-class TupleRow;
 class SlotDescriptor;
 
 enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
@@ -48,8 +45,8 @@ struct WriteRequest {
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
     bool is_high_priority = false;
-    POlapTableSchemaParam ptable_schema_param;
-    int64_t index_id;
+    OlapTableSchemaParam* table_schema_param;
+    int64_t index_id = 0;
 };
 
 // Writer for a particular (load, index, tablet).
@@ -57,14 +54,12 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static Status open(WriteRequest* req, DeltaWriter** writer,
-                       const UniqueId& load_id = TUniqueId(), bool is_vec = false);
+                       const UniqueId& load_id = TUniqueId());
 
     ~DeltaWriter();
 
     Status init();
 
-    Status write(Tuple* tuple);
-    Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
@@ -110,9 +105,10 @@ public:
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
+    int64_t total_received_rows() const { return _total_received_rows; }
+
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
-                bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -122,13 +118,14 @@ private:
     void _reset_mem_table();
 
     void _build_current_tablet_schema(int64_t index_id,
-                                      const POlapTableSchemaParam& table_schema_param,
+                                      const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
 
     void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
 
     bool _is_init = false;
     bool _is_cancelled = false;
+    bool _is_closed = false;
     Status _cancel_status;
     WriteRequest _req;
     TabletSharedPtr _tablet;
@@ -153,9 +150,6 @@ private:
 
     std::mutex _lock;
 
-    // use in vectorized load
-    bool _is_vec;
-
     // memory consumption snapshot for current delta_writer, only
     // used for std::sort
     int64_t _mem_consumption_snapshot = 0;
@@ -172,6 +166,11 @@ private:
     RowsetIdUnorderedSet _rowset_ids;
     // current max version, used to calculate delete bitmap
     int64_t _cur_max_version;
+
+    // total rows num written by DeltaWriter
+    int64_t _total_received_rows = 0;
+    // rows num merged by memtable
+    int64_t _merged_rows = 0;
 };
 
 } // namespace doris

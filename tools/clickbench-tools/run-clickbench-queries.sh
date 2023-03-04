@@ -102,7 +102,7 @@ pre_set() {
 }
 
 pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=8G;"
+pre_set "set global exec_mem_limit=32G;"
 echo '============================================'
 pre_set "show variables"
 echo '============================================'

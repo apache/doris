@@ -33,6 +33,7 @@ import java.util.Optional;
 
 /** LogicalTableValuedFunctionRelation */
 public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
+
     private final TableValuedFunction function;
 
     public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
@@ -46,7 +47,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_TVF_RELATION,
                 Objects.requireNonNull(function, "table valued function can not be null").getTable(),
-                ImmutableList.of(), groupExpression, logicalProperties, ImmutableList.of());
+                ImmutableList.of(), groupExpression, logicalProperties);
         this.function = function;
     }
 

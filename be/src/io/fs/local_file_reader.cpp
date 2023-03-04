@@ -19,14 +19,15 @@
 
 #include <atomic>
 
+#include "util/async_io.h"
 #include "util/doris_metrics.h"
-#include "util/errno.h"
 
 namespace doris {
 namespace io {
 
-LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
-        : _fd(fd), _path(std::move(path)), _file_size(file_size) {
+LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
+                                 std::shared_ptr<LocalFileSystem> fs)
+        : _fd(fd), _path(std::move(path)), _file_size(file_size), _fs(std::move(fs)) {
     DorisMetrics::instance()->local_file_open_reading->increment(1);
     DorisMetrics::instance()->local_file_reader_total->increment(1);
 }
@@ -39,7 +40,13 @@ Status LocalFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->local_file_open_reading->increment(-1);
-        auto res = ::close(_fd);
+        int res = -1;
+        if (bthread_self() == 0) {
+            res = ::close(_fd);
+        } else {
+            auto task = [&] { res = ::close(_fd); };
+            AsyncIO::run_task(task, io::FileSystemType::LOCAL);
+        }
         if (-1 == res) {
             return Status::IOError("failed to close {}: {}", _path.native(), std::strerror(errno));
         }
@@ -47,9 +54,19 @@ Status LocalFileReader::close() {
     }
     return Status::OK();
 }
-
 Status LocalFileReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                                 size_t* bytes_read) {
+    if (bthread_self() == 0) {
+        return read_at_impl(offset, result, io_ctx, bytes_read);
+    }
+    Status s;
+    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
+    AsyncIO::run_task(task, io::FileSystemType::LOCAL);
+    return s;
+}
+
+Status LocalFileReader::read_at_impl(size_t offset, Slice result, const IOContext& /*io_ctx*/,
+                                     size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",

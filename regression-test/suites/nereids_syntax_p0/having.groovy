@@ -18,7 +18,7 @@
 suite("test_nereids_having") {
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_fallback_to_original_planner=true"
 
     sql "DROP TABLE IF EXISTS test_nereids_having_tbl"
 
@@ -57,4 +57,15 @@ suite("test_nereids_having") {
     order_qt_select "SELECT a1, SUM(a1 + a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a1 + a2) > 0";
     order_qt_select "SELECT a1, SUM(a1 + a2) FROM test_nereids_having_tbl GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
     order_qt_select "SELECT a1 FROM test_nereids_having_tbl GROUP BY a1 HAVING COUNT(*) > 0";
+    order_qt_select "SELECT COUNT(*) FROM test_nereids_having_tbl HAVING COUNT(*) > 0";
+
+    order_qt_select "SELECT a1 as value FROM test_nereids_having_tbl HAVING a1 > 0";
+    order_qt_select "SELECT a1 as value FROM test_nereids_having_tbl HAVING value > 0";
+    order_qt_select "SELECT SUM(a2) FROM test_nereids_having_tbl HAVING SUM(a2) > 0";
+    order_qt_select "SELECT SUM(a2) as value FROM test_nereids_having_tbl HAVING SUM(a2) > 0";
+    order_qt_select "SELECT SUM(a2) as value FROM test_nereids_having_tbl HAVING value > 0";
+    order_qt_select "SELECT SUM(a2) FROM test_nereids_having_tbl HAVING MIN(pk) > 0";
+    order_qt_select "SELECT SUM(a1 + a2) FROM test_nereids_having_tbl HAVING SUM(a1 + a2) > 0";
+    order_qt_select "SELECT SUM(a1 + a2) FROM test_nereids_having_tbl HAVING SUM(a1 + a2 + 3) > 0";
+    order_qt_select "SELECT COUNT(*) FROM test_nereids_having_tbl HAVING COUNT(*) > 0";
 }

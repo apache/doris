@@ -91,7 +91,7 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
                                   std::unique_ptr<BloomFilterIndexIterator>* iter) {
     std::string fname = dname + "/" + file_name;
     io::FileReaderSPtr file_reader;
-    ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
+    ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader, nullptr), Status::OK());
     *reader = new BloomFilterIndexReader(std::move(file_reader), &meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());

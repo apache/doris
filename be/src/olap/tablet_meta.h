@@ -82,15 +82,12 @@ public:
                          TabletMetaSharedPtr* tablet_meta);
 
     TabletMeta();
-    // Only remote_storage_name is needed in meta, it is a key used to get remote params from fe.
-    // The config of storage is saved in fe.
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int64_t replica_id,
                int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
-               TCompressionType::type compression_type,
-               const std::string& storage_policy = std::string(),
+               TCompressionType::type compression_type, int64_t storage_policy_id = 0,
                bool enable_unique_key_merge_on_write = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
@@ -119,6 +116,7 @@ public:
 
     TabletTypePB tablet_type() const { return _tablet_type; }
     TabletUid tablet_uid() const;
+    void set_tablet_uid(TabletUid uid) { _tablet_uid = uid; }
     int64_t table_id() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
@@ -147,7 +145,7 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    TabletSchemaSPtr tablet_schema() const;
+    const TabletSchemaSPtr& tablet_schema() const;
 
     const TabletSchemaSPtr tablet_schema(Version version) const;
 
@@ -188,17 +186,16 @@ public:
 
     bool all_beta() const;
 
-    const std::string& storage_policy() const {
-        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
-        return _storage_policy;
+    int64_t storage_policy_id() const { return _storage_policy_id; }
+
+    void set_storage_policy_id(int64_t id) {
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " storage policy from "
+                    << _storage_policy_id << " to " << id;
+        _storage_policy_id = id;
     }
 
-    void set_storage_policy(const std::string& policy) {
-        std::unique_lock<std::shared_mutex> wlock(_meta_lock);
-        VLOG_NOTICE << "set tablet_id : " << _table_id << " storage policy from " << _storage_policy
-                    << " to " << policy;
-        _storage_policy = policy;
-    }
+    UniqueId cooldown_meta_id() const { return _cooldown_meta_id; }
+    void set_cooldown_meta_id(UniqueId uid) { _cooldown_meta_id = uid; }
 
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
@@ -206,9 +203,6 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-
-    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
-                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -242,7 +236,9 @@ private:
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
-    std::string _storage_policy;
+    // meta for cooldown
+    int64_t _storage_policy_id = 0; // <= 0 means no storage policy
+    UniqueId _cooldown_meta_id;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
@@ -371,6 +367,8 @@ public:
      * @param other
      */
     void merge(const DeleteBitmap& other);
+
+    uint64_t cardinality();
 
     /**
      * Checks if the given row is marked deleted in bitmap with the condition:
@@ -525,7 +523,7 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+inline const TabletSchemaSPtr& TabletMeta::tablet_schema() const {
     return _schema;
 }
 

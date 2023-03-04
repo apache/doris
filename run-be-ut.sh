@@ -107,7 +107,6 @@ if [[ "$#" != 1 ]]; then
             ;;
         *)
             usage
-            exit 0
             ;;
         esac
     done
@@ -128,6 +127,10 @@ echo "Build Backend UT"
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
 if [[ "${CLEAN}" -eq 1 ]]; then
+    pushd "${DORIS_HOME}/gensrc"
+    make clean
+    popd
+
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
 fi
@@ -259,7 +262,7 @@ mkdir "${UT_TMP_DIR}"
 touch "${UT_TMP_DIR}/tmp_file"
 
 # set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
 export UBSAN_OPTIONS=print_stacktrace=1
 
 # find all executable test files

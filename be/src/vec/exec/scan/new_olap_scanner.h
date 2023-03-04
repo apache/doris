@@ -35,8 +35,7 @@ struct FilterPredicates;
 class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   bool need_agg_finalize, const TPaloScanRange& scan_range,
-                   RuntimeProfile* profile);
+                   bool need_agg_finalize, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 
@@ -48,6 +47,10 @@ public:
                    const std::vector<FunctionFilter>& function_filters);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
+
+    void set_compound_filters(const std::vector<TCondition>& compound_filters);
+
+    doris::TabletStorageType get_storage_type() override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -75,11 +78,11 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
+    std::vector<TCondition> _compound_filters;
 
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;
     int64_t _raw_rows_read = 0;
-    RuntimeProfile* _profile;
     bool _profile_updated = false;
 };
 } // namespace vectorized

@@ -163,7 +163,7 @@ public class TableTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         Table rFamily1 = Table.read(dis);
-        Assert.assertTrue(table1.equals(rFamily1));
+        Assert.assertEquals(table1, rFamily1);
         Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
         Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
 

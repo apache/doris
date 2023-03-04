@@ -28,6 +28,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 namespace vectorized {
 VStatisticsIterator::~VStatisticsIterator() {
@@ -123,6 +124,7 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
     if (_is_unique) {
         result ? set_skip(true) : rhs.set_skip(true);
     }
+    result ? set_same(true) : rhs.set_same(true);
     return result;
 }
 
@@ -136,7 +138,6 @@ void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
-    DCHECK(start >= 0);
 
     for (size_t i = 0; i < _num_columns; ++i) {
         auto& s_col = src.get_by_position(i);
@@ -147,6 +148,8 @@ void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
         d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
     }
+    const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
+    dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
 }
 
@@ -155,10 +158,10 @@ void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
         return;
     }
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
-    DCHECK(start >= 0);
 
+    const auto& tmp_pre_ctx_same_bit = get_pre_ctx_same();
     for (size_t i = 0; i < _cur_batch_num; ++i) {
-        view->push_back({_block, static_cast<int>(start + i), false});
+        view->push_back({_block, static_cast<int>(start + i), tmp_pre_ctx_same_bit[i]});
     }
 
     _cur_batch_num = 0;
@@ -173,7 +176,7 @@ void VMergeIteratorContext::copy_rows(BlockView* view, bool advanced) {
 //      VAutoIncrementIterator iter(schema, 1000);
 //      StorageReadOptions opts;
 //      RETURN_IF_ERROR(iter.init(opts));
-//      RowBlockV2 block;
+//      Block block;
 //      do {
 //          st = iter.next_batch(&block);
 //      } while (st.ok());
@@ -254,11 +257,14 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     if (valid()) {
         RETURN_IF_ERROR(advance());
     }
+    _pre_ctx_same_bit.reserve(_block_row_max);
+    _pre_ctx_same_bit.assign(_block_row_max, false);
     return Status::OK();
 }
 
 Status VMergeIteratorContext::advance() {
     _skip = false;
+    _same = false;
     // NOTE: we increase _index_in_block directly to valid one check
     do {
         _index_in_block++;
@@ -292,7 +298,7 @@ Status VMergeIteratorContext::_load_next_block() {
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {
             _valid = false;
-            if (st.is_end_of_file()) {
+            if (st.is<END_OF_FILE>()) {
                 return Status::OK();
             } else {
                 return st;
@@ -311,12 +317,13 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema = &(*_origin_iters.begin())->schema();
+    _schema = &(_origin_iters[0]->schema());
     _record_rowids = opts.record_rowids;
 
-    for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VMergeIteratorContext>(
-                iter, _sequence_id_idx, _is_unique, _is_reverse, opts.read_orderby_key_columns);
+    for (auto& iter : _origin_iters) {
+        auto ctx = std::make_unique<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
+                                                           _is_unique, _is_reverse,
+                                                           opts.read_orderby_key_columns);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -337,12 +344,9 @@ public:
     // Iterators' ownership it transferred to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators anymore.
-    VUnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}
+    VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v) : _origin_iters(std::move(v)) {}
 
-    ~VUnionIterator() override {
-        std::for_each(_origin_iters.begin(), _origin_iters.end(),
-                      std::default_delete<RowwiseIterator>());
-    }
+    ~VUnionIterator() override {}
 
     Status init(const StorageReadOptions& opts) override;
 
@@ -362,7 +366,7 @@ public:
 private:
     const Schema* _schema = nullptr;
     RowwiseIterator* _cur_iter = nullptr;
-    std::deque<RowwiseIterator*> _origin_iters;
+    std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
 Status VUnionIterator::init(const StorageReadOptions& opts) {
@@ -370,10 +374,15 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
         return Status::OK();
     }
 
-    for (auto iter : _origin_iters) {
+    // we use back() and pop_back() of std::vector to handle each iterator,
+    // so reverse the vector here to keep result block of next_batch to be
+    // in the same order as the original segments.
+    std::reverse(_origin_iters.begin(), _origin_iters.end());
+
+    for (auto& iter : _origin_iters) {
         RETURN_IF_ERROR(iter->init(opts));
     }
-    _cur_iter = *(_origin_iters.begin());
+    _cur_iter = _origin_iters.back().get();
     _schema = &_cur_iter->schema();
     return Status::OK();
 }
@@ -381,11 +390,10 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
 Status VUnionIterator::next_batch(Block* block) {
     while (_cur_iter != nullptr) {
         auto st = _cur_iter->next_batch(block);
-        if (st.is_end_of_file()) {
-            delete _cur_iter;
-            _origin_iters.pop_front();
+        if (st.is<END_OF_FILE>()) {
+            _origin_iters.pop_back();
             if (!_origin_iters.empty()) {
-                _cur_iter = *(_origin_iters.begin());
+                _cur_iter = _origin_iters.back().get();
             } else {
                 _cur_iter = nullptr;
             }
@@ -404,27 +412,29 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
     return _cur_iter->current_block_row_locations(locations);
 }
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx,
-                                    bool is_unique, bool is_reverse, uint64_t* merged_rows) {
+RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
+                                       int sequence_id_idx, bool is_unique, bool is_reverse,
+                                       uint64_t* merged_rows) {
     if (inputs.size() == 1) {
-        return *(inputs.begin());
+        return std::move(inputs[0]);
     }
-    return new VMergeIterator(inputs, sequence_id_idx, is_unique, is_reverse, merged_rows);
+    return std::make_unique<VMergeIterator>(std::move(inputs), sequence_id_idx, is_unique,
+                                            is_reverse, merged_rows);
 }
 
-RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {
+RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs) {
     if (inputs.size() == 1) {
-        return *(inputs.begin());
+        return std::move(inputs[0]);
     }
-    return new VUnionIterator(inputs);
+    return std::make_unique<VUnionIterator>(std::move(inputs));
 }
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema) {
     return new VStatisticsIterator(segment, schema);
 }
 
-RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
-    return new VAutoIncrementIterator(schema, num_rows);
+RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
+    return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
 
 } // namespace vectorized

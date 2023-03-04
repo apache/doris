@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_cast_string_to_array") {
-    sql "set enable_vectorized_engine = true"
-
     // cast string to array<int>
     qt_sql """ select cast ("[1,2,3]" as array<int>) """
 
@@ -32,6 +30,12 @@ suite("test_cast_string_to_array") {
 
     // cast string to array<date>
     qt_sql """ select cast ("[2022-09-01]" as array<date>) """
+
+    // cast string to array<datev2>
+    qt_sql """ select cast ("[2022-09-01]" as array<datev2>) """
+
+    // cast string to array<datetimev2>
+    qt_sql """ select cast ("[2022-09-01]" as array<datetimev2>) """
 
     // cast empty value
     qt_sql """ select cast ("[1,2,3,,,]" as array<int>) """

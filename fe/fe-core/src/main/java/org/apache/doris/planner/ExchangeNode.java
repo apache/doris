@@ -21,18 +21,22 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExchangeNode;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
@@ -83,8 +87,10 @@ public class ExchangeNode extends PlanNode {
         if (inputNode.getFragment().isPartitioned()) {
             limit = inputNode.limit;
         }
+        if (!(inputNode instanceof ExchangeNode)) {
+            offset = inputNode.offset;
+        }
         computeTupleIds();
-
     }
 
     public boolean isMergingExchange() {
@@ -150,6 +156,14 @@ public class ExchangeNode extends PlanNode {
         }
     }
 
+    /**
+     * Used by new optimizer only.
+     */
+    @Override
+    public void setOffSetDirectly(long offset) {
+        this.offset = offset;
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
@@ -158,12 +172,12 @@ public class ExchangeNode extends PlanNode {
             msg.exchange_node.addToInputRowTuples(tid.asInt());
         }
         if (mergeInfo != null) {
-            TSortInfo sortInfo = new TSortInfo(
-                    Expr.treesToThrift(mergeInfo.getOrderingExprs()),
-                    mergeInfo.getIsAscOrder(), mergeInfo.getNullsFirst());
-            msg.exchange_node.setSortInfo(sortInfo);
-            msg.exchange_node.setOffset(offset);
+            msg.exchange_node.setSortInfo(mergeInfo.toThrift());
+            if (mergeInfo.useTwoPhaseRead()) {
+                msg.exchange_node.setNodesInfo(createNodesInfo());
+            }
         }
+        msg.exchange_node.setOffset(offset);
     }
 
     @Override
@@ -179,4 +193,22 @@ public class ExchangeNode extends PlanNode {
         return numInstances;
     }
 
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        return prefix + "offset: " + offset + "\n";
+    }
+
+    /**
+    * Set the parameters used to fetch data by rowid column
+    * after init().
+    */
+    private TPaloNodesInfo createNodesInfo() {
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
+    }
 }

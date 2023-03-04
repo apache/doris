@@ -88,7 +88,7 @@ public class GetLogFileAction extends RestBaseController {
                     return ResponseEntityBuilder.internalError(e.getMessage());
                 }
             } else {
-                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
+                return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + logFile);
             }
         }
         return ResponseEntityBuilder.ok();

@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
@@ -40,13 +42,13 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        return left().getDataType();
+    public AbstractDataType inputType() {
+        return NumericType.INSTANCE;
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
-        return child(0).nullable() || child(1).nullable();
+    public DataType getDataType() throws UnboundException {
+        return left().getDataType();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

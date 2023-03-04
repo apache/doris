@@ -47,6 +47,7 @@ using std::smatch;
 using google::protobuf::RepeatedPtrField;
 
 namespace doris {
+using namespace ErrorCode;
 
 Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                                                 const std::vector<TCondition>& conditions,
@@ -54,14 +55,14 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     if (conditions.empty()) {
         LOG(WARNING) << "invalid parameters for store_cond."
                      << " condition_size=" << conditions.size();
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
+        return Status::Error<DELETE_INVALID_PARAMETERS>();
     }
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
         if (check_condition_valid(schema, condition) != Status::OK()) {
             LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
-            return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+            return Status::Error<DELETE_INVALID_CONDITION>();
         }
     }
 
@@ -168,7 +169,7 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
         LOG(WARNING) << "field is not existent. [field_index=" << field_index << "]";
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+        return Status::Error<DELETE_INVALID_CONDITION>();
     }
 
     // Delete condition should only applied on key columns or duplicate key table, and
@@ -179,7 +180,7 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
         column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
                         "is float or double.";
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+        return Status::Error<DELETE_INVALID_CONDITION>();
     }
 
     // Check operator and operands size are matched.
@@ -187,14 +188,14 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
         cond.condition_values.size() != 1) {
         LOG(WARNING) << "invalid condition value size. [size=" << cond.condition_values.size()
                      << "]";
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+        return Status::Error<DELETE_INVALID_CONDITION>();
     }
 
     // Check each operand is valid
     for (const auto& condition_value : cond.condition_values) {
         if (!is_condition_value_valid(column, cond.condition_op, condition_value)) {
             LOG(WARNING) << "invalid condition value. [value=" << condition_value << "]";
-            return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+            return Status::Error<DELETE_INVALID_CONDITION>();
         }
     }
 
@@ -257,7 +258,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
                 LOG(WARNING) << "fail to parse condition. [condition=" << sub_predicate << "]";
-                return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
+                return Status::Error<DELETE_INVALID_PARAMETERS>();
             }
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
@@ -310,8 +311,8 @@ void DeleteHandler::finalize() {
 
 void DeleteHandler::get_delete_conditions_after_version(
         int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
-        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>* col_id_to_del_predicates)
-        const {
+        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
+                del_predicates_for_zone_map) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
             // now, only query support delete column predicate operator
@@ -321,33 +322,28 @@ void DeleteHandler::get_delete_conditions_after_version(
                             new SingleColumnBlockPredicate(del_cond.column_predicate_vec[0]);
                     and_block_column_predicate_ptr->add_column_predicate(
                             single_column_block_predicate);
-                    if (col_id_to_del_predicates->count(
+                    if (del_predicates_for_zone_map->count(
                                 del_cond.column_predicate_vec[0]->column_id()) < 1) {
-                        col_id_to_del_predicates->insert(
+                        del_predicates_for_zone_map->insert(
                                 {del_cond.column_predicate_vec[0]->column_id(),
                                  std::vector<const ColumnPredicate*> {}});
                     }
-                    (*col_id_to_del_predicates)[del_cond.column_predicate_vec[0]->column_id()]
+                    (*del_predicates_for_zone_map)[del_cond.column_predicate_vec[0]->column_id()]
                             .push_back(del_cond.column_predicate_vec[0]);
                 } else {
                     auto or_column_predicate = new OrBlockColumnPredicate();
 
                     // build or_column_predicate
-                    std::for_each(
-                            del_cond.column_predicate_vec.cbegin(),
-                            del_cond.column_predicate_vec.cend(),
-                            [&or_column_predicate,
-                             col_id_to_del_predicates](const ColumnPredicate* predicate) {
-                                if (col_id_to_del_predicates->count(predicate->column_id()) < 1) {
-                                    col_id_to_del_predicates->insert(
-                                            {predicate->column_id(),
-                                             std::vector<const ColumnPredicate*> {}});
-                                }
-                                (*col_id_to_del_predicates)[predicate->column_id()].push_back(
-                                        predicate);
-                                or_column_predicate->add_column_predicate(
-                                        new SingleColumnBlockPredicate(predicate));
-                            });
+                    // when delete from where a = 1 and b = 2, we can not use del_predicates_for_zone_map to filter zone page,
+                    // so here do not put predicate to del_predicates_for_zone_map,
+                    // refer #17145 for more details.
+                    // // TODO: need refactor design and code to use more version delete and more column delete to filter zone page.
+                    std::for_each(del_cond.column_predicate_vec.cbegin(),
+                                  del_cond.column_predicate_vec.cend(),
+                                  [&or_column_predicate](const ColumnPredicate* predicate) {
+                                      or_column_predicate->add_column_predicate(
+                                              new SingleColumnBlockPredicate(predicate));
+                                  });
                     and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
                 }
             }

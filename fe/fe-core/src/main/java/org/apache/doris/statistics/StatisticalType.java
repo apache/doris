@@ -46,5 +46,7 @@ public enum StatisticalType {
     UNION_NODE,
     TABLE_VALUED_FUNCTION_NODE,
     FILE_SCAN_NODE,
+    METADATA_SCAN_NODE,
     JDBC_SCAN_NODE,
+    TEST_EXTERNAL_TABLE,
 }

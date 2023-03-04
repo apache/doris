@@ -108,11 +108,6 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
-    @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 
@@ -213,9 +208,30 @@ public class CompoundPredicate extends Predicate {
         return conjunctivePred;
     }
 
+    /**
+     * Creates a disjunctive predicate from a list of exprs,
+     * reserve the expr order
+     */
+    public static Expr createDisjunctivePredicate(List<Expr> disjunctions) {
+        Expr result = null;
+        for (Expr expr : disjunctions) {
+            if (result == null) {
+                result = expr;
+                continue;
+            }
+            result = new CompoundPredicate(CompoundPredicate.Operator.OR, result, expr);
+        }
+        return result;
+    }
+
+    public static boolean isOr(Expr expr) {
+        return expr instanceof CompoundPredicate
+                && ((CompoundPredicate) expr).getOp() == Operator.OR;
+    }
+
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         boolean compoundResult = false;
         if (op == Operator.NOT) {
             final Expr childValue = getChild(0);
@@ -260,5 +276,10 @@ public class CompoundPredicate extends Predicate {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
 
+    }
+
+    @Override
+    public String toString() {
+        return toSqlImpl();
     }
 }

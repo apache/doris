@@ -28,6 +28,7 @@ import com.google.common.collect.Sets;
 
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -154,6 +155,13 @@ public class DistributionSpecHash extends DistributionSpec {
         return exprIdToEquivalenceSet;
     }
 
+    public Set<ExprId> getEquivalenceExprIdsOf(ExprId exprId) {
+        if (exprIdToEquivalenceSet.containsKey(exprId)) {
+            return equivalenceExprIds.get(exprIdToEquivalenceSet.get(exprId));
+        }
+        return new HashSet<>();
+    }
+
     @Override
     public boolean satisfy(DistributionSpec required) {
         if (required instanceof DistributionSpecAny) {
@@ -170,12 +178,19 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
 
+        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
+            // this shuffle type is not natural but require natural
+            return false;
+        }
+
         if (requiredHash.shuffleType == ShuffleType.AGGREGATE) {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
-        if (requiredHash.shuffleType == ShuffleType.NATURAL && this.shuffleType != ShuffleType.NATURAL) {
-            return false;
+        // If the required property is from join and this property is not enforced, we only need to check to contain
+        // And more checking is in ChildrenPropertiesRegulator
+        if (requiredHash.shuffleType == shuffleType.JOIN && this.shuffleType != shuffleType.ENFORCED) {
+            return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
 
         return equalsSatisfy(requiredHash.getOrderedShuffledColumns());
@@ -274,10 +289,13 @@ public class DistributionSpecHash extends DistributionSpec {
      * Enums for concrete shuffle type.
      */
     public enum ShuffleType {
+        // 1. The following properties are the required properties for children
         // require, need to satisfy the distribution spec by aggregation way.
         AGGREGATE,
         // require, need to satisfy the distribution spec by join way.
         JOIN,
+
+        // 2. The following properties are the output properties from some operators
         // output, for olap scan node and colocate join
         NATURAL,
         // output, for all join except colocate join

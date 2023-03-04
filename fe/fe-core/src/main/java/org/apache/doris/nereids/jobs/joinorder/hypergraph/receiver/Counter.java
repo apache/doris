@@ -31,9 +31,9 @@ import java.util.List;
  */
 public class Counter implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
-    private int limit;
+    private final int limit;
     private int emitCount = 0;
-    private HashMap<Long, Integer> counter = new HashMap<>();
+    private final HashMap<Long, Integer> counter = new HashMap<>();
 
     public Counter() {
         this.limit = Integer.MAX_VALUE;

@@ -18,8 +18,7 @@
 suite("test_mysql_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-
+        String resource_name = "jdbc_resource_catalog_mysql"
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -45,19 +44,25 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String ex_tb17 = "ex_tb17";
         String ex_tb18 = "ex_tb18";
         String ex_tb19 = "ex_tb19";
+        String ex_tb20 = "ex_tb20";
+        String test_insert = "test_insert";
+        String test_insert2 = "test_insert2";
 
-
+        sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
 
-        // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
-        sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
-                "type"="jdbc",
-                "jdbc.user"="root",
-                "jdbc.password"="123456",
-                "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-                "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-                "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
-             """
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+        
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
+
 
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -69,8 +74,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
         """
 
         sql """switch ${catalog_name}"""
-        qt_db_amount """ show databases; """
-
         sql """ use ${ex_db_name}"""
 
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
@@ -96,5 +99,59 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+
+        // test insert
+        String uuid1 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid1}', 'doris1', 18) """
+        order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
+
+        String uuid2 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid2}', 'doris2', 19), ('${uuid2}', 'doris3', 20) """
+        order_qt_test_insert2 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
+        order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        String uuid3 = UUID.randomUUID().toString();
+        sql """ INSERT INTO ${test_insert2} VALUES
+                ('${uuid3}', true, 'abcHa1.12345', '1.123450xkalowadawd', '2022-10-01', 3.14159, 1, 2, 0, 100000, 1.2345678, 24.000, '07:09:51', '2022', '2022-11-27 07:09:51', '2022-11-27 07:09:51'); """
+        order_qt_test_insert4 """ select k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15 from ${test_insert2} where id = '${uuid3}' """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
+
+        // test only_specified_database argument
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "only_specified_database" = "true"
+        );"""
+        
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
+        sql """switch ${catalog_name}"""
+
+        qt_specified_database   """ show databases; """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
+
+        // test old create-catalog syntax for compatibility
+        sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+        """
+        sql """ switch ${catalog_name} """
+        sql """ use ${ex_db_name} """
+        order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
+        sql """ drop catalog if exists ${catalog_name} """
     }
 }

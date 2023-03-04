@@ -149,22 +149,25 @@ template <class T>
 class ClientConnection {
 public:
     ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, Status* status)
-            : _client_cache(client_cache), _client(nullptr) {
-        *status = _client_cache->get_client(address, &_client, 0);
-
-        if (status->ok()) {
-            DCHECK(_client != nullptr);
-        }
-    }
+            : ClientConnection(client_cache, address, 0, status, 3) {}
 
     ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, int timeout_ms,
-                     Status* status)
+                     Status* status, int max_retries = 3)
             : _client_cache(client_cache), _client(nullptr) {
-        *status = _client_cache->get_client(address, &_client, timeout_ms);
-
-        if (status->ok()) {
-            DCHECK(_client != nullptr);
-        }
+        int num_retries = 0;
+        do {
+            *status = _client_cache->get_client(address, &_client, timeout_ms);
+            if (status->ok()) {
+                DCHECK(_client != nullptr);
+                break;
+            }
+            if (num_retries++ < max_retries) {
+                // exponential backoff retry with starting delay of 500ms
+                usleep(500000 * (1 << num_retries));
+                LOG(INFO) << "Failed to get client from cache: " << status->to_string()
+                          << ", retrying[" << num_retries << "]...";
+            }
+        } while (num_retries < max_retries);
     }
 
     ~ClientConnection() {

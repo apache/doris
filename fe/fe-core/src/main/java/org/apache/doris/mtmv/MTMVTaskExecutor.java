@@ -18,12 +18,12 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
@@ -97,7 +97,9 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         MTMVTaskContext taskContext = new MTMVTaskContext();
         taskContext.setQuery(task.getQuery());
         ctx = new ConnectContext();
-        ctx.setDatabase(job.getDbName());
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setCluster(ClusterNamespace.getClusterNameFromFullName(job.getDBName()));
+        ctx.setDatabase(job.getDBName());
         ctx.setQualifiedUser(task.getUser());
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getUser(), "%"));
         ctx.getState().reset();
@@ -106,23 +108,12 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         ctx.setQueryId(queryId);
 
         taskContext.setCtx(ctx);
-        taskContext.setRemoteIp(ctx.getRemoteIp());
+        taskContext.setTask(task);
+        taskContext.setJob(job);
 
         Map<String, String> properties = Maps.newHashMap();
         taskContext.setProperties(properties);
-        processor.process(taskContext);
-        QueryState queryState = ctx.getState();
-        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-            task.setMessage(queryState.getErrorMessage());
-            int errorCode = -1;
-            if (queryState.getErrorCode() != null) {
-                errorCode = queryState.getErrorCode().getCode();
-            }
-            task.setErrorCode(errorCode);
-            task.setState(TaskState.FAILED);
-            return false;
-        }
-        return true;
+        return processor.process(taskContext);
     }
 
     public ConnectContext getCtx() {
@@ -131,6 +122,10 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
 
     public MTMVTask getTask() {
         return task;
+    }
+
+    public void setTask(MTMVTask task) {
+        this.task = task;
     }
 
     public MTMVTask initTask(String taskId, Long createTime) {
@@ -142,9 +137,9 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         } else {
             task.setCreateTime(createTime);
         }
-        task.setMvName(job.getMvName());
+        task.setMVName(job.getMVName());
         task.setUser(job.getUser());
-        task.setDbName(job.getDbName());
+        task.setDBName(job.getDBName());
         task.setQuery(job.getQuery());
         task.setExpireTime(MTMVUtils.getNowTimeStamp() + Config.scheduler_mtmv_task_expired);
         task.setRetryTimes(job.getRetryPolicy().getTimes());

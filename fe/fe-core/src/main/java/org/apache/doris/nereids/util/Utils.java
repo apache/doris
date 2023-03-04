@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
@@ -26,13 +27,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -81,6 +81,18 @@ public class Utils {
     }
 
     /**
+     * Check whether lhs and rhs are intersecting.
+     */
+    public static <T> boolean isIntersecting(Set<T> lhs, Collection<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Wrapper to a function without return value.
      */
     public interface FuncWrapper {
@@ -88,7 +100,7 @@ public class Utils {
     }
 
     /**
-     * Wrapper to a funciton with return value.
+     * Wrapper to a function with return value.
      */
     public interface Supplier<R> {
         R get() throws Exception;
@@ -175,38 +187,67 @@ public class Utils {
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression)) {
+            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
                 throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
             }
-            BinaryExpression binaryExpression = (BinaryExpression) predicate;
-            if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
-                if (binaryExpression.right() instanceof SlotReference) {
-                    slots.add(binaryExpression.right());
-                }
+
+            BinaryExpression binaryExpression;
+            if (predicate instanceof Not) {
+                binaryExpression = (BinaryExpression) ((Not) predicate).child();
             } else {
-                if (binaryExpression.left() instanceof SlotReference) {
-                    slots.add(binaryExpression.left());
-                }
+                binaryExpression = (BinaryExpression) predicate;
             }
+            slots.addAll(collectCorrelatedSlotsFromChildren(binaryExpression, correlatedSlots));
         });
         return slots;
     }
 
+    private static List<Expression> collectCorrelatedSlotsFromChildren(
+            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
+        List<Expression> slots = new ArrayList<>();
+        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
+            if (binaryExpression.right() instanceof SlotReference) {
+                slots.add(binaryExpression.right());
+            }
+        } else {
+            if (binaryExpression.left() instanceof SlotReference) {
+                slots.add(binaryExpression.left());
+            }
+        }
+        return slots;
+    }
+
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
-            List<Expression> conjuncts, List<Expression> slots) {
+            Set<Expression> conjuncts, List<Expression> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
     }
 
-    public static LocalDateTime getLocalDatetimeFromLong(long dateTime) {
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
-    }
-
+    /**
+     * Replace one item in a list with another item.
+     */
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
+        boolean result = false;
         for (int i = 0; i < list.size(); i++) {
-            if (list.get(i) == oldItem) {
+            if (list.get(i).equals(oldItem)) {
                 list.set(i, newItem);
+                result = true;
             }
         }
+        Preconditions.checkState(result);
+    }
+
+    /**
+     * Remove item from a list without equals method.
+     */
+    public static <T> void identityRemove(List<T> list, T item) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == item) {
+                list.remove(i);
+                i--;
+                return;
+            }
+        }
+        Preconditions.checkState(false, "item not found in list");
     }
 }

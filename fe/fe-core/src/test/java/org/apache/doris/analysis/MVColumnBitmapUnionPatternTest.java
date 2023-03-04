@@ -43,6 +43,7 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -65,6 +66,7 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(castExpr);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -81,6 +83,7 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP.toUpperCase(), child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION.toUpperCase(), params);
@@ -112,6 +115,7 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(arithmeticExpr);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -128,6 +132,7 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef1);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);

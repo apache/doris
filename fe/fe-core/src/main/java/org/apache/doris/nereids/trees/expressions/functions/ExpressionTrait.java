@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -30,6 +33,14 @@ import java.util.List;
 public interface ExpressionTrait extends TreeNode<Expression> {
 
     boolean nullable();
+
+    // check legality before do type coercion.
+    // maybe we should merge checkInputDataTypes and checkLegality later.
+    @Developing
+    default void checkLegalityBeforeTypeCoercion() {}
+
+    @Developing
+    default void checkLegalityAfterRewrite() {}
 
     default boolean notNullable() {
         return !nullable();
@@ -41,6 +52,17 @@ public interface ExpressionTrait extends TreeNode<Expression> {
 
     default Expression getArgument(int index) {
         return child(index);
+    }
+
+    default List<DataType> getArgumentsTypes() {
+        return getArguments()
+                .stream()
+                .map(Expression::getDataType)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    default DataType getArgumentType(int index) {
+        return child(index).getDataType();
     }
 
     default DataType getDataType() throws UnboundException {

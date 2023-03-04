@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
@@ -32,16 +30,21 @@ import java.util.List;
  * when matching a particular instantiation. That is, their fixed arguments.
  */
 public interface NullOrIdenticalSignature extends ComputeSignature {
+    /** isNullOrIdentical */
     static boolean isNullOrIdentical(AbstractDataType signatureType, AbstractDataType realType) {
-        // TODO: copy matchesType to DataType
-        return realType instanceof NullType
-                || realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+        try {
+            // TODO: copy matchesType to DataType
+            return realType instanceof NullType
+                    || realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+        } catch (Throwable t) {
+            // the signatureType maybe AbstractDataType and can not cast to catalog data type.
+            return false;
+        }
     }
 
     @Override
-    default FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
-            List<FunctionSignature> signatures) {
-        return SearchSignature.from(signatures, arguments)
+    default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return SearchSignature.from(signatures, getArguments())
                 // first round, use identical strategy to find signature
                 .orElseSearch(IdenticalSignature::isIdentical)
                 // second round: if not found, use nullOrIdentical strategy

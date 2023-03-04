@@ -32,7 +32,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.backup.BlobStorage;
-import org.apache.doris.backup.S3Storage;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -44,8 +44,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
@@ -65,6 +67,7 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -75,6 +78,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -90,8 +94,6 @@ import java.util.stream.Collectors;
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
 
-    public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
-    public static final String DLF_TYPE = "dlf";
     public static final String COMMENT = "comment";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
@@ -146,7 +148,7 @@ public class HiveMetaStoreClientHelper {
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         IMetaStoreClient metaStoreClient = null;
-        String type = hiveConf.get(HIVE_METASTORE_TYPE);
+        String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
         try {
             if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
@@ -210,7 +212,9 @@ public class HiveMetaStoreClientHelper {
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
             List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
-        boolean onS3 = storage instanceof S3Storage;
+        boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
+                || storage.getStorageType() == StorageBackend.StorageType.OFS
+                || storage.getStorageType() == StorageBackend.StorageType.JFS;
         String hdfsUrl = "";
         Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
         while (queue.peek() != null) {
@@ -231,7 +235,7 @@ public class HiveMetaStoreClientHelper {
                     // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
                     //     + /dae.db/customer/state=CA/city=SanJose/000000_0
                     String path = fileStatus.getPath().toUri().getPath();
-                    if (onS3) {
+                    if (needFullPath) {
                         // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
                         // path = "s3://bucket/path/to/partition/file_name"
                         // eg: s3://hive-s3-test/region/region.tbl
@@ -666,6 +670,26 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
+     * The nested column has inner columns, and each column is separated a comma. The inner column maybe a nested
+     * column too, so we cannot simply split by the comma. We need to match the angle brackets，
+     * and deal with the inner column recursively.
+     */
+    private static int findNextNestedField(String commaSplitFields) {
+        int numLess = 0;
+        for (int i = 0; i < commaSplitFields.length(); i++) {
+            char c = commaSplitFields.charAt(i);
+            if (c == '<') {
+                numLess++;
+            } else if (c == '>') {
+                numLess--;
+            } else if (c == ',' && numLess == 0) {
+                return i;
+            }
+        }
+        return commaSplitFields.length();
+    }
+
+    /**
      * Convert hive type to doris type.
      */
     public static Type hiveTypeToDorisType(String hiveType) {
@@ -682,9 +706,9 @@ public class HiveMetaStoreClientHelper {
             case "bigint":
                 return Type.BIGINT;
             case "date":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             case "timestamp":
-                return ScalarType.getDefaultDateType(Type.DATETIME);
+                return ScalarType.createDatetimeV2Type(0);
             case "float":
                 return Type.FLOAT;
             case "double":
@@ -695,10 +719,43 @@ public class HiveMetaStoreClientHelper {
             default:
                 break;
         }
+        // resolve schema like array<int>
         if (lowerCaseType.startsWith("array")) {
             if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
                 Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
                 return ArrayType.create(innerType, true);
+            }
+        }
+        // resolve schema like map<text, int>
+        if (lowerCaseType.startsWith("map")) {
+            if (lowerCaseType.indexOf("<") == 3 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
+                int index = findNextNestedField(keyValue);
+                if (index != keyValue.length() && index != 0) {
+                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index)),
+                            hiveTypeToDorisType(keyValue.substring(index + 1)));
+                }
+            }
+        }
+        // resolve schema like struct<col1: text, col2: int>
+        if (lowerCaseType.startsWith("struct")) {
+            if (lowerCaseType.indexOf("<") == 6 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);
+                ArrayList<StructField> fields = new ArrayList<>();
+                while (listFields.length() > 0) {
+                    int index = findNextNestedField(listFields);
+                    int pivot = listFields.indexOf(':');
+                    if (pivot > 0 && pivot < listFields.length() - 1) {
+                        fields.add(new StructField(listFields.substring(0, pivot),
+                                hiveTypeToDorisType(listFields.substring(pivot + 1, index))));
+                        listFields = listFields.substring(Math.min(index + 1, listFields.length()));
+                    } else {
+                        break;
+                    }
+                }
+                if (listFields.isEmpty()) {
+                    return new StructType(fields);
+                }
             }
         }
         if (lowerCaseType.startsWith("char")) {
@@ -729,7 +786,7 @@ public class HiveMetaStoreClientHelper {
             }
             return ScalarType.createDecimalType(precision, scale);
         }
-        return Type.INVALID;
+        return Type.UNSUPPORTED;
     }
 
     public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
@@ -761,7 +818,8 @@ public class HiveMetaStoreClientHelper {
             if (remoteTable.getPartitionKeys().size() > 0) {
                 output.append("PARTITIONED BY (\n")
                         .append(remoteTable.getPartitionKeys().stream().map(
-                                partition -> String.format("  `%s` `%s`", partition.getName(), partition.getType()))
+                                        partition ->
+                                                String.format(" `%s` `%s`", partition.getName(), partition.getType()))
                                 .collect(Collectors.joining(",\n")))
                         .append(")\n");
             }
@@ -814,40 +872,26 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static Map<String, String> getPropertiesForDLF(String catalogName, HiveConf hiveConf) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get properties from hive-site.xml for catalog {}: {}", catalogName, hiveConf.getAllProperties());
-        }
-        Map<String, String> res = Maps.newHashMap();
-        String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
-        if (!"dlf".equalsIgnoreCase(metastoreType)) {
-            return res;
-        }
+    public static org.apache.iceberg.Table getIcebergTable(HMSExternalTable table) {
+        String metastoreUri = table.getMetastoreUri();
+        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        Configuration conf = getConfiguration(table);
+        hiveCatalog.setConf(conf);
+        // initialize hive catalog
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUri);
+        catalogProperties.put("uri", metastoreUri);
+        hiveCatalog.initialize("hive", catalogProperties);
 
-        // get following properties from hive-site.xml
-        // 1. region and endpoint. eg: cn-beijing
-        String region = hiveConf.get("dlf.catalog.region");
-        if (!Strings.isNullOrEmpty(region)) {
-            // See: https://help.aliyun.com/document_detail/31837.html
-            // And add "-internal" to access oss within vpc
-            // TODO: find to way to access oss on public?
-            res.put(S3Resource.S3_REGION, "oss-" + region);
-            res.put(S3Resource.S3_ENDPOINT, "http://oss-" + region + "-internal.aliyuncs.com");
-        }
+        return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
+    }
 
-        // 2. ak and sk
-        String ak = hiveConf.get("dlf.catalog.accessKeyId");
-        String sk = hiveConf.get("dlf.catalog.accessKeySecret");
-        if (!Strings.isNullOrEmpty(ak)) {
-            res.put(S3Resource.S3_ACCESS_KEY, ak);
+    public static Configuration getConfiguration(HMSExternalTable table) {
+        Configuration conf = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
         }
-        if (!Strings.isNullOrEmpty(sk)) {
-            res.put(S3Resource.S3_SECRET_KEY, sk);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get properties for oss in hive-site.xml for catalog {}: {}", catalogName, res);
-        }
-        return res;
+        return conf;
     }
 }
 

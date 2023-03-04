@@ -20,7 +20,10 @@
 #include "olap/olap_define.h"
 #include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/tablet.h"
+#include "vec/olap/vertical_block_reader.h"
+#include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
 
@@ -39,12 +42,8 @@ public:
     };
 
     // merge rows from `src_rowset_readers` and write into `dst_rowset_writer`.
-    // return OLAP_SUCCESS and set statistics into `*stats_output`.
+    // return OK and set statistics into `*stats_output`.
     // return others on error
-    static Status merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                TabletSchemaSPtr cur_tablet_schema,
-                                const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                RowsetWriter* dst_rowset_writer, Statistics* stats_output);
 
     static Status vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                                  TabletSchemaSPtr cur_tablet_schema,
@@ -67,6 +66,16 @@ public:
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
             Statistics* stats_output);
+
+    // for segcompaction
+    static Status vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
+                                             TabletSchemaSPtr tablet_schema, bool is_key,
+                                             const std::vector<uint32_t>& column_group,
+                                             vectorized::RowSourcesBuffer* row_source_buf,
+                                             vectorized::VerticalBlockReader& src_block_reader,
+                                             segment_v2::SegmentWriter& dst_segment_writer,
+                                             int64_t max_rows_per_segment, Statistics* stats_output,
+                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
 };
 
 } // namespace doris

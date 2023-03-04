@@ -59,7 +59,7 @@ Doris 支持 4 种 Shuffle 方式
 
    ![image-20220523151902368](/images/join/image-20220523151902368.png)
 
-   左右表数据根据分区，计算的记过发送到不同的分区节点上。
+   左右表数据根据分区，计算的结果发送到不同的分区节点上。
 
 3. Bucket Shuffle Join
 
@@ -86,7 +86,7 @@ Doris 支持 4 种 Shuffle 方式
 | BroadCast      | N * T(R)    | Hash Join / Nest Loop Join | 通用                                                         |
 | Shuffle        | T(S) + T(R) | Hash Join                  | 通用                                                         |
 | Bucket Shuffle | T(R)        | Hash Join                  | Join条件中存在左表的分布式列，且左表执行时为单分区           |
-| Colocate       | 0           | Hash Join                  | Join条件中存在左表的分布式列，切左右表同属于一个Colocate Group |
+| Colocate       | 0           | Hash Join                  | Join条件中存在左表的分布式列，且左右表同属于一个Colocate Group |
 
 N ： 参与 Join 计算的 Instance 个数
 
@@ -96,14 +96,14 @@ T(关系) : 关系的 Tuple 数目
 
 ## Runtime Filter  Join 优化
 
-Doris 在进行 Hash Join 计算时会在右表构建一个哈希表，左表流式的通过右表的哈希表从而得出 Join 结果。而 RuntimeFilter 就是充分利用了右表的 Hash 表，在右表生成哈希表的时，同时生成一个基于哈希表数据的一个过滤条件，然后下推到左表的数据扫描节点。通过这样的方式，Doris 可以在运行时进行数据过滤。
+Doris 在进行 Hash Join 计算时会在右表构建一个哈希表，左表流式的通过右表的哈希表从而得出 Join 结果。而 RuntimeFilter 就是充分利用了右表的 Hash 表，在右表生成哈希表的时候，同时生成一个基于哈希表数据的一个过滤条件，然后下推到左表的数据扫描节点。通过这样的方式，Doris 可以在运行时进行数据过滤。
 
 假如左表是一张大表，右表是一张小表，那么利用右表生成的过滤条件就可以把绝大多数在 Join 层要过滤的数据在数据读取时就提前过滤，这样就能大幅度的提升 Join 查询的性能。
 
 当前 Doris 支持三种类型 RuntimeFilter
 
 - 一种是 IN，很好理解，将一个 hashset 下推到数据扫描节点。
-- 第二种就是 BloomFilter，就是利用哈希表的数据构造一个 BloomFilter，然后把这个 BloomFilter 下推到查询数据的扫描节点。。
+- 第二种就是 BloomFilter，就是利用哈希表的数据构造一个 BloomFilter，然后把这个 BloomFilter 下推到查询数据的扫描节点。
 - 最后一种就是 MinMax，就是个 Range 范围，通过右表数据确定 Range 范围之后，下推给数据扫描节点。
 
 Runtime Filter 适用的场景有两个要求：
@@ -170,7 +170,7 @@ set enable_cost_based_join_reorder = true
 
 这次耗时从 14 秒降到了 4 秒，性能提升了 3 倍多。
 
-此时再 Check Profile 的时候，左右表的顺序已经调整正确，即右表是大表，左表是小表。基于小表去构建哈希表，开销是很小的，这就是典型的一个利用 Join Reorder 去提升 Join 性能的一个场景
+此时再 Check Profile 的时候，左右表的顺序已经调整正确，即右表是小表，左表是大表。基于小表去构建哈希表，开销是很小的，这就是典型的一个利用 Join Reorder 去提升 Join 性能的一个场景
 
 ![image-20220523153757607](/images/join/image-20220523153757607.png)
 

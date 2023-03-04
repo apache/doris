@@ -58,7 +58,7 @@ public class FunctionRegistry {
     }
 
     // currently we only find function by name and arity
-    public FunctionBuilder findFunctionBuilder(String name, List<? extends Object> arguments) {
+    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
         if (functionBuilders == null || functionBuilders.isEmpty()) {
@@ -70,7 +70,7 @@ public class FunctionRegistry {
                 .filter(functionBuilder -> functionBuilder.canApply(arguments))
                 .collect(Collectors.toList());
         if (candidateBuilders.isEmpty()) {
-            String candidateHints = getCandidateHint(name, candidateBuilders);
+            String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + name
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
@@ -78,7 +78,6 @@ public class FunctionRegistry {
         if (candidateBuilders.size() > 1) {
             String candidateHints = getCandidateHint(name, candidateBuilders);
             // NereidsPlanner not supported override function by the same arity, should we support it?
-
             throw new AnalysisException("Function '" + name + "' is ambiguous: " + candidateHints);
         }
         return candidateBuilders.get(0);
@@ -88,11 +87,13 @@ public class FunctionRegistry {
         FunctionHelper.addFunctions(name2Builders, BuiltinScalarFunctions.INSTANCE.scalarFunctions);
         FunctionHelper.addFunctions(name2Builders, BuiltinAggregateFunctions.INSTANCE.aggregateFunctions);
         FunctionHelper.addFunctions(name2Builders, BuiltinTableValuedFunctions.INSTANCE.tableValuedFunctions);
+        FunctionHelper.addFunctions(name2Builders, BuiltinTableGeneratingFunctions.INSTANCE.tableGeneratingFunctions);
+        FunctionHelper.addFunctions(name2Builders, BuiltinWindowFunctions.INSTANCE.windowFunctions);
     }
 
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
                 .map(builder -> name + builder.toString())
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 }

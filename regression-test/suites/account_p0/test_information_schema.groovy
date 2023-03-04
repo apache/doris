@@ -74,14 +74,6 @@ suite("test_information_schema") {
         }
     }
 
-    sql "set enable_vectorized_engine=true"
-    for (int i = 1; i <= 5; i++) {
-        def dbName = dbPrefix + i.toString()
-        sql "USE information_schema"
-        qt_sql "SELECT COUNT(*) FROM `columns` WHERE TABLE_SCHEMA='${dbName}'"
-    }
-
-    sql "set enable_vectorized_engine=false"
     for (int i = 1; i <= 5; i++) {
         def dbName = dbPrefix + i.toString()
         sql "USE information_schema"

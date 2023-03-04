@@ -41,7 +41,7 @@ ARRAY<T> array_with_constant(n, T)
 
 ### notice
 
-`Only supported in vectorized engine`
+`仅支持向量化引擎中使用`
 
 ### example
 

@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShape;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShapes;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.BitUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -47,9 +46,9 @@ public class GroupingId extends GroupingScalarFunction implements CustomSignatur
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+    public FunctionSignature customSignature() {
         // any arguments type
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
+        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
     }
 
     @Override

@@ -72,6 +72,7 @@ public abstract class AggregateInfoBase {
     // exprs that need to be materialized.
     // Populated in materializeRequiredSlots() which must be implemented by subclasses.
     protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
+    protected List<String> materializedSlotLabels = Lists.newArrayList();
 
     protected AggregateInfoBase(ArrayList<Expr> groupingExprs,
                                 ArrayList<FunctionCallExpr> aggExprs)  {
@@ -94,6 +95,7 @@ public abstract class AggregateInfoBase {
         intermediateTupleDesc = other.intermediateTupleDesc;
         outputTupleDesc = other.outputTupleDesc;
         materializedSlots = Lists.newArrayList(other.materializedSlots);
+        materializedSlotLabels = Lists.newArrayList(other.materializedSlotLabels);
     }
 
     /**
@@ -152,6 +154,11 @@ public abstract class AggregateInfoBase {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
             slotDesc.initFromExpr(expr);
+            if (expr instanceof SlotRef) {
+                if (((SlotRef) expr).getColumn() != null) {
+                    slotDesc.setColumn(((SlotRef) expr).getColumn());
+                }
+            }
             // Not change the nullable of slot desc when is not grouping set id
             if (isGroupingSet && i < aggregateExprStartIndex - 1 && !(expr instanceof VirtualSlotRef)) {
                 slotDesc.setIsNullable(true);
@@ -232,6 +239,10 @@ public abstract class AggregateInfoBase {
 
     public TupleId getOutputTupleId() {
         return outputTupleDesc.getId();
+    }
+
+    public List<String> getMaterializedAggregateExprLabels() {
+        return Lists.newArrayList(materializedSlotLabels);
     }
 
     public boolean requiresIntermediateTuple() {

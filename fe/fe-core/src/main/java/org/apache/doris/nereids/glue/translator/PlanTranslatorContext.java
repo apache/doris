@@ -25,11 +25,13 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -40,10 +42,12 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Context of physical plan.
@@ -70,6 +74,12 @@ public class PlanTranslatorContext {
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
+
+    private final IdentityHashMap<PlanFragment, PhysicalHashAggregate> firstAggInFragment
+            = new IdentityHashMap<>();
+
+    private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
+    private TupleDescriptor bufferedTupleForWindow = null;
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -133,15 +143,36 @@ public class PlanTranslatorContext {
         return scanNodes;
     }
 
+    public PhysicalHashAggregate getFirstAggregateInFragment(PlanFragment planFragment) {
+        return firstAggInFragment.get(planFragment);
+    }
+
+    public void setFirstAggregateInFragment(PlanFragment planFragment, PhysicalHashAggregate aggregate) {
+        firstAggInFragment.put(planFragment, aggregate);
+    }
+
+    public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {
+        return bufferedSlotRefForWindow;
+    }
+
+    public TupleDescriptor getBufferedTupleForWindow() {
+        return bufferedTupleForWindow;
+    }
+
+    public void setBufferedTupleForWindow(TupleDescriptor bufferedTupleForWindow) {
+        this.bufferedTupleForWindow = bufferedTupleForWindow;
+    }
+
     /**
-     * Create SlotDesc and add it to the mappings from expression to the stales epxr
+     * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
-    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference,
+            @Nullable TableIf table) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
-        Optional<Column> column = slotReference.getColumn();
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        if (column.isPresent()) {
-            slotDescriptor.setColumn(column.get());
+        if (table != null) {
+            Optional<Column> column = slotReference.getColumn();
+            column.ifPresent(slotDescriptor::setColumn);
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
@@ -159,6 +190,10 @@ public class PlanTranslatorContext {
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;
+    }
+
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
+        return createSlotDesc(tupleDesc, slotReference, null);
     }
 
     public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {

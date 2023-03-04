@@ -123,10 +123,11 @@ public class RuntimeFilterTest extends SSBTestBase {
     @Test
     public void testDoNotPushDownThroughAggFunction() {
         String sql = "select profit"
-                + " from (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder inner join dates"
-                + " on lo_orderdate = d_datekey group by lo_custkey) a"
-                + " inner join (select sum(c_custkey) c_custkey from customer inner join supplier on c_custkey = s_suppkey group by s_suppkey) b"
-                + " on b.c_custkey = a.lo_custkey";
+                + " from (select sum(c_custkey) c_custkey from customer inner join supplier"
+                + " on c_custkey = s_suppkey group by s_suppkey) a"
+                + " inner join (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder"
+                + " inner join dates on lo_orderdate = d_datekey group by lo_custkey) b"
+                + " on a.c_custkey = b.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(2, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
@@ -212,6 +213,25 @@ public class RuntimeFilterTest extends SSBTestBase {
                 Pair.of("lo_custkey", "c_custkey")));
     }
 
+    @Test
+    public void testAliasCastAtLeftAndExpressionAtRight() {
+        String sql = "select c_custkey from (select cast(lo_custkey as bigint) c from lineorder) a"
+                + " inner join customer b on a.c = b.c_custkey + 5";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("expr_(c_custkey + 5)", "lo_custkey")));
+    }
+
+    @Test
+    public void testCastAtOnExpression() {
+        String sql = "select * from part p, supplier s where p.p_name = s.s_name";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("cast(s_name as VARCHAR(*))", "p_name")));
+    }
+
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
                 .rewrite()
@@ -230,7 +250,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(filters.size(), colNames.size());
         for (RuntimeFilter filter : filters) {
             Assertions.assertTrue(colNames.contains(Pair.of(
-                    filter.getSrcExpr().getName(),
+                    filter.getSrcExpr().toSql(),
                     filter.getTargetExpr().getName())));
         }
     }

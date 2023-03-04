@@ -20,23 +20,18 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -62,128 +57,73 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
+                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topJoin -> {
-
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
-                    Set<Slot> bOutputSet = b.getOutputSet();
                     Set<Slot> cOutputSet = c.getOutputSet();
 
                     /* ********** Split projects ********** */
-                    Map<Boolean, List<NamedExpression>> projectExprsMap = projects.stream()
-                            .collect(Collectors.partitioningBy(projectExpr -> {
-                                Set<Slot> usedSlots = projectExpr.collect(SlotReference.class::isInstance);
-                                return bOutputSet.containsAll(usedSlots);
-                            }));
-                    List<NamedExpression> newLeftProjects = projectExprsMap.get(Boolean.FALSE);
-                    List<NamedExpression> newRightProjects = projectExprsMap.get(Boolean.TRUE);
-
-                    Set<ExprId> bExprIdSet = getExprIdSetForB(bottomJoin.right(), newRightProjects);
+                    Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, b);
+                    List<NamedExpression> aProjects = map.get(false);
+                    List<NamedExpression> bProjects = map.get(true);
+                    if (aProjects.isEmpty()) {
+                        return null;
+                    }
 
                     /* ********** split HashConjuncts ********** */
-                    Map<Boolean, List<Expression>> splitHashJoinConjuncts = splitConjunctsWithAlias(
+                    Set<ExprId> bExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(b, bProjects);
+                    Map<Boolean, List<Expression>> splitHashConjuncts = splitConjunctsWithAlias(
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
-                    List<Expression> newTopHashJoinConjuncts = splitHashJoinConjuncts.get(true);
-                    List<Expression> newBottomHashJoinConjuncts = splitHashJoinConjuncts.get(false);
-                    Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
-                            "LAsscom newTopHashJoinConjuncts join can't empty");
-                    if (newBottomHashJoinConjuncts.size() == 0) {
+                    List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
+                    List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
+                    Preconditions.checkState(!newTopHashConjuncts.isEmpty(), "newTopHashConjuncts is empty");
+                    if (newBottomHashConjuncts.size() == 0) {
                         return null;
                     }
 
                     /* ********** split OtherConjuncts ********** */
-                    Map<Boolean, List<Expression>> splitOtherJoinConjuncts = splitConjunctsWithAlias(
+                    Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjunctsWithAlias(
                             topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                             bExprIdSet);
-                    List<Expression> newTopOtherJoinConjuncts = splitOtherJoinConjuncts.get(true);
-                    List<Expression> newBottomOtherJoinConjuncts = splitOtherJoinConjuncts.get(false);
-
-                    /* ********** replace Conjuncts by projects ********** */
-                    Map<Slot, Slot> inputToOutput = new HashMap<>();
-                    Map<Slot, Slot> outputToInput = new HashMap<>();
-                    for (NamedExpression expr : projects) {
-                        if (expr instanceof Alias) {
-                            Alias alias = (Alias) expr;
-                            Slot outputSlot = alias.toSlot();
-                            Expression child = alias.child();
-                            Preconditions.checkState(child instanceof Slot);
-                            Slot inputSlot = (Slot) child;
-                            inputToOutput.put(inputSlot, outputSlot);
-                            outputToInput.put(outputSlot, inputSlot);
-                        }
-                    }
-                    // replace hashJoinConjuncts
-                    newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
-                            newBottomHashJoinConjuncts, outputToInput);
-                    newTopHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
-                            newTopHashJoinConjuncts, inputToOutput);
-
-                    // replace otherJoinConjuncts
-                    newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
-                            newBottomOtherJoinConjuncts, outputToInput);
-                    newTopOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
-                            newTopOtherJoinConjuncts, inputToOutput);
+                    List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
+                    List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
 
                     // Add all slots used by OnCondition when projects not empty.
+                    Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
-                                    newTopHashJoinConjuncts.stream(),
-                                    newTopOtherJoinConjuncts.stream())
-                            .flatMap(onExpr -> {
-                                Set<Slot> usedSlotRefs = onExpr.collect(SlotReference.class::isInstance);
-                                return usedSlotRefs.stream();
-                            })
-                            .filter(slot -> !cOutputSet.contains(slot))
-                            .collect(Collectors.partitioningBy(slot -> bExprIdSet.contains(slot.getExprId()),
-                                    Collectors.toSet()));
-                    Set<Slot> aUsedSlots = abOnUsedSlots.get(Boolean.FALSE);
-                    Set<Slot> bUsedSlots = abOnUsedSlots.get(Boolean.TRUE);
+                                    bottomJoin.getHashJoinConjuncts().stream(),
+                                    bottomJoin.getHashJoinConjuncts().stream())
+                            .flatMap(onExpr -> onExpr.getInputSlots().stream())
+                            .collect(Collectors.partitioningBy(
+                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 
-                    JoinUtils.addSlotsUsedByOn(bUsedSlots, newRightProjects);
-                    JoinUtils.addSlotsUsedByOn(aUsedSlots, newLeftProjects);
-
-                    if (!newLeftProjects.isEmpty()) {
-                        newLeftProjects.addAll(cOutputSet);
-                    }
+                    aProjects.addAll(cOutputSet);
 
                     /* ********** new Plan ********** */
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
-                            a, c, bottomJoin.getJoinReorderContext());
+                    LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
+                            newBottomOtherConjuncts, a, c);
+                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    Plan left = newBottomJoin;
-                    if (!newLeftProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
-                            .equals(newBottomJoin.getOutputSet())) {
-                        left = PlanUtils.projectOrSelf(newLeftProjects, newBottomJoin);
-                    }
-                    Plan right = b;
-                    if (!newRightProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet())
-                            .equals(b.getOutputSet())) {
-                        right = PlanUtils.projectOrSelf(newRightProjects, b);
-                    }
+                    Plan left = JoinReorderUtils.projectOrSelf(aProjects, newBottomJoin);
+                    Plan right = JoinReorderUtils.projectOrSelf(bProjects, b);
 
-                    LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts,
-                            left, right, topJoin.getJoinReorderContext());
+                    LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
+                            newTopOtherConjuncts, left, right);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-                    if (topJoin.getLogicalProperties().equals(newTopJoin.getLogicalProperties())) {
-                        return newTopJoin;
-                    }
-
-                    return PlanUtils.project(new ArrayList<>(topJoin.getOutput()), newTopJoin).get();
+                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LASSCOM_PROJECT);
-    }
-
-    public static Set<ExprId> getExprIdSetForB(GroupPlan b, List<NamedExpression> bProject) {
-        return Stream.concat(
-                b.getOutput().stream().map(NamedExpression::getExprId),
-                bProject.stream().map(NamedExpression::getExprId)).collect(Collectors.toSet());
     }
 
     /**
@@ -191,24 +131,21 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
      * True: contains B.
      * False: just contains A C.
      */
-    public static Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
+    private Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
             List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // top: (A B)(error) (A C) (B C) (A B C)
         // Split topJoin Condition to two part according to include B.
         Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
-                    Set<Slot> usedSlots = topHashOn.getInputSlots();
-                    Set<ExprId> usedSlotsId = usedSlots.stream().map(NamedExpression::getExprId)
-                            .collect(Collectors.toSet());
-
-                    return ExpressionUtils.isIntersecting(bExprIdSet, usedSlotsId);
+                    Set<ExprId> usedExprIds = topHashOn.getInputSlotExprIds();
+                    return Utils.isIntersecting(bExprIdSet, usedExprIds);
                 }));
         // * don't include B, just include (A C)
-        // we add it into newBottomJoin HashJoinConjuncts.
+        // we add it into newBottomJoin HashConjuncts.
         // * include B, include (A B C) or (A B)
-        // we add it into newTopJoin HashJoinConjuncts.
-        List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
-        newTopHashJoinConjuncts.addAll(bottomConjuncts);
+        // we add it into newTopJoin HashConjuncts.
+        List<Expression> newTopHashConjuncts = splitOn.get(true);
+        newTopHashConjuncts.addAll(bottomConjuncts);
 
         return splitOn;
     }

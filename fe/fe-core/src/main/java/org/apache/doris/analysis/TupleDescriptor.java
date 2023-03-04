@@ -70,6 +70,8 @@ public class TupleDescriptor {
 
     private float avgSerializedSize;  // in bytes; includes serialization overhead
 
+    private int tableId = -1;
+
     public TupleDescriptor(TupleId id) {
         this.id = id;
         this.slots = new ArrayList<SlotDescriptor>();
@@ -103,6 +105,10 @@ public class TupleDescriptor {
 
     public ArrayList<SlotDescriptor> getSlots() {
         return slots;
+    }
+
+    public void setTableId(int id) {
+        tableId = id;
     }
 
     /**
@@ -163,10 +169,6 @@ public class TupleDescriptor {
         return byteSize;
     }
 
-    public boolean getIsMaterialized() {
-        return isMaterialized;
-    }
-
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
     }
@@ -205,6 +207,9 @@ public class TupleDescriptor {
         ttupleDesc.setNumNullSlots(numNullableSlots);
         if (table != null && table.getId() >= 0) {
             ttupleDesc.setTableId((int) table.getId());
+        }
+        if (tableId > 0) {
+            ttupleDesc.setTableId(tableId);
         }
         return ttupleDesc;
     }

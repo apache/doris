@@ -17,57 +17,38 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
-
-import com.google.common.base.Preconditions;
 
 import java.util.Objects;
 
 /** AggregateParam. */
 public class AggregateParam {
-    public final boolean isFinalPhase;
 
     public final AggPhase aggPhase;
 
-    public final boolean isDistinct;
-
-    public final boolean isDisassembled;
+    public final AggMode aggMode;
 
     /** AggregateParam */
-    public AggregateParam(boolean isDistinct, boolean isFinalPhase, AggPhase aggPhase, boolean isDisassembled) {
-        this.isFinalPhase = isFinalPhase;
-        this.isDistinct = isDistinct;
-        this.aggPhase = aggPhase;
-        this.isDisassembled = isDisassembled;
-        if (!isFinalPhase) {
-            Preconditions.checkArgument(isDisassembled,
-                    "non-final phase aggregate should be disassembed");
-        }
+    public AggregateParam(AggPhase aggPhase, AggMode aggMode) {
+        this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
+        this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
     }
 
-    public static AggregateParam finalPhase() {
-        return new AggregateParam(false, true, AggPhase.LOCAL, false);
-    }
-
-    public static AggregateParam distinctAndFinalPhase() {
-        return new AggregateParam(true, true, AggPhase.LOCAL, false);
-    }
-
-    public AggregateParam withDistinct(boolean isDistinct) {
-        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
+    public static AggregateParam localResult() {
+        return new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
     }
 
     public AggregateParam withAggPhase(AggPhase aggPhase) {
-        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
+        return new AggregateParam(aggPhase, aggMode);
     }
 
-    public AggregateParam withDisassembled(boolean isDisassembled) {
-        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
+    public AggregateParam withAggPhase(AggMode aggMode) {
+        return new AggregateParam(aggPhase, aggMode);
     }
 
-    public AggregateParam withPhaseAndDisassembled(boolean isFinalPhase, AggPhase aggPhase,
-                                                      boolean isDisassembled) {
-        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
+    public AggregateParam withAppPhaseAndAppMode(AggPhase aggPhase, AggMode aggMode) {
+        return new AggregateParam(aggPhase, aggMode);
     }
 
     @Override
@@ -79,14 +60,20 @@ public class AggregateParam {
             return false;
         }
         AggregateParam that = (AggregateParam) o;
-        return isDistinct == that.isDistinct
-                && isFinalPhase == that.isFinalPhase
-                && Objects.equals(aggPhase, that.aggPhase)
-                && Objects.equals(isDisassembled, that.isDisassembled);
+        return Objects.equals(aggPhase, that.aggPhase)
+                && Objects.equals(aggMode, that.aggMode);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isDistinct, isFinalPhase, aggPhase, isDisassembled);
+        return Objects.hash(aggPhase, aggMode);
+    }
+
+    @Override
+    public String toString() {
+        return "AggregateParam{"
+                + "aggPhase=" + aggPhase
+                + ", aggMode=" + aggMode
+                + '}';
     }
 }

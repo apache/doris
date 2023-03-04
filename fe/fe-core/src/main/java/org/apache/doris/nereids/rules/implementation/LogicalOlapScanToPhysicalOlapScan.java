@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -44,26 +48,36 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     @Override
     public Rule build() {
         return logicalOlapScan().then(olapScan ->
-            new PhysicalOlapScan(
-                    olapScan.getId(),
-                    olapScan.getTable(),
-                    olapScan.getQualifier(),
-                    olapScan.getSelectedIndexId(),
-                    olapScan.getSelectedTabletIds(),
-                    olapScan.getSelectedPartitionIds(),
-                    convertDistribution(olapScan),
-                    olapScan.getPreAggStatus(),
-                    olapScan.getPushDownAggOperator(),
-                    Optional.empty(),
-                    olapScan.getLogicalProperties())
+                new PhysicalOlapScan(
+                        olapScan.getId(),
+                        olapScan.getTable(),
+                        olapScan.getQualifier(),
+                        olapScan.getSelectedIndexId(),
+                        olapScan.getSelectedTabletIds(),
+                        olapScan.getSelectedPartitionIds(),
+                        convertDistribution(olapScan),
+                        olapScan.getPreAggStatus(),
+                        Optional.empty(),
+                        olapScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
     private DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
-        DistributionInfo distributionInfo = olapScan.getTable().getDefaultDistributionInfo();
-        if (distributionInfo instanceof HashDistributionInfo) {
+        OlapTable olapTable = olapScan.getTable();
+        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        // When there are multiple partitions, olapScan tasks of different buckets are dispatched in
+        // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
+        // the same stable colocateGroup(CG)
+        boolean isBelongStableCG = colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
+        boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapScan.getSelectedPartitionIds().size() == 1;
+        if (isBelongStableCG || isSelectUnpartition) {
+            if (!(distributionInfo instanceof HashDistributionInfo)) {
+                return DistributionSpecAny.INSTANCE;
+            }
             HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-
             List<Slot> output = olapScan.getOutput();
             List<ExprId> hashColumns = Lists.newArrayList();
             List<Column> schemaColumns = olapScan.getTable().getFullSchema();

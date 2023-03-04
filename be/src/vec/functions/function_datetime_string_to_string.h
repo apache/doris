@@ -75,8 +75,9 @@ public:
                 if (const auto* delta_const_column =
                             typeid_cast<const ColumnConst*>(&source_col1)) {
                     TransformerToStringTwoArgument<Transform>::vector_constant(
-                            sources->get_data(), delta_const_column->get_field().get<String>(),
-                            col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
+                            context, sources->get_data(),
+                            delta_const_column->get_field().get<String>(), col_res->get_chars(),
+                            col_res->get_offsets(), vec_null_map_to);
                 } else {
                     return Status::InternalError(
                             "Illegal column {} is not const {}",
@@ -84,7 +85,7 @@ public:
                 }
             } else {
                 TransformerToStringTwoArgument<Transform>::vector_constant(
-                        sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
+                        context, sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
                         col_res->get_offsets(), vec_null_map_to);
             }
 
@@ -102,37 +103,6 @@ public:
                                          name);
         }
         return Status::OK();
-    }
-};
-
-class FromUnixTimeFunctionBuilder : public FunctionBuilderImpl {
-public:
-    explicit FromUnixTimeFunctionBuilder() = default;
-
-    String get_name() const override { return "from_unixtime"; }
-    bool is_variadic() const override { return true; }
-    size_t get_number_of_arguments() const override { return 0; }
-
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
-protected:
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
-    }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
-    }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
-                               const DataTypePtr& return_type) const override {
-        DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
-        // TODO: we still use VecDateTimeValue to convert unix timestamp to string
-        auto function =
-                FunctionDateTimeStringToString<FromUnixTimeImpl<VecDateTimeValue>>::create();
-        return std::make_shared<DefaultFunction>(function, data_types, return_type);
     }
 };
 

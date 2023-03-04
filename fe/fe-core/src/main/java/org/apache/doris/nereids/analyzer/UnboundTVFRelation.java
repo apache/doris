@@ -24,8 +24,11 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -35,17 +38,20 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** UnboundTVFRelation */
-public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound {
+public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbound {
+
+    private final RelationId id;
     private final String functionName;
     private final TVFProperties properties;
 
-    public UnboundTVFRelation(String functionName, TVFProperties properties) {
-        this(functionName, properties, Optional.empty(), Optional.empty());
+    public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties) {
+        this(id, functionName, properties, Optional.empty(), Optional.empty());
     }
 
-    public UnboundTVFRelation(String functionName, TVFProperties properties,
+    public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties);
+        this.id = id;
         this.functionName = Objects.requireNonNull(functionName, "functionName can not be null");
         this.properties = Objects.requireNonNull(properties, "properties can not be null");
     }
@@ -56,6 +62,15 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
 
     public TVFProperties getProperties() {
         return properties;
+    }
+
+    public RelationId getId() {
+        return id;
+    }
+
+    @Override
+    public TableValuedFunction getFunction() {
+        throw new UnboundException("getFunction");
     }
 
     @Override
@@ -80,12 +95,13 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundTVFRelation(functionName, properties, groupExpression, Optional.of(getLogicalProperties()));
+        return new UnboundTVFRelation(id, functionName, properties, groupExpression,
+                Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundTVFRelation(functionName, properties, Optional.empty(), logicalProperties);
+        return new UnboundTVFRelation(id, functionName, properties, Optional.empty(), logicalProperties);
     }
 
     @Override
@@ -107,13 +123,12 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
         if (!super.equals(o)) {
             return false;
         }
-        UnboundTVFRelation relation = (UnboundTVFRelation) o;
-        return Objects.equals(functionName, relation.functionName) && Objects.equals(properties,
-                relation.properties);
+        UnboundTVFRelation that = (UnboundTVFRelation) o;
+        return functionName.equals(that.functionName) && properties.equals(that.properties) && id.equals(that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), functionName, properties);
+        return Objects.hash(super.hashCode(), functionName, properties, id);
     }
 }

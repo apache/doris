@@ -97,7 +97,7 @@ public class TableAddOrDropColumnsInfo implements Writable {
 
         TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) obj;
 
-        return (dbId == info.dbId && tableId == tableId
+        return (dbId == info.dbId && tableId == info.tableId
                 && indexSchemaMap.equals(info.indexSchemaMap) && indexes.equals(info.indexes)
                 && jobId == info.jobId);
     }

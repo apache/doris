@@ -57,7 +57,7 @@ suite("tpch_sf1_q5_nereids") {
 
     qt_select """
 
-    select /*+SET_VAR(exec_mem_limit=8589934592, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
+    select /*+SET_VAR(exec_mem_limit=8589934592, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true) */
         n_name,
         sum(l_extendedprice * (1 - l_discount)) as revenue
     from

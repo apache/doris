@@ -47,7 +47,7 @@ suite("test_schema_change") {
      sql """ alter  table ${tbName} modify column citycode string """
 
      int max_try_time = 100
-     while(max_try_time--){
+     while (max_try_time--){
           String result = getJobState(tbName)
           if (result == "FINISHED") {
                qt_desc_uniq_table """ desc ${tbName} """

@@ -44,6 +44,8 @@ using FunctionToYearWeekTwoArgsV2 =
 using FunctionToWeekTwoArgsV2 =
         FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateV2>>;
 
+using FunctionDatetimeV2AddMicroseconds =
+        FunctionDateOrDateTimeComputation<AddMicrosecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2AddSeconds =
         FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2AddMinutes =
@@ -61,6 +63,8 @@ using FunctionDatetimeV2AddQuarters =
 using FunctionDatetimeV2AddYears =
         FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTimeV2>>;
 
+using FunctionDatetimeV2SubMicroseconds =
+        FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2SubSeconds =
         FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTimeV2>>;
 using FunctionDatetimeV2SubMinutes =
@@ -116,6 +120,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionAddYearsV2>();
     factory.register_function<FunctionAddQuartersV2>();
 
+    factory.register_function<FunctionDatetimeV2AddMicroseconds>();
     factory.register_function<FunctionDatetimeV2AddSeconds>();
     factory.register_function<FunctionDatetimeV2AddMinutes>();
     factory.register_function<FunctionDatetimeV2AddHours>();
@@ -134,6 +139,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionSubQuartersV2>();
     factory.register_function<FunctionSubWeeksV2>();
 
+    factory.register_function<FunctionDatetimeV2SubMicroseconds>();
     factory.register_function<FunctionDatetimeV2SubSeconds>();
     factory.register_function<FunctionDatetimeV2SubMinutes>();
     factory.register_function<FunctionDatetimeV2SubHours>();

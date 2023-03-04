@@ -221,7 +221,7 @@ public class PolicyTest extends TestWithFeService {
         Policy newPolicy = Policy.read(input);
         Assertions.assertTrue(newPolicy instanceof RowPolicy);
         RowPolicy newRowPolicy = (RowPolicy) newPolicy;
-        Assertions.assertEquals(rowPolicy.getPolicyId(), newRowPolicy.getPolicyId());
+        Assertions.assertEquals(rowPolicy.getId(), newRowPolicy.getId());
         Assertions.assertEquals(type, newRowPolicy.getType());
         Assertions.assertEquals(policyName, newRowPolicy.getPolicyName());
         Assertions.assertEquals(dbId, newRowPolicy.getDbId());

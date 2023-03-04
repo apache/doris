@@ -47,6 +47,7 @@ public:
     bool is_numeric() const override { return false; }
 
     bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
+    bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
 
     size_t size() const override { return data.size(); }
 
@@ -119,6 +120,18 @@ public:
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+    }
+
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
+    }
+
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
+    }
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not implemented";
     }
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -202,8 +215,8 @@ public:
     virtual void update_hashes_with_value(
             std::vector<SipHash>& hashes,
             const uint8_t* __restrict null_data = nullptr) const override {
-            // TODO add hash function
-    };
+        // TODO add hash function
+    }
 
     virtual void update_hashes_with_value(
             uint64_t* __restrict hashes,
@@ -234,6 +247,8 @@ public:
     }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+
+    size_t filter(const IColumn::Filter& filter) override;
 
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
@@ -312,6 +327,36 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
     }
 
     return res;
+}
+
+template <typename T>
+size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
+    size_t size = data.size();
+    if (size != filter.size()) {
+        LOG(FATAL) << "Size of filter doesn't match size of column.";
+    }
+
+    if (data.size() == 0) {
+        return 0;
+    }
+
+    T* res_data = data.data();
+
+    const UInt8* filter_pos = filter.data();
+    const UInt8* filter_end = filter_pos + size;
+    const T* data_pos = data.data();
+
+    while (filter_pos < filter_end) {
+        if (*filter_pos) {
+            *res_data = std::move(*data_pos);
+            ++res_data;
+        }
+
+        ++filter_pos;
+        ++data_pos;
+    }
+
+    return res_data - data.data();
 }
 
 template <typename T>

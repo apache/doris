@@ -149,8 +149,11 @@ Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     meta->set_encoding(_options.encoding);
     meta->set_num_values(_num_values);
     meta->set_compression(_options.compression);
-    if (_num_data_pages <= 1) {
-        DCHECK(num_val_in_page == _num_values);
+    // `_finish_current_data_page` will be called in `add` function when page is full,
+    // so num_val_in_page will be zero in this case.
+    if (_num_data_pages <= 1 && num_val_in_page != 0) {
+        DCHECK(num_val_in_page == _num_values)
+                << "num_val_in_page: " << num_val_in_page << ", _num_values: " << _num_values;
     }
     return Status::OK();
 }

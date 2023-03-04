@@ -22,17 +22,17 @@ import org.apache.doris.common.Id;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -41,6 +41,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -54,6 +55,13 @@ import java.util.Map;
 import java.util.Optional;
 
 public class StatsCalculatorTest {
+
+    private Group newGroup() {
+        GroupExpression groupExpression = new GroupExpression(new FakePlan());
+        Group group = new Group(null, groupExpression, null);
+        group.getPhysicalExpressions().remove(0);
+        return group;
+    }
 
     // TODO: temporary disable this test, until we could get column stats
     // @Test
@@ -77,7 +85,7 @@ public class StatsCalculatorTest {
     //     AggregateFunction sum = new Sum(slot2);
     //     StatsDeriveResult childStats = new StatsDeriveResult(20, slotColumnStatsMap);
     //     Alias alias = new Alias(sum, "a");
-    //     Group childGroup = new Group();
+    //     Group childGroup = newGroup();
     //     childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
     //         @Override
     //         public List<Slot> get() {
@@ -88,7 +96,7 @@ public class StatsCalculatorTest {
     //     childGroup.setStatistics(childStats);
     //     LogicalAggregate logicalAggregate = new LogicalAggregate(groupByExprList, Arrays.asList(alias), groupPlan);
     //     GroupExpression groupExpression = new GroupExpression(logicalAggregate, Arrays.asList(childGroup));
-    //     Group ownerGroup = new Group();
+    //     Group ownerGroup = newGroup();
     //     groupExpression.setOwnerGroup(ownerGroup);
     //     StatsCalculator.estimate(groupExpression);
     //     Assertions.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
@@ -121,24 +129,24 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(2));
 
-        And and = new And(eq1, eq2);
-        Or or = new Or(eq1, eq2);
+        ImmutableSet and = ImmutableSet.of(eq1, eq2);
+        ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
-        Group childGroup = new Group();
+        Group childGroup = newGroup();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
         LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
-        Group ownerGroup = new Group();
+        Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
-        Group ownerGroupOr = new Group();
+        Group ownerGroupOr = newGroup();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr);
         Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
@@ -174,24 +182,24 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
 
-        And and = new And(eq1, eq2);
-        Or or = new Or(eq1, eq2);
+        ImmutableSet and = ImmutableSet.of(eq1, eq2);
+        ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
-        Group childGroup = new Group();
+        Group childGroup = newGroup();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
         LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
-        Group ownerGroup = new Group();
+        Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
-        Group ownerGroupOr = new Group();
+        Group ownerGroupOr = newGroup();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr);
         Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.001);
@@ -241,11 +249,11 @@ public class StatsCalculatorTest {
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table1, Collections.emptyList())
+        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationUtil.newRelationId(), table1, Collections.emptyList())
                 .withLogicalProperties(Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
-        Group childGroup = new Group();
+        Group childGroup = newGroup();
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));
-        Group ownerGroup = new Group();
+        Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult stats = ownerGroup.getStatistics();
@@ -266,14 +274,14 @@ public class StatsCalculatorTest {
         slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
-        Group childGroup = new Group();
+        Group childGroup = newGroup();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
         LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(1, 2, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalLimit, ImmutableList.of(childGroup));
-        Group ownerGroup = new Group();
+        Group ownerGroup = newGroup();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult limitStats = ownerGroup.getStatistics();
@@ -296,14 +304,14 @@ public class StatsCalculatorTest {
         slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
-        Group childGroup = new Group();
+        Group childGroup = newGroup();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
         LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan);
         GroupExpression groupExpression = new GroupExpression(logicalTopN, ImmutableList.of(childGroup));
-        Group ownerGroup = new Group();
+        Group ownerGroup = newGroup();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult topNStats = ownerGroup.getStatistics();

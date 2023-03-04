@@ -17,12 +17,43 @@
 
 #pragma once
 
+#include "gen_cpp/function_service.pb.h"
+#include "util/brpc_client_cache.h"
 #include "vec/functions/function.h"
 
-namespace doris {
-class RPCFn;
+namespace doris::vectorized {
 
-namespace vectorized {
+class RPCFnImpl {
+public:
+    RPCFnImpl(const TFunction& fn);
+    ~RPCFnImpl() = default;
+    Status vec_call(FunctionContext* context, vectorized::Block& block,
+                    const std::vector<size_t>& arguments, size_t result, size_t input_rows_count);
+    bool available() { return _client != nullptr; }
+
+private:
+    void _convert_block_to_proto(vectorized::Block& block,
+                                 const vectorized::ColumnNumbers& arguments,
+                                 size_t input_rows_count, PFunctionCallRequest* request);
+    void _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
+    void _convert_nullable_col_to_pvalue(const vectorized::ColumnPtr& column,
+                                         const vectorized::DataTypePtr& data_type,
+                                         const vectorized::ColumnUInt8& null_col, PValues* arg,
+                                         int start, int end);
+    template <bool nullable>
+    void _convert_col_to_pvalue(const vectorized::ColumnPtr& column,
+                                const vectorized::DataTypePtr& data_type, PValues* arg, int start,
+                                int end);
+    template <bool nullable>
+    void _convert_to_column(vectorized::MutableColumnPtr& column, const PValues& result);
+
+    std::shared_ptr<PFunctionService_Stub> _client;
+    std::string _function_name;
+    std::string _server_addr;
+    std::string _signature;
+    TFunction _fn;
+};
+
 class FunctionRPC : public IFunctionBase {
 public:
     FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
@@ -41,17 +72,17 @@ public:
     String get_name() const override {
         return fmt::format("{}: [{}/{}]", _tfn.name.function_name, _tfn.hdfs_location,
                            _tfn.scalar_fn.symbol);
-    };
+    }
 
-    const DataTypes& get_argument_types() const override { return _argument_types; };
-    const DataTypePtr& get_return_type() const override { return _return_type; };
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+    const DataTypePtr& get_return_type() const override { return _return_type; }
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, size_t result) const override {
         return nullptr;
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    size_t result, size_t input_rows_count, bool dry_run = false) override;
@@ -64,8 +95,7 @@ private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     TFunction _tfn;
-    std::unique_ptr<RPCFn> _fn;
+    std::unique_ptr<RPCFnImpl> _fn;
 };
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

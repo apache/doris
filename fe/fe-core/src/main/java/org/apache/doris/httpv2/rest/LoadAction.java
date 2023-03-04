@@ -85,6 +85,15 @@ public class LoadAction extends RestBaseController {
         return executeStreamLoad2PC(request, db);
     }
 
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
+    public Object streamLoad2PC_table(HttpServletRequest request,
+                                      HttpServletResponse response,
+                                      @PathVariable(value = DB_KEY) String db,
+                                      @PathVariable(value = TABLE_KEY) String table) {
+        executeCheckPassword(request, response);
+        return executeStreamLoad2PC(request, db);
+    }
+
     // Same as Multi load, to be compatible with http v1's response body,
     // we return error by using RestBaseResult.
     private Object executeWithoutPassword(HttpServletRequest request,
@@ -197,6 +206,6 @@ public class LoadAction extends RestBaseController {
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+        return new TNetworkAddress(backend.getIp(), backend.getHttpPort());
     }
 }

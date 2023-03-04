@@ -20,7 +20,13 @@
 
 #include "vec/data_types/data_type_decimal.h"
 
+#include <fmt/format.h>
+
+#include <utility>
+
 #include "gen_cpp/data.pb.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/typeid_cast.h"
@@ -45,29 +51,29 @@ bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
 
 template <typename T>
 std::string DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num) const {
-    T value = assert_cast<const ColumnType&>(*column.convert_to_full_column_if_const().get())
-                      .get_data()[row_num];
-    std::ostringstream buf;
-    write_text(value, scale, buf);
-    return buf.str();
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+    return value.to_string(scale);
 }
 
 template <typename T>
 void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
-    // TODO: Reduce the copy in std::string mem to ostr, like DataTypeNumber
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
     if constexpr (!IsDecimalV2<T>) {
-        T value = assert_cast<const ColumnType&>(*column.convert_to_full_column_if_const().get())
-                          .get_data()[row_num];
-        std::ostringstream buf;
-        write_text(value, scale, buf);
-        std::string str = buf.str();
+        T value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        auto str = value.to_string(scale);
         ostr.write(str.data(), str.size());
     } else {
-        DecimalV2Value value = (DecimalV2Value)assert_cast<const ColumnType&>(
-                                       *column.convert_to_full_column_if_const().get())
-                                       .get_data()[row_num];
-        auto str = value.to_string();
+        DecimalV2Value value =
+                (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        auto str = value.to_string(scale);
         ostr.write(str.data(), str.size());
     }
 }
@@ -163,11 +169,13 @@ T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
     if (precision_value < min_decimal_precision() ||
         precision_value > max_decimal_precision<Decimal128>()) {
-        LOG(FATAL) << "Wrong precision " << precision_value;
+        LOG(WARNING) << "Wrong precision " << precision_value;
+        return nullptr;
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
-        LOG(FATAL) << "Negative scales and scales larger than precision are not supported";
+        LOG(WARNING) << "Negative scales and scales larger than precision are not supported";
+        return nullptr;
     }
 
     if (use_v2) {

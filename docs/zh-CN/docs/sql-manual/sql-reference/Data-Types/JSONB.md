@@ -26,10 +26,6 @@ under the License.
 
 ## JSONB
 
-### name
-
-<version since="1.2.0">
-    
 JSONB
 
 </version>

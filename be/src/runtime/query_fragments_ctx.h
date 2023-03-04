@@ -28,8 +28,10 @@
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_predicate.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
@@ -65,6 +67,8 @@ public:
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
     bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
 
+    ExecEnv* exec_env() { return _exec_env; }
+
     bool is_timeout(const DateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
@@ -76,7 +80,7 @@ public:
     }
 
     void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->limited_scan_thread_pool()->new_token(
+        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
                 is_serial ? ThreadPool::ExecutionMode::SERIAL
                           : ThreadPool::ExecutionMode::CONCURRENT,
                 concurrency);
@@ -117,6 +121,8 @@ public:
     std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
         return _shared_hash_table_controller;
     }
+
+    vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
 public:
     TUniqueId query_id;
@@ -161,6 +167,7 @@ private:
     std::atomic<bool> _is_cancelled {false};
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    vectorized::RuntimePredicate _runtime_predicate;
 };
 
 } // namespace doris

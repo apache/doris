@@ -18,22 +18,30 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /** count agg function. */
-public class Count extends AggregateFunction implements AlwaysNotNullable, CustomSignature {
+public class Count extends AggregateFunction
+        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            // count(*)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)
+    );
 
     private final boolean isStar;
 
@@ -42,19 +50,34 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
         this.isStar = true;
     }
 
-    public Count(AggregateParam aggregateParam) {
-        super("count", aggregateParam);
-        this.isStar = true;
+    /**
+     * this constructor use for COUNT(c1, c2) to get correct error msg.
+     */
+    public Count(Expression child, Expression... varArgs) {
+        this(false, child, varArgs);
     }
 
-    public Count(Expression child) {
-        super("count", child);
+    public Count(boolean distinct, Expression arg0, Expression... varArgs) {
+        super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
     }
 
-    public Count(AggregateParam aggregateParam, Expression child) {
-        super("count", aggregateParam, child);
-        this.isStar = false;
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // for multiple exprs count must be qualified with distinct
+        if (arity() > 1 && !distinct) {
+            throw new AnalysisException("COUNT must have DISTINCT for multiple arguments: " + this.toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
     }
 
     public boolean isStar() {
@@ -62,46 +85,36 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
+    public boolean isConstant() {
+        return false;
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+    protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BigIntType.INSTANCE);
     }
 
     @Override
-    public Count withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
+    public Count withDistinctAndChildren(boolean distinct, List<Expression> children) {
         if (children.size() == 0) {
-            return this;
-        }
-        return new Count(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public Count withAggregateParam(AggregateParam aggregateParam) {
-        if (arity() == 0) {
-            return new Count(aggregateParam);
+            if (distinct) {
+                throw new AnalysisException("Can not count distinct empty arguments");
+            }
+            return new Count();
+        } else if (children.size() == 1) {
+            return new Count(distinct, children.get(0));
         } else {
-            return new Count(aggregateParam, child(0));
+            return new Count(distinct, children.get(0),
+                    children.subList(1, children.size()).toArray(new Expression[0]));
         }
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String toSql() {
         if (isStar) {
             return "count(*)";
         }
-        String args = children()
-                .stream()
-                .map(Expression::toSql)
-                .collect(Collectors.joining(", "));
-        if (isDistinct()) {
-            return "count(distinct " + args + ")";
-        }
-        return "count(" + args + ")";
+        return super.toSql();
     }
 
     @Override
@@ -109,18 +122,16 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
         if (isStar) {
             return "count(*)";
         }
-        String args = children()
-                .stream()
-                .map(Expression::toString)
-                .collect(Collectors.joining(", "));
-        if (isDistinct()) {
-            return "count(distinct " + args + ")";
-        }
-        return "count(" + args + ")";
+        return super.toString();
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCount(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }

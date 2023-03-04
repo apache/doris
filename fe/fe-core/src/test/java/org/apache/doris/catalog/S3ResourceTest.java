@@ -24,7 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -81,17 +81,19 @@ public class S3ResourceTest {
         s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", s3Bucket);
+        s3Properties.put("s3_validity_check", "false");
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
-    public void testFromStmt(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+    public void testFromStmt(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -115,6 +117,7 @@ public class S3ResourceTest {
         s3Properties.put("AWS_MAX_CONNECTIONS", "100");
         s3Properties.put("AWS_REQUEST_TIMEOUT_MS", "2000");
         s3Properties.put("AWS_CONNECTION_TIMEOUT_MS", "2000");
+        s3Properties.put("s3_validity_check", "false");
         stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
 
@@ -132,12 +135,13 @@ public class S3ResourceTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testAbnormalResource(@Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+    public void testAbnormalResource(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -167,6 +171,7 @@ public class S3ResourceTest {
         properties.put("AWS_ACCESS_KEY", "xxx");
         properties.put("AWS_SECRET_KEY", "yyy");
         properties.put("AWS_BUCKET", "test-bucket");
+        properties.put("s3_validity_check", "false");
         S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);

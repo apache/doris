@@ -119,4 +119,8 @@
     qt_stringfunction_28 """ select substring(cast (number as string),2) as string_fucntion_res from numbers("number" = "1000") where number>105 limit 10; """
     qt_stringfunction_29 """ select substring(cast (number as string),-1) as string_fucntion_res from numbers("number" = "1000") where number>105 limit 10; """
     qt_stringfunction_30 """ select number,unhex(cast (number as string)) as string_fucntion_res from numbers("number" = "100") limit 30; """
+
+    // test subquery
+    order_qt_subquery_1 """ with a as (select number from numbers("number"="3")) select * from a; """
+    order_qt_subquery_2 """ select * from (select number from numbers("number"="3")) a join (select * from (select number from numbers("number"="1")) a join (select 1) b) b; """
  }

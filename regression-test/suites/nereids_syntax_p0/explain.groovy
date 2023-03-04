@@ -17,10 +17,6 @@
 
 suite("nereids_explain") {
     sql """
-        SET enable_vectorized_engine=true
-    """
-
-    sql """
         SET enable_nereids_planner=true
     """
 
@@ -28,8 +24,8 @@ suite("nereids_explain") {
 
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
-        contains "(sum(2) + sum(lo_suppkey))[#24]"
-        contains "project output tuple id: 3"
+        contains "(sum(2) + sum(lo_suppkey))[#"
+        contains "project output tuple id: 1"
     }
 
 
@@ -57,4 +53,18 @@ suite("nereids_explain") {
         sql("plan with s as (select * from supplier) select * from s as s1, s as s2")
         contains "*LogicalSubQueryAlias"
     }
+
+    explain {
+        sql """
+        verbose 
+        select case 
+            when 1=1 then cast(1 as int) 
+            when 1>1 then cast(1 as float)
+            else 0.0 end;
+            """
+        contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=DOUBLE, nullable=false}"
+    }
+
+    def explainStr = sql("select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false").toString()
+    assertTrue(!explainStr.contains("projections"))
 }

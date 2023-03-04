@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.mv;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
@@ -70,7 +72,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
                             return filter.withChildren(project.withChildren(
-                                    select(scan, project::getInputSlots, ImmutableList::of)
+                                    select(scan, project::getInputSlots, ImmutableSet::of)
                             ));
                         }).toRule(RuleType.MATERIALIZED_INDEX_FILTER_PROJECT_SCAN),
 
@@ -89,14 +91,14 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                         .then(project -> {
                             LogicalOlapScan scan = project.child();
                             return project.withChildren(
-                                    select(scan, project::getInputSlots, ImmutableList::of));
+                                    select(scan, project::getInputSlots, ImmutableSet::of));
                         })
                         .toRule(RuleType.MATERIALIZED_INDEX_PROJECT_SCAN),
 
                 // only scan.
                 logicalOlapScan()
                         .when(this::shouldSelectIndex)
-                        .then(scan -> select(scan, scan::getOutputSet, ImmutableList::of))
+                        .then(scan -> select(scan, scan::getOutputSet, ImmutableSet::of))
                         .toRule(RuleType.MATERIALIZED_INDEX_SCAN)
         );
     }
@@ -112,36 +114,64 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
     private LogicalOlapScan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
-            Supplier<List<Expression>> predicatesSupplier) {
-        switch (scan.getTable().getKeysType()) {
+            Supplier<Set<Expression>> predicatesSupplier) {
+        OlapTable table = scan.getTable();
+        long baseIndexId = table.getBaseIndexId();
+        KeysType keysType = scan.getTable().getKeysType();
+        switch (keysType) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
-                OlapTable table = scan.getTable();
-                long baseIndexId = table.getBaseIndexId();
-                int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
-                // No aggregate on scan.
-                // So only base index and indexes that have all the keys could be used.
-                List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
-                        .filter(index -> index.getId() == baseIndexId
-                                || table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
-                        .collect(Collectors.toList());
-                PreAggStatus preAgg = PreAggStatus.off("No aggregate on scan.");
-                if (candidates.size() == 1) {
-                    // `candidates` only have base index.
-                    return scan.withMaterializedIndexSelected(preAgg, ImmutableList.of(baseIndexId));
-                } else {
-                    return scan.withMaterializedIndexSelected(preAgg,
-                            filterAndOrder(candidates.stream(), scan, requiredScanOutputSupplier.get(),
-                                    predicatesSupplier.get()));
-                }
+                break;
             case DUP_KEYS:
-                // Set pre-aggregation to `on` to keep consistency with legacy logic.
-                return scan.withMaterializedIndexSelected(PreAggStatus.on(),
-                        filterAndOrder(scan.getTable().getVisibleIndex().stream(), scan,
-                                requiredScanOutputSupplier.get(),
-                                predicatesSupplier.get()));
+                if (table.getIndexIdToMeta().size() == 1) {
+                    return scan.withMaterializedIndexSelected(PreAggStatus.on(), baseIndexId);
+                }
+                break;
             default:
-                throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
+                throw new RuntimeException("Not supported keys type: " + keysType);
         }
+        if (scan.getTable().isDupKeysOrMergeOnWrite()) {
+            // Set pre-aggregation to `on` to keep consistency with legacy logic.
+            List<MaterializedIndex> candidate = scan.getTable().getVisibleIndex().stream()
+                    .filter(index -> !indexHasAggregate(index, scan))
+                    .filter(index -> containAllRequiredColumns(index, scan,
+                            requiredScanOutputSupplier.get()))
+                    .collect(Collectors.toList());
+            return scan.withMaterializedIndexSelected(PreAggStatus.on(),
+                    selectBestIndex(candidate, scan, predicatesSupplier.get()));
+        } else {
+            final PreAggStatus preAggStatus;
+            if (preAggEnabledByHint(scan)) {
+                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                preAggStatus = PreAggStatus.on();
+            } else {
+                preAggStatus = PreAggStatus.off("No aggregate on scan.");
+            }
+            if (table.getIndexIdToMeta().size() == 1) {
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+            }
+            int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
+            // No aggregate on scan.
+            // So only base index and indexes that have all the keys could be used.
+            List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
+                    .filter(index -> index.getId() == baseIndexId
+                            || table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
+                    .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get()))
+                    .collect(Collectors.toList());
+
+            if (candidates.size() == 1) {
+                // `candidates` only have base index.
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+            } else {
+                return scan.withMaterializedIndexSelected(preAggStatus,
+                        selectBestIndex(candidates, scan, predicatesSupplier.get()));
+            }
+        }
+    }
+
+    private boolean indexHasAggregate(MaterializedIndex index, LogicalOlapScan scan) {
+        return scan.getTable().getSchemaByIndexId(index.getId())
+                .stream()
+                .anyMatch(Column::isAggregated);
     }
 }

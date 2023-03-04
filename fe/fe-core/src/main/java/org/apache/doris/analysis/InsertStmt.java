@@ -31,6 +31,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -39,6 +41,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.JdbcExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -47,6 +51,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -110,7 +115,7 @@ public class InsertStmt extends DdlStmt {
 
     private Table targetTable;
 
-    private Database db;
+    private DatabaseIf db;
     private long transactionId;
 
     // we need a new TupleDesc for olap table.
@@ -191,16 +196,19 @@ public class InsertStmt extends DdlStmt {
         // get dbs of statement
         queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
         tblName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
+        // disallow external catalog except JdbcExternalCatalog
+        if (analyzer.getEnv().getCurrentCatalog() instanceof ExternalCatalog
+                && !(analyzer.getEnv().getCurrentCatalog() instanceof JdbcExternalCatalog)) {
+            Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
+        }
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        DatabaseIf db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -219,9 +227,9 @@ public class InsertStmt extends DdlStmt {
     }
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
-        queryStmt.foldConstant(rewriter);
+        queryStmt.foldConstant(rewriter, tQueryOptions);
     }
 
     @Override
@@ -247,7 +255,7 @@ public class InsertStmt extends DdlStmt {
         return dataSink;
     }
 
-    public Database getDbObj() {
+    public DatabaseIf getDbObj() {
         return db;
     }
 
@@ -261,12 +269,15 @@ public class InsertStmt extends DdlStmt {
 
         if (targetTable == null) {
             tblName.analyze(analyzer);
-            // disallow external catalog
-            Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
+            // disallow external catalog except JdbcExternalCatalog
+            if (analyzer.getEnv().getCurrentCatalog() instanceof ExternalCatalog
+                    && !(analyzer.getEnv().getCurrentCatalog() instanceof JdbcExternalCatalog)) {
+                Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
+            }
         }
 
         // Check privilege
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblName.getDb(),
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -292,10 +303,9 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tblName.getDb());
-
+        db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        long timeoutSecond = ConnectContext.get().resetExecTimeoutByInsert();
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
@@ -322,8 +332,16 @@ public class InsertStmt extends DdlStmt {
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tblName.getDb());
-            targetTable = (Table) db.getTableOrAnalysisException(tblName.getTbl());
+            DatabaseIf db = analyzer.getEnv().getCatalogMgr()
+                            .getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
+            if (db instanceof Database) {
+                targetTable = (Table) db.getTableOrAnalysisException(tblName.getTbl());
+            } else if (db instanceof JdbcExternalDatabase) {
+                JdbcExternalTable jdbcTable = (JdbcExternalTable) db.getTableOrAnalysisException(tblName.getTbl());
+                targetTable = jdbcTable.getJdbcTable();
+            } else {
+                throw new AnalysisException("Not support insert target table.");
+            }
         }
 
         if (targetTable instanceof OlapTable) {
@@ -444,7 +462,7 @@ public class InsertStmt extends DdlStmt {
          */
         List<Pair<Integer, Column>> origColIdxsForExtendCols = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
-            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
                 String origName = Column.removeNamePrefix(column.getName());
                 for (int i = 0; i < targetColumns.size(); i++) {
                     if (targetColumns.get(i).nameEquals(origName, false)) {
@@ -455,18 +473,21 @@ public class InsertStmt extends DdlStmt {
                     }
                 }
             }
-            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
-                SlotRef refColumn = column.getRefColumn();
-                if (refColumn == null) {
+            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                    || column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
+                List<SlotRef> refColumns = column.getRefColumns();
+                if (refColumns == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
                             column.getName(), targetTable.getName());
                 }
-                String origName = refColumn.getColumnName();
-                for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
-                    if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                        origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
-                        targetColumns.add(column);
-                        break;
+                for (SlotRef refColumn : refColumns) {
+                    String origName = refColumn.getColumnName();
+                    for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
+                        if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
+                            origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
+                            targetColumns.add(column);
+                            break;
+                        }
                     }
                 }
             }
@@ -526,8 +547,11 @@ public class InsertStmt extends DdlStmt {
                     } else {
                         //substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                        smap.getLhs().add(entry.second.getRefColumn());
-                        smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        List<SlotRef> columns = entry.second.getRefColumns();
+                        for (SlotRef slot : columns) {
+                            smap.getLhs().add(slot);
+                            smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        }
                         Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0);
                         queryStmt.getResultExprs().add(e);
@@ -552,8 +576,11 @@ public class InsertStmt extends DdlStmt {
                     } else {
                         //substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                        smap.getLhs().add(entry.second.getRefColumn());
-                        smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        List<SlotRef> columns = entry.second.getRefColumns();
+                        for (SlotRef slot : columns) {
+                            smap.getLhs().add(slot);
+                            smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        }
                         Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0);
                         queryStmt.getBaseTblResultExprs().add(e);
@@ -607,8 +634,11 @@ public class InsertStmt extends DdlStmt {
                         extentedRow.add(extentedRow.get(entry.first));
                     } else {
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                        smap.getLhs().add(entry.second.getRefColumn());
-                        smap.getRhs().add(extentedRow.get(entry.first));
+                        List<SlotRef> columns = entry.second.getRefColumns();
+                        for (SlotRef slot : columns) {
+                            smap.getLhs().add(slot);
+                            smap.getRhs().add(extentedRow.get(entry.first));
+                        }
                         extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0));
                     }
@@ -687,14 +717,7 @@ public class InsertStmt extends DdlStmt {
                         && ((OlapTable) targetTable).getSequenceMapCol() != null) {
                     resultExprs.add(exprByName.get(((OlapTable) targetTable).getSequenceMapCol()));
                 } else if (col.getDefaultValue() == null) {
-                    /*
-                    The import stmt has been filtered in function checkColumnCoverage when
-                        the default value of column is null and column is not nullable.
-                    So the default value of column may simply be null when column is nullable
-                     */
-                    Preconditions.checkState(col.isAllowNull());
                     resultExprs.add(NullLiteral.create(col.getType()));
-
                 } else {
                     if (col.getDefaultValueExprDef() != null) {
                         resultExprs.add(col.getDefaultValueExpr());

@@ -29,8 +29,8 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-SSB_DBGEN_DIR=${CURDIR}/ssb-dbgen/
-SSB_DATA_DIR=${CURDIR}/ssb-data/
+SSB_DBGEN_DIR=${CURDIR}/ssb-dbgen
+SSB_DATA_DIR=${CURDIR}/ssb-data
 
 usage() {
     echo "

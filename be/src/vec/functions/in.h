@@ -23,6 +23,7 @@
 #include "exprs/create_predicate_function.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -61,11 +62,11 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        auto* state = new InState();
+        std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         if (context->get_arg_type(0)->type == FunctionContext::Type::TYPE_CHAR ||
             context->get_arg_type(0)->type == FunctionContext::Type::TYPE_VARCHAR ||
@@ -74,7 +75,7 @@ public:
             state->hybrid_set.reset(new StringValueSet());
         } else {
             state->hybrid_set.reset(
-                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type), true));
+                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
         }
 
         DCHECK(context->get_num_args() >= 1);
@@ -108,7 +109,7 @@ public:
         vec_res.resize(input_rows_count);
 
         ColumnUInt8::MutablePtr col_null_map_to;
-        col_null_map_to = ColumnUInt8::create(input_rows_count);
+        col_null_map_to = ColumnUInt8::create(input_rows_count, false);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
         /// First argument may be a single column.
@@ -150,7 +151,7 @@ public:
                     }
                 } else {
                     for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = null_bitmap[i] || (negative == vec_res[i]);
+                        vec_null_map_to[i] = null_bitmap[i] || negative == vec_res[i];
                     }
                 }
 
@@ -180,10 +181,6 @@ public:
                     for (size_t i = 0; i < input_rows_count; ++i) {
                         vec_null_map_to[i] = negative == vec_res[i];
                     }
-                } else {
-                    for (size_t i = 0; i < input_rows_count; ++i) {
-                        vec_null_map_to[i] = false;
-                    }
                 }
             }
         } else {
@@ -199,8 +196,8 @@ public:
                     continue;
                 }
 
-                std::unique_ptr<HybridSetBase> hybrid_set(create_set(
-                        convert_type_to_primitive(context->get_arg_type(0)->type), true));
+                std::unique_ptr<HybridSetBase> hybrid_set(
+                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {
@@ -231,10 +228,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            delete reinterpret_cast<InState*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        }
         return Status::OK();
     }
 };

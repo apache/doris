@@ -79,9 +79,11 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_counter_hit_sql_block_rule`|| Num| 被 SQL BLOCK RULE 拦截的查询数量 |  | |
 |`doris_fe_edit_log_clean`| {type="failed"} | Num| 清理历史元数据日志失败的次数 | 不应失败，如失败，需人工介入 | P0|
 || {type="success"} | Num| 清理历史元数据日志成功的次数 | |
-|`doris_fe_edit_log`| {type="bytes"} |字节 | 元数据日志写入量的累计值 | 通过计算斜率可以获得写入速率，来观察是否元数据写入有延迟 | P0 |
+|`doris_fe_edit_log`| {type="accumulated_bytes"} |字节 | 元数据日志写入量的累计值 | 通过计算斜率可以获得写入速率，来观察是否元数据写入有延迟 | P0 |
+|| {type="current_bytes"} |字节 | 元数据日志当前值 | 用于监控editlog 大小。如果大小超限，需人工介入 | P0 |
 || {type="read"} |Num| 元数据日志读取次数的计数 | 通过斜率观察元数据读取频率是否正常 |P0 |
 || {type="write"} |Num | 元数据日志写入次数的计数 |通过斜率观察元数据写入频率是否正常  |P0 |
+|| {type="current"} |Num | 元数据日志当前数量 |用于监控editlog 数量。如果数量超限，需人工介入  |P0 |
 |`doris_fe_editlog_write_latency_ms`| | 毫秒| 元数据日志写入延迟的百分位统计。如 {quantile="0.75"} 表示 75 分位的写入延迟 | |
 |`doris_fe_image_clean`|{type="failed"} | Num | 清理历史元数据镜像文件失败的次数 | 不应失败，如失败，需人工介入 | P0|
 ||{type="success"} | Num | 清理历史元数据镜像文件成功的次数 | |
@@ -96,7 +98,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_query_err`| | Num | 错误查询的累积值 | |
 |`doris_fe_query_err_rate`|  | Num/Sec| 每秒错误查询数  | 观察集群是否出现查询错误 | P0 |
 |`doris_fe_query_latency_ms`| | 毫秒| 查询请求延迟的百分位统计。如 {quantile="0.75"} 表示 75 分位的查询延迟 | 详细观察各分位查询延迟 | P0 |
-|| | 毫秒| 各个DB的查询请求延迟的百分位统计。如 {quantile="0.75",db="test"} 表示DB test 75 分位的查询延迟 | 详细观察各DB各分位查询延迟 | P0 |
+|`doris_fe_query_latency_ms_db`| | 毫秒| 各个DB的查询请求延迟的百分位统计。如 {quantile="0.75",db="test"} 表示DB test 75 分位的查询延迟 | 详细观察各DB各分位查询延迟 | P0 |
 |`doris_fe_query_olap_table`| | Num| 查询内部表（OlapTable）的请求个数统计 | |
 |`doris_fe_query_total`| | Num | 所有查询请求的累积计数 | |
 |`doris_fe_report_queue_size`| | Num | BE的各种定期汇报任务在FE端的队列长度 | 该值反映了汇报任务在 Master FE 节点上的阻塞程度，数值越大，表示FE处理能力不足 | P0|
@@ -140,6 +142,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_txn_exec_latency_ms`| | 毫秒| 事务执行耗时的百分位统计。如 {quantile="0.75"} 表示 75 分位的事务执行耗时 | 详细观察各分位事务执行耗时 | P0 |
 |`doris_fe_txn_publish_latency_ms`| | 毫秒| 事务publish耗时的百分位统计。如 {quantile="0.75"} 表示 75 分位的事务publish耗时 | 详细观察各分位事务publish耗时 | P0 |
 |`doris_fe_txn_num`|| Num| 指定DB正在执行的事务数。如 {db="test"} 表示DB test 当前正在执行的事务数 |该数值可以观测某个DB是否提交了大量事务| P0 |
+|`doris_fe_publish_txn_num`|| Num| 指定DB正在publish的事务数。如 {db="test"} 表示DB test 当前正在publish的事务数 |该数值可以观测某个DB的publish事务数量| P0 |
 |`doris_fe_txn_replica_num`|| Num| 指定DB正在执行的事务打开的副本数。如 {db="test"} 表示DB test 当前正在执行的事务打开的副本数 |该数值可以观测某个DB是否打开了过多的副本，可能会影响其他事务执行| P0 |
 |`doris_fe_thrift_rpc_total`|| Num| FE thrift接口各个方法接收的RPC请求次数。如 {method="report"} 表示 report 方法接收的RPC请求次数 |该数值可以观测某个thrift rpc方法的负载| |
 |`doris_fe_thrift_rpc_latency_ms`|| 毫秒| FE thrift接口各个方法接收的RPC请求耗时。如 {method="report"} 表示 report 方法接收的RPC请求耗时 |该数值可以观测某个thrift rpc方法的负载| |
@@ -233,8 +236,9 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_local_file_reader_total`| | Num| 打开的 `LocalFileReader` 的累计计数 | |
 |`doris_be_local_file_open_reading`| | Num | 当前打开的 `LocalFileReader` 个数 | |
 |`doris_be_local_file_writer_total`| | Num | 打开的 `LocalFileWriter` 的累计计数。| |
-|`doris_be_mem_consumption`| | 字节 | 指定模块的当前内存开销。如 {type="compaction"} 表示 compaction 模块的当前总内存开销 | FIXME: 需要重新梳理|
-|`doris_be_memory_allocated_bytes`| | 字节 | 采集自 TcMalloc 的 `generic.total_physical_bytes` 属性。表示 TcMalloc 占用的虚拟内存的大小，并不代表实际的物理内存占用。 | 可能会比实际物理内存大 | P0 |
+|`doris_be_mem_consumption`| | 字节 | 指定模块的当前内存开销。如 {type="compaction"} 表示 compaction 模块的当前总内存开销。 | 值取自相同 type 的 MemTracker。FIXME |
+|`doris_be_memory_allocated_bytes`| | 字节 | BE 进程物理内存大小，取自 `/proc/self/status/VmRSS` | | P0 |
+|`doris_be_memory_jemalloc`| | 字节 | Jemalloc stats, 取自 `je_mallctl`。 | 含义参考：https://jemalloc.net/jemalloc.3.html | P0 |
 |`doris_be_memory_pool_bytes_total`| | 字节| 所有 MemPool 当前占用的内存大小。统计值，不代表真实内存使用。| |
 |`doris_be_memtable_flush_duration_us`| | 微秒 | memtable写入磁盘的耗时累计值 | 通过斜率可以观测写入延迟 | P0 |
 |`doris_be_memtable_flush_total`| | Num | memtable写入磁盘的个数累计值| 通过斜率可以计算写入文件的频率 | P0 |
@@ -292,6 +296,14 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_load_bytes`| | 字节|通过 tablet sink 发送的数量累计 | 可观测导入数据量 | P0 |
 |`doris_be_load_rows`| | Num | 通过 tablet sink 发送的行数累计| 可观测导入数据量 | P0 |
 |`fragment_thread_pool_queue_size`| | Num | 当前查询执行线程池等待队列的长度 | 如果大于零，则说明查询线程已耗尽，查询会出现堆积 | P0 |
+|`doris_be_all_rowsets_num`| | Num | 当前所有 rowset 的个数 | | P0 |
+|`doris_be_all_segments_num`| | Num | 当前所有 segment 的个数 | | P0 |
+|`doris_be_heavy_work_max_threads`| | Num | brpc heavy线程池线程个数| | p0 |
+|`doris_be_light_work_max_threads`| | Num | brpc light线程池线程个数| | p0 | 
+|`doris_be_heavy_work_pool_queue_size`| | Num | brpc heavy线程池队列最大长度,超过则阻塞提交work| | p0 |
+|`doris_be_light_work_pool_queue_size`| | Num | brpc light线程池队列最大长度,超过则阻塞提交work| | p0 |
+|`doris_be_heavy_work_active_threads`| | Num | brpc heavy线程池活跃线程数| | p0 |
+|`doris_be_light_work_active_threads`| | Num | brpc light线程池活跃线程数| | p0 |
 
 ### 机器监控
 

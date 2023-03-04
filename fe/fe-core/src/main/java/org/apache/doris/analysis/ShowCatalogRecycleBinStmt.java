@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -146,7 +147,7 @@ public class ShowCatalogRecycleBinStmt extends ShowStmt {
             return CaseSensibility.PARTITION.getCaseSensibility()
                     ? name -> name.equals(nameValue) : name -> name.equalsIgnoreCase(nameValue);
         } else {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(
+            PatternMatcher patternMatcher = PatternMatcherWrapper.createMysqlPattern(
                     nameValue, CaseSensibility.PARTITION.getCaseSensibility());
             return patternMatcher::match;
         }

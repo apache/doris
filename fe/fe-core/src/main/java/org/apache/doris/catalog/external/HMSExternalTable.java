@@ -18,10 +18,11 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -36,6 +37,8 @@ import com.google.common.collect.Sets;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -106,27 +109,8 @@ public class HMSExternalTable extends ExternalTable {
                     dlaType = DLAType.UNKNOWN;
                 }
             }
-
-            initPartitionColumns();
             objectCreated = true;
         }
-    }
-
-    private void initPartitionColumns() {
-        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
-                .collect(Collectors.toList());
-        partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
-        for (String partitionKey : partitionKeys) {
-            // Do not use "getColumn()", which will cause dead loop
-            List<Column> schema = getFullSchema();
-            for (Column column : schema) {
-                if (partitionKey.equals(column.getName())) {
-                    partitionColumns.add(column);
-                    break;
-                }
-            }
-        }
-        LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
     }
 
     /**
@@ -180,20 +164,19 @@ public class HMSExternalTable extends ExternalTable {
 
     public List<Type> getPartitionColumnTypes() {
         makeSureInitialized();
+        getFullSchema();
         return partitionColumns.stream().map(c -> c.getType()).collect(Collectors.toList());
     }
 
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
+        getFullSchema();
         return partitionColumns;
-    }
-
-    public List<String> getPartitionColumnNames() {
-        return getPartitionColumns().stream().map(c -> c.getName()).collect(Collectors.toList());
     }
 
     @Override
     public boolean isView() {
+        makeSureInitialized();
         return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
     }
 
@@ -254,6 +237,7 @@ public class HMSExternalTable extends ExternalTable {
      * get the dla type for scan node to get right information.
      */
     public DLAType getDlaType() {
+        makeSureInitialized();
         return dlaType;
     }
 
@@ -284,12 +268,12 @@ public class HMSExternalTable extends ExternalTable {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
 
-    public Map<String, String> getDfsProperties() {
-        return catalog.getCatalogProperty().getDfsProperties();
+    public Map<String, String> getCatalogProperties() {
+        return catalog.getProperties();
     }
 
-    public Map<String, String> getS3Properties() {
-        return catalog.getCatalogProperty().getS3Properties();
+    public Map<String, String> getHadoopProperties() {
+        return catalog.getCatalogProperty().getHadoopProperties();
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
@@ -307,5 +291,55 @@ public class HMSExternalTable extends ExternalTable {
         PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getPartition(dbName, name, partitionValues);
     }
+
+    @Override
+    public List<Column> initSchema() {
+        makeSureInitialized();
+        List<Column> columns;
+        List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+        if (dlaType.equals(DLAType.ICEBERG)) {
+            columns = getIcebergSchema(schema);
+        } else {
+            List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
+            for (FieldSchema field : schema) {
+                tmpSchema.add(new Column(field.getName(),
+                        HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                        true, field.getComment(), true, -1));
+            }
+            columns = tmpSchema;
+        }
+        initPartitionColumns(columns);
+        return columns;
+    }
+
+    private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
+        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(this);
+        Schema schema = icebergTable.schema();
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
+        for (FieldSchema field : hmsSchema) {
+            tmpSchema.add(new Column(field.getName(),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    true, null, field.getComment(), true, null,
+                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
+        }
+        return tmpSchema;
+    }
+
+    private void initPartitionColumns(List<Column> schema) {
+        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+                .collect(Collectors.toList());
+        partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
+        for (String partitionKey : partitionKeys) {
+            // Do not use "getColumn()", which will cause dead loop
+            for (Column column : schema) {
+                if (partitionKey.equals(column.getName())) {
+                    partitionColumns.add(column);
+                    break;
+                }
+            }
+        }
+        LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
+    }
+
 }
 

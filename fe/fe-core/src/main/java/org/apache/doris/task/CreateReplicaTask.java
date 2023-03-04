@@ -20,10 +20,13 @@ package org.apache.doris.task;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
@@ -42,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class CreateReplicaTask extends AgentTask {
@@ -69,6 +73,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
+    private boolean isDynamicSchema;
+
     private TTabletType tabletType;
 
     // used for synchronous process
@@ -88,11 +94,13 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
-    private static String storagePolicy;
+    private long storagePolicyId = 0; // <= 0 means no storage policy
 
     private boolean enableUniqueKeyMergeOnWrite;
 
     private boolean disableAutoCompaction;
+
+    private boolean storeRowColumn;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -105,7 +113,9 @@ public class CreateReplicaTask extends AgentTask {
                              DataSortInfo dataSortInfo,
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
-                             String storagePolicy, boolean disableAutoCompaction) {
+                             String storagePolicy, boolean disableAutoCompaction,
+                             boolean storeRowColumn,
+                             boolean isDynamicSchema) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -128,11 +138,19 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
+        this.isDynamicSchema = isDynamicSchema;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
-        this.storagePolicy = storagePolicy;
+        if (storagePolicy != null && !storagePolicy.isEmpty()) {
+            Optional<Policy> policy = Env.getCurrentEnv().getPolicyMgr()
+                    .findPolicy(storagePolicy, PolicyTypeEnum.STORAGE);
+            if (policy.isPresent()) {
+                this.storagePolicyId = policy.get().getId();
+            }
+        }
         this.disableAutoCompaction = disableAutoCompaction;
+        this.storeRowColumn = storeRowColumn;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -192,6 +210,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         int deleteSign = -1;
         int sequenceCol = -1;
+        int versionCol = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
@@ -202,8 +221,8 @@ public class CreateReplicaTask extends AgentTask {
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
+            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
             }
             tColumn.setVisible(column.isVisible());
             tColumns.add(tColumn);
@@ -213,10 +232,14 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isSequenceColumn()) {
                 sequenceCol = i;
             }
+            if (column.isVersionColumn()) {
+                versionCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
+        tSchema.setVersionColIdx(versionCol);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
@@ -232,12 +255,16 @@ public class CreateReplicaTask extends AgentTask {
         }
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
+        tSchema.setStoreRowColumn(storeRowColumn);
+        tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
 
         createTabletReq.setStorageMedium(storageMedium);
-        createTabletReq.setStoragePolicy(storagePolicy);
+        if (storagePolicyId > 0) {
+            createTabletReq.setStoragePolicyId(storagePolicyId);
+        }
         if (inRestoreMode) {
             createTabletReq.setInRestoreMode(true);
         }

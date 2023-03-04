@@ -21,9 +21,10 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -53,6 +54,7 @@ public class JoinExchange extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin())
                 .when(JoinExchange::checkReorder)
+                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint() || join.right().hasJoinHint())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
                     LogicalJoin<GroupPlan, GroupPlan> rightJoin = topJoin.right();
@@ -61,21 +63,21 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     GroupPlan c = rightJoin.left();
                     GroupPlan d = rightJoin.right();
 
-                    Set<Slot> acOutputSet = JoinUtils.getJoinOutputSet(a, c);
-                    Set<Slot> bdOutputSet = JoinUtils.getJoinOutputSet(b, d);
+                    Set<ExprId> acOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(a, c);
+                    Set<ExprId> bdOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(b, d);
 
                     List<Expression> newLeftJoinHashJoinConjuncts = Lists.newArrayList();
                     List<Expression> newRightJoinHashJoinConjuncts = Lists.newArrayList();
                     List<Expression> newTopJoinHashJoinConjuncts = new ArrayList<>(leftJoin.getHashJoinConjuncts());
                     newTopJoinHashJoinConjuncts.addAll(rightJoin.getHashJoinConjuncts());
-                    splitTopConditon(topJoin.getHashJoinConjuncts(), acOutputSet, bdOutputSet,
+                    splitTopCondition(topJoin.getHashJoinConjuncts(), acOutputExprIdSet, bdOutputExprIdSet,
                             newLeftJoinHashJoinConjuncts, newRightJoinHashJoinConjuncts, newTopJoinHashJoinConjuncts);
 
                     List<Expression> newLeftJoinOtherJoinConjuncts = Lists.newArrayList();
                     List<Expression> newRightJoinOtherJoinConjuncts = Lists.newArrayList();
                     List<Expression> newTopJoinOtherJoinConjuncts = new ArrayList<>(leftJoin.getOtherJoinConjuncts());
                     newTopJoinOtherJoinConjuncts.addAll(rightJoin.getOtherJoinConjuncts());
-                    splitTopConditon(topJoin.getOtherJoinConjuncts(), acOutputSet, bdOutputSet,
+                    splitTopCondition(topJoin.getOtherJoinConjuncts(), acOutputExprIdSet, bdOutputExprIdSet,
                             newLeftJoinOtherJoinConjuncts, newRightJoinOtherJoinConjuncts,
                             newTopJoinOtherJoinConjuncts);
 
@@ -83,16 +85,18 @@ public class JoinExchange extends OneExplorationRuleFactory {
                         return null;
                     }
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
-                            a, c, leftJoin.getJoinReorderContext());
+                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE,
+                            a, c);
+                    newLeftJoin.getJoinReorderContext().copyFrom(leftJoin.getJoinReorderContext());
                     newLeftJoin.getJoinReorderContext().setHasCommute(false);
                     newLeftJoin.getJoinReorderContext().setHasLeftAssociate(false);
                     newLeftJoin.getJoinReorderContext().setHasRightAssociate(false);
                     newLeftJoin.getJoinReorderContext().setHasExchange(false);
 
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
-                            b, d, rightJoin.getJoinReorderContext());
+                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE,
+                            b, d);
+                    newRightJoin.getJoinReorderContext().copyFrom(leftJoin.getJoinReorderContext());
                     newRightJoin.getJoinReorderContext().setHasCommute(false);
                     newRightJoin.getJoinReorderContext().setHasLeftAssociate(false);
                     newRightJoin.getJoinReorderContext().setHasRightAssociate(false);
@@ -100,8 +104,9 @@ public class JoinExchange extends OneExplorationRuleFactory {
 
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, LogicalJoin<GroupPlan, GroupPlan>>
                             newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
-                            newLeftJoin, newRightJoin, topJoin.getJoinReorderContext());
+                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
+                            newLeftJoin, newRightJoin);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return newTopJoin;
@@ -122,14 +127,15 @@ public class JoinExchange extends OneExplorationRuleFactory {
         }
     }
 
-    private void splitTopConditon(List<Expression> topCondition, Set<Slot> acOutputSet, Set<Slot> bdOutputSet,
+    private void splitTopCondition(List<Expression> topCondition,
+            Set<ExprId> acOutputExprIdSet, Set<ExprId> bdOutputExprIdSet,
             List<Expression> newLeftCondition, List<Expression> newRightCondition,
             List<Expression> remainTopCondition) {
         for (Expression hashJoinConjunct : topCondition) {
-            Set<Slot> inputSlots = hashJoinConjunct.getInputSlots();
-            if (acOutputSet.containsAll(inputSlots)) {
+            Set<ExprId> inputSlotExprIdSet = hashJoinConjunct.getInputSlotExprIds();
+            if (acOutputExprIdSet.containsAll(inputSlotExprIdSet)) {
                 newLeftCondition.add(hashJoinConjunct);
-            } else if (bdOutputSet.containsAll(inputSlots)) {
+            } else if (bdOutputExprIdSet.containsAll(inputSlotExprIdSet)) {
                 newRightCondition.add(hashJoinConjunct);
             } else {
                 remainTopCondition.add(hashJoinConjunct);

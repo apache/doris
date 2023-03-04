@@ -54,9 +54,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -90,11 +90,11 @@ import java.io.StringReader;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
-import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -175,19 +175,18 @@ public abstract class TestWithFeService {
 
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
-        LogicalPlan initPlan = new NereidsParser().parseSingle(sql);
-        return CascadesContext.newContext(statementCtx, initPlan);
+        return MemoTestUtils.createCascadesContext(statementCtx, sql);
     }
 
     public LogicalPlan analyze(String sql) {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
-        return (LogicalPlan) cascadesContext.getMemo().copyOut();
+        cascadesContext.toMemo();
+        return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
-        SocketChannel channel = SocketChannel.open();
-        ConnectContext ctx = new ConnectContext(channel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
@@ -437,16 +436,21 @@ public abstract class TestWithFeService {
     }
 
     public String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
-        connectContext.getState().reset();
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        connectContext.setExecutor(stmtExecutor);
+        return getSQLPlanOrErrorMsg(connectContext, sql, isVerbose);
+    }
+
+    public String getSQLPlanOrErrorMsg(ConnectContext ctx, String sql, boolean isVerbose) throws Exception {
+        ctx.setThreadLocalInfo();
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        ctx.setExecutor(stmtExecutor);
         ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
-        if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
             return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
-            return connectContext.getState().getErrorMessage();
+            return ctx.getState().getErrorMessage();
         }
     }
 
@@ -495,7 +499,12 @@ public abstract class TestWithFeService {
     }
 
     public void createTable(String sql) throws Exception {
-        createTables(sql);
+        try {
+            createTables(sql);
+        } catch (ConcurrentModificationException e) {
+            e.printStackTrace();
+            throw e;
+        }
     }
 
     public void dropTable(String table, boolean force) throws Exception {

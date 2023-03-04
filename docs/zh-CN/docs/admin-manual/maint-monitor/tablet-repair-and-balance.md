@@ -441,7 +441,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     通过以下命令可以查看集群当前的负载情况：
     
-    `SHOW PROC '/cluster_balance/cluster_load_stat';`
+    `SHOW PROC '/cluster_balance/cluster_load_stat/location_default';`
     
     首先看到的是对不同存储介质的划分：
     
@@ -456,7 +456,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
     
     点击某一种存储介质，可以看到包含该存储介质的 BE 节点的均衡状态：
     
-    `SHOW PROC '/cluster_balance/cluster_load_stat/HDD';`
+    `SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD';`
     
     ```
     +----------+-----------------+-----------+---------------+----------------+-------------+------------+----------+-----------+--------------------+-------+
@@ -486,7 +486,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     用户可以进一步查看某个 BE 上各个路径的使用率，比如 ID 为 10001 这个 BE：
 
-    `SHOW PROC '/cluster_balance/cluster_load_stat/HDD/10001';`
+    `SHOW PROC '/cluster_balance/cluster_load_stat/location_default/HDD/10001';`
 
     ```
     +------------------+------------------+---------------+---------------+---------+--------+----------------------+

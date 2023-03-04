@@ -185,6 +185,23 @@ struct TQueryOptions {
   54: optional bool enable_share_hash_table_for_broadcast_join
 
   55: optional bool enable_pipeline_engine = false
+
+  56: optional i32 repeat_max_num = 0
+  57: optional bool check_overflow_for_decimal = false
+
+  58: optional i64 external_sort_bytes_threshold = 0
+
+  59: optional i32 partitioned_hash_agg_rows_threshold = 0
+
+  60: optional bool enable_file_cache = true
+  
+  61: optional i32 insert_timeout = 14400
+
+  62: optional i32 execution_timeout = 3600
+
+  // For debug purpose, skip delete bitmap when reading data
+  63: optional bool skip_delete_bitmap = false
+  64: optional bool dry_run_query = false
 }
     
 
@@ -290,7 +307,7 @@ enum PaloInternalServiceVersion {
 
 struct TTxnParams {
   1: optional bool need_txn
-  2: optional string auth_code_uuid
+  2: optional string token
   3: optional i64 thrift_rpc_timeout_ms
   4: optional string db
   5: optional string tbl
@@ -299,6 +316,8 @@ struct TTxnParams {
   8: optional Types.TUniqueId fragment_instance_id
   9: optional i64 db_id
   10: optional double max_filter_ratio
+  // For load task with transaction, use this to indicate we use pipeline or not
+  11: optional bool enable_pipeline_txn_load = false;
 }
 
 // Definition of global dict, global dict is used to accelerate query performance of low cardinality data
@@ -373,6 +392,10 @@ struct TExecPlanFragmentParams {
   // it will wait for the FE to send the "start execution" command before it is actually executed.
   // Otherwise, the fragment will start executing directly on the BE side.
   20: optional bool need_wait_execution_trigger = false;
+
+  21: optional bool build_hash_table_for_broadcast_join = false;
+
+  22: optional list<Types.TUniqueId> instances_sharing_hash_table;
 }
 
 struct TExecPlanFragmentParamsList {
@@ -406,6 +429,8 @@ struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
   3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
 }
 
 // TransmitData
@@ -526,10 +551,53 @@ struct TCondition {
     // In delete condition, the different column may have same column name, need
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
+    5:  optional bool marked_by_runtime_filter = false
 }
 
 struct TExportStatusResult {
     1: required Status.TStatus status
     2: required Types.TExportState state
     3: optional list<string> files
+}
+
+struct TPipelineInstanceParams {
+  1: required Types.TUniqueId fragment_instance_id
+  2: optional bool build_hash_table_for_broadcast_join = false;
+  3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
+  4: optional i32 sender_id
+  5: optional TRuntimeFilterParams runtime_filter_params
+  6: optional i32 backend_num
+}
+
+// ExecPlanFragment
+struct TPipelineFragmentParams {
+  1: required PaloInternalServiceVersion protocol_version
+  2: required Types.TUniqueId query_id
+  3: optional i32 fragment_id
+  4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
+  5: optional Descriptors.TDescriptorTable desc_tbl
+  6: optional Types.TResourceInfo resource_info
+  7: list<TPlanFragmentDestination> destinations
+  8: optional i32 num_senders
+  9: optional bool send_query_statistics_with_every_batch
+  10: optional Types.TNetworkAddress coord
+  11: optional TQueryGlobals query_globals
+  12: optional TQueryOptions query_options
+  // load job related
+  13: optional string import_label
+  14: optional string db_name
+  15: optional i64 load_job_id
+  16: optional TLoadErrorHubInfo load_error_hub_info
+  17: optional i32 fragment_num_on_host
+  18: optional i64 backend_id
+  19: optional bool need_wait_execution_trigger = false
+  20: optional list<Types.TUniqueId> instances_sharing_hash_table
+  21: optional bool is_simplified_param = false;
+  22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+  23: optional Planner.TPlanFragment fragment
+  24: list<TPipelineInstanceParams> local_params
+}
+
+struct TPipelineFragmentParamsList {
+    1: optional list<TPipelineFragmentParams> params_list;
 }

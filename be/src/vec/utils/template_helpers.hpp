@@ -43,7 +43,9 @@
     M(Decimal128, ColumnDecimal<Decimal128>) \
     M(Decimal128I, ColumnDecimal<Decimal128I>)
 
-#define STRING_TYPE_TO_COLUMN_TYPE(M) M(String, ColumnString)
+#define STRING_TYPE_TO_COLUMN_TYPE(M) \
+    M(String, ColumnString)           \
+    M(JSONB, ColumnString)
 
 #define TIME_TYPE_TO_COLUMN_TYPE(M) \
     M(Date, ColumnInt64)            \

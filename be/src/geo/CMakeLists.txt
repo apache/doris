@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
 add_library(Geo STATIC
     geo_common.cpp
-    geo_functions.cpp
     geo_types.cpp
     wkt_parse.cpp
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp

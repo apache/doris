@@ -28,6 +28,7 @@
 #include "io/fs/remote_file_system.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
+#include "util/lock.h"
 
 namespace doris {
 
@@ -65,7 +66,7 @@ public:
             break;
 
         default:
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
         }
         return Status::OK();
     }
@@ -81,7 +82,7 @@ public:
             break;
 
         default:
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
         }
         return Status::OK();
     }
@@ -93,7 +94,7 @@ public:
             break;
 
         default:
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
+            return Status::Error<ErrorCode::ROWSET_INVALID_STATE_TRANSITION>();
         }
         return Status::OK();
     }
@@ -115,20 +116,8 @@ public:
     // Derived class implements the load logic by overriding the `do_load_once()` method.
     Status load(bool use_cache = true);
 
-    // returns Status::OLAPInternalError(OLAP_ERR_ROWSET_CREATE_READER) when failed to create reader
+    // returns Status::Error<ErrorCode::ROWSET_CREATE_READER>() when failed to create reader
     virtual Status create_reader(std::shared_ptr<RowsetReader>* result) = 0;
-
-    // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
-    // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
-    //
-    // e.g., if the function generates 2 sub-ranges, the result `ranges` should contain 4 tuple: t1, t2, t2, t3.
-    // Note that the end tuple of sub-range i is the same as the start tuple of sub-range i+1.
-    //
-    // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
-    // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
-    virtual Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                               uint64_t request_block_row_count, size_t key_num,
-                               std::vector<OlapTuple>* ranges) = 0;
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
@@ -159,7 +148,7 @@ public:
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) const { return rowset_meta()->to_rowset_pb(rs_meta); }
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
-    int64_t oldest_write_timestamp() const { return rowset_meta()->oldest_write_timestamp(); }
+    // The writing time of the newest data in rowset, to measure the freshness of a rowset.
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
@@ -178,7 +167,7 @@ public:
         }
         Status st = Status::OK();
         {
-            std::lock_guard<std::mutex> close_lock(_lock);
+            std::lock_guard close_lock(_lock);
             uint64_t current_refs = _refs_by_reader;
             old_state = _rowset_state_machine.rowset_state();
             if (old_state != ROWSET_LOADED) {
@@ -245,7 +234,7 @@ public:
         uint64_t current_refs = --_refs_by_reader;
         if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
             {
-                std::lock_guard<std::mutex> release_lock(_lock);
+                std::lock_guard release_lock(_lock);
                 // rejudge _refs_by_reader because we do not add lock in create reader
                 if (_refs_by_reader == 0 &&
                     _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
@@ -293,8 +282,8 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-           RowsetMetaSharedPtr rowset_meta);
+    Rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+           const RowsetMetaSharedPtr& rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;
@@ -320,7 +309,7 @@ protected:
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
     // mutex lock for load/close api because it is costly
-    std::mutex _lock;
+    doris::Mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;

@@ -69,7 +69,7 @@ Linux交换分区会给Doris带来很严重的性能问题，需要在安装之�
 
 ##### Liunx文件系统
 
-这里我们推荐使用ext4文件系统，在安装操作系统的时候，请选择ext4文件系统。
+ext4和xfs文件系统均支持。
 
 #### 开发测试环境
 
@@ -81,9 +81,9 @@ Linux交换分区会给Doris带来很严重的性能问题，需要在安装之�
 #### 生产环境
 
 | 模块 | CPU | 内存 | 磁盘 | 网络 | 实例数量（最低要求） |
-|---|---|---|---|---|---|
-| Frontend | 16核+ | 64GB+ | SSD 或 RAID 卡，100GB+ * | 万兆网卡 | 1-5 * |
-| Backend | 16核+ | 64GB+ | SSD 或 SATA，100G+ * | 万兆网卡 | 10-100 * |
+|---|---|---|---|---|------------|
+| Frontend | 16核+ | 64GB+ | SSD 或 RAID 卡，100GB+ * | 万兆网卡 | 1-3 *      |
+| Backend | 16核+ | 64GB+ | SSD 或 SATA，100G+ * | 万兆网卡 | 3 *        |
 
 > 注1：
 > 1. FE 的磁盘空间主要用于存储元数据，包括日志和 image。通常从几百 MB 到几个 GB 不等。
@@ -211,19 +211,26 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
   **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
 
-  `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
+  `storage_root_path=/home/disk1/doris,medium:HDD;/home/disk2/doris,medium:SSD`
 
   **说明**
 
-    - /home/disk1/doris,medium:hdd： 表示存储介质是HDD;
-    - /home/disk2/doris,medium:ssd： 表示存储介质是SSD;
+    - /home/disk1/doris,medium:HDD： 表示存储介质是HDD;
+    - /home/disk2/doris,medium:SSD： 表示存储介质是SSD;
 
 * BE webserver_port端口配置
 
   如果 be 部署在 hadoop 集群中，注意调整 be.conf 中的 `webserver_port = 8040` ,以免造成端口冲突
+
+* 配置 JAVA_HOME 环境变量
+
+  <version since="1.2.0"></version>  
+  由于从 1.2 版本开始支持 Java UDF 函数，BE 依赖于 Java 环境。所以要预先配置 `JAVA_HOME` 环境变量，也可以在 `start_be.sh` 启动脚本第一行添加 `export JAVA_HOME=your_java_home_path` 来添加环境变量。
+
 * 安装 Java UDF 函数
-<version since="1.2.0">安装Java UDF 函数</version>
-  因为从1.2 版本开始支持Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
+
+   <version since="1.2.0">安装Java UDF 函数</version>  
+   因为从 1.2 版本开始支持 Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
 
 * 在 FE 中添加所有 BE 节点
 

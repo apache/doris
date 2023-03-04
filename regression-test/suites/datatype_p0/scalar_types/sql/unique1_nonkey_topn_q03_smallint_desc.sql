@@ -1,0 +1,1 @@
+SELECT * FROM tbl_scalar_types_unique1 ORDER BY c_smallint DESC, c_bigint DESC LIMIT 20;

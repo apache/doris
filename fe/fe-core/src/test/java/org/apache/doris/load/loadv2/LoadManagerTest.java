@@ -17,22 +17,16 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -46,12 +40,12 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.util.List;
 import java.util.Map;
 
 public class LoadManagerTest {
     private LoadManager loadManager;
     private final String fieldName = "idToLoadJob";
+    private UserIdentity userInfo = UserIdentity.createAnalyzedUserIdentWithIp("root", "localhost");
 
     @Before
     public void setUp() throws Exception {
@@ -64,50 +58,6 @@ public class LoadManagerTest {
         if (file.exists()) {
             file.delete();
         }
-    }
-
-    @Test
-    public void testCreateHadoopJob(@Injectable LoadStmt stmt, @Injectable LabelName labelName, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Injectable Database database, @Injectable BrokerLoadJob brokerLoadJob) {
-        Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newHashMap();
-        Map<String, List<LoadJob>> labelToLoadJobs = Maps.newHashMap();
-        String label1 = "label1";
-        List<LoadJob> loadJobs = Lists.newArrayList();
-        loadJobs.add(brokerLoadJob);
-        labelToLoadJobs.put(label1, loadJobs);
-        dbIdToLabelToLoadJobs.put(1L, labelToLoadJobs);
-        LoadJobScheduler loadJobScheduler = new LoadJobScheduler();
-        loadManager = new LoadManager(loadJobScheduler);
-        Deencapsulation.setField(loadManager, "dbIdToLabelToLoadJobs", dbIdToLabelToLoadJobs);
-        new Expectations() {
-            {
-                stmt.getLabel();
-                minTimes = 0;
-                result = labelName;
-                labelName.getLabelName();
-                minTimes = 0;
-                result = "label1";
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyString);
-                minTimes = 0;
-                result = database;
-                database.getId();
-                minTimes = 0;
-                result = 1L;
-            }
-        };
-
-        try {
-            loadManager.createLoadJobV1FromStmt(stmt, EtlJobType.HADOOP, System.currentTimeMillis());
-            Assert.fail("duplicated label is not be allowed");
-        } catch (LabelAlreadyUsedException e) {
-            // successful
-        } catch (DdlException e) {
-            Assert.fail(e.getMessage());
-        }
-
     }
 
     @Test
@@ -134,7 +84,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         File file = serializeToFile(loadManager);
@@ -170,7 +120,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         //make job1 don't serialize

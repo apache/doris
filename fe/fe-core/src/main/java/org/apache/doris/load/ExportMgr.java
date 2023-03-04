@@ -17,6 +17,8 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.CancelExportStmt;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
@@ -24,19 +26,23 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class ExportMgr {
@@ -99,9 +106,61 @@ public class ExportMgr {
         LOG.info("add export job. {}", job);
     }
 
+    public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
+        // List of export jobs waiting to be cancelled
+        List<ExportJob> matchExportJobs = getWaitingCancelJobs(stmt);
+        if (matchExportJobs.isEmpty()) {
+            throw new DdlException("Export job(s) do not exist");
+        }
+        matchExportJobs = matchExportJobs.stream()
+                .filter(job -> !job.isFinalState()).collect(Collectors.toList());
+        if (matchExportJobs.isEmpty()) {
+            throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
+        }
+        for (ExportJob exportJob : matchExportJobs) {
+            exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+        }
+    }
+
     public void unprotectAddJob(ExportJob job) {
         idToJob.put(job.getId(), job);
         labelToJobId.putIfAbsent(job.getLabel(), job.getId());
+    }
+
+    private List<ExportJob> getWaitingCancelJobs(CancelExportStmt stmt) throws AnalysisException {
+        Predicate<ExportJob> jobFilter = buildCancelJobFilter(stmt);
+        readLock();
+        try {
+            return getJobs().stream().filter(jobFilter).collect(Collectors.toList());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    @VisibleForTesting
+    public static Predicate<ExportJob> buildCancelJobFilter(CancelExportStmt stmt) throws AnalysisException {
+        String label = stmt.getLabel();
+        String state = stmt.getState();
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
+
+        return job -> {
+            boolean labelFilter = true;
+            boolean stateFilter = true;
+            if (StringUtils.isNotEmpty(label)) {
+                labelFilter = label.contains("%") ? matcher.match(job.getLabel()) :
+                        job.getLabel().equalsIgnoreCase(label);
+            }
+            if (StringUtils.isNotEmpty(state)) {
+                stateFilter = job.getState().name().equalsIgnoreCase(state);
+            }
+
+            if (stmt.getOperator() != null && CompoundPredicate.Operator.OR.equals(stmt.getOperator())) {
+                return labelFilter || stateFilter;
+            }
+
+            return labelFilter && stateFilter;
+        };
     }
 
     private ExportJob createJob(long jobId, ExportStmt stmt) throws Exception {
@@ -135,7 +194,7 @@ public class ExportMgr {
         LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
         PatternMatcher matcher = null;
         if (isLabelUseLike) {
-            matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+            matcher = PatternMatcherWrapper.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
         }
 
         readLock();
@@ -172,12 +231,12 @@ public class ExportMgr {
                     if (db == null) {
                         continue;
                     }
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                                                                            db.getFullName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                 } else {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                                                                             tableName.getDb(), tableName.getTbl(),
                                                                             PrivPredicate.SHOW)) {
                         continue;
@@ -294,12 +353,12 @@ public class ExportMgr {
     }
 
     public void replayUpdateJobState(long jobId, ExportJob.JobState newState) {
-        writeLock();
+        readLock();
         try {
             ExportJob job = idToJob.get(jobId);
             job.updateState(newState, true);
         } finally {
-            writeUnlock();
+            readUnlock();
         }
     }
 

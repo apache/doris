@@ -17,6 +17,7 @@
 
 #include "agent/task_worker_pool.h"
 
+#include <gen_cpp/AgentService_types.h>
 #include <pthread.h>
 #include <sys/stat.h>
 
@@ -24,18 +25,22 @@
 #include <chrono>
 #include <csignal>
 #include <ctime>
+#include <memory>
 #include <sstream>
 #include <string>
 
+#include "agent/utils.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/s3_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
-#include "olap/storage_policy_mgr.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
@@ -56,6 +61,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
@@ -66,13 +72,11 @@ const int64_t PUBLISH_TIMEOUT_SEC = 10;
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
-FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
         : _master_info(master_info),
           _agent_utils(new AgentUtils()),
-          _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
           _env(env),
           _stop_background_threads_latch(1),
           _is_work(false),
@@ -144,6 +148,10 @@ void TaskWorkerPool::start() {
         _worker_count = config::alter_tablet_worker_count;
         cb = std::bind<void>(&TaskWorkerPool::_alter_tablet_worker_thread_callback, this);
         break;
+    case TaskWorkerType::ALTER_INVERTED_INDEX:
+        _worker_count = config::alter_inverted_index_worker_count;
+        cb = std::bind<void>(&TaskWorkerPool::_alter_inverted_index_worker_thread_callback, this);
+        break;
     case TaskWorkerType::CLONE:
         _worker_count = config::clone_worker_count;
         cb = std::bind<void>(&TaskWorkerPool::_clone_worker_thread_callback, this);
@@ -194,14 +202,13 @@ void TaskWorkerPool::start() {
         cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
                              this);
         break;
-    case TaskWorkerType::REFRESH_STORAGE_POLICY:
-        cb = std::bind<void>(
-                &TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback, this);
-        break;
-    case TaskWorkerType::UPDATE_STORAGE_POLICY:
+    case TaskWorkerType::PUSH_STORAGE_POLICY:
         _worker_count = 1;
-        cb = std::bind<void>(&TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback,
-                             this);
+        cb = std::bind<void>(&TaskWorkerPool::_push_storage_policy_worker_thread_callback, this);
+        break;
+    case TaskWorkerType::PUSH_COOLDOWN_CONF:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
         break;
     default:
         // pass
@@ -217,7 +224,7 @@ void TaskWorkerPool::start() {
 
     for (int i = 0; i < _worker_count; i++) {
         auto st = _thread_pool->submit_func(cb);
-        CHECK(st.ok()) << st.to_string();
+        CHECK(st.ok()) << st;
     }
 #endif
 }
@@ -264,23 +271,26 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-    set<int64_t>& signature_set = _s_task_signatures[task_type];
+    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY ||
+        task_type == TTaskType::type::PUSH_COOLDOWN_CONF) {
+        // no need to report task of these types
+        return true;
+    }
+    std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+    std::set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
 }
 
 void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t signature) {
     size_t queue_size;
     {
-        lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-        set<int64_t>& signature_set = _s_task_signatures[task_type];
+        std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+        std::set<int64_t>& signature_set = _s_task_signatures[task_type];
         signature_set.erase(signature);
         queue_size = signature_set.size();
     }
 
-    std::string type_str;
-    EnumToString(TTaskType, task_type, type_str);
-    VLOG_NOTICE << "remove task info. type=" << type_str << ", signature=" << signature
+    VLOG_NOTICE << "remove task info. type=" << task_type << ", signature=" << signature
                 << ", queue_size=" << queue_size;
     TRACE("remove task info");
 }
@@ -292,7 +302,8 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
         DorisMetrics::instance()->finish_task_requests_total->increment(1);
-        Status client_status = _master_client->finish_task(finish_task_request, &result);
+        Status client_status =
+                MasterServerClient::instance()->finish_task(finish_task_request, &result);
 
         if (client_status.ok()) {
             break;
@@ -313,7 +324,7 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
                                               std::deque<TAgentTaskRequest>& tasks,
                                               TPriority::type priority) {
     int32_t index = -1;
-    deque<TAgentTaskRequest>::size_type task_count = tasks.size();
+    std::deque<TAgentTaskRequest>::size_type task_count = tasks.size();
     for (uint32_t i = 0; i < task_count; ++i) {
         TAgentTaskRequest task = tasks[i];
         if (priority == TPriority::HIGH) {
@@ -462,6 +473,121 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
     }
 }
 
+void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+        int64_t signature = agent_task_req.signature;
+        LOG(INFO) << "get alter inverted index task, signature: " << agent_task_req.signature;
+        bool is_task_timeout = false;
+        if (agent_task_req.__isset.recv_time) {
+            int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
+            if (time_elapsed > config::report_task_interval_seconds * 20) {
+                LOG(INFO) << "task elapsed " << time_elapsed
+                          << " seconds since it is inserted to queue, it is timeout";
+                is_task_timeout = true;
+            }
+        }
+        if (!is_task_timeout) {
+            TFinishTaskRequest finish_task_request;
+            TTaskType::type task_type = agent_task_req.task_type;
+            switch (task_type) {
+            case TTaskType::ALTER_INVERTED_INDEX:
+                _alter_inverted_index(agent_task_req, signature, task_type, &finish_task_request);
+                break;
+            default:
+                // pass
+                break;
+            }
+            _finish_task(finish_task_request);
+        }
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+void TaskWorkerPool::_alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
+                                           int64_t signature, const TTaskType::type task_type,
+                                           TFinishTaskRequest* finish_task_request) {
+    Status status = Status::OK();
+    string process_name;
+    switch (task_type) {
+    case TTaskType::ALTER_INVERTED_INDEX:
+        process_name = "AlterInvertedIndex";
+        break;
+    default:
+        std::string task_name;
+        EnumToString(TTaskType, task_type, task_name);
+        LOG(WARNING) << "schema change type invalid. type: " << task_name
+                     << ", signature: " << signature;
+        status = Status::NotSupported("Schema change type invalid");
+        break;
+    }
+
+    TTabletId tablet_id;
+    TSchemaHash schema_hash = 0;
+    if (status.ok()) {
+        tablet_id = alter_inverted_index_request.alter_inverted_index_req.tablet_id;
+        schema_hash = alter_inverted_index_request.alter_inverted_index_req.schema_hash;
+        EngineAlterInvertedIndexTask engine_task(
+                alter_inverted_index_request.alter_inverted_index_req);
+        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (!sc_status.ok()) {
+            status = Status::DataQualityError("The data quality does not satisfy");
+        } else {
+            status = Status::OK();
+        }
+    }
+
+    if (status.ok()) {
+        ++_s_report_version;
+        LOG(INFO) << process_name << " finished. signature: " << signature;
+    }
+
+    // Return result to fe
+    finish_task_request->__set_backend(_backend);
+    finish_task_request->__set_report_version(_s_report_version);
+    finish_task_request->__set_task_type(task_type);
+    finish_task_request->__set_signature(signature);
+
+    std::vector<TTabletInfo> finish_tablet_infos;
+    if (status.ok()) {
+        TTabletInfo tablet_info;
+        status = _get_tablet_info(tablet_id, schema_hash, signature, &tablet_info);
+
+        if (!status.ok()) {
+            LOG(WARNING) << process_name << " success, but get tablet info failed."
+                         << "tablet_id: " << tablet_id << ", schema_hash: " << schema_hash
+                         << ", signature: " << signature;
+        } else {
+            finish_tablet_infos.push_back(tablet_info);
+        }
+    }
+
+    if (status.ok()) {
+        finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
+        LOG_INFO("successfully {}", process_name)
+                .tag("signature", signature)
+                .tag("tablet_id", tablet_id);
+    } else {
+        LOG_WARNING("failed to {}", process_name)
+                .tag("signature", signature)
+                .tag("tablet_id", tablet_id)
+                .error(status);
+    }
+    finish_task_request->__set_task_status(status.to_thrift());
+}
+
 void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
@@ -554,7 +680,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         }
     }
 
-    if (!status.ok() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
+    if (!status.ok() && !status.is<NOT_IMPLEMENTED_ERROR>()) {
         LOG_WARNING("failed to {}", process_name)
                 .tag("signature", agent_task_req.signature)
                 .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
@@ -686,7 +812,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             status = _env->storage_engine()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
-            } else if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS) {
+            } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
                 if (time_elapsed > PUBLISH_TIMEOUT_SEC) {
                     LOG(INFO) << "task elapsed " << time_elapsed
@@ -710,7 +836,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
-        if (status.precise_code() == OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS && !is_task_timeout) {
+        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !is_task_timeout) {
             continue;
         }
 
@@ -726,19 +852,23 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     .error(status);
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            for (int i = 0; i < succ_tablet_ids.size(); i++) {
-                TabletSharedPtr tablet =
-                        StorageEngine::instance()->tablet_manager()->get_tablet(succ_tablet_ids[i]);
-                if (tablet != nullptr) {
-                    tablet->publised_count++;
-                    if (tablet->publised_count % 10 == 0) {
-                        StorageEngine::instance()->submit_compaction_task(
-                                tablet, CompactionType::CUMULATIVE_COMPACTION);
-                        LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
-                                  << ", publised:" << tablet->publised_count;
+            if (!config::disable_auto_compaction) {
+                for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(
+                                    succ_tablet_ids[i]);
+                    if (tablet != nullptr) {
+                        tablet->publised_count++;
+                        if (tablet->publised_count % 10 == 0) {
+                            StorageEngine::instance()->submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION);
+                            LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
+                                      << ", publised:" << tablet->publised_count;
+                        }
+                    } else {
+                        LOG(WARNING)
+                                << "trigger compaction failed, tabletid:" << succ_tablet_ids[i];
                     }
-                } else {
-                    LOG(WARNING) << "trigger compaction failed, tabletid:" << succ_tablet_ids[i];
                 }
             }
             LOG_INFO("successfully publish version")
@@ -845,25 +975,27 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 tablet->set_partition_id(tablet_meta_info.partition_id);
             } else {
                 switch (tablet_meta_info.meta_type) {
-                case TTabletMetaType::PARTITIONID:
+                case TTabletMetaType::PARTITIONID: // FIXME(plat1ko): deprecate?
                     tablet->set_partition_id(tablet_meta_info.partition_id);
                     break;
                 case TTabletMetaType::INMEMORY:
-                    if (tablet_meta_info.storage_policy.empty()) {
+                    if (tablet_meta_info.__isset.storage_policy_id) {
+                        LOG(INFO) << "set tablet storage_policy_id="
+                                  << tablet_meta_info.storage_policy_id;
+                        tablet->tablet_meta()->set_storage_policy_id(
+                                tablet_meta_info.storage_policy_id);
+                    }
+                    if (tablet_meta_info.__isset.is_in_memory) {
                         tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
                         // The field is_in_memory should not be in the tablet_schema.
                         // it should be in the tablet_meta.
-                        for (auto rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                        for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
                             rowset_meta->tablet_schema()->set_is_in_memory(
                                     tablet_meta_info.is_in_memory);
                         }
                         tablet->get_max_version_schema(wrlock)->set_is_in_memory(
                                 tablet_meta_info.is_in_memory);
-                    } else {
-                        LOG(INFO) << "set tablet cooldown resource "
-                                  << tablet_meta_info.storage_policy;
-                        tablet->tablet_meta()->set_storage_policy(tablet_meta_info.storage_policy);
                     }
                     break;
                 }
@@ -1111,7 +1243,7 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
         {
-            lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+            std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
         _handle_report(request, ReportType::TASK);
@@ -1122,9 +1254,6 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
 /// disk state report thread will report disk state at a configurable fix interval.
 void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
-
-    TReportRequest request;
-    request.__set_backend(_backend);
 
     while (_is_work) {
         _is_doing_work = false;
@@ -1152,10 +1281,13 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         // and can not be processed.
         _random_sleep(5);
 
+        TReportRequest request;
+        request.__set_backend(_backend);
+        request.__isset.disks = true;
+
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
-        map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
@@ -1166,9 +1298,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_remote_used_capacity(root_path_info.remote_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
-            disks[root_path_info.path] = disk;
+            request.disks[root_path_info.path] = disk;
         }
-        request.__set_disks(disks);
+
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1177,9 +1309,6 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 void TaskWorkerPool::_report_tablet_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
 
-    TReportRequest request;
-    request.__set_backend(_backend);
-    request.__isset.tablets = true;
     while (_is_work) {
         _is_doing_work = false;
 
@@ -1204,7 +1333,11 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         _is_doing_work = true;
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
-        request.tablets.clear();
+
+        TReportRequest request;
+        request.__set_backend(_backend);
+        request.__isset.tablets = true;
+
         uint64_t report_version = _s_report_version;
         StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                 &request.tablets);
@@ -1223,6 +1356,23 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
                          DorisMetrics::instance()->tablet_base_max_compaction_score->value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
         request.__set_report_version(report_version);
+
+        // report storage policy and resource
+        auto& storage_policy_list = request.storage_policy;
+        for (auto [id, version] : get_storage_policy_ids()) {
+            auto& storage_policy = storage_policy_list.emplace_back();
+            storage_policy.__set_id(id);
+            storage_policy.__set_version(version);
+        }
+        request.__isset.storage_policy = true;
+        auto& resource_list = request.resource;
+        for (auto [id, version] : get_storage_resource_ids()) {
+            auto& resource = resource_list.emplace_back();
+            resource.__set_id(id);
+            resource.__set_version(version);
+        }
+        request.__isset.resource = true;
+
         _handle_report(request, ReportType::TABLET);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1498,7 +1648,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& s
 
 void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     TMasterResult result;
-    Status status = _master_client->report(request, &result);
+    Status status = MasterServerClient::instance()->report(request, &result);
     bool is_report_success = false;
     if (!status.ok()) {
         LOG_WARNING("failed to report {}", TYPE_STRING(type))
@@ -1594,63 +1744,9 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
     }
 }
 
-void TaskWorkerPool::_storage_refresh_storage_policy_worker_thread_callback() {
-    while (_is_work) {
-        _is_doing_work = false;
-        {
-            // wait at most report_task_interval_seconds, or being notified
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait_for(
-                    worker_thread_lock,
-                    std::chrono::seconds(
-                            config::storage_refresh_storage_policy_task_interval_seconds));
-        }
-        if (!_is_work) {
-            break;
-        }
-
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            // sleep a short time and try again
-            LOG(INFO)
-                    << "waiting to receive first heartbeat from frontend before doing task report";
-            continue;
-        }
-
-        _is_doing_work = true;
-
-        TGetStoragePolicyResult result;
-        Status status = _master_client->refresh_storage_policy(&result);
-        if (status.ok() && result.status.status_code == TStatusCode::OK) {
-            // update storage policy mgr.
-            StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
-            for (const auto& iter : result.result_entrys) {
-                shared_ptr<StoragePolicy> policy_ptr = make_shared<StoragePolicy>();
-                policy_ptr->storage_policy_name = iter.policy_name;
-                policy_ptr->cooldown_datetime = iter.cooldown_datetime;
-                policy_ptr->cooldown_ttl = iter.cooldown_ttl;
-                policy_ptr->s3_endpoint = iter.s3_storage_param.s3_endpoint;
-                policy_ptr->s3_region = iter.s3_storage_param.s3_region;
-                policy_ptr->s3_ak = iter.s3_storage_param.s3_ak;
-                policy_ptr->s3_sk = iter.s3_storage_param.s3_sk;
-                policy_ptr->root_path = iter.s3_storage_param.root_path;
-                policy_ptr->bucket = iter.s3_storage_param.bucket;
-                policy_ptr->s3_conn_timeout_ms = iter.s3_storage_param.s3_conn_timeout_ms;
-                policy_ptr->s3_max_conn = iter.s3_storage_param.s3_max_conn;
-                policy_ptr->s3_request_timeout_ms = iter.s3_storage_param.s3_request_timeout_ms;
-                policy_ptr->md5_sum = iter.md5_checksum;
-
-                LOG_EVERY_N(INFO, 12) << "refresh storage policy task. policy=" << *policy_ptr;
-                spm->periodic_put(iter.policy_name, policy_ptr);
-            }
-        }
-    }
-}
-
-void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
+void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TGetStoragePolicy get_storage_policy_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             _worker_thread_condition_variable.wait(
@@ -1660,31 +1756,100 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
             }
 
             agent_task_req = _tasks.front();
-            get_storage_policy_req = agent_task_req.update_policy;
+            _tasks.pop_front();
+        }
+        TPushStoragePolicyReq& push_storage_policy_req = agent_task_req.push_storage_policy_req;
+        // refresh resource
+        for (auto& resource : push_storage_policy_req.resource) {
+            auto existed_resource = get_storage_resource(resource.id);
+            if (existed_resource.version >= resource.version) {
+                continue;
+            }
+            if (resource.__isset.s3_storage_param) {
+                S3Conf s3_conf;
+                s3_conf.ak = std::move(resource.s3_storage_param.ak);
+                s3_conf.sk = std::move(resource.s3_storage_param.sk);
+                s3_conf.endpoint = std::move(resource.s3_storage_param.endpoint);
+                s3_conf.region = std::move(resource.s3_storage_param.region);
+                s3_conf.prefix = std::move(resource.s3_storage_param.root_path);
+                s3_conf.bucket = std::move(resource.s3_storage_param.bucket);
+                s3_conf.connect_timeout_ms = resource.s3_storage_param.conn_timeout_ms;
+                s3_conf.max_connections = resource.s3_storage_param.max_conn;
+                s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
+                std::shared_ptr<io::S3FileSystem> s3_fs;
+                if (existed_resource.fs == nullptr) {
+                    s3_fs = io::S3FileSystem::create(s3_conf, std::to_string(resource.id));
+                } else {
+                    s3_fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
+                    s3_fs->set_conf(s3_conf);
+                }
+                auto st = s3_fs->connect();
+                if (!st.ok()) {
+                    LOG(WARNING) << "update s3 resource failed: " << st;
+                } else {
+                    LOG_INFO("successfully update s3 resource")
+                            .tag("resource_id", resource.id)
+                            .tag("resource_name", resource.name)
+                            .tag("s3_conf", s3_conf.to_string());
+                    put_storage_resource(resource.id, {std::move(s3_fs), resource.version});
+                }
+            } else {
+                LOG(WARNING) << "unknown resource=" << resource;
+            }
+        }
+        // drop storage policy
+        for (auto policy_id : push_storage_policy_req.dropped_storage_policy) {
+            delete_storage_policy(policy_id);
+        }
+        // refresh storage policy
+        for (auto& storage_policy : push_storage_policy_req.storage_policy) {
+            auto existed_storage_policy = get_storage_policy(storage_policy.id);
+            if (existed_storage_policy == nullptr ||
+                existed_storage_policy->version < storage_policy.version) {
+                auto storage_policy1 = std::make_shared<StoragePolicy>();
+                storage_policy1->name = std::move(storage_policy.name);
+                storage_policy1->version = storage_policy.version;
+                storage_policy1->cooldown_datetime = storage_policy.cooldown_datetime;
+                storage_policy1->cooldown_ttl = storage_policy.cooldown_ttl;
+                storage_policy1->resource_id = storage_policy.resource_id;
+                LOG_INFO("successfully update storage policy")
+                        .tag("storage_policy_id", storage_policy.id)
+                        .tag("storage_policy", storage_policy1->to_string());
+                put_storage_policy(storage_policy.id, std::move(storage_policy1));
+            }
+        }
+    }
+}
+
+void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
 
-        StoragePolicyMgr* spm = ExecEnv::GetInstance()->storage_policy_mgr();
-        shared_ptr<StoragePolicy> policy_ptr = make_shared<StoragePolicy>();
-        policy_ptr->storage_policy_name = get_storage_policy_req.policy_name;
-        policy_ptr->cooldown_datetime = get_storage_policy_req.cooldown_datetime;
-        policy_ptr->cooldown_ttl = get_storage_policy_req.cooldown_ttl;
-        policy_ptr->s3_endpoint = get_storage_policy_req.s3_storage_param.s3_endpoint;
-        policy_ptr->s3_region = get_storage_policy_req.s3_storage_param.s3_region;
-        policy_ptr->s3_ak = get_storage_policy_req.s3_storage_param.s3_ak;
-        policy_ptr->s3_sk = get_storage_policy_req.s3_storage_param.s3_sk;
-        policy_ptr->root_path = get_storage_policy_req.s3_storage_param.root_path;
-        policy_ptr->bucket = get_storage_policy_req.s3_storage_param.bucket;
-        policy_ptr->s3_conn_timeout_ms = get_storage_policy_req.s3_storage_param.s3_conn_timeout_ms;
-        policy_ptr->s3_max_conn = get_storage_policy_req.s3_storage_param.s3_max_conn;
-        policy_ptr->s3_request_timeout_ms =
-                get_storage_policy_req.s3_storage_param.s3_request_timeout_ms;
-        policy_ptr->md5_sum = get_storage_policy_req.md5_checksum;
-
-        LOG(INFO) << "get storage update policy task. policy=" << *policy_ptr;
-
-        spm->update(get_storage_policy_req.policy_name, policy_ptr);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        TPushCooldownConfReq& push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
+        for (auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
+            int64_t tablet_id = cooldown_conf.tablet_id;
+            TabletSharedPtr tablet =
+                    StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
+                continue;
+            }
+            tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
+                                         cooldown_conf.cooldown_replica_id);
+            // TODO(AlexYue): if `update_cooldown_conf` success, async call `write_cooldown_meta`
+        }
     }
 }
 

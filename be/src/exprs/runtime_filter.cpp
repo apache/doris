@@ -21,22 +21,15 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/binary_predicate.h"
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/in_predicate.h"
-#include "exprs/literal.h"
 #include "exprs/minmax_predicate.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
@@ -230,7 +223,6 @@ PFilterType get_type(RuntimeFilterType type) {
     }
 }
 
-template <bool is_vectorized = false>
 Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* data, void** expr) {
     TExprNode node;
 
@@ -316,36 +308,13 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
         return Status::InvalidArgument("Invalid type!");
     }
 
-    if constexpr (is_vectorized) {
-        *reinterpret_cast<vectorized::VExpr**>(expr) = pool->add(new vectorized::VLiteral(node));
-    } else {
-        *reinterpret_cast<Expr**>(expr) = pool->add(new Literal(node));
-    }
+    *reinterpret_cast<vectorized::VExpr**>(expr) = pool->add(new vectorized::VLiteral(node));
 
     return Status::OK();
 }
 
-BinaryPredicate* create_bin_predicate(ObjectPool* pool, PrimitiveType prim_type,
-                                      TExprOpcode::type opcode) {
-    TExprNode node;
-    TScalarType tscalar_type;
-    tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
-    TTypeNode ttype_node;
-    ttype_node.__set_type(TTypeNodeType::SCALAR);
-    ttype_node.__set_scalar_type(tscalar_type);
-    TTypeDesc t_type_desc;
-    t_type_desc.types.push_back(ttype_node);
-    node.__set_type(t_type_desc);
-    node.__set_opcode(opcode);
-    node.__set_child_type(to_thrift(prim_type));
-    node.__set_num_children(2);
-    node.__set_output_scale(-1);
-    node.__set_node_type(TExprNodeType::BINARY_PRED);
-    return (BinaryPredicate*)pool->add(BinaryPredicate::from_thrift(node));
-}
-
 Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExprOpcode::type opcode,
-                             doris::vectorized::VExpr** expr, TExprNode* tnode) {
+                             vectorized::VExpr** expr, TExprNode* tnode) {
     TExprNode node;
     TScalarType tscalar_type;
     tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
@@ -401,7 +370,7 @@ Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExpr
     fn.__set_has_var_args(false);
     node.__set_fn(fn);
     *tnode = node;
-    return doris::vectorized::VExpr::create_expr(pool, node, expr);
+    return vectorized::VExpr::create_expr(pool, node, expr);
 }
 // This class is a wrapper of runtime predicate function
 class RuntimePredicateWrapper {
@@ -414,8 +383,7 @@ public:
               _filter_type(params->filter_type),
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id),
-              _use_batch(_state->enable_vectorized_exec() &&
-                         IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+              _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
                                                           _column_return_type)) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
@@ -428,8 +396,7 @@ public:
               _filter_type(type),
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id),
-              _use_batch(_state->enable_vectorized_exec() &&
-                         IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+              _use_batch(IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
                                                           _column_return_type)) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
@@ -437,8 +404,7 @@ public:
         _max_in_num = params->max_in_num;
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            _context.hybrid_set.reset(
-                    create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.hybrid_set.reset(create_set(_column_return_type));
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
@@ -452,8 +418,7 @@ public:
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-            _context.hybrid_set.reset(
-                    create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.hybrid_set.reset(create_set(_column_return_type));
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             return Status::OK();
@@ -476,8 +441,7 @@ public:
         _is_bloomfilter = true;
         insert_to_bloom_filter(_context.bloom_filter_func.get());
         // release in filter
-        _context.hybrid_set.reset(
-                create_set(_column_return_type, _state->enable_vectorized_exec()));
+        _context.hybrid_set.reset(create_set(_column_return_type));
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
@@ -572,8 +536,8 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_STRING: {
-            // StringRef->StringValue
-            StringValue data = StringValue(const_cast<char*>(value.data), value.size);
+            // StringRef->StringRef
+            StringRef data = StringRef(value.data, value.size);
             insert(reinterpret_cast<const void*>(&data));
             break;
         }
@@ -616,11 +580,8 @@ public:
         return real_filter_type;
     }
 
-    template <class T>
-    Status get_push_context(T* container, RuntimeState* state, ExprContext* prob_expr);
-
-    Status get_push_vexprs(std::vector<doris::vectorized::VExpr*>* container, RuntimeState* state,
-                           doris::vectorized::VExprContext* prob_expr);
+    Status get_push_vexprs(std::vector<vectorized::VExpr*>* container, RuntimeState* state,
+                           vectorized::VExprContext* prob_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
         bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -648,8 +609,7 @@ public:
                 _is_ignored_in_filter = true;
                 _ignored_in_filter_msg = wrapper->_ignored_in_filter_msg;
                 // release in filter
-                _context.hybrid_set.reset(
-                        create_set(_column_return_type, _state->enable_vectorized_exec()));
+                _context.hybrid_set.reset(create_set(_column_return_type));
                 break;
             }
             // try insert set
@@ -668,8 +628,7 @@ public:
                 _is_ignored_in_filter = true;
 
                 // release in filter
-                _context.hybrid_set.reset(
-                        create_set(_column_return_type, _state->enable_vectorized_exec()));
+                _context.hybrid_set.reset(create_set(_column_return_type));
             }
             break;
         }
@@ -739,7 +698,7 @@ public:
             _ignored_in_filter_msg = _pool->add(new std::string(in_filter->ignored_msg()));
             return Status::OK();
         }
-        _context.hybrid_set.reset(create_set(type, _state->enable_vectorized_exec()));
+        _context.hybrid_set.reset(create_set(type));
         switch (type) {
         case TYPE_BOOLEAN: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
@@ -827,23 +786,13 @@ public:
         }
         case TYPE_DATETIME:
         case TYPE_DATE: {
-            if (_state->enable_vectorized_exec()) {
-                batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set,
-                                           PColumnValue& column, ObjectPool* pool) {
-                    auto& string_val_ref = column.stringval();
-                    vectorized::VecDateTimeValue datetime_val;
-                    datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
-                    set->insert(&datetime_val);
-                });
-            } else {
-                batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set,
-                                           PColumnValue& column, ObjectPool* pool) {
-                    auto& string_val_ref = column.stringval();
-                    DateTimeValue datetime_val;
-                    datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
-                    set->insert(&datetime_val);
-                });
-            }
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
+                                       ObjectPool* pool) {
+                auto& string_val_ref = column.stringval();
+                vectorized::VecDateTimeValue datetime_val;
+                datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+                set->insert(&datetime_val);
+            });
             break;
         }
         case TYPE_DECIMALV2: {
@@ -890,7 +839,7 @@ public:
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
                 auto val_ptr = pool->add(new std::string(string_val_ref));
-                StringValue string_val(const_cast<char*>(val_ptr->c_str()), val_ptr->length());
+                StringRef string_val(val_ptr->c_str(), val_ptr->length());
                 set->insert(&string_val);
             });
             break;
@@ -1023,8 +972,8 @@ public:
             auto& max_val_ref = minmax_filter->max_val().stringval();
             auto min_val_ptr = _pool->add(new std::string(min_val_ref));
             auto max_val_ptr = _pool->add(new std::string(max_val_ref));
-            StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
-            StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
+            StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
+            StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
             return _context.minmax_func->assign(&min_val, &max_val);
         }
         default:
@@ -1057,12 +1006,12 @@ public:
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
-                StringValue* min_value = static_cast<StringValue*>(_context.minmax_func->get_min());
-                StringValue* max_value = static_cast<StringValue*>(_context.minmax_func->get_max());
-                auto min_val_ptr = _pool->add(new std::string(min_value->ptr));
-                auto max_val_ptr = _pool->add(new std::string(max_value->ptr));
-                StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
-                StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
+                StringRef* min_value = static_cast<StringRef*>(_context.minmax_func->get_min());
+                StringRef* max_value = static_cast<StringRef*>(_context.minmax_func->get_max());
+                auto min_val_ptr = _pool->add(new std::string(min_value->data));
+                auto max_val_ptr = _pool->add(new std::string(max_value->data));
+                StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
+                StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
                 _context.minmax_func->assign(&min_val, &max_val);
             }
             default:
@@ -1174,14 +1123,6 @@ void IRuntimeFilter::publish_finally() {
     join_rpc();
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs) {
-    DCHECK(is_consumer());
-    if (!_is_ignored) {
-        return _wrapper->get_push_context(push_expr_ctxs, _state, _probe_ctx);
-    }
-    return Status::OK();
-}
-
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
     DCHECK(is_consumer());
     if (!_is_ignored) {
@@ -1194,40 +1135,17 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_
     }
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs,
-                                          ExprContext* probe_ctx) {
-    DCHECK(is_producer());
-    return _wrapper->get_push_context(push_expr_ctxs, _state, probe_ctx);
-}
-
-Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                            const RowDescriptor& desc) {
-    if (_is_ignored) {
-        return Status::OK();
-    }
-    DCHECK(_is_ready);
-    DCHECK(is_consumer());
-    std::lock_guard<std::mutex> guard(_inner_mutex);
-
-    if (_push_down_ctxs.empty()) {
-        RETURN_IF_ERROR(_wrapper->get_push_context(&_push_down_ctxs, _state, _probe_ctx));
-        RETURN_IF_ERROR(Expr::prepare(_push_down_ctxs, _state, desc));
-        RETURN_IF_ERROR(Expr::open(_push_down_ctxs, _state));
-    }
-    // push expr
-    push_expr_ctxs->insert(push_expr_ctxs->end(), _push_down_ctxs.begin(), _push_down_ctxs.end());
-    return Status::OK();
-}
-
-Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
+Status IRuntimeFilter::get_prepared_vexprs(std::vector<vectorized::VExpr*>* vexprs,
                                            const RowDescriptor& desc) {
     _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
-    DCHECK(_is_ready);
+    DCHECK((!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
+           (_state->enable_pipeline_exec() &&
+            _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY));
     DCHECK(is_consumer());
-    std::lock_guard<std::mutex> guard(_inner_mutex);
+    std::lock_guard guard(_inner_mutex);
 
     if (_push_down_vexprs.empty()) {
         RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _state, _vprobe_ctx));
@@ -1239,29 +1157,105 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*
 
 bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
-    SCOPED_TIMER(_await_time_cost);
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? _state->query_options().query_timeout
+                                    ? _state->execution_timeout()
                                     : _state->runtime_filter_wait_time_ms();
-    std::unique_lock<std::mutex> lock(_inner_mutex);
-    if (!_is_ready) {
-        int64_t ms_since_registration = MonotonicMillis() - registration_time_;
-        int64_t ms_remaining = wait_times_ms - ms_since_registration;
-        if (ms_remaining <= 0) {
-            return _is_ready;
+    if (_state->enable_pipeline_exec()) {
+        auto expected = _rf_state_atomic.load(std::memory_order_acquire);
+        if (expected == RuntimeFilterState::NOT_READY) {
+            if (!_rf_state_atomic.compare_exchange_strong(
+                        expected,
+                        MonotonicMillis() - registration_time_ >= wait_times_ms
+                                ? RuntimeFilterState::TIME_OUT
+                                : RuntimeFilterState::NOT_READY,
+                        std::memory_order_acq_rel)) {
+                DCHECK(expected == RuntimeFilterState::READY);
+                return true;
+            }
+            return false;
+        } else if (expected == RuntimeFilterState::TIME_OUT) {
+            return false;
         }
-        return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
-                                  [this] { return this->_is_ready; });
+    } else {
+        SCOPED_TIMER(_await_time_cost);
+        std::unique_lock lock(_inner_mutex);
+        if (_rf_state != RuntimeFilterState::READY) {
+            int64_t ms_since_registration = MonotonicMillis() - registration_time_;
+            int64_t ms_remaining = wait_times_ms - ms_since_registration;
+            _rf_state = RuntimeFilterState::TIME_OUT;
+            if (ms_remaining <= 0) {
+                return false;
+            }
+#if !defined(USE_BTHREAD_SCANNER)
+            return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
+                                      [this] { return _rf_state == RuntimeFilterState::READY; });
+#else
+            auto timeout_ms = butil::milliseconds_from_now(ms_remaining);
+            while (_rf_state != RuntimeFilterState::READY) {
+                if (_inner_cv.wait_until(lock, timeout_ms) != 0) {
+                    // timeout
+                    return _rf_state == RuntimeFilterState::READY;
+                }
+            }
+#endif
+        }
     }
     return true;
 }
 
+bool IRuntimeFilter::is_ready_or_timeout() {
+    DCHECK(is_consumer());
+    auto cur_state = _rf_state_atomic.load(std::memory_order_acquire);
+    // bitmap filter is precise filter and only filter once, so it must be applied.
+    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
+                                    ? _state->execution_timeout()
+                                    : _state->runtime_filter_wait_time_ms();
+    int64_t ms_since_registration = MonotonicMillis() - registration_time_;
+    if (!_state->enable_pipeline_exec()) {
+        _rf_state = RuntimeFilterState::TIME_OUT;
+        return true;
+    } else if (is_ready()) {
+        if (cur_state == RuntimeFilterState::NOT_READY) {
+            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration) + " ms");
+        }
+        return true;
+    } else {
+        if (cur_state == RuntimeFilterState::NOT_READY) {
+            _profile->add_info_string("EffectTime", std::to_string(ms_since_registration) + " ms");
+        }
+        if (is_ready()) {
+            return true;
+        }
+        bool timeout = wait_times_ms <= ms_since_registration;
+        auto expected = RuntimeFilterState::NOT_READY;
+        if (timeout) {
+            if (!_rf_state_atomic.compare_exchange_strong(expected, RuntimeFilterState::TIME_OUT,
+                                                          std::memory_order_acq_rel)) {
+                DCHECK(expected == RuntimeFilterState::READY ||
+                       expected == RuntimeFilterState::TIME_OUT);
+                return true;
+            }
+            return true;
+        }
+        if (!_rf_state_atomic.compare_exchange_strong(expected, RuntimeFilterState::NOT_READY,
+                                                      std::memory_order_acq_rel)) {
+            DCHECK(expected == RuntimeFilterState::READY);
+            return true;
+        }
+        return false;
+    }
+}
+
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
-    std::unique_lock<std::mutex> lock(_inner_mutex);
-    _is_ready = true;
-    _inner_cv.notify_all();
+    if (_state->enable_pipeline_exec()) {
+        _rf_state_atomic.store(RuntimeFilterState::READY);
+    } else {
+        std::unique_lock lock(_inner_mutex);
+        _rf_state = RuntimeFilterState::READY;
+        _inner_cv.notify_all();
+    }
 
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER) {
         _profile->add_info_string("InFilterSize", std::to_string(_wrapper->get_in_filter_size()));
@@ -1301,9 +1295,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
     _filter_id = desc->filter_id;
-
-    ExprContext* build_ctx = nullptr;
-    RETURN_IF_ERROR(Expr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
+    vectorized::VExprContext* build_ctx = nullptr;
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
 
     RuntimeFilterParams params;
     params.fragment_instance_id = fragment_instance_id;
@@ -1322,11 +1315,10 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         if (!desc->__isset.bitmap_target_expr) {
             return Status::InvalidArgument("Unknown bitmap filter target expr.");
         }
-        doris::vectorized::VExprContext* bitmap_target_ctx = nullptr;
-        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
-                                                                   &bitmap_target_ctx));
-        auto* target_expr = doris::vectorized::VExpr::expr_without_cast(bitmap_target_ctx->root());
-        params.column_return_type = const_cast<doris::vectorized::VExpr*>(target_expr)->type().type;
+        vectorized::VExprContext* bitmap_target_ctx = nullptr;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
+                                                            &bitmap_target_ctx));
+        params.column_return_type = bitmap_target_ctx->root()->type().type;
 
         if (desc->__isset.bitmap_filter_not_in) {
             params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
@@ -1340,9 +1332,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
             DCHECK(false) << "runtime filter not found node_id:" << node_id;
             return Status::InternalError("not found a node id");
         }
-        RETURN_IF_ERROR(Expr::create_expr_tree(_pool, iter->second, &_probe_ctx));
-        RETURN_IF_ERROR(
-                doris::vectorized::VExpr::create_expr_tree(_pool, iter->second, &_vprobe_ctx));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, iter->second, &_vprobe_ctx));
     }
 
     _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _pool, &params));
@@ -1412,7 +1402,9 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     _profile.reset(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                                   ::doris::to_string(_runtime_filter_type))));
     parent_profile->add_child(_profile.get(), true, nullptr);
-    _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
+    if (!_state->enable_pipeline_exec()) {
+        _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
+    }
     _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
@@ -1556,43 +1548,31 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         return;
     }
     case TYPE_DATEV2: {
-        batch_copy<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(
+        batch_copy<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
                 filter, it,
                 [](PColumnValue* column,
-                   const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*
-                           value) {
+                   const vectorized::DateV2Value<vectorized::DateV2ValueType>* value) {
                     column->set_intval(*reinterpret_cast<const int32_t*>(value));
                 });
         return;
     }
     case TYPE_DATETIMEV2: {
-        batch_copy<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
+        batch_copy<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
                 filter, it,
                 [](PColumnValue* column,
-                   const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*
-                           value) {
+                   const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* value) {
                     column->set_longval(*reinterpret_cast<const int64_t*>(value));
                 });
         return;
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        if (_state->enable_vectorized_exec()) {
-            batch_copy<vectorized::VecDateTimeValue>(
-                    filter, it,
-                    [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
-                        char convert_buffer[30];
-                        value->to_string(convert_buffer);
-                        column->set_stringval(convert_buffer);
-                    });
-        } else {
-            batch_copy<DateTimeValue>(filter, it,
-                                      [](PColumnValue* column, const DateTimeValue* value) {
-                                          char convert_buffer[30];
-                                          value->to_string(convert_buffer);
-                                          column->set_stringval(convert_buffer);
-                                      });
-        }
+        batch_copy<vectorized::VecDateTimeValue>(
+                filter, it, [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
+                    char convert_buffer[30];
+                    value->to_string(convert_buffer);
+                    column->set_stringval(convert_buffer);
+                });
         return;
     }
     case TYPE_DECIMALV2: {
@@ -1623,8 +1603,8 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        batch_copy<StringValue>(filter, it, [](PColumnValue* column, const StringValue* value) {
-            column->set_stringval(std::string(value->ptr, value->len));
+        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
+            column->set_stringval(std::string(value->data, value->size));
         });
         return;
     }
@@ -1732,12 +1712,12 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        const StringValue* min_string_value = reinterpret_cast<const StringValue*>(min_data);
+        const StringRef* min_string_value = reinterpret_cast<const StringRef*>(min_data);
         filter->mutable_min_val()->set_stringval(
-                std::string(min_string_value->ptr, min_string_value->len));
-        const StringValue* max_string_value = reinterpret_cast<const StringValue*>(max_data);
+                std::string(min_string_value->data, min_string_value->size));
+        const StringRef* max_string_value = reinterpret_cast<const StringRef*>(max_data);
         filter->mutable_max_val()->set_stringval(
-                std::string(max_string_value->ptr, max_string_value->len));
+                std::string(max_string_value->data, max_string_value->size));
         break;
     }
     default: {
@@ -1771,86 +1751,12 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
 
 Status IRuntimeFilter::consumer_close() {
     DCHECK(is_consumer());
-    Expr::close(_push_down_ctxs, _state);
     return Status::OK();
 }
 
-template <class T>
-Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* state,
-                                                 ExprContext* prob_expr) {
-    DCHECK(state != nullptr);
-    DCHECK(container != nullptr);
-    DCHECK(_pool != nullptr);
-    DCHECK(prob_expr->root()->type().type == _column_return_type ||
-           (is_string_type(prob_expr->root()->type().type) && is_string_type(_column_return_type)));
-
-    auto real_filter_type = get_real_type();
-    switch (real_filter_type) {
-    case RuntimeFilterType::IN_FILTER: {
-        if (!_is_ignored_in_filter) {
-            TTypeDesc type_desc = create_type_desc(_column_return_type);
-            TExprNode node;
-            node.__set_type(type_desc);
-            node.__set_node_type(TExprNodeType::IN_PRED);
-            node.in_predicate.__set_is_not_in(false);
-            node.__set_opcode(TExprOpcode::FILTER_IN);
-            node.__isset.vector_opcode = true;
-            node.__set_vector_opcode(to_in_opcode(_column_return_type));
-            auto in_pred = _pool->add(new InPredicate(node));
-            RETURN_IF_ERROR(in_pred->prepare(state, _context.hybrid_set.get()));
-            in_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-            ExprContext* ctx = _pool->add(new ExprContext(in_pred));
-            container->push_back(ctx);
-        }
-        break;
-    }
-    case RuntimeFilterType::MINMAX_FILTER: {
-        // create max filter
-        Expr* max_literal = nullptr;
-        auto max_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::LE);
-        RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
-                                              _context.minmax_func->get_max(),
-                                              (void**)&max_literal));
-        max_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-        max_pred->add_child(max_literal);
-        container->push_back(_pool->add(new ExprContext(max_pred)));
-        // create min filter
-        Expr* min_literal = nullptr;
-        auto min_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::GE);
-        RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
-                                              _context.minmax_func->get_min(),
-                                              (void**)&min_literal));
-        min_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-        min_pred->add_child(min_literal);
-        container->push_back(_pool->add(new ExprContext(min_pred)));
-        break;
-    }
-    case RuntimeFilterType::BLOOM_FILTER: {
-        // create a bloom filter
-        TTypeDesc type_desc = create_type_desc(_column_return_type);
-        TExprNode node;
-        node.__set_type(type_desc);
-        node.__set_node_type(TExprNodeType::BLOOM_PRED);
-        node.__set_opcode(TExprOpcode::RT_FILTER);
-        node.__isset.vector_opcode = true;
-        node.__set_vector_opcode(to_in_opcode(_column_return_type));
-        auto bloom_pred = _pool->add(new BloomFilterPredicate(node));
-        RETURN_IF_ERROR(bloom_pred->prepare(state, _context.bloom_filter_func));
-        bloom_pred->add_child(Expr::copy(_pool, prob_expr->root()));
-        ExprContext* ctx = _pool->add(new ExprContext(bloom_pred));
-        container->push_back(ctx);
-        break;
-    }
-    default:
-        DCHECK(false);
-        break;
-    }
-    return Status::OK();
-}
-
-Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::VExpr*>* container,
+Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>* container,
                                                 RuntimeState* state,
-                                                doris::vectorized::VExprContext* vprob_expr) {
+                                                vectorized::VExprContext* vprob_expr) {
     DCHECK(state != nullptr);
     DCHECK(container != nullptr);
     DCHECK(_pool != nullptr);
@@ -1884,15 +1790,14 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
-        doris::vectorized::VExpr* max_pred = nullptr;
+        vectorized::VExpr* max_pred = nullptr;
         // create max filter
         TExprNode max_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(_pool, vprob_expr->root()->type(), TExprOpcode::LE,
                                               &max_pred, &max_pred_node));
-        doris::vectorized::VExpr* max_literal = nullptr;
-        RETURN_IF_ERROR(create_literal<true>(_pool, vprob_expr->root()->type(),
-                                             _context.minmax_func->get_max(),
-                                             (void**)&max_literal));
+        vectorized::VExpr* max_literal = nullptr;
+        RETURN_IF_ERROR(create_literal(_pool, vprob_expr->root()->type(),
+                                       _context.minmax_func->get_max(), (void**)&max_literal));
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         max_pred->add_child(cloned_vexpr);
         max_pred->add_child(max_literal);
@@ -1900,14 +1805,13 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
                 _pool->add(new vectorized::VRuntimeFilterWrapper(max_pred_node, max_pred)));
 
         // create min filter
-        doris::vectorized::VExpr* min_pred = nullptr;
+        vectorized::VExpr* min_pred = nullptr;
         TExprNode min_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(_pool, vprob_expr->root()->type(), TExprOpcode::GE,
                                               &min_pred, &min_pred_node));
-        doris::vectorized::VExpr* min_literal = nullptr;
-        RETURN_IF_ERROR(create_literal<true>(_pool, vprob_expr->root()->type(),
-                                             _context.minmax_func->get_min(),
-                                             (void**)&min_literal));
+        vectorized::VExpr* min_literal = nullptr;
+        RETURN_IF_ERROR(create_literal(_pool, vprob_expr->root()->type(),
+                                       _context.minmax_func->get_min(), (void**)&min_literal));
         cloned_vexpr = vprob_expr->root()->clone(_pool);
         min_pred->add_child(cloned_vexpr);
         min_pred->add_child(min_literal);

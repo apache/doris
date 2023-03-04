@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
 #include "service/backend_options.h"
@@ -36,15 +35,10 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-class Expr;
-class ExprContext;
 class ObjectPool;
 class Counters;
-class RowBatch;
 class RuntimeState;
 class TPlan;
-class TupleRow;
-class DataSink;
 class MemTracker;
 
 namespace vectorized {
@@ -61,9 +55,6 @@ class OperatorBase;
 using std::string;
 using std::stringstream;
 using std::vector;
-using std::map;
-using std::lock_guard;
-using std::mutex;
 
 // Superclass of all executor nodes.
 // All subclasses need to make sure to check RuntimeState::is_cancelled()
@@ -113,10 +104,23 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status get_next_after_projects(
+            RuntimeState* state, vectorized::Block* block, bool* eos,
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
+            bool clear_data = true);
+
+    // Used by pipeline streaming operators.
+    vectorized::Block* get_clear_input_block() {
+        clear_origin_block();
+        return &_origin_block;
+    }
+    bool has_output_row_descriptor() const { return _output_row_descriptor != nullptr; }
+    // If use projection, we should clear `_origin_block`.
+    void clear_origin_block() {
+        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
+    }
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
@@ -188,22 +192,16 @@ public:
     // Collect all scan node types.
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
 
+    virtual void prepare_for_next() {}
+
     // When the agg node is the scan node direct parent,
     // we directly return agg object from scan node to agg node,
     // and don't serialize the agg object.
     // This improve is cautious, we ensure the correctness firstly.
     void try_do_aggregate_serde_improve();
 
-    typedef bool (*EvalConjunctsFn)(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
-    // Evaluate exprs over row.  Returns true if all exprs return true.
-    // TODO: This doesn't use the vector<Expr*> signature because I haven't figured
-    // out how to deal with declaring a templated std:vector type in IR
-    static bool eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
-
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
-
-    virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
     // recursive helper method for generating a string for Debug_string().
     // implementations should call debug_string(int, std::stringstream) on their children.
@@ -212,8 +210,6 @@ public:
     // Output parameters:
     //   out: Stream to accumulate debug string.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
-
-    const std::vector<ExprContext*>& conjunct_ctxs() const { return _conjunct_ctxs; }
 
     int id() const { return _id; }
     TPlanNodeType::type type() const { return _type; }
@@ -224,14 +220,15 @@ public:
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
+    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
+    // and add block rows for profile
+    void reached_limit(vectorized::Block* block, bool* eos);
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
-    MemTracker* mem_tracker_held() const { return _mem_tracker_held.get(); }
-    MemTracker* mem_tracker_growh() const { return _mem_tracker_growh.get(); }
-    std::shared_ptr<MemTracker> mem_tracker_growh_shared() const { return _mem_tracker_growh; }
+    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
@@ -242,79 +239,22 @@ public:
 
     ExecNode* child(int i) { return _children[i]; }
 
+    size_t children_count() const { return _children.size(); }
+
 protected:
     friend class DataSink;
-
-    /// Initialize 'buffer_pool_client_' and claim the initial reservation for this
-    /// ExecNode. Only needs to be called by ExecNodes that will use the client.
-    /// The client is automatically cleaned up in Close(). Should not be called if
-    /// the client is already open.
-    /// The ExecNode must return the initial reservation to
-    /// QueryState::initial_reservations(), which is done automatically in Close() as long
-    /// as the initial reservation is not released before Close().
-    Status claim_buffer_reservation(RuntimeState* state);
 
     /// Release all memory of block which got from child. The block
     // 1. clear mem of valid column get from child, make sure child can reuse the mem
     // 2. delete and release the column which create by function all and other reason
     void release_block_memory(vectorized::Block& block, uint16_t child_idx = 0);
 
-    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
-    // and add block rows for profile
-    void reached_limit(vectorized::Block* block, bool* eos);
-
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
-
-    /// Extends blocking queue for row batches. Row batches have a property that
-    /// they must be processed in the order they were produced, even in cancellation
-    /// paths. Preceding row batches can contain ptrs to memory in subsequent row batches
-    /// and we need to make sure those ptrs stay valid.
-    /// Row batches that are added after Shutdown() are queued in another queue, which can
-    /// be cleaned up during Close().
-    /// All functions are thread safe.
-    class RowBatchQueue : public BlockingQueue<RowBatch*> {
-    public:
-        /// max_batches is the maximum number of row batches that can be queued.
-        /// When the queue is full, producers will block.
-        RowBatchQueue(int max_batches);
-        ~RowBatchQueue();
-
-        /// Adds a batch to the queue. This is blocking if the queue is full.
-        void AddBatch(RowBatch* batch);
-
-        /// Adds a batch to the queue. If the queue is full, this blocks until space becomes
-        /// available or 'timeout_micros' has elapsed.
-        /// Returns true if the element was added to the queue, false if it wasn't. If this
-        /// method returns false, the queue didn't take ownership of the batch and it must be
-        /// managed externally.
-        bool AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros);
-
-        /// Gets a row batch from the queue. Returns nullptr if there are no more.
-        /// This function blocks.
-        /// Returns nullptr after Shutdown().
-        RowBatch* GetBatch();
-
-        /// Deletes all row batches in cleanup_queue_. Not valid to call AddBatch()
-        /// after this is called.
-        /// Returns the number of io buffers that were released (for debug tracking)
-        int Cleanup();
-
-    private:
-        /// Lock protecting cleanup_queue_
-        // SpinLock lock_;
-        // TODO(dhc): need to modify spinlock
-        std::mutex lock_;
-
-        /// Queue of orphaned row batches
-        std::list<RowBatch*> cleanup_queue_;
-    };
 
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool;
-    std::vector<Expr*> _conjuncts;
-    std::vector<ExprContext*> _conjunct_ctxs;
     std::vector<TupleId> _tuple_ids;
 
     std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
@@ -334,11 +274,9 @@ protected:
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
-    // Record the memory size held by this node.
-    std::unique_ptr<MemTracker> _mem_tracker_held;
-    // Record the memory size allocated by this node.
-    // Similar to tcmalloc heap profile growh, only track memory alloc, not track memory free.
-    std::shared_ptr<MemTracker> _mem_tracker_growh;
+    // Record this node memory size. it is expected that artificial guarantees are accurate,
+    // which will providea reference for operator memory.
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
@@ -359,12 +297,6 @@ protected:
     // "Codegen Enabled"
     std::mutex _exec_options_lock;
     std::string _runtime_exec_options;
-
-    /// Buffer pool client for this node. Initialized with the node's minimum reservation
-    /// in ClaimBufferReservation(). After initialization, the client must hold onto at
-    /// least the minimum reservation so that it can be returned to the initial
-    /// reservations pool in Close().
-    BufferPool::ClientHandle _buffer_pool_client;
 
     // Set to true if this is a vectorized exec node.
     bool _is_vec = false;
@@ -396,14 +328,6 @@ protected:
     // Appends option to '_runtime_exec_options'
     void add_runtime_exec_option(const std::string& option);
 
-    /// Frees any local allocations made by evals_to_free_ and returns the result of
-    /// state->CheckQueryState(). Nodes should call this periodically, e.g. once per input
-    /// row batch. This should not be called outside the main execution thread.
-    //
-    /// Nodes may override this to add extra periodic cleanup, e.g. freeing other local
-    /// allocations. ExecNodes overriding this function should return
-    /// ExecNode::QueryMaintenance().
-    virtual Status QueryMaintenance(RuntimeState* state, const std::string& msg) WARN_UNUSED_RESULT;
     std::atomic<bool> _can_read = false;
 
 private:

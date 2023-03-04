@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/bloomfilter_predicate.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {

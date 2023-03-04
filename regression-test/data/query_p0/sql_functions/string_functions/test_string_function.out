@@ -12,6 +12,12 @@ doris
 \N
 
 -- !sql --
+1	varchar	varchar
+2	varchar	\N
+3	varchar	\N
+4	varchar	\N
+
+-- !sql --
 ac
 
 -- !sql --
@@ -177,6 +183,9 @@ ab d
 1,123.40
 
 -- !sql --
+1,000.00
+
+-- !sql --
 true
 
 -- !sql --
@@ -225,6 +234,39 @@ hello
 world
 
 -- !sql --
+\N
+
+-- !sql --
+world
+
+-- !sql --
+hello
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+abc
+
+-- !sql --
+#xyz
+
+-- !sql --
+\N
+
+-- !sql --
+xyz
+
+-- !sql --
+123#
+
+-- !sql --
+\N
+
+-- !sql --
 true
 
 -- !sql --
@@ -271,6 +313,63 @@ a
 
 -- !sql --
 
+
+-- !sql --
+tNEW-STRorigin str
+
+-- !sql --
+d***is
+
+-- !sql --
+hello
+
+-- !sql --
+hello world
+
+-- !sql --
+hello world
+
+-- !sql --
+world
+
+-- !sql --
+hello world
+
+-- !sql --
+hello world
+
+-- !sql --
+prefix__string2
+
+-- !sql --
+prefix_
+
+-- !sql --
+prefix_string2
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+prefix_string
+
+-- !sql --
+\N
+
+-- !sql --
+hello
+
+-- !sql --
+doris
+
+-- !sql --
+\N
 
 -- !sql --
 tNEW-STRorigin str

@@ -108,7 +108,7 @@ download_func() {
             rm -f "${DESC_DIR}/${FILENAME}"
         else
             echo "Downloading ${FILENAME} from ${DOWNLOAD_URL} to ${DESC_DIR}"
-            if wget --no-check-certificate -q "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
+            if wget --no-check-certificate -q --show-progress "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
                 if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
                     STATUS=0
                     echo "Success to download ${FILENAME}"
@@ -221,6 +221,15 @@ echo "===== Patching thirdparty archives..."
 ###################################################################################
 PATCHED_MARK="patched_mark"
 
+# abseil patch
+cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+if [[ ! -f "${PATCHED_MARK}" ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/absl.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ABSEIL_SOURCE}"
+
 # glog patch
 cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
@@ -257,15 +266,6 @@ fi
 cd -
 echo "Finished patching ${LIBEVENT_SOURCE}"
 
-# s2 patch to disable shared library
-cd "${TP_SOURCE_DIR}/${S2_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/s2geometry-0.9.0.patch"
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${S2_SOURCE}"
-
 # gsasl2 patch to fix link error such as mutilple func defination
 # when link target with kerberos
 cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"
@@ -285,6 +285,15 @@ if [[ ! -f ${PATCHED_MARK} ]]; then
 fi
 cd -
 echo "Finished patching ${CYRUS_SASL_SOURCE}"
+
+#patch sqltypes.h, change TCAHR to TWCHAR to avoid conflict with clucene TCAHR
+cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
+if [[ ! -f ${PATCHED_MARK} ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/sqltypes.h.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${ODBC_SOURCE}"
 
 # rocksdb patch to fix compile error
 if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
@@ -336,15 +345,15 @@ fi
 echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 
 # patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
-if [[ "${JEMALLOC_SOURCE}" = "jemalloc-5.2.1" ]]; then
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
 fi
-echo "Finished patching ${JEMALLOC_SOURCE}"
+echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
@@ -368,7 +377,7 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
     if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.211" ]]; then
-        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
+        if wget --no-check-certificate -q --show-progress https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
             tar xzf aws-crt-cpp-1.9.211.tar.gz
         else
             bash ./prefetch_crt_dependency.sh
@@ -395,3 +404,14 @@ if [[ ! -f "${PATCHED_MARK}" ]]; then
 fi
 cd -
 echo "Finished patching ${BRPC_SOURCE}"
+
+# patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
+if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
+    cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${SIMDJSON_SOURCE}"

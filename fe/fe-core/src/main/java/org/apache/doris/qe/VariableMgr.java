@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
 import com.google.common.base.Preconditions;
@@ -53,6 +54,7 @@ import java.util.Map;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 /**
  * Variable manager, merge session variable and global variable.
@@ -416,15 +418,13 @@ public class VariableMgr {
         }
     }
 
-    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    // For test only
-    public static String getValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
-        VarContext ctx = ctxByVarName.get(desc.getName());
+    private static String getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
+        VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, desc.getName());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, name);
         }
 
-        if (desc.getSetType() == SetType.GLOBAL) {
+        if (setType == SetType.GLOBAL) {
             rlock.lock();
             try {
                 return getValue(ctx.getObj(), ctx.getField());
@@ -434,6 +434,59 @@ public class VariableMgr {
         } else {
             return getValue(var, ctx.getField());
         }
+    }
+
+    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
+    // For test only
+    public static String getValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
+        return getValue(var, desc.getName(), desc.getSetType());
+    }
+
+    // For Nereids optimizer
+    public static @Nullable Literal getLiteral(SessionVariable var, String name, SetType setType) {
+        VarContext ctx = ctxByVarName.get(name);
+        if (ctx == null) {
+            return null;
+        }
+
+        if (setType == SetType.GLOBAL) {
+            rlock.lock();
+            try {
+                return getLiteral(ctx.getObj(), ctx.getField());
+            } finally {
+                rlock.unlock();
+            }
+        } else {
+            return getLiteral(var, ctx.getField());
+        }
+    }
+
+    private static Literal getLiteral(Object obj, Field field) {
+        try {
+            switch (field.getType().getSimpleName()) {
+                case "boolean":
+                    return Literal.of(field.getBoolean(obj));
+                case "byte":
+                    return Literal.of(field.getByte(obj));
+                case "short":
+                    return Literal.of(field.getShort(obj));
+                case "int":
+                    return Literal.of(field.getInt(obj));
+                case "long":
+                    return Literal.of(field.getLong(obj));
+                case "float":
+                    return Literal.of(field.getFloat(obj));
+                case "double":
+                    return Literal.of(field.getDouble(obj));
+                case "String":
+                    return Literal.of((String) field.get(obj));
+                default:
+                    return Literal.of("");
+            }
+        } catch (IllegalAccessException e) {
+            LOG.warn("Access failed.", e);
+        }
+        return Literal.of("");
     }
 
     private static String getValue(Object obj, Field field) {
@@ -532,6 +585,9 @@ public class VariableMgr {
 
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
+
+        // Set to true if this variable is fuzzy
+        boolean fuzzy() default false;
     }
 
     private static class VarContext {

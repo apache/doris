@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -45,7 +46,7 @@ class BindRelationTest extends TestWithFeService {
     @Test
     void bindInCurrentDb() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(ImmutableList.of("t")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("t")),
                 connectContext, new BindRelation());
 
         Assertions.assertTrue(plan instanceof LogicalOlapScan);
@@ -57,7 +58,7 @@ class BindRelationTest extends TestWithFeService {
     @Test
     void bindByDbQualifier() {
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB2);
-        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(ImmutableList.of("db1", "t")),
+        Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("db1", "t")),
                 connectContext, new BindRelation());
 
         Assertions.assertTrue(plan instanceof LogicalOlapScan);

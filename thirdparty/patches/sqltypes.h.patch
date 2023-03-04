@@ -1,0 +1,28 @@
+--- a/include/sqltypes.h        2022-04-19 14:37:42.584467011 +0800
++++ b/include/sqltypes.h        2022-04-19 13:56:41.486446873 +0800
+@@ -82,13 +82,13 @@
+  * 	by the standard linux string header files.
+  */
+ #ifdef SQL_WCHART_CONVERT
+-typedef wchar_t             TCHAR;
++typedef wchar_t             TWCHAR;
+ #else
+-typedef signed short        TCHAR;
++typedef signed short        TWCHAR;
+ #endif
+ 
+ #else
+-typedef char				TCHAR;
++typedef char				TWCHAR;
+ #endif
+ 
+ typedef unsigned short		WORD;
+@@ -108,7 +108,7 @@
+ typedef WCHAR* 	            LPWSTR;
+ typedef const char*         LPCSTR;
+ typedef const WCHAR*        LPCWSTR;
+-typedef TCHAR*              LPTSTR;
++typedef TWCHAR*              LPTSTR;
+ typedef char*               LPSTR;
+ typedef DWORD*           	LPDWORD;
+ 

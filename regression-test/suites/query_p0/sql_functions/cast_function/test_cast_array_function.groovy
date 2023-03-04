@@ -18,7 +18,6 @@
 suite("test_cast_array_function", "query") {
     def tableName = "tbl_test_cast_array_function"
     // array functions only supported in vectorized engine
-    sql """ set enable_vectorized_engine = true """
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """

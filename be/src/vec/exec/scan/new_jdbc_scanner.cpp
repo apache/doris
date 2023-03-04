@@ -17,18 +17,35 @@
 
 #include "new_jdbc_scanner.h"
 
+#include "util/runtime_profile.h"
+#include "vec/exec/vjdbc_connector.h"
+
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                               const TupleId& tuple_id, const std::string& query_string)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                               const TupleId& tuple_id, const std::string& query_string,
+                               TOdbcTableType::type table_type, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _table_type(table_type) {
+    _load_jar_timer = ADD_TIMER(get_parent()->_scanner_profile, "LoadJarTime");
+    _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
+    _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
+    _get_data_timer = ADD_TIMER(get_parent()->_scanner_profile, "GetDataTime");
+    _execte_read_timer = ADD_TIMER(get_parent()->_scanner_profile, "ExecteReadTime");
+    _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
+}
 
-Status NewJdbcScanner::prepare(RuntimeState* state) {
+Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
     VLOG_CRITICAL << "NewJdbcScanner::Prepare";
+    if (vconjunct_ctx_ptr != nullptr) {
+        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
+        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(state, &_vconjunct_ctx));
+    }
+
     if (_is_init) {
         return Status::OK();
     }
@@ -58,6 +75,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state) {
     _jdbc_param.passwd = jdbc_table->jdbc_passwd();
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
+    _jdbc_param.table_type = _table_type;
 
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {
@@ -96,6 +114,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
 
     if (_jdbc_eos == true) {
         *eof = true;
+        _update_profile();
         return Status::OK();
     }
 
@@ -117,10 +136,11 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
             }
         }
 
-        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, state->batch_size()));
+        RETURN_IF_ERROR(_jdbc_connector->get_next(&_jdbc_eos, columns, block, state->batch_size()));
 
         if (_jdbc_eos == true) {
             if (block->rows() == 0) {
+                _update_profile();
                 *eof = true;
             }
             break;
@@ -141,6 +161,16 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         VLOG_ROW << "NewJdbcScanNode output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));
     return Status::OK();
+}
+
+void NewJdbcScanner::_update_profile() {
+    JdbcConnector::JdbcStatistic& jdbc_statistic = _jdbc_connector->get_jdbc_statistic();
+    COUNTER_UPDATE(_load_jar_timer, jdbc_statistic._load_jar_timer);
+    COUNTER_UPDATE(_init_connector_timer, jdbc_statistic._init_connector_timer);
+    COUNTER_UPDATE(_check_type_timer, jdbc_statistic._check_type_timer);
+    COUNTER_UPDATE(_get_data_timer, jdbc_statistic._get_data_timer);
+    COUNTER_UPDATE(_execte_read_timer, jdbc_statistic._execte_read_timer);
+    COUNTER_UPDATE(_connector_close_timer, jdbc_statistic._connector_close_timer);
 }
 
 Status NewJdbcScanner::close(RuntimeState* state) {

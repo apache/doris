@@ -16,8 +16,6 @@
 // under the License.
 
 suite("create_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def has_created_1 = sql """
         SHOW RESOURCES WHERE NAME = "crete_policy_1";
     """
@@ -29,7 +27,7 @@ suite("create_policy") {
         CREATE RESOURCE "crete_policy_1"
         PROPERTIES(
             "type" = "s3",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
@@ -37,20 +35,21 @@ suite("create_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
 
         def create_sucess = sql """
              SHOW RESOURCES WHERE NAME = "crete_policy_1";
         """
-        assertEquals(create_sucess.size(), 10)
+        assertEquals(create_sucess.size(), 13)
 
         def failed_cannot_create_duplicate_name_resources = try_sql """
             CREATE RESOURCE "crete_policy_1"
             PROPERTIES(
                 "type" = "s3",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaab",
+                "AWS_ENDPOINT" = "bj.s3.comaaaab",
                 "AWS_REGION" = "bjc",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_ACCESS_KEY" = "bbba",
@@ -58,7 +57,8 @@ suite("create_policy") {
                 "AWS_MAX_CONNECTIONS" = "50",
                 "AWS_REQUEST_TIMEOUT_MS" = "3000",
                 "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
 
@@ -74,7 +74,7 @@ suite("create_policy") {
         def failed_create_1 = try_sql """
         CREATE RESOURCE "crete_policy_2"
         PROPERTIES(
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
@@ -82,7 +82,8 @@ suite("create_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
         // errCode = 2, detailMessage = Resource type can't be null
@@ -101,7 +102,8 @@ suite("create_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
         // errCode = 2, detailMessage = Missing [AWS_ENDPOINT] in properties.
@@ -113,14 +115,15 @@ suite("create_policy") {
         CREATE RESOURCE "crete_policy_2"
         PROPERTIES(
             "type" = "s3",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
             "AWS_SECRET_KEY" = "aaaa",
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
         // errCode = 2, detailMessage = Missing [AWS_REGION] in properties.
@@ -132,14 +135,15 @@ suite("create_policy") {
         CREATE RESOURCE "crete_policy_2"
         PROPERTIES(
             "type"="s3",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_SECRET_KEY" = "aaaa",
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
         // errCode = 2, detailMessage = Missing [AWS_ACCESS_KEY] in properties.
@@ -151,14 +155,15 @@ suite("create_policy") {
         CREATE RESOURCE "crete_policy_2"
         PROPERTIES(
             "type"="s3",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
         // errCode = 2, detailMessage = Missing [AWS_SECRET_KEY] in properties.
@@ -175,11 +180,12 @@ suite("create_policy") {
         PROPERTIES(
             "type"="s3",
             "AWS_REGION" = "bj",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_SECRET_KEY" = "aaaa",
             "AWS_ACCESS_KEY" = "bbba",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
         // "AWS_MAX_CONNECTIONS" = "50", "AWS_REQUEST_TIMEOUT_MS" = "3000","AWS_CONNECTION_TIMEOUT_MS" = "1000"
@@ -207,11 +213,12 @@ suite("create_policy") {
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_SECRET_KEY" = "aaaa",
                 "AWS_ACCESS_KEY" = "bbba",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
         def create_succ_1 = try_sql """
@@ -230,11 +237,12 @@ suite("create_policy") {
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_SECRET_KEY" = "aaaa",
                 "AWS_ACCESS_KEY" = "bbba",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
         def create_succ_1 = try_sql """
@@ -253,11 +261,12 @@ suite("create_policy") {
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_SECRET_KEY" = "aaaa",
                 "AWS_ACCESS_KEY" = "bbba",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
         def create_succ_1 = try_sql """
@@ -278,11 +287,12 @@ suite("create_policy") {
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_SECRET_KEY" = "aaaa",
                 "AWS_ACCESS_KEY" = "bbba",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
         def create_succ_1 = try_sql """
@@ -306,7 +316,8 @@ suite("create_policy") {
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_SECRET_KEY" = "aaaa",
                 "AWS_ACCESS_KEY" = "bbba",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
         """
         def create_succ_1 = try_sql """

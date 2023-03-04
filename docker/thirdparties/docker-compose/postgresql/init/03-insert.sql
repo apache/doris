@@ -2622,3 +2622,36 @@ insert into doris_test.test9 values
 (32767, 2147483647, false, 'testtsetab', 9223372036854775807),
 (null, null, null, null, null);
 
+insert into catalog_pg_test.test10 values
+(1, cast(0 as bit), 12.123456, '10.16.10.14','10.16.10.14','ff:ff:ff:ff:ff:AA',
+'1010101010', cast(10 as bit(5)), 1, '{"id":1}');
+insert into catalog_pg_test.test10 values
+(2, cast(0 as bit), 12.123456, '10.16.10.14','10.16.10.14','ff:ff:ff:ff:ff:ff',
+cast(10 as bit(10)), cast(10 as bit(10)), 2, '{"id":1}');
+insert into catalog_pg_test.test10 values
+(3, cast(0 as bit), 12.123456, '10.16.10.14','10.16.10.14','ff:ff:ff:ff:ff:ff',
+cast(10 as bit(10)), cast(10 as bit(7)), 3, '{"id":1}');
+
+insert into catalog_pg_test.test11 values
+(1, '(1,1)', '{1,1,1}', '(1,1),(2,2)', '(1,1),(2,2)', '(1,1),(2,2),(2,1)',
+'((1,1),(2,2),(2,1))', '<(0,0),1>');
+insert into catalog_pg_test.test11 values
+(2, '(1,1)', '{1,1,1}', '(1,1),(2,2)', '(1,1),(2,2)', '[(1,1),(2,2),(2,1)]',
+'((1,1),(2,2),(2,1))', '<(0,0),1>');
+insert into catalog_pg_test.test11 values
+(3, '(1.1,1.1)', '{1,1,1}', '(1,1),(2,2)', '(1,1),(2,2)', '[(1,1),(2,2),(2,1)]',
+'((1,1),(2,2),(2,1))', '<(0,0),1>');
+insert into catalog_pg_test.test11 values
+(4, '(1.12,1.12)', '{1,1,1}', '(1,1),(2,2)', '(1,1),(2,2)', '[(1,1),(2,2),(2,1)]',
+'((1,1),(2,2),(2,1))', '<(0,0),1>');
+insert into catalog_pg_test.test11 values
+(5, '(1.12345,1.12345)', '{1,1,1}', '(1,1),(2,2)', '(1,1),(2,2)', '[(1,1),(2,2),(2,1)]',
+'((1,1),(2,2),(2,1))', '<(0,0),1>');
+insert into catalog_pg_test.test11 values
+(6, '(1.12345,1.12345)', '{1.1,1.1,1.1}', '(1.2,1.2),(2.3,2.3)', '(1.4,1.4),(2.5,2.5)', '[(1.6,1.6),(2.7,2.7),(2.8,1.8)]',
+'((1.9,1.9),(2.3,2.3),(2.4,1.4))', '<(0.2,0.2),1.1>');
+
+insert into catalog_pg_test.test12 values
+(1, '980dd890-f7fe-4fff-999d-873516108b2e');
+insert into catalog_pg_test.test12 values
+(2, '980dd890-f7fe-4fff-999d-873516108b2e');

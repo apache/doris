@@ -25,12 +25,17 @@ import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public interface TableIf {
+    Logger LOG = LogManager.getLogger(TableIf.class);
 
     void readLock();
 
@@ -71,6 +76,15 @@ public interface TableIf {
     List<Column> getFullSchema();
 
     List<Column> getBaseSchema();
+
+    default List<Column> getBaseSchemaOrEmpty() {
+        try {
+            return getBaseSchema();
+        } catch (Exception e) {
+            LOG.warn("failed to get base schema for table {}", getName(), e);
+            return Lists.newArrayList();
+        }
+    }
 
     List<Column> getBaseSchema(boolean full);
 
@@ -113,12 +127,15 @@ public interface TableIf {
 
     BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info);
 
+    long estimatedRowCount();
+
     /**
      * Doris table type.
      */
     enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI, JDBC,
-        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE;
+        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
+        ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -151,6 +168,8 @@ public interface TableIf {
                     return "hms";
                 case ES_EXTERNAL_TABLE:
                     return "es";
+                case ICEBERG_EXTERNAL_TABLE:
+                    return "iceberg";
                 default:
                     return null;
             }
@@ -164,6 +183,7 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
+                case MATERIALIZED_VIEW:
                     return "VIEW";
                 case MYSQL:
                 case ODBC:
@@ -176,6 +196,7 @@ public interface TableIf {
                 case TABLE_VALUED_FUNCTION:
                 case HMS_EXTERNAL_TABLE:
                 case ES_EXTERNAL_TABLE:
+                case ICEBERG_EXTERNAL_TABLE:
                     return "EXTERNAL TABLE";
                 default:
                     return null;

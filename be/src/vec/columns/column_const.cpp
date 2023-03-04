@@ -20,6 +20,9 @@
 
 #include "vec/columns/column_const.h"
 
+#include <utility>
+
+#include "gutil/port.h"
 #include "runtime/raw_value.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/pod_array.h"
@@ -36,7 +39,8 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
 
     if (data->size() != 1) {
         LOG(FATAL) << fmt::format(
-                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.");
+                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
+                data->size());
     }
 }
 
@@ -55,6 +59,17 @@ ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) 
     }
 
     return ColumnConst::create(data, count_bytes_in_filter(filt));
+}
+
+size_t ColumnConst::filter(const Filter& filter) {
+    if (s != filter.size()) {
+        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
+                                  filter.size(), s);
+    }
+
+    const auto result_size = count_bytes_in_filter(filter);
+    resize(result_size);
+    return result_size;
 }
 
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
@@ -162,4 +177,37 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
+void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                                  size_t limit) const {
+    if (!data->is_default_at(0)) {
+        size_t to = limit && from + limit < size() ? from + limit : size();
+        indices.reserve(indices.size() + to - from);
+        for (size_t i = from; i < to; ++i) {
+            indices.push_back(i);
+        }
+    }
+}
+
+ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
+    if (limit == 0) {
+        limit = indexes.size();
+    }
+    if (indexes.size() < limit) {
+        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
+    }
+    return ColumnConst::create(data, limit);
+}
+
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                const size_t row_num) noexcept {
+    std::pair<ColumnPtr, size_t> result;
+    if (is_column_const(column)) {
+        result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
+        result.second = 0;
+    } else {
+        result.first = column.get_ptr();
+        result.second = row_num;
+    }
+    return result;
+}
 } // namespace doris::vectorized

@@ -154,7 +154,7 @@ public class ExportStmt extends StatementBase {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                                                                 tblName.getDb(), tblName.getTbl(),
                                                                 PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
@@ -236,14 +236,17 @@ public class ExportStmt extends StatementBase {
         URI uri = URI.create(path);
         String schema = uri.getScheme();
         if (type == StorageBackend.StorageType.BROKER) {
-            if (schema == null || (!schema.equalsIgnoreCase("hdfs")
+            if (schema == null || (!schema.equalsIgnoreCase("bos")
+                    && !schema.equalsIgnoreCase("afs")
+                    && !schema.equalsIgnoreCase("hdfs")
                     && !schema.equalsIgnoreCase("ofs")
                     && !schema.equalsIgnoreCase("obs")
                     && !schema.equalsIgnoreCase("oss")
                     && !schema.equalsIgnoreCase("s3a")
-                    && !schema.equalsIgnoreCase("cosn"))) {
-                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'ofs://', 'obs://',"
-                    + "'oss://', 's3a://' or 'cosn://' path.");
+                    && !schema.equalsIgnoreCase("cosn")
+                    && !schema.equalsIgnoreCase("jfs"))) {
+                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
+                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://' or 'jfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {

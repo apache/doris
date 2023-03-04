@@ -42,6 +42,9 @@ The configuration of the auditloader plugin is located in `$ {DORIS}/fe_plugins/
 
 Open `plugin.conf` for configuration. See the comments of the configuration items.
 
+<version since="1.2.0"></version>
+Audit log plugin supports importing slow query logs into a separate slow table since version 1.2, `doris_slow_log_tbl__`,  which is closed by default. In the plugin configuration file, add `enable_slow_log = true` to enable the function. And you could modify 'qe_slow_log_ms' item in FE configuration file to change slow query threshold.
+
 ### Compile
 
 After executing `sh build_plugin.sh` in the Doris code directory, you will get the `auditloader.zip` file in the `fe_plugins/output` directory.
@@ -52,7 +55,7 @@ You can place this file on an http download server or copy(or unzip) it to the s
 
 ### Installation
 
-After deployment is complete, and before installing the plugin, you need to create the audit database and tables previously specified in `plugin.conf`. The database and table creation statement is as follows:
+After deployment is complete, and before installing the plugin, you need to create the audit database and tables previously specified in `plugin.conf`. If `enable_slow_log` is set true, the slow table `doris_slow_log_tbl__` needs to be created, with the same schema as `doris_audit_log_tbl__`. The database and table creation statement is as follows:
 
 ```
 create database doris_audit_db__;
@@ -65,6 +68,8 @@ create table doris_audit_db__.doris_audit_log_tbl__
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
+    error_code int comment "Error code of failing query.",
+    error_message string comment "Error message of failing query.",
     query_time bigint comment "Query execution time in millisecond",
     scan_bytes bigint comment "Total scan bytes of this query",
     scan_rows bigint comment "Total scan rows of this query",
@@ -99,6 +104,8 @@ create table doris_audit_db__.doris_slow_log_tbl__
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
+    error_code int comment "Error code of failing query.",
+    error_message string comment "Error message of failing query.",
     query_time bigint comment "Query execution time in millisecond",
     scan_bytes bigint comment "Total scan bytes of this query",
     scan_rows bigint comment "Total scan rows of this query",

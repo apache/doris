@@ -408,6 +408,49 @@ public class DppConfig implements Writable {
 
     @Override
     public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+
+        if (!(obj instanceof DppConfig)) {
+            return false;
+        }
+
+        DppConfig other = (DppConfig) obj;
+        if (paloPath == null) {
+            if (other.paloPath != null) {
+                return false;
+            }
+        } else {
+            if (!paloPath.equals(other.paloPath)) {
+                return false;
+            }
+        }
+
+        if (httpPort != other.httpPort) {
+            return false;
+        }
+
+        if (hadoopConfigs == null) {
+            if (other.hadoopConfigs != null) {
+                return false;
+            }
+        } else {
+            if (!hadoopConfigs.equals(other.hadoopConfigs)) {
+                return false;
+            }
+        }
+
+        if (priority == null) {
+            if (other.priority != null) {
+                return false;
+            }
+        } else {
+            if (!priority.equals(other.priority)) {
+                return false;
+            }
+        }
+
         return true;
     }
 }

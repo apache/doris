@@ -43,6 +43,7 @@ public final class ExprSubstitutionMap {
     private static final Logger LOG = LogManager.getLogger(ExprSubstitutionMap.class);
 
     private boolean checkAnalyzed = true;
+    private boolean useNotCheckDescIdEquals = false;
     private List<Expr> lhs; // left-hand side
     private List<Expr> rhs; // right-hand side
 
@@ -61,6 +62,10 @@ public final class ExprSubstitutionMap {
         this.rhs = rhs;
     }
 
+    public void useNotCheckDescIdEquals() {
+        useNotCheckDescIdEquals = true;
+    }
+
     /**
      * Add an expr mapping. The rhsExpr must be analyzed to support correct substitution
      * across query blocks. It is not required that the lhsExpr is analyzed.
@@ -77,6 +82,11 @@ public final class ExprSubstitutionMap {
      */
     public Expr get(Expr lhsExpr) {
         for (int i = 0; i < lhs.size(); ++i) {
+            if (useNotCheckDescIdEquals) {
+                if (lhsExpr.notCheckDescIdEquals(lhs.get(i))) {
+                    return rhs.get(i);
+                }
+            }
             if (lhsExpr.equals(lhs.get(i))) {
                 return rhs.get(i);
             }
@@ -103,6 +113,16 @@ public final class ExprSubstitutionMap {
         return null;
     }
 
+    public void removeByLhsExpr(Expr lhsExpr) {
+        for (int i = 0; i < lhs.size(); ++i) {
+            if (lhs.get(i).equals(lhsExpr)) {
+                lhs.remove(i);
+                rhs.remove(i);
+                break;
+            }
+        }
+    }
+
     public void removeByRhsExpr(Expr rhsExpr) {
         for (int i = 0; i < rhs.size(); ++i) {
             if (rhs.get(i).equals(rhsExpr)) {
@@ -115,6 +135,10 @@ public final class ExprSubstitutionMap {
 
     public void updateLhsExprs(List<Expr> lhsExprList) {
         lhs = lhsExprList;
+    }
+
+    public void updateRhsExprs(List<Expr> rhsExprList) {
+        rhs = rhsExprList;
     }
 
     /**

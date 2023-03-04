@@ -22,8 +22,6 @@
 #include "common/logging.h"
 #include "geo/geo_types.h"
 #include "geo/wkt_parse.h"
-#include "geo/wkt_parse_ctx.h"
-#include "s2/s2debug.h"
 
 namespace doris {
 

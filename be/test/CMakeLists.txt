@@ -37,57 +37,8 @@ set(ENV_TEST_FILES
 )
 
 set(EXEC_TEST_FILES
-    exec/hash_table_test.cpp
-    exec/olap_common_test.cpp
-    exec/json_scanner_test.cpp
-    exec/json_scanner_with_jsonpath_test.cpp
-    exec/parquet_scanner_test.cpp
-    exec/orc_scanner_test.cpp
-    exec/plain_text_line_reader_uncompressed_test.cpp
-    exec/plain_text_line_reader_gzip_test.cpp
-    exec/plain_text_line_reader_bzip_test.cpp
-    exec/plain_text_line_reader_lz4frame_test.cpp
-    exec/broker_scanner_test.cpp
-    exec/broker_scan_node_test.cpp
-    exec/tablet_info_test.cpp
-    exec/tablet_sink_test.cpp
-    exec/buffered_reader_test.cpp
-    exec/es_http_scan_node_test.cpp
-    exec/es_predicate_test.cpp
-    exec/es_query_builder_test.cpp
-    exec/es_scan_reader_test.cpp
-    exec/s3_reader_test.cpp
-    exec/multi_bytes_separator_test.cpp
-    exec/hdfs_file_reader_test.cpp
     vec/exec/parquet/parquet_thrift_test.cpp
     vec/exec/parquet/parquet_reader_test.cpp
-    # exec/new_olap_scan_node_test.cpp
-    # exec/pre_aggregation_node_test.cpp
-    # exec/partitioned_hash_table_test.cpp
-    # exec/olap_scanner_test.cpp
-    # exec/olap_meta_reader_test.cpp
-    # exec/olap_scan_node_test.cpp
-    # exec/mysql_scan_node_test.cpp
-    # exec/mysql_scanner_test.cpp
-    # exec/csv_scanner_test.cpp
-    # exec/csv_scan_node_test.cpp
-    # exec/csv_scan_bench_test.cpp
-    # exec/schema_scan_node_test.cpp
-    # exec/unix_odbc_test.cpp
-    # exec/schema_scanner_test.cpp
-    # exec/set_executor_test.cpp
-    # exec/schema_scanner/schema_authors_scanner_test.cpp
-    # exec/schema_scanner/schema_columns_scanner_test.cpp
-    # exec/schema_scanner/schema_create_table_scanner_test.cpp
-    # exec/schema_scanner/schema_open_tables_scanner_test.cpp
-    # exec/schema_scanner/schema_schemata_scanner_test.cpp
-    # exec/schema_scanner/schema_table_names_scanner_test.cpp
-    # exec/schema_scanner/schema_tables_scanner_test.cpp
-    # exec/schema_scanner/schema_variables_scanner_test.cpp
-    # exec/schema_scanner/schema_engines_scanner_test.cpp
-    # exec/schema_scanner/schema_collations_scanner_test.cpp
-    # exec/schema_scanner/schema_charsets_scanner_test.cpp
-    # exec/broker_reader_test.cpp
 )
 
 if(DEFINED DORIS_WITH_LZO)
@@ -101,25 +52,10 @@ set(EXPRS_TEST_FILES
     # exprs/hybrid_set_test.cpp
     # exprs/in-predicate-test.cpp
     exprs/json_function_test.cpp
-    exprs/string_functions_test.cpp
-    exprs/timestamp_functions_test.cpp
-    exprs/percentile_approx_test.cpp
-    exprs/percentile_test.cpp
-    exprs/bitmap_function_test.cpp
-    exprs/hll_function_test.cpp
-    exprs/encryption_functions_test.cpp
-    exprs/math_functions_test.cpp
-    exprs/topn_function_test.cpp
-    exprs/runtime_filter_test.cpp
     exprs/bloom_filter_predicate_test.cpp
-    exprs/array_functions_test.cpp
-    exprs/quantile_function_test.cpp
-    exprs/window_funnel_test.cpp
-    exprs/hash_function_test.cpp
 )
 set(GEO_TEST_FILES
     geo/wkt_parse_test.cpp
-    geo/geo_functions_test.cpp
     geo/geo_types_test.cpp
 )
 set(GUTIL_TEST_FILES
@@ -130,11 +66,11 @@ set(HTTP_TEST_FILES
     http/http_utils_test.cpp
     http/http_client_test.cpp
     # TODO this will overide HttpChannel and make other test failed
-    # http/stream_load_test.cpp
     # http/metrics_action_test.cpp
 )
 set(IO_TEST_FILES
     io/cache/remote_file_cache_test.cpp
+    io/cache/file_block_cache_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -142,41 +78,33 @@ set(OLAP_TEST_FILES
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
-    olap/row_block_test.cpp
-    olap/row_block_v2_test.cpp
-    olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
-    olap/bloom_filter_column_predicate_test.cpp
-    olap/comparison_predicate_test.cpp
-    olap/in_list_predicate_test.cpp
-    olap/null_predicate_test.cpp
+    olap/itoken_extractor_test.cpp
     olap/file_helper_test.cpp
     olap/file_utils_test.cpp
     olap/cumulative_compaction_policy_test.cpp
-    olap/row_cursor_test.cpp
+    #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
-    olap/column_vector_test.cpp
     olap/storage_types_test.cpp
-    olap/aggregate_func_test.cpp
-    olap/rowset/segment_v2/bitshuffle_page_test.cpp
-    olap/rowset/segment_v2/plain_page_test.cpp
+    #olap/rowset/segment_v2/bitshuffle_page_test.cpp
+    #olap/rowset/segment_v2/plain_page_test.cpp
     olap/rowset/segment_v2/bitmap_index_test.cpp
-    olap/rowset/segment_v2/binary_plain_page_test.cpp
-    olap/rowset/segment_v2/binary_prefix_page_test.cpp
-    olap/rowset/segment_v2/column_reader_writer_test.cpp
+    #olap/rowset/segment_v2/binary_plain_page_test.cpp
+    #olap/rowset/segment_v2/binary_prefix_page_test.cpp
+    #olap/rowset/segment_v2/column_reader_writer_test.cpp
     olap/rowset/segment_v2/encoding_info_test.cpp
     olap/rowset/segment_v2/ordinal_page_index_test.cpp
-    olap/rowset/segment_v2/rle_page_test.cpp
-    olap/rowset/segment_v2/binary_dict_page_test.cpp
-    olap/rowset/segment_v2/segment_test.cpp
+    #olap/rowset/segment_v2/rle_page_test.cpp
+    #olap/rowset/segment_v2/binary_dict_page_test.cpp
     olap/rowset/segment_v2/row_ranges_test.cpp
-    olap/rowset/segment_v2/frame_of_reference_page_test.cpp
+    #olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     olap/rowset/segment_v2/block_bloom_filter_test.cpp
     olap/rowset/segment_v2/bloom_filter_index_reader_writer_test.cpp
     olap/rowset/segment_v2/zone_map_index_test.cpp
+    olap/rowset/segment_v2/inverted_index_searcher_cache_test.cpp
     olap/tablet_meta_test.cpp
     olap/tablet_meta_manager_test.cpp
     olap/tablet_mgr_test.cpp
@@ -187,7 +115,6 @@ set(OLAP_TEST_FILES
     olap/rowset/unique_rowset_id_generator_test.cpp
     olap/rowset/rowset_tree_test.cpp
     olap/txn_manager_test.cpp
-    olap/generic_iterators_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
     olap/primary_key_index_test.cpp
@@ -197,64 +124,41 @@ set(OLAP_TEST_FILES
     olap/block_column_predicate_test.cpp
     olap/options_test.cpp
     olap/common_test.cpp
-    olap/primary_key_index_test.cpp
-    # olap/memtable_flush_executor_test.cpp
-    # olap/push_handler_test.cpp
     olap/tablet_cooldown_test.cpp
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
-    olap/segcompaction_test.cpp
-    olap/ordered_data_compaction_test.cpp
+    #olap/segcompaction_test.cpp
+    #olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
-    # runtime/buffered_tuple_stream_test.cpp
-    # runtime/sorter_test.cpp
-    # runtime/buffer_control_block_test.cpp
     # runtime/result_buffer_mgr_test.cpp
-    # runtime/result_sink_test.cpp
-    # runtime/data_stream_test.cpp
     # runtime/parallel_executor_test.cpp
     # runtime/datetime_value_test.cpp
-    # runtime/dpp_sink_internal_test.cpp
     # runtime/dpp_sink_test.cpp
-    # runtime/data_spliter_test.cpp
     # runtime/tmp_file_mgr_test.cpp
-    # runtime/disk_io_mgr_test.cpp
-    # runtime/thread_resource_mgr_test.cpp
-    # runtime/buffered_block_mgr2_test.cpp
-    # runtime/buffered_tuple_stream2_test.cpp
     # runtime/export_task_mgr_test.cpp
     runtime/mem_pool_test.cpp
-    runtime/string_buffer_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
     runtime/string_value_test.cpp
     runtime/fragment_mgr_test.cpp
     runtime/mem_limit_test.cpp
-    runtime/stream_load_pipe_test.cpp
-    # TODO this test will override DeltaWriter, will make other test failed
-    # runtime/load_channel_mgr_test.cpp
     runtime/snapshot_loader_test.cpp
     runtime/user_function_cache_test.cpp
-    runtime/kafka_consumer_pipe_test.cpp
     runtime/routine_load_task_executor_test.cpp
     runtime/small_file_mgr_test.cpp
     runtime/heartbeat_flags_test.cpp
     runtime/result_queue_mgr_test.cpp
-    runtime/memory_scratch_sink_test.cpp
     runtime/test_env.cc
     runtime/external_scan_context_mgr_test.cpp
     runtime/memory/chunk_allocator_test.cpp
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
-    runtime/collection_value_test.cpp
-    runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
     testutil/test_util.cpp
-    testutil/array_utils.cpp
     testutil/desc_tbl_builder.cc
     testutil/function_utils.cpp
     testutil/run_all_tests.cpp
@@ -271,7 +175,6 @@ set(UTIL_TEST_FILES
     util/crc32c_test.cpp
     util/lru_cache_util_test.cpp
     util/filesystem_util_test.cpp
-    util/internal_queue_test.cpp
     util/cidr_test.cpp
     util/metrics_test.cpp
     util/doris_metrics_test.cpp
@@ -290,14 +193,9 @@ set(UTIL_TEST_FILES
     util/rle_encoding_test.cpp
     util/tdigest_test.cpp
     util/block_compression_test.cpp
-    util/arrow/arrow_row_block_test.cpp
-    util/arrow/arrow_row_batch_test.cpp
-    util/arrow/arrow_work_flow_test.cpp
-    util/counter_cond_variable_test.cpp
     util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp
     util/radix_sort_test.cpp
-    util/zip_util_test.cpp
     util/utf8_check_test.cpp
     util/cgroup_util_test.cpp
     util/path_util_test.cpp
@@ -318,8 +216,6 @@ set(UTIL_TEST_FILES
     util/sort_heap_test.cpp
     util/counts_test.cpp
     util/date_func_test.cpp
-    util/tuple_row_zorder_compare_test.cpp
-    util/array_parser_test.cpp
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp
     util/interval_tree_test.cpp
@@ -331,6 +227,7 @@ endif()
 
 set(VEC_TEST_FILES
     vec/aggregate_functions/agg_collect_test.cpp
+    vec/aggregate_functions/agg_histogram_test.cpp
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
@@ -338,18 +235,15 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/vec_sequence_match_test.cpp
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp
+    vec/columns/column_fixed_length_object_test.cpp
     vec/core/block_test.cpp
+    vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
     vec/core/column_vector_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
-    vec/exec/vbroker_scan_node_test.cpp
-    vec/exec/vbroker_scanner_test.cpp
-    vec/exec/vjson_scanner_test.cpp
     vec/exec/vtablet_sink_test.cpp
-    vec/exec/vorc_scanner_test.cpp
-    vec/exec/vparquet_scanner_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_aggregation_test.cpp
     vec/function/function_array_element_test.cpp
@@ -357,7 +251,6 @@ set(VEC_TEST_FILES
     vec/function/function_array_size_test.cpp
     vec/function/function_arrays_overlap_test.cpp
     vec/function/function_bitmap_test.cpp
-    vec/function/function_comparison_test.cpp
     vec/function/function_hash_test.cpp
     vec/function/function_math_test.cpp
     vec/function/function_string_test.cpp
@@ -377,7 +270,8 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
-    vec/olap/vertical_compaction_test.cpp
+    #vec/olap/vertical_compaction_test.cpp
+    vec/jsonb/serialize_test.cpp
 )
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}
@@ -398,7 +292,16 @@ add_executable(doris_be_test
 )
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
-set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
+set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+if (OS_MACOSX AND ARCH_ARM)
+    find_program(DSYMUTIL NAMES dsymutil)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
+    add_custom_command(TARGET doris_be_test POST_BUILD
+        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+        COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:doris_be_test>
+    )
+endif()
 
 if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
     add_executable(benchmark_tool

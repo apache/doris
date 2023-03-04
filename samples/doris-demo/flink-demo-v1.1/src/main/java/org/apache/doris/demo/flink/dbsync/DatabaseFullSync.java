@@ -20,24 +20,25 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.ververica.cdc.connectors.mysql.source.MySqlSource;
 import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
+import org.apache.doris.demo.flink.converter.DateToStringConverter;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
 import org.apache.doris.flink.sink.DorisSink;
-import org.apache.doris.flink.sink.writer.SimpleStringSerializer;
+import org.apache.doris.flink.sink.writer.JsonDebeziumSchemaSerializer;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
-import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.util.Collector;
+import org.apache.kafka.connect.json.JsonConverterConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
@@ -60,6 +61,9 @@ public class DatabaseFullSync {
     private static String TARGET_DORIS_DB = "test";
 
     public static void main(String[] args) throws Exception {
+        Map<String, Object> customConverterConfigs = new HashMap<>();
+        customConverterConfigs.put(JsonConverterConfig.DECIMAL_FORMAT_CONFIG, "numeric");
+
         MySqlSource<String> mySqlSource = MySqlSource.<String>builder()
             .hostname(HOST)
             .port(MYSQL_PORT)
@@ -67,7 +71,9 @@ public class DatabaseFullSync {
             .tableList(SYNC_TBLS) // set captured table
             .username(MYSQL_USER)
             .password(MYSQL_PASSWD)
-            .deserializer(new JsonDebeziumDeserializationSchema()) // converts SourceRecord to JSON String
+            .debeziumProperties(DateToStringConverter.DEFAULT_PROPS)
+            .deserializer(new JsonDebeziumDeserializationSchema(false, customConverterConfigs))
+            .includeSchemaChanges(true)
             .build();
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -82,49 +88,10 @@ public class DatabaseFullSync {
         LOG.info("sync table list:{}",tableList);
         for(String tbl : tableList){
             SingleOutputStreamOperator<String> filterStream = filterTableData(cdcSource, tbl);
-            SingleOutputStreamOperator<String> cleanStream = clean(filterStream);
             DorisSink dorisSink = buildDorisSink(tbl);
-            cleanStream.sinkTo(dorisSink).name("sink " + tbl);
+            filterStream.sinkTo(dorisSink).name("sink " + tbl);
         }
         env.execute("Full Database Sync ");
-    }
-
-    /**
-     * Get real data
-     * {
-     *     "before":null,
-     *     "after":{
-     *         "id":1,
-     *         "name":"zhangsan-1",
-     *         "age":18
-     *     },
-     *     "source":{
-     *         "db":"test",
-     *         "table":"test_1",
-     *         ...
-     *     },
-     *     "op":"c",
-     *     ...
-     * }
-     * */
-    private static SingleOutputStreamOperator<String> clean(SingleOutputStreamOperator<String> source) {
-        return source.flatMap(new FlatMapFunction<String,String>(){
-            @Override
-            public void flatMap(String row, Collector<String> out) throws Exception {
-                try{
-                    JSONObject rowJson = JSON.parseObject(row);
-                    String op = rowJson.getString("op");
-                    //history,insert,update
-                    if(Arrays.asList("r","c","u").contains(op)){
-                        out.collect(rowJson.getJSONObject("after").toJSONString());
-                    }else{
-                        LOG.info("filter other op:{}",op);
-                    }
-                }catch (Exception ex){
-                    LOG.warn("filter other format binlog:{}",row);
-                }
-            }
-        });
     }
 
     /**
@@ -182,11 +149,11 @@ public class DatabaseFullSync {
         pro.setProperty("read_json_by_line", "true");
         DorisExecutionOptions executionOptions = DorisExecutionOptions.builder()
             .setLabelPrefix("label-" + table + UUID.randomUUID()) //streamload label prefix,
-            .setStreamLoadProp(pro).build();
+            .setStreamLoadProp(pro).setDeletable(true).build();
 
         builder.setDorisReadOptions(DorisReadOptions.builder().build())
             .setDorisExecutionOptions(executionOptions)
-            .setSerializer(new SimpleStringSerializer()) //serialize according to string
+            .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisBuilder.build()).build())
             .setDorisOptions(dorisBuilder.build());
 
         return builder.build();

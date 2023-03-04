@@ -32,6 +32,5 @@ suite("test_weekofyear") {
 
 
     sql "set enable_nereids_planner=true"
-    sql "set enable_vectorized_engine=true"
     qt_weekOfYear "select * from woy where weekofyear(c0)=52 and weekofyear(c1)=52"
 }

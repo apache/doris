@@ -20,7 +20,6 @@
 // and modified by Doris.
 
 suite("test_aggregate_bit") {
-    sql "set enable_vectorized_engine = true"
 
     def tableName = "group_bit_test"
     sql "DROP TABLE IF EXISTS ${tableName}"

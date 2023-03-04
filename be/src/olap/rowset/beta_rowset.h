@@ -46,8 +46,7 @@ public:
 
     std::string segment_cache_path(int segment_id);
 
-    static std::string segment_cache_path(const std::string& rowset_dir, const RowsetId& rowset_id,
-                                          int segment_id);
+    static bool is_segment_cache_dir(const std::string& cache_dir);
 
     static std::string segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                          int segment_id);
@@ -62,12 +61,6 @@ public:
     static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
-    static std::string remote_tablet_path(int64_t tablet_id);
-
-    Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                       uint64_t request_block_row_count, size_t key_num,
-                       std::vector<OlapTuple>* ranges) override;
-
     Status remove() override;
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
@@ -80,7 +73,7 @@ public:
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {
         return Status::OK();
-    };
+    }
 
     bool check_path(const std::string& path) override;
 
@@ -88,13 +81,14 @@ public:
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+    Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
+                         std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
 protected:
-    BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-               RowsetMetaSharedPtr rowset_meta);
+    BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+               const RowsetMetaSharedPtr& rowset_meta);
 
     // init segment groups
     Status init() override;

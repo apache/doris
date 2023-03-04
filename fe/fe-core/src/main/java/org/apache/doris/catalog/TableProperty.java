@@ -60,6 +60,7 @@ public class TableProperty implements Writable {
     private boolean isInMemory = false;
 
     private String storagePolicy = "";
+    private boolean isDynamicSchema = false;
 
     /*
      * the default storage format of this table.
@@ -76,6 +77,8 @@ public class TableProperty implements Writable {
     private boolean enableLightSchemaChange = false;
 
     private boolean disableAutoCompaction = false;
+
+    private boolean storeRowColumn = false;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -115,7 +118,7 @@ public class TableProperty implements Writable {
      *
      * @return this for chained
      */
-    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable,
+    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
             ReplicaAllocation replicaAlloc) {
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
@@ -124,7 +127,9 @@ public class TableProperty implements Writable {
             }
             executeBuildDynamicProperty();
         }
-        setReplicaAlloc(replicaAlloc);
+        if (!reserveReplica) {
+            setReplicaAlloc(replicaAlloc);
+        }
         return this;
     }
 
@@ -165,6 +170,16 @@ public class TableProperty implements Writable {
         return disableAutoCompaction;
     }
 
+    public TableProperty buildStoreRowColumn() {
+        storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        return this;
+    }
+
+    public boolean storeRowColumn() {
+        return storeRowColumn;
+    }
+
     public TableProperty buildStoragePolicy() {
         storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
         return this;
@@ -172,6 +187,12 @@ public class TableProperty implements Writable {
 
     public String getStoragePolicy() {
         return storagePolicy;
+    }
+
+    public TableProperty buildDynamicSchema() {
+        isDynamicSchema = Boolean.parseBoolean(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "false"));
+        return this;
     }
 
     public TableProperty buildDataSortInfo() {
@@ -244,6 +265,18 @@ public class TableProperty implements Writable {
         return isInMemory;
     }
 
+    public boolean isAutoBucket() {
+        return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
+    }
+
+    public String getEstimatePartitionSize() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
+    }
+
+    public boolean isDynamicSchema() {
+        return isDynamicSchema;
+    }
+
     public TStorageFormat getStorageFormat() {
         // Force convert all V1 table to V2 table
         if (TStorageFormat.V1 == storageFormat) {
@@ -270,7 +303,7 @@ public class TableProperty implements Writable {
 
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true"));
     }
 
     public void setSequenceMapCol(String colName) {
@@ -305,11 +338,13 @@ public class TableProperty implements Writable {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
                 .buildInMemory()
+                .buildDynamicSchema()
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildEnableLightSchemaChange();
+                .buildEnableLightSchemaChange()
+                .buildStoreRowColumn();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

@@ -71,6 +71,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
+- `insert_timeout`<version since="dev"></version>
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
@@ -355,7 +356,10 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `query_timeout`
 
-  用于设置查询超时。该变量会作用于当前连接中所有的查询语句，以及 INSERT 语句。默认为 5 分钟，单位为秒。
+  用于设置查询超时。该变量会作用于当前连接中所有的查询语句，对于 INSERT 语句推荐使用insert_timeout。默认为 5 分钟，单位为秒。
+
+- `insert_timeout`
+  <version since="dev"></version>用于设置针对 INSERT 语句的超时。该变量仅作用于 INSERT 语句，建议在 INSERT 行为易持续较长时间的场景下设置。默认为 4 小时，单位为秒。由于旧版本用户会通过延长 query_timeout 来防止 INSERT 语句超时，insert_timeout 在 query_timeout 大于自身的情况下将会失效, 以兼容旧版本用户的习惯。
 
 - `resource_group`
 
@@ -509,18 +513,23 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `enable_infer_predicate`
 
-  用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
+    用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
 
 - `trim_tailing_spaces_for_external_table_query`
 
-  用于控制查询Hive外表时是否过滤掉字段末尾的空格。默认为false。
+    用于控制查询Hive外表时是否过滤掉字段末尾的空格。默认为false。
 
 * `skip_storage_engine_merge`
-  用于调试目的。在向量化执行引擎中，当发现读取Aggregate Key模型或者Unique Key模型的数据结果有问题的时候，把此变量的值设置为`true`，将会把Aggregate Key模型或者Unique Key模型的数据当成Duplicate Key模型读取。
+
+    用于调试目的。在向量化执行引擎中，当发现读取Aggregate Key模型或者Unique Key模型的数据结果有问题的时候，把此变量的值设置为`true`，将会把Aggregate Key模型或者Unique Key模型的数据当成Duplicate Key模型读取。
 
 * `skip_delete_predicate`
 
 	用于调试目的。在向量化执行引擎中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被删除的数据当成正常数据读取。
+
+* `skip_delete_bitmap`
+
+    用于调试目的。在Unique Key MoW表中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被delete bitmap标记删除的数据当成正常数据读取。
 
 * `default_password_lifetime`
 
@@ -542,4 +551,54 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `validate_password_policy`
 
 	密码强度校验策略。默认为 `NONE` 或 `0`，即不做校验。可以设置为 `STRONG` 或 `2`。当设置为 `STRONG` 或 `2` 时，通过 `ALTER USER` 或 `SET PASSWORD` 命令设置密码时，密码必须包含“大写字母”，“小写字母”，“数字”和“特殊字符”中的3项，并且长度必须大于等于8。特殊字符包括：`~!@#$%^&*()_+|<>,.?/:;'[]{}"`。
+
+* `group_concat_max_len`
+
+    为了兼容某些BI工具能正确获取和设置该变量，变量值实际并没有作用。
+
+* `rewrite_or_to_in_predicate_threshold`
+
+    默认的改写OR to IN的OR数量阈值。默认值为2，即表示有2个OR的时候，如果可以合并，则会改写成IN。
+
+*   `group_by_and_having_use_alias_first`
+
+    指定group by和having语句是否优先使用列的别名，而非从From语句里寻找列的名字。默认为false。
+
+* `enable_file_cache`
+
+    控制是否启用block file cache。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，则block file cache一直处于禁用状态。
 	
+* `topn_opt_limit_threshold`
+
+    设置topn优化的limit阈值 (例如：SELECT * FROM t ORDER BY k LIMIT n). 如果limit的n小于等于阈值，topn相关优化（动态过滤下推、两阶段获取结果、按key的顺序读数据）会自动启用，否则会禁用。默认值是1024。
+
+* `drop_table_if_ctas_failed`
+
+    控制create table as select在写入发生错误时是否删除已创建的表，默认为true。
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    控制是否在 `show roles` 的结果里显示每个用户隐式对应的角色。默认为 false。
+
+* `use_fix_replica`
+
+    使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。默认为 false。
+
+    该参数可以用于测试返回大量数据集时，规避结果集传输的耗时，重点关注底层查询执行的耗时。
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```

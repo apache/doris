@@ -18,47 +18,61 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /** min agg function. */
-public class Min extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
+public class Min extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
 
     public Min(Expression child) {
-        super("min", child);
+        this(false, false, child);
     }
 
-    public Min(AggregateParam aggregateParam, Expression child) {
-        super("min", aggregateParam, child);
+    public Min(boolean distinct, Expression arg) {
+        this(distinct, false, arg);
     }
 
-    @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(argumentTypes.get(0)).args(argumentTypes.get(0));
-    }
-
-    @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes;
+    private Min(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("min", distinct, alwaysNullable, arg);
     }
 
     @Override
-    public Min withChildren(List<Expression> children) {
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).isOnlyMetricType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        DataType dataType = getArgument(0).getDataType();
+        return FunctionSignature.ret(dataType).args(dataType);
+    }
+
+    @Override
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(getDataType());
+    }
+
+    @Override
+    public Min withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Min(getAggregateParam(), children.get(0));
+        return new Min(distinct, alwaysNullable, children.get(0));
     }
 
     @Override
-    public Min withAggregateParam(AggregateParam aggregateParam) {
-        return new Min(aggregateParam, child());
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new Min(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

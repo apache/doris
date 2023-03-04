@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -93,7 +94,7 @@ public class NDVToHll implements ExprRewriteRule {
         SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getName());
         List<Expr> newFnParams = Lists.newArrayList();
         newFnParams.add(mvSlotRef);
-        FunctionCallExpr result = new FunctionCallExpr("hll_union_agg", newFnParams);
+        FunctionCallExpr result = new FunctionCallExpr(FunctionSet.HLL_UNION_AGG, newFnParams);
         result.analyzeNoThrow(analyzer);
         return result;
     }

@@ -105,8 +105,8 @@ public class CreateTableInfoTest {
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         CreateTableInfo rInfo1 = CreateTableInfo.read(dis);
-        Assert.assertTrue(rInfo1.getTable().equals(table));
-        Assert.assertTrue(rInfo1.equals(info));
+        Assert.assertEquals(rInfo1.getTable(), table);
+        Assert.assertEquals(rInfo1, info);
         Assert.assertEquals(rInfo1.getDbName(), "db1");
 
         // 3. delete files

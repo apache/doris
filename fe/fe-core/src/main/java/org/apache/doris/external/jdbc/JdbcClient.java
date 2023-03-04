@@ -18,70 +18,68 @@
 package org.apache.doris.external.jdbc;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
 import lombok.Getter;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 public class JdbcClient {
     private static final Logger LOG = LogManager.getLogger(JdbcClient.class);
-    private static final String MYSQL = "MYSQL";
-    // private static final String ORACLE = "ORACLE";
-    // private static final String SQLSERVER = "SQLSERVER";
-    // private static final String POSTGRESQL = "POSTGRESQL";
+
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     private String dbType;
     private String jdbcUser;
-    private String jdbcPasswd;
-    private String jdbcUrl;
-    private String driverUrl;
-    private String driverClass;
-    private String checkSum;
 
     private URLClassLoader classLoader = null;
 
     private HikariDataSource dataSource = null;
 
+    private boolean isOnlySpecifiedDatabase = false;
 
-    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private boolean isLowerCaseTableNames = false;
+
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+
+    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
+            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
         this.jdbcUser = user;
-        this.jdbcPasswd = password;
-        this.jdbcUrl = jdbcUrl;
-        this.driverUrl = driverUrl;
-        this.driverClass = driverClass;
-        this.dbType = parseDbType(jdbcUrl);
-        this.checkSum = computeObjectChecksum();
-
+        this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
+        this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
+        try {
+            this.dbType = JdbcResource.parseDbType(jdbcUrl);
+        } catch (DdlException e) {
+            throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
+        }
+        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
-            URL[] urls = {new URL(driverUrl)};
+            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             classLoader = URLClassLoader.newInstance(urls, null);
             Thread.currentThread().setContextClassLoader(classLoader);
@@ -89,31 +87,24 @@ public class JdbcClient {
             config.setDriverClassName(driverClass);
             config.setJdbcUrl(jdbcUrl);
             config.setUsername(jdbcUser);
-            config.setPassword(jdbcPasswd);
+            config.setPassword(password);
             config.setMaximumPoolSize(1);
+            // set connection timeout to 5s.
+            // The default is 30s, which is too long.
+            // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
+            // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
+            // it may cause the thrift rpc timeout.
+            config.setConnectionTimeout(5000);
             dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
     public void closeClient() {
         dataSource.close();
-    }
-
-    public String parseDbType(String url) {
-        if (url.startsWith("jdbc:mysql") || url.startsWith("jdbc:mariadb")) {
-            return MYSQL;
-        }
-        // else if (url.startsWith("jdbc:oracle")) {
-        //     return ORACLE;
-        // }
-        // else if (url.startsWith("jdbc:sqlserver")) {
-        //     return SQLSERVER;
-        // } else if (url.startsWith("jdbc:postgresql")) {
-        //     return POSTGRESQL;
-        // }
-        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + jdbcUrl);
     }
 
     public Connection getConnection() throws JdbcClientException {
@@ -174,10 +165,31 @@ public class JdbcClient {
         Connection conn =  getConnection();
         Statement stmt = null;
         ResultSet rs = null;
+        if (isOnlySpecifiedDatabase) {
+            return getSpecifiedDatabase(conn);
+        }
         List<String> databaseNames = Lists.newArrayList();
         try {
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW DATABASES");
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
+                    rs = stmt.executeQuery("SHOW DATABASES");
+                    break;
+                case JdbcResource.POSTGRESQL:
+                    rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
+                            + "where schema_owner='" + jdbcUser + "';");
+                    break;
+                case JdbcResource.ORACLE:
+                    rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
+                    break;
+                case JdbcResource.SQLSERVER:
+                    rs = stmt.executeQuery("SELECT name FROM sys.schemas");
+                    break;
+                default:
+                    throw new JdbcClientException("Not supported jdbc type");
+            }
+
             while (rs.next()) {
                 databaseNames.add(rs.getString(1));
             }
@@ -185,6 +197,30 @@ public class JdbcClient {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, stmt, conn);
+        }
+        return databaseNames;
+    }
+
+    public List<String> getSpecifiedDatabase(Connection conn) {
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
+                    databaseNames.add(conn.getCatalog());
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.SQLSERVER:
+                    databaseNames.add(conn.getSchema());
+                    break;
+                default:
+                    throw new JdbcClientException("Not supported jdbc type");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+        } finally {
+            close(conn);
         }
         return databaseNames;
     }
@@ -200,14 +236,25 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
-                case MYSQL:
+                case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, null, types);
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.CLICKHOUSE:
+                case JdbcResource.SQLSERVER:
+                    rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
-                tablesName.add(rs.getString("TABLE_NAME"));
+                String tableName = rs.getString("TABLE_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                    tableName = tableName.toLowerCase();
+                }
+                tablesName.add(tableName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get all tables for db %s", e, dbName);
@@ -224,11 +271,17 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
-                case MYSQL:
+                case JdbcResource.MYSQL:
                     rs = databaseMetaData.getTables(dbName, null, tableName, types);
                     break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.CLICKHOUSE:
+                case JdbcResource.SQLSERVER:
+                    rs = databaseMetaData.getTables(null, dbName, null, types);
+                    break;
                 default:
-                    throw new JdbcClientException("Unknown database type");
+                    throw new JdbcClientException("Unknown database type: " + dbType);
             }
             if (rs.next()) {
                 return true;
@@ -261,13 +314,7 @@ public class JdbcClient {
         // for utf8 encoding, if columnSize=10, then charOctetLength=30
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         private int charOctetLength;
-        /**
-         *  Whether it is allowed to be NULL
-         *  0 (columnNoNulls)
-         *  1 (columnNullable)
-         *  2 (columnNullableUnknown)
-         */
-        private int nullAble;
+        private boolean isAllowNull;
     }
 
     /**
@@ -277,6 +324,11 @@ public class JdbcClient {
         Connection conn =  getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        // if isLowerCaseTableNames == true, tableName is lower case
+        // but databaseMetaData.getColumns() is case sensitive
+        if (isLowerCaseTableNames) {
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
@@ -288,7 +340,19 @@ public class JdbcClient {
             //                    Can contain single-character wildcards ("_"), or multi-character wildcards ("%")
             // columnNamePattern - column name, `null` means get all columns
             //                     Can contain single-character wildcards ("_"), or multi-character wildcards ("%")
-            rs = databaseMetaData.getColumns(dbName, null, tableName, null);
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                    rs = databaseMetaData.getColumns(dbName, null, tableName, null);
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.CLICKHOUSE:
+                case JdbcResource.SQLSERVER:
+                    rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
+                default:
+                    throw new JdbcClientException("Unknown database type");
+            }
             while (rs.next()) {
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
@@ -297,7 +361,13 @@ public class JdbcClient {
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                field.setNullAble(rs.getInt("NULLABLE"));
+                /**
+                 *  Whether it is allowed to be NULL
+                 *  0 (columnNoNulls)
+                 *  1 (columnNullable)
+                 *  2 (columnNullableUnknown)
+                 */
+                field.setAllowNull(rs.getInt("NULLABLE") == 0 ? false : true);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 tableSchema.add(field);
@@ -312,8 +382,16 @@ public class JdbcClient {
 
     public Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         switch (dbType) {
-            case MYSQL:
+            case JdbcResource.MYSQL:
                 return mysqlTypeToDoris(fieldSchema);
+            case JdbcResource.POSTGRESQL:
+                return postgresqlTypeToDoris(fieldSchema);
+            case JdbcResource.CLICKHOUSE:
+                return clickhouseTypeToDoris(fieldSchema);
+            case JdbcResource.ORACLE:
+                return oracleTypeToDoris(fieldSchema);
+            case JdbcResource.SQLSERVER:
+                return sqlserverTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -337,7 +415,11 @@ public class JdbcClient {
                 case "INT":
                     return Type.BIGINT;
                 case "BIGINT":
-                    return ScalarType.createStringType();
+                    return Type.LARGEINT;
+                case "DECIMAL":
+                    int precision = fieldSchema.getColumnSize() + 1;
+                    int scale = fieldSchema.getDecimalDigits();
+                    return createDecimalOrStringType(precision, scale);
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -355,26 +437,31 @@ public class JdbcClient {
                 return Type.INT;
             case "BIGINT":
                 return Type.BIGINT;
+            case "LARGEINT": // for jdbc catalog connecting Doris database
+                return Type.LARGEINT;
             case "DATE":
-                return ScalarType.getDefaultDateType(Type.DATE);
+            case "DATEV2":
+                return ScalarType.createDateV2Type();
             case "TIMESTAMP":
-                return ScalarType.getDefaultDateType(Type.DATETIME);
             case "DATETIME":
-                return ScalarType.getDefaultDateType(Type.DATETIME);
+            case "DATETIMEV2": // for jdbc catalog connecting Doris database
+                return ScalarType.createDatetimeV2Type(0);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
+            case "DECIMALV3": // for jdbc catalog connecting Doris database
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                return ScalarType.createDecimalType(precision, scale);
+                return createDecimalOrStringType(precision, scale);
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
                 return charType;
-            case "TIME":
             case "VARCHAR":
+                return ScalarType.createVarcharType(fieldSchema.columnSize);
+            case "TIME":
             case "TINYTEXT":
             case "TEXT":
             case "MEDIUMTEXT":
@@ -392,12 +479,261 @@ public class JdbcClient {
             case "BIT":
             case "BINARY":
             case "VARBINARY":
+            case "ENUM":
                 return ScalarType.createStringType();
             default:
-                throw new JdbcClientException("Can not convert mysql data type to doris data type for type ["
-                                                + mysqlType + "]");
+                return Type.UNSUPPORTED;
         }
     }
+
+    public Type postgresqlTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String pgType = fieldSchema.getDataTypeName();
+        switch (pgType) {
+            case "int2":
+            case "smallserial":
+                return Type.SMALLINT;
+            case "int4":
+            case "serial":
+                return Type.INT;
+            case "int8":
+            case "bigserial":
+                return Type.BIGINT;
+            case "numeric": {
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return createDecimalOrStringType(precision, scale);
+            }
+            case "float4":
+                return Type.FLOAT;
+            case "float8":
+                return Type.DOUBLE;
+            case "bpchar":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.columnSize);
+                return charType;
+            case "timestamp":
+            case "timestamptz":
+                return ScalarType.createDatetimeV2Type(0);
+            case "date":
+                return ScalarType.createDateV2Type();
+            case "bool":
+                return Type.BOOLEAN;
+            case "bit":
+            case "point":
+            case "line":
+            case "lseg":
+            case "box":
+            case "path":
+            case "polygon":
+            case "circle":
+            case "varchar":
+            case "text":
+            case "time":
+            case "timetz":
+            case "interval":
+            case "cidr":
+            case "inet":
+            case "macaddr":
+            case "varbit":
+            case "jsonb":
+            case "uuid":
+                return ScalarType.createStringType();
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public Type clickhouseTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String ckType = fieldSchema.getDataTypeName();
+        if (ckType.startsWith("LowCardinality")) {
+            ckType = ckType.substring(15, ckType.length() - 1);
+            if (ckType.startsWith("Nullable")) {
+                ckType = ckType.substring(9, ckType.length() - 1);
+            }
+        } else if (ckType.startsWith("Nullable")) {
+            ckType = ckType.substring(9, ckType.length() - 1);
+        }
+        if (ckType.startsWith("Decimal")) {
+            String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
+            int precision = Integer.parseInt(accuracy[0]);
+            int scale = Integer.parseInt(accuracy[1]);
+            return createDecimalOrStringType(precision, scale);
+        } else if ("String".contains(ckType) || ckType.startsWith("Enum")
+                || ckType.startsWith("IPv") || "UUID".contains(ckType)
+                || ckType.startsWith("FixedString")) {
+            return ScalarType.createStringType();
+        } else if (ckType.startsWith("DateTime")) {
+            return ScalarType.createDatetimeV2Type(0);
+        }
+        switch (ckType) {
+            case "Bool":
+                return Type.BOOLEAN;
+            case "Int8":
+                return Type.TINYINT;
+            case "Int16":
+            case "UInt8":
+                return Type.SMALLINT;
+            case "Int32":
+            case "UInt16":
+                return Type.INT;
+            case "Int64":
+            case "UInt32":
+                return Type.BIGINT;
+            case "Int128":
+            case "UInt64":
+                return Type.LARGEINT;
+            case "Int256":
+            case "UInt128":
+            case "UInt256":
+                return ScalarType.createStringType();
+            case "Float32":
+                return Type.FLOAT;
+            case "Float64":
+                return Type.DOUBLE;
+            case "Date":
+            case "Date32":
+                return ScalarType.createDateV2Type();
+            default:
+                return Type.UNSUPPORTED;
+        }
+        // Todo(zyk): Wait the JDBC external table support the array type then supported clickhouse array type
+    }
+
+    public Type oracleTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String oracleType = fieldSchema.getDataTypeName();
+        if (oracleType.startsWith("INTERVAL")) {
+            oracleType = oracleType.substring(0, 8);
+        } else if (oracleType.startsWith("TIMESTAMP")) {
+            if (oracleType.equals("TIMESTAMPTZ") || oracleType.equals("TIMESTAMPLTZ")) {
+                return Type.UNSUPPORTED;
+            }
+            return ScalarType.createDatetimeV2Type(0);
+        }
+        switch (oracleType) {
+            /**
+             * The data type NUMBER(p,s) of oracle has some different of doris decimal type in semantics.
+             * For Oracle Number(p,s) type:
+             * 1. if s<0 , it means this is an Interger.
+             *    This NUMBER(p,s) has (p+|s| ) significant digit, and rounding will be performed at s position.
+             *    eg: if we insert 1234567 into NUMBER(5,-2) type, then the oracle will store 1234500.
+             *    In this case, Doris will use INT type (TINYINT/SMALLINT/INT/.../LARGEINT).
+             * 2. if s>=0 && s<p , it just like doris Decimal(p,s) behavior.
+             * 3. if s>=0 && s>p, it means this is a decimal(like 0.xxxxx).
+             *    p represents how many digits can be left to the left after the decimal point,
+             *    the figure after the decimal point s will be rounded.
+             *    eg: we can not insert 0.0123456 into NUMBER(5,7) type,
+             *    because there must be two zeros on the right side of the decimal point,
+             *    we can insert 0.0012345 into NUMBER(5,7) type.
+             *    In this case, Doris will use DECIMAL(s,s)
+             * 4. if we don't specify p and s for NUMBER(p,s), just NUMBER, the p and s of NUMBER are uncertain.
+             *    In this case, doris can not determine p and s, so doris can not determine data type.
+             */
+            case "NUMBER":
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale <= 0) {
+                    precision -= scale;
+                    if (precision < 3) {
+                        return Type.TINYINT;
+                    } else if (precision < 5) {
+                        return Type.SMALLINT;
+                    } else if (precision < 10) {
+                        return Type.INT;
+                    } else if (precision < 19) {
+                        return Type.BIGINT;
+                    } else if (precision < 39) {
+                        // LARGEINT supports up to 38 numbers.
+                        return Type.LARGEINT;
+                    } else {
+                        return ScalarType.createStringType();
+                    }
+                }
+                // scale > 0
+                if (precision < scale) {
+                    precision = scale;
+                }
+                return createDecimalOrStringType(precision, scale);
+            case "FLOAT":
+                return Type.DOUBLE;
+            case "DATE":
+                return ScalarType.createDatetimeV2Type(0);
+            case "VARCHAR2":
+            case "NVARCHAR2":
+            case "CHAR":
+            case "NCHAR":
+            case "LONG":
+            case "RAW":
+            case "LONG RAW":
+            case "INTERVAL":
+                return ScalarType.createStringType();
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "BFILE":
+            case "BINARY_FLOAT":
+            case "BINARY_DOUBLE":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public Type sqlserverTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String sqlserverType = fieldSchema.getDataTypeName();
+        switch (sqlserverType) {
+            case "bit":
+                return Type.BOOLEAN;
+            case "tinyint":
+            case "smallint":
+                return Type.SMALLINT;
+            case "int":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "real":
+                return Type.FLOAT;
+            case "float":
+            case "money":
+            case "smallmoney":
+                return Type.DOUBLE;
+            case "decimal":
+            case "numeric":
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return ScalarType.createDecimalV3Type(precision, scale);
+            case "date":
+                return ScalarType.createDateV2Type();
+            case "datetime":
+            case "datetime2":
+            case "smalldatetime":
+                return ScalarType.createDatetimeV2Type(6);
+            case "char":
+            case "varchar":
+            case "nchar":
+            case "nvarchar":
+            case "text":
+            case "ntext":
+            case "time":
+            case "datetimeoffset":
+                return ScalarType.createStringType();
+            case "image":
+            case "binary":
+            case "varbinary":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    private Type createDecimalOrStringType(int precision, int scale) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            if (!Config.enable_decimal_conversion && (precision > ScalarType.MAX_DECIMALV2_PRECISION
+                    || scale > ScalarType.MAX_DECIMALV2_SCALE)) {
+                return ScalarType.createStringType();
+            }
+            return ScalarType.createDecimalType(precision, scale);
+        }
+        return ScalarType.createStringType();
+    }
+
 
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
@@ -405,37 +741,9 @@ public class JdbcClient {
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), true, null,
-                    true, null, field.getRemarks(),
-                    true, null, -1));
+                    field.isAllowNull(), field.getRemarks(),
+                    true, -1));
         }
         return dorisTableSchema;
-    }
-
-    private String computeObjectChecksum() {
-        if (FeConstants.runningUnitTest) {
-            // skip checking checksum when running ut
-            return "";
-        }
-
-        InputStream inputStream = null;
-        try {
-            inputStream = Util.getInputStreamFromUrl(driverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
-            MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] buf = new byte[4096];
-            int bytesRead = 0;
-            do {
-                bytesRead = inputStream.read(buf);
-                if (bytesRead < 0) {
-                    break;
-                }
-                digest.update(buf, 0, bytesRead);
-            } while (true);
-            return Hex.encodeHexString(digest.digest());
-        } catch (IOException e) {
-            throw new JdbcClientException("compute driver checksum from url: " + driverUrl + " meet an IOException.");
-        } catch (NoSuchAlgorithmException e) {
-            throw new JdbcClientException(
-                    "compute driver checksum from url: " + driverUrl + " could not find algorithm.");
-        }
     }
 }

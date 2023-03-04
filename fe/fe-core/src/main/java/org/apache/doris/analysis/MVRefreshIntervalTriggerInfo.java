@@ -28,7 +28,8 @@ public class MVRefreshIntervalTriggerInfo {
     private String timeUnit;
 
     // For deserialization
-    public MVRefreshIntervalTriggerInfo() {}
+    public MVRefreshIntervalTriggerInfo() {
+    }
 
     public MVRefreshIntervalTriggerInfo(String startTime, long interval, String timeUnit) {
         this.startTime = startTime;
@@ -52,7 +53,7 @@ public class MVRefreshIntervalTriggerInfo {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         if (startTime != null) {
-            sb.append(" START WITH ").append(startTime);
+            sb.append(" START WITH \"").append(startTime).append("\"");
         }
         if (interval > 0) {
             sb.append(" NEXT ").append(interval).append(" ").append(timeUnit);

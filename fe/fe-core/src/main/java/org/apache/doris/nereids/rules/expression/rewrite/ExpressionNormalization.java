@@ -19,13 +19,17 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeticComparisonRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
 
@@ -41,18 +45,24 @@ public class ExpressionNormalization extends ExpressionRewrite {
             BetweenToCompoundRule.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
+            // TODO(morrySnow): remove type coercion from here after we could process subquery type coercion when bind
             CharacterLiteralTypeCoercion.INSTANCE,
+            SimplifyArithmeticRule.INSTANCE,
             TypeCoercion.INSTANCE,
             FoldConstantRule.INSTANCE,
-            SimplifyCastRule.INSTANCE
+            SimplifyCastRule.INSTANCE,
+            DigitalMaskingConvert.INSTANCE,
+            SimplifyArithmeticComparisonRule.INSTANCE,
+            SupportJavaDateFormatter.INSTANCE
     );
 
-    public ExpressionNormalization(ConnectContext context) {
-        super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES, context));
+    public ExpressionNormalization() {
+        super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
     }
 
-    public ExpressionNormalization(ConnectContext context, List<ExpressionRewriteRule> rules) {
-        super(new ExpressionRuleExecutor(rules, context));
+    @Override
+    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+        return super.rewrite(expression, context);
     }
 }
 

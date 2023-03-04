@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris::vectorized {
@@ -39,7 +40,7 @@ protected:
 private:
     VScanner* _create_scanner(const TFileScanRange& scan_range);
 
-private:
     std::vector<TScanRangeParams> _scan_ranges;
+    KVCache<std::string> _kv_cache;
 };
 } // namespace doris::vectorized

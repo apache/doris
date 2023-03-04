@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -64,21 +65,27 @@ public class GetDataTypeTest {
 
     @Test
     public void testSum() {
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(nullLiteral).getDataType());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(booleanLiteral).getDataType());
-        Assertions.assertEquals(BigIntType.INSTANCE, new Sum(tinyIntLiteral).getDataType());
-        Assertions.assertEquals(BigIntType.INSTANCE, new Sum(smallIntLiteral).getDataType());
-        Assertions.assertEquals(BigIntType.INSTANCE, new Sum(integerLiteral).getDataType());
-        Assertions.assertEquals(BigIntType.INSTANCE, new Sum(bigIntLiteral).getDataType());
-        Assertions.assertEquals(LargeIntType.INSTANCE, new Sum(largeIntLiteral).getDataType());
-        Assertions.assertEquals(DoubleType.INSTANCE, new Sum(floatLiteral).getDataType());
-        Assertions.assertEquals(DoubleType.INSTANCE, new Sum(doubleLiteral).getDataType());
-        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(27, 9), new Sum(decimalLiteral).getDataType());
-        Assertions.assertEquals(BigIntType.INSTANCE, new Sum(bigIntLiteral).getDataType());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(charLiteral).getDataType());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(varcharLiteral).getDataType());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(stringLiteral).getDataType());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(dateLiteral).getDataType());
-        Assertions.assertThrows(RuntimeException.class, () -> new Sum(dateTimeLiteral).getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(nullLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(booleanLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(tinyIntLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(smallIntLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(integerLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(bigIntLiteral)));
+        Assertions.assertEquals(LargeIntType.INSTANCE, checkAndGetDataType(new Sum(largeIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(floatLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(doubleLiteral)));
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(27, 9), checkAndGetDataType(new Sum(decimalLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(bigIntLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(charLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(varcharLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(stringLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateTimeLiteral)));
+    }
+
+    private DataType checkAndGetDataType(Expression expression) {
+        expression.checkLegalityBeforeTypeCoercion();
+        expression.checkLegalityAfterRewrite();
+        return expression.getDataType();
     }
 }

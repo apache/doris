@@ -24,7 +24,7 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -94,12 +94,13 @@ public class ResourceMgrTest {
         s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
         s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
         s3Properties.put("AWS_BUCKET", "test-bucket");
+        s3Properties.put("s3_validity_check", "false");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
     public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
-            @Mocked Env env, @Injectable PaloAuth auth) throws UserException {
+            @Mocked Env env, @Injectable AccessControllerManager accessManager) throws UserException {
         new Expectations() {
             {
                 env.getBrokerMgr();
@@ -108,9 +109,9 @@ public class ResourceMgrTest {
                 result = true;
                 env.getEditLog();
                 result = editLog;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -166,7 +167,8 @@ public class ResourceMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Env env, @Injectable PaloAuth auth)
+    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Env env,
+            @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
@@ -174,9 +176,9 @@ public class ResourceMgrTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };

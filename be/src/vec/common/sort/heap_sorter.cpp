@@ -45,7 +45,10 @@ Status HeapSorter::append_block(Block* block) {
             int i = 0;
             const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
             for (auto column_id : valid_column_ids) {
-                if (convert_nullable_flags[i]) {
+                if (column_id < 0) {
+                    continue;
+                }
+                if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
                     auto column_ptr = make_nullable(block->get_by_position(column_id).column);
                     new_block.insert({column_ptr,
                                       make_nullable(block->get_by_position(column_id).type), ""});
@@ -139,6 +142,17 @@ Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     _return_block.swap(*block);
     *eos = true;
     return Status::OK();
+}
+
+Field HeapSorter::get_top_value() {
+    Field field {Field::Types::Null};
+    // get field from first sort column of top row
+    if (_heap->size() >= _heap_size) {
+        auto& top = _heap->top();
+        top.sort_columns()[0]->get(top.row_id(), field);
+    }
+
+    return field;
 }
 
 void HeapSorter::_do_filter(HeapSortCursorBlockView& block_view, size_t num_rows) {

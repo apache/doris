@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -30,8 +31,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.datasource.EsExternalCatalog;
-import org.apache.doris.external.elasticsearch.EsUtil;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -93,6 +93,11 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
+    // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
+    public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
+    public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
+    public static final String PROPERTIES_DYNAMIC_SCHEMA = "dynamic_schema";
+
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
@@ -116,6 +121,10 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
+
+    public static final String PROPERTIES_MUTABLE = "mutable";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -132,7 +141,7 @@ public class PropertyAnalyzer {
     /**
      * check and replace members of DataProperty by properties.
      *
-     * @param properties key->value for members to change.
+     * @param properties      key->value for members to change.
      * @param oldDataProperty old DataProperty
      * @return new DataProperty
      * @throws AnalysisException property has invalid key->value
@@ -220,7 +229,10 @@ public class PropertyAnalyzer {
             }
         }
 
-        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy);
+        boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
+        properties.remove(PROPERTIES_MUTABLE);
+
+        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
@@ -247,7 +259,8 @@ public class PropertyAnalyzer {
             throws AnalysisException {
         Short replicationNum = oldReplicationNum;
         String propKey = Strings.isNullOrEmpty(prefix)
-                ? PROPERTIES_REPLICATION_NUM : prefix + "." + PROPERTIES_REPLICATION_NUM;
+                ? PROPERTIES_REPLICATION_NUM
+                : prefix + "." + PROPERTIES_REPLICATION_NUM;
         if (properties != null && properties.containsKey(propKey)) {
             try {
                 replicationNum = Short.valueOf(properties.get(propKey));
@@ -349,7 +362,7 @@ public class PropertyAnalyzer {
     }
 
     public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns,
-                                                        KeysType keysType) throws AnalysisException {
+            KeysType keysType) throws AnalysisException {
         Set<String> bfColumns = null;
         if (properties != null && properties.containsKey(PROPERTIES_BF_COLUMNS)) {
             bfColumns = Sets.newHashSet();
@@ -371,7 +384,7 @@ public class PropertyAnalyzer {
                         // key columns and none/replace aggregate non-key columns support
                         if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
                                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isArrayType()) {
+                                || type.isComplexType()) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
@@ -448,12 +461,12 @@ public class PropertyAnalyzer {
 
     public static Boolean analyzeUseLightSchemaChange(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            return true;
         }
         String value = properties.get(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
-        // set light schema change false by default
+        // set light schema change true by default
         if (null == value) {
-            return false;
+            return true;
         }
         properties.remove(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
         if (value.equalsIgnoreCase("true")) {
@@ -461,8 +474,7 @@ public class PropertyAnalyzer {
         } else if (value.equalsIgnoreCase("false")) {
             return false;
         }
-        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE
-                + " must be `true` or `false`");
+        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE + " must be `true` or `false`");
     }
 
     public static Boolean analyzeDisableAutoCompaction(Map<String, String> properties) throws AnalysisException {
@@ -484,8 +496,27 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static Boolean analyzeStoreRowColumn(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_STORE_ROW_COLUMN);
+        // set store_row_column false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_STORE_ROW_COLUMN);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN
+                + " must be `true` or `false`");
+    }
+
     // analyzeCompressionType will parse the compression type from properties
-    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws  AnalysisException {
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
         String compressionType = "";
         if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
             compressionType = properties.get(PROPERTIES_COMPRESSION);
@@ -545,6 +576,15 @@ public class PropertyAnalyzer {
             return Boolean.parseBoolean(val);
         }
         return defaultVal;
+    }
+
+    public static String analyzeEstimatePartitionSize(Map<String, String> properties) {
+        String  estimatePartitionSize = "";
+        if (properties != null && properties.containsKey(PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            estimatePartitionSize = properties.get(PROPERTIES_ESTIMATE_PARTITION_SIZE);
+            properties.remove(PROPERTIES_ESTIMATE_PARTITION_SIZE);
+        }
+        return estimatePartitionSize;
     }
 
     public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
@@ -762,41 +802,35 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
-
     /**
      * Check the type property of the catalog props.
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
             throws AnalysisException {
-        if (!properties.containsKey("type") && !isAlter) {
-            // For "alter catalog" stmt, no need to contain "type".
-            // For "create catalog" stmt, must contain "type"
-            throw new AnalysisException("All the external catalog should contain the 'type' property.");
-        }
-
         // validate the properties of es catalog
         if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
-                if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
-                }
-
-                if (properties.containsKey(EsExternalCatalog.PROP_DOC_VALUE_SCAN)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_DOC_VALUE_SCAN);
-                }
-
-                if (properties.containsKey(EsExternalCatalog.PROP_KEYWORD_SNIFF)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_KEYWORD_SNIFF);
-                }
-
-                if (properties.containsKey(EsExternalCatalog.PROP_NODES_DISCOVERY)) {
-                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_NODES_DISCOVERY);
-                }
+                EsResource.valid(properties, true);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
         }
+        // validate access controller properties
+        // eg:
+        // (
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.properties.prop1" = "xxx",
+        // "access_controller.properties.prop2" = "yyy",
+        // )
+        // 1. get access controller class
+        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (!Strings.isNullOrEmpty(acClass)) {
+            // 2. check if class exists
+            try {
+                Class.forName(acClass);
+            } catch (ClassNotFoundException e) {
+                throw new AnalysisException("failed to find class " + acClass, e);
+            }
+        }
     }
 }
-
-

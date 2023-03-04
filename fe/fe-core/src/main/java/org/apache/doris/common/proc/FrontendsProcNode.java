@@ -74,12 +74,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
-        String masterIp = "";
-        int masterPort = -1;
+        InetSocketAddress master = null;
         try {
-            InetSocketAddress master = env.getHaProtocol().getLeader();
-            masterIp = master.getAddress().getHostAddress();
-            masterPort = master.getPort();
+            master = env.getHaProtocol().getLeader();
         } catch (Exception e) {
             // this may happen when majority of FOLLOWERS are down and no MASTER right now.
             LOG.warn("failed to get leader: {}", e.getMessage());
@@ -117,7 +114,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
 
             info.add(fe.getRole().name());
-            info.add(String.valueOf(fe.getHost().equals(masterIp) && fe.getEditLogPort() == masterPort));
+            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
+            //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
+            //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
+            info.add(String.valueOf(socketAddress.equals(master)));
 
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFeHosts, fe)));

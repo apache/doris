@@ -17,14 +17,64 @@
 
 suite("join") {
     sql """
-        SET enable_vectorized_engine=true
-    """
-
-    sql """
         SET enable_nereids_planner=true
     """
 
     sql "SET enable_fallback_to_original_planner=false"
+
+    sql """
+        drop table if exists test_table_a;
+    """
+
+    sql """
+        drop table if exists test_table_b;
+    """
+
+    sql """
+        CREATE TABLE `test_table_a`
+        (
+            `wtid`                varchar(30)    NOT NULL ,
+            `wfid`           varchar(30) NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`wtid`,`wfid`)
+        DISTRIBUTED BY HASH(`wfid`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        CREATE TABLE `test_table_b`
+        (
+            `wtid`           varchar(100) NOT NULL ,
+            `wfid`           varchar(100) NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`wtid`,`wfid`)
+        DISTRIBUTED BY HASH(`wfid`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        insert into test_table_b values( '1', '1'),('2','2'),('3','3'),('1','2'),('1','3'),('2','3'); 
+    """
+
+    sql """
+        insert into test_table_a values( '1', '1'),('2','2'),('3','3'),('1','2'),('1','3'),('2','3'); 
+    """
+
+    // must analyze before explain, because empty table may generate different plan
+    sql """
+        analyze table test_table_b;
+    """
+
+    sql """
+        analyze table test_table_a;
+    """
 
     order_qt_inner_join_1 """
         SELECT * FROM lineorder JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey
@@ -77,5 +127,115 @@ suite("join") {
     order_qt_outer_join_with_filter """
         select lo_orderkey, lo_partkey, p_partkey, p_size from lineorder inner join part on lo_partkey = p_partkey where lo_orderkey - 1310000 > p_size;
     """
-}
 
+    sql """
+        drop table if exists outerjoin_A_join;
+    """
+
+    sql """
+        drop table if exists outerjoin_B_join;
+    """
+
+    sql """
+        drop table if exists outerjoin_C_join;
+    """
+
+    sql """
+        drop table if exists outerjoin_D;
+    """
+    
+    sql """
+        create table if not exists outerjoin_A_join ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table if not exists outerjoin_B_join ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table if not exists outerjoin_C_join ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        create table if not exists outerjoin_D ( a int not null )
+        ENGINE=OLAP
+        DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+    """
+
+    sql """
+        insert into outerjoin_A_join values( 1 );
+    """
+
+    sql """
+        insert into outerjoin_B_join values( 1 );
+    """
+
+    sql """
+        insert into outerjoin_C_join values( 1 );
+    """
+
+    sql """
+        insert into outerjoin_D values( 1 );
+    """
+
+    def explainStr =
+        sql(""" explain SELECT count(1)
+                FROM 
+                    (SELECT sub1.wtid,
+                        count(*)
+                    FROM 
+                        (SELECT a.wtid ,
+                        a.wfid
+                        FROM test_table_b a ) sub1
+                        INNER JOIN [shuffle] 
+                            (SELECT a.wtid,
+                        a.wfid
+                            FROM test_table_a a ) sub2
+                                ON sub1.wtid = sub2.wtid
+                                    AND sub1.wfid = sub2.wfid
+                            GROUP BY  sub1.wtid ) qqqq;""").toString()
+    logger.info(explainStr)
+    assertTrue(
+        //if analyze finished
+            explainStr.contains("4:VAGGREGATE (update serialize)") && explainStr.contains("6:VAGGREGATE (merge finalize)")
+                    && explainStr.contains("wtid[#8] = CAST(wtid[#3] AS CHARACTER)") && explainStr.contains("projections: wtid[#5], wfid[#6]")
+                    ||
+        //analyze not finished
+                    explainStr.contains("7:VAGGREGATE (update finalize)") && explainStr.contains("5:VAGGREGATE (update finalize)")
+                    && explainStr.contains("4:VEXCHANGE") && explainStr.contains("3:VHASH JOIN")
+    )
+
+    test {
+        sql"""select * from test_table_a a cross join test_table_b b on a.wtid > b.wtid"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+}

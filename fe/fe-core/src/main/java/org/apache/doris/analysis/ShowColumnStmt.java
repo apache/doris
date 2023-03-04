@@ -164,7 +164,7 @@ public class ShowColumnStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        analyzer.setSchemaInfo(tableName.getDb(), tableName.getTbl(), null);
+        analyzer.setSchemaInfo(tableName.getDb(), tableName.getTbl(), null, tableName.getCtl());
 
         return selectStmt;
     }

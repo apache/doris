@@ -183,11 +183,17 @@ struct BitmapFromString {
     static constexpr auto name = "bitmap_from_string";
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res, NullMap& null_map) {
-        auto size = offsets.size();
-        res.reserve(size);
+                         std::vector<BitmapValue>& res, NullMap& null_map,
+                         size_t input_rows_count) {
+        res.reserve(input_rows_count);
         std::vector<uint64_t> bits;
-        for (size_t i = 0; i < size; ++i) {
+        if (offsets.size() == 0 && input_rows_count == 1) {
+            // For NULL constant
+            res.emplace_back();
+            null_map[0] = 1;
+            return Status::OK();
+        }
+        for (size_t i = 0; i < input_rows_count; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t str_size = offsets[i] - offsets[i - 1];
 
@@ -272,7 +278,7 @@ public:
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
-            Impl::vector(data, offsets, res, null_map);
+            Impl::vector(data, offsets, res, null_map, input_rows_count);
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)

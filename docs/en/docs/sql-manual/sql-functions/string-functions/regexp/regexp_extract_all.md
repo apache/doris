@@ -30,7 +30,7 @@ under the License.
 
 `VARCHAR regexp_extract_all (VARCHAR str, VARCHAR pattern)`
 
-Regularly matches a string str and extracts the first sub-pattern matching part of pattern. The pattern needs to exactly match a part of str in order to return an array of strings for the part of the pattern that needs to be matched. If there is no match, the empty string is returned.
+Regularly matches a string str and extracts the first sub-pattern matching part of pattern. The pattern needs to exactly match a part of str in order to return an array of strings for the part of the pattern that needs to be matched. If there is no match or the pattern has no sub-pattern, the empty string is returned.
 
 ### example
 

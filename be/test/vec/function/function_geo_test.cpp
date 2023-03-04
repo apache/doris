@@ -22,9 +22,7 @@
 
 #include "function_test_util.h"
 #include "geo/geo_types.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -246,24 +244,6 @@ TEST(VGeoFunctionsTest, function_geo_st_linefromtext) {
     }
 }
 
-TEST(VGeoFunctionsTest, function_geo_st_linestringfromtext) {
-    std::string func_name = "st_linestringfromtext";
-    {
-        InputTypeSet input_types = {TypeIndex::String};
-
-        GeoParseStatus status;
-        std::string buf;
-        std::string input = "LINESTRING (1 1, 2 2)";
-        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), &status));
-        EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
-        shape->encode_to(&buf);
-        DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
-
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
-    }
-}
-
 TEST(VGeoFunctionsTest, function_geo_st_polygon) {
     std::string func_name = "st_polygon";
     {
@@ -285,25 +265,6 @@ TEST(VGeoFunctionsTest, function_geo_st_polygon) {
 
 TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
     std::string func_name = "st_polygonfromtext";
-    {
-        InputTypeSet input_types = {TypeIndex::String};
-
-        GeoParseStatus status;
-        std::string buf;
-        std::string input = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
-        std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), &status));
-        EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
-        shape->encode_to(&buf);
-        DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, buf},
-                            {{Null()}, Null()}};
-
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
-    }
-}
-
-TEST(VGeoFunctionsTest, function_geo_st_polyfromtext) {
-    std::string func_name = "st_polyfromtext";
     {
         InputTypeSet input_types = {TypeIndex::String};
 

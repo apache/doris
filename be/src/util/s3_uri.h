@@ -31,6 +31,7 @@ public:
     const std::string& get_key() const { return _key; }
     const std::string& get_location() const { return _location; }
     const std::string& get_scheme() const { return _scheme; }
+    std::string to_string() const;
 
 private:
     static const std::string _SCHEME_DELIM;

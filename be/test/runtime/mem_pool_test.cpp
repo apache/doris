@@ -83,13 +83,6 @@ TEST(MemPoolTest, Basic) {
     p3.acquire_data(&p2, true); // we're keeping the 65k chunk
     EXPECT_EQ(33 * 1024, p2.total_allocated_bytes());
     EXPECT_EQ(256 * 1024, p2.total_reserved_bytes());
-
-    {
-        MemPool p4;
-        p4.exchange_data(&p2);
-        EXPECT_EQ(33 * 1024, p4.total_allocated_bytes());
-        EXPECT_EQ(256 * 1024, p4.total_reserved_bytes());
-    }
 }
 
 // Test that we can keep an allocated chunk and a free chunk.
@@ -112,14 +105,6 @@ TEST(MemPoolTest, Keep) {
     EXPECT_EQ(p.total_reserved_bytes(), (4 + 8 + 16) * 1024);
     MemPool p2;
     p2.acquire_data(&p, true);
-
-    {
-        p2.exchange_data(&p);
-        EXPECT_EQ(4 * 1024, p2.total_allocated_bytes());
-        EXPECT_EQ((8 + 16) * 1024, p2.total_reserved_bytes());
-        EXPECT_EQ(1 * 1024, p.total_allocated_bytes());
-        EXPECT_EQ(4 * 1024, p.total_reserved_bytes());
-    }
 }
 
 // Maximum allocation size which exceeds 32-bit.

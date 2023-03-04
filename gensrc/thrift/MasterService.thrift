@@ -42,6 +42,10 @@ struct TTabletInfo {
     15: optional Types.TReplicaId replica_id
     // data size on remote storage
     16: optional Types.TSize remote_data_size
+    // 17: optional Types.TReplicaId cooldown_replica_id
+    // 18: optional bool is_cooldown
+    19: optional i64 cooldown_term
+    20: optional Types.TUniqueId cooldown_meta_id
 }
 
 struct TFinishTaskRequest {
@@ -95,6 +99,8 @@ struct TReportRequest {
     // the max compaction score of all tablets on a backend,
     // this field should be set along with tablet report
     8: optional i64 tablet_max_compaction_score
+    9: optional list<AgentService.TStoragePolicy> storage_policy // only id and version
+    10: optional list<AgentService.TStorageResource> resource // only id and version
 }
 
 struct TMasterResult {

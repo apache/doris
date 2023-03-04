@@ -32,6 +32,7 @@ namespace doris::vectorized {
 /** A column of array values.
   * In memory, it is represented as one column of a nested type, whose size is equal to the sum of the sizes of all arrays,
   *  and as an array of offsets in it, which allows you to get each element.
+  * NOTE: the ColumnArray won't nest multi-layers. That means the nested type will be concrete data-type.
   */
 class ColumnArray final : public COWHelper<IColumn, ColumnArray> {
 private:
@@ -87,7 +88,7 @@ public:
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
-    TypeIndex get_data_type() const { return TypeIndex::Array; }
+    TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     Field operator[](size_t n) const override;
@@ -104,9 +105,11 @@ public:
     void insert_default() override;
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    //template <typename Type> ColumnPtr index_impl(const PaddedPODArray<Type> & indexes, size_t limit) const;
+    template <typename Type>
+    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
@@ -177,6 +180,22 @@ public:
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    size_t get_number_of_dimensions() const {
+        const auto* nested_array = check_and_get_column<ColumnArray>(*data);
+        if (!nested_array) {
+            return 1;
+        }
+        return 1 +
+               nested_array
+                       ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
+    }
+
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     WrappedPtr data;
@@ -210,9 +229,16 @@ private:
     template <typename T>
     ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
 
+    template <typename T>
+    size_t filter_number(const Filter& filter);
+
     ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;
     ColumnPtr filter_nullable(const Filter& filt, ssize_t result_size_hint) const;
     ColumnPtr filter_generic(const Filter& filt, ssize_t result_size_hint) const;
+
+    size_t filter_string(const Filter& filter);
+    size_t filter_nullable(const Filter& filter);
+    size_t filter_generic(const Filter& filter);
 };
 
 } // namespace doris::vectorized

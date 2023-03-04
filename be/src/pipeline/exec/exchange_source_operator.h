@@ -34,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ExchangeSourceOperator final : public Operator<ExchangeSourceOperatorBuilder> {
+class ExchangeSourceOperator final : public SourceOperator<ExchangeSourceOperatorBuilder> {
 public:
     ExchangeSourceOperator(OperatorBuilderBase*, ExecNode*);
     bool can_read() override;

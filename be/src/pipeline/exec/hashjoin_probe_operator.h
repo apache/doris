@@ -32,11 +32,11 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class HashJoinProbeOperator final : public DataStateOperator<HashJoinProbeOperatorBuilder> {
+class HashJoinProbeOperator final : public StatefulOperator<HashJoinProbeOperatorBuilder> {
 public:
     HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resoucre()` function call, only sink operator
+    // should skip `alloc_resource()` function call, only sink operator
     // call the function
     Status open(RuntimeState*) override { return Status::OK(); }
 };

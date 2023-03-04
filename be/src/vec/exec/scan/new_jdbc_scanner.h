@@ -18,6 +18,7 @@
 #pragma once
 
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exec/vjdbc_connector.h"
@@ -25,19 +26,30 @@ namespace doris {
 namespace vectorized {
 class NewJdbcScanner : public VScanner {
 public:
+    friend class JdbcConnector;
+
     NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                   const TupleId& tuple_id, const std::string& query_string);
+                   const TupleId& tuple_id, const std::string& query_string,
+                   TOdbcTableType::type table_type, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-public:
-    Status prepare(RuntimeState* state);
+    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
+    RuntimeProfile::Counter* _load_jar_timer = nullptr;
+    RuntimeProfile::Counter* _init_connector_timer = nullptr;
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _check_type_timer = nullptr;
+    RuntimeProfile::Counter* _execte_read_timer = nullptr;
+    RuntimeProfile::Counter* _connector_close_timer = nullptr;
+
 private:
+    void _update_profile();
+
     bool _is_init;
 
     bool _jdbc_eos;
@@ -48,6 +60,8 @@ private:
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
     const TupleDescriptor* _tuple_desc;
+    // the sql query database type: like mysql, PG...
+    TOdbcTableType::type _table_type;
     // Scanner of JDBC.
     std::unique_ptr<JdbcConnector> _jdbc_connector;
     JdbcConnectorParam _jdbc_param;

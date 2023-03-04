@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <climits>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -29,7 +30,10 @@
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
 #include "udf/udf.h"
+#include "util/cpu_info.h"
+#include "util/hash_util.hpp"
 #include "util/slice.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -40,11 +44,18 @@
 #if defined(__SSE4_2__)
 #include <nmmintrin.h>
 #include <smmintrin.h>
+
+#include "util/sse_util.hpp"
 #endif
 
 #if defined(__aarch64__)
 #include <sse2neon.h>
 #endif
+
+namespace doris {
+
+/// unnamed namespace packaging simd-style equality compare functions.
+namespace {
 
 #if defined(__SSE2__) || defined(__aarch64__)
 
@@ -112,19 +123,26 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
             p1 += 64;
             p2 += 64;
             size -= 64;
-        } else
+        } else {
             return false;
+        }
     }
 
     switch (size / 16) {
     case 3:
-        if (!compareSSE2(p1 + 32, p2 + 32)) return false;
+        if (!compareSSE2(p1 + 32, p2 + 32)) {
+            return false;
+        }
         [[fallthrough]];
     case 2:
-        if (!compareSSE2(p1 + 16, p2 + 16)) return false;
+        if (!compareSSE2(p1 + 16, p2 + 16)) {
+            return false;
+        }
         [[fallthrough]];
     case 1:
-        if (!compareSSE2(p1, p2)) return false;
+        if (!compareSSE2(p1, p2)) {
+            return false;
+        }
     }
 
     return compareSSE2(p1 + size - 16, p2 + size - 16);
@@ -132,89 +150,183 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 
 #endif
 
+// Compare two strings using sse4.2 intrinsics if they are available. This code assumes
+// that the trivial cases are already handled (i.e. one string is empty).
+// Returns:
+//   < 0 if s1 < s2
+//   0 if s1 == s2
+//   > 0 if s1 > s2
+// The SSE code path is just under 2x faster than the non-sse code path.
+//   - s1/n1: ptr/len for the first string
+//   - s2/n2: ptr/len for the second string
+//   - len: min(n1, n2) - this can be more cheaply passed in by the caller
+inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2, int64_t len) {
+    DCHECK_EQ(len, std::min(n1, n2));
+#ifdef __SSE4_2__
+    while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
+        __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
+        __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
+        int chars_match = _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
+                                       sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
+        if (chars_match != sse_util::CHARS_PER_128_BIT_REGISTER) {
+            return (unsigned char)s1[chars_match] - (unsigned char)s2[chars_match];
+        }
+        len -= sse_util::CHARS_PER_128_BIT_REGISTER;
+        s1 += sse_util::CHARS_PER_128_BIT_REGISTER;
+        s2 += sse_util::CHARS_PER_128_BIT_REGISTER;
+    }
+#endif
+    unsigned char u1, u2;
+    while (len-- > 0) {
+        u1 = (unsigned char)*s1++;
+        u2 = (unsigned char)*s2++;
+        if (u1 != u2) {
+            return u1 - u2;
+        }
+        if (u1 == '\0') {
+            return n1 - n2;
+        }
+    }
+
+    return n1 - n2;
+}
+
+} // unnamed namespace
+
+using namespace doris_udf;
 /// The thing to avoid creating strings to find substrings in the hash table.
+/// User should make sure data source is const.
+/// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
 struct StringRef {
+    // FIXME: opening member accessing really damages.
     const char* data = nullptr;
     size_t size = 0;
 
+    StringRef() = default;
     StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
     StringRef(const unsigned char* data_, size_t size_)
-            : data(reinterpret_cast<const char*>(data_)), size(size_) {}
+            : StringRef(reinterpret_cast<const char*>(data_), size_) {}
+
     StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
-    StringRef() = default;
+    StringRef(const StringVal& src) : StringRef(src.ptr, src.len) {}
+    explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
+
+    static StringRef from_string_val(const StringVal& src) { return StringRef(src); }
 
     std::string to_string() const { return std::string(data, size); }
+    std::string debug_string() const { return to_string(); }
     std::string_view to_string_view() const { return std::string_view(data, size); }
-    doris::Slice to_slice() const { return doris::Slice(data, size); }
+    Slice to_slice() const { return doris::Slice(data, size); }
 
-    // this is just for show, eg. print data to error log, to avoid print large string.
+    // this is just for show, e.g. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
 
+    // TODO: this function is dangerous!
+    StringVal to_string_val() const {
+        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    }
+
+    void to_string_val(StringVal* sv) const {
+        *sv = StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    }
+
     explicit operator std::string() const { return to_string(); }
+    operator std::string_view() const { return std::string_view {data, size}; }
 
     StringRef substring(int start_pos, int new_len) const {
         return StringRef(data + start_pos, (new_len < 0) ? (size - start_pos) : new_len);
     }
 
-    StringVal to_string_val() {
-        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
+    StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
+
+    // Trims leading and trailing spaces.
+    StringRef trim() const;
+
+    bool empty() const { return size == 0; }
+
+    // support for type_limit
+    static constexpr char MIN_CHAR = 0;
+    static constexpr char MAX_CHAR = char(
+            UCHAR_MAX); // We will convert char to uchar and compare, so we define max_char to unsigned char max.
+    static StringRef min_string_val();
+    static StringRef max_string_val();
+
+    bool start_with(const StringRef& search_string) const;
+    bool end_with(const StringRef& search_string) const;
+
+    // Byte-by-byte comparison. Returns:
+    // this < other: -1
+    // this == other: 0
+    // this > other: 1
+    int compare(const StringRef& other) const {
+        int l = std::min(size, other.size);
+
+        if (l == 0) {
+            if (size == other.size) {
+                return 0;
+            } else if (size == 0) {
+                return -1;
+            } else {
+                DCHECK_EQ(other.size, 0);
+                return 1;
+            }
+        }
+
+        return string_compare(this->data, this->size, other.data, other.size, l);
     }
 
-    static StringRef from_string_val(StringVal sv) {
-        return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
+    void replace(const char* ptr, int len) {
+        this->data = ptr;
+        this->size = len;
     }
 
-    bool start_with(StringRef& search_string) const {
-        DCHECK(size >= search_string.size);
-        if (search_string.size == 0) return true;
+    // Find the first position char of appear, return -1 if not found
+    size_t find_first_of(char c) const;
 
-#if defined(__SSE2__) || defined(__aarch64__)
-        return memequalSSE2Wide(data, search_string.data, search_string.size);
-#else
-        return 0 == memcmp(data, search_string.data, search_string.size);
+    // ==
+    bool eq(const StringRef& other) const {
+        if (this->size != other.size) {
+            return false;
+        }
+#if defined(__SSE2__)
+        return memequalSSE2Wide(this->data, other.data, this->size);
 #endif
+        return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;
     }
-    bool end_with(StringRef& search_string) const {
-        DCHECK(size >= search_string.size);
-        if (search_string.size == 0) return true;
 
-#if defined(__SSE2__) || defined(__aarch64__)
-        return memequalSSE2Wide(data + size - search_string.size, search_string.data,
-                                search_string.size);
-#else
-        return 0 ==
-               memcmp(data + size - search_string.size, search_string.data, search_string.size);
-#endif
-    }
-};
+    bool operator==(const StringRef& other) const { return eq(other); }
+    // !=
+    bool ne(const StringRef& other) const { return !eq(other); }
+    // <=
+    bool le(const StringRef& other) const { return compare(other) <= 0; }
+    // >=
+    bool ge(const StringRef& other) const { return compare(other) >= 0; }
+    // <
+    bool lt(const StringRef& other) const { return compare(other) < 0; }
+    // >
+    bool gt(const StringRef& other) const { return compare(other) > 0; }
+
+    bool operator!=(const StringRef& other) const { return ne(other); }
+
+    bool operator<=(const StringRef& other) const { return le(other); }
+
+    bool operator>=(const StringRef& other) const { return ge(other); }
+
+    bool operator<(const StringRef& other) const { return lt(other); }
+
+    bool operator>(const StringRef& other) const { return gt(other); }
+
+    struct Comparator {
+        bool operator()(const StringRef& a, const StringRef& b) const { return a.compare(b) < 0; }
+    };
+}; // class StringRef
+
+// This function must be called 'hash_value' to be picked up by boost.
+inline std::size_t hash_value(const StringRef& v) {
+    return HashUtil::hash(v.data, v.size, 0);
+}
 
 using StringRefs = std::vector<StringRef>;
-
-inline bool operator==(StringRef lhs, StringRef rhs) {
-    if (lhs.size != rhs.size) return false;
-
-    if (lhs.size == 0) return true;
-
-#if defined(__SSE2__) || defined(__aarch64__)
-    return memequalSSE2Wide(lhs.data, rhs.data, lhs.size);
-#else
-    return 0 == memcmp(lhs.data, rhs.data, lhs.size);
-#endif
-}
-
-inline bool operator!=(StringRef lhs, StringRef rhs) {
-    return !(lhs == rhs);
-}
-
-inline bool operator<(StringRef lhs, StringRef rhs) {
-    int cmp = memcmp(lhs.data, rhs.data, std::min(lhs.size, rhs.size));
-    return cmp < 0 || (cmp == 0 && lhs.size < rhs.size);
-}
-
-inline bool operator>(StringRef lhs, StringRef rhs) {
-    int cmp = memcmp(lhs.data, rhs.data, std::min(lhs.size, rhs.size));
-    return cmp > 0 || (cmp == 0 && lhs.size > rhs.size);
-}
 
 /** Hash functions.
   * You can use either CityHash64,
@@ -277,11 +389,13 @@ inline size_t hash_less_than16(const char* data, size_t size) {
 }
 
 struct CRC32Hash {
-    size_t operator()(StringRef x) const {
+    size_t operator()(const StringRef& x) const {
         const char* pos = x.data;
         size_t size = x.size;
 
-        if (size == 0) return 0;
+        if (size == 0) {
+            return 0;
+        }
 
         if (size < 8) {
             return hash_less_than8(x.data, x.size);
@@ -317,24 +431,21 @@ struct CRC32Hash {
 
 struct StringRefHash : StringRefHash64 {};
 
-#endif
+#endif // end of hash functions
 
-namespace std {
-template <>
-struct hash<StringRef> : public StringRefHash {};
-} // namespace std
+inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
+    return os << str.to_string();
+}
+} // namespace doris
 
 namespace ZeroTraits {
-inline bool check(const StringRef& x) {
+inline bool check(const doris::StringRef& x) {
     return 0 == x.size;
 }
-inline void set(StringRef& x) {
+inline void set(doris::StringRef& x) {
     x.size = 0;
 }
 } // namespace ZeroTraits
 
-inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
-    if (str.data) os.write(str.data, str.size);
-
-    return os;
-}
+template <>
+struct std::hash<doris::StringRef> : public doris::StringRefHash {};

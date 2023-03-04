@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -232,7 +233,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         double ndv = statsForLeft.getNdv();
         double max = statsForLeft.getMaxValue();
         double min = statsForLeft.getMinValue();
-        if (cp instanceof EqualTo) {
+        if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
             if (!isNot) {
                 if (statsForLeft.isUnknown()) {
                     selectivity = DEFAULT_EQUALITY_COMPARISON_SELECTIVITY;
@@ -298,7 +299,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         double rightMin = statsForRight.minValue;
         double leftMax = statsForLeft.maxValue;
         double rightMax = statsForRight.maxValue;
-        if (cp instanceof EqualTo) {
+        if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
             if (!statsForLeft.hasIntersect(statsForRight)) {
                 return 0.0;
             }

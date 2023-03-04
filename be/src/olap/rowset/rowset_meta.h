@@ -26,11 +26,11 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_system.h"
-#include "io/fs/file_system_map.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/olap_common.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
 
@@ -87,23 +87,28 @@ public:
     }
 
     // This method may return nullptr.
-    io::FileSystemSPtr fs() {
+    const io::FileSystemSPtr& fs() {
         if (!_fs) {
             if (is_local()) {
-                return io::global_local_filesystem();
+                _fs = io::global_local_filesystem();
             } else {
-                _fs = io::FileSystemMap::instance()->get(resource_id());
+                _fs = get_filesystem(resource_id());
                 LOG_IF(WARNING, !_fs) << "Cannot get file system: " << resource_id();
             }
         }
         return _fs;
     }
 
-    void set_fs(io::FileSystemSPtr fs) { _fs = std::move(fs); }
+    void set_fs(io::FileSystemSPtr fs) {
+        if (fs && fs->type() != io::FileSystemType::LOCAL) {
+            _rowset_meta_pb.set_resource_id(fs->id());
+        }
+        _fs = std::move(fs);
+    }
 
-    const io::ResourceId& resource_id() const { return _rowset_meta_pb.resource_id(); }
+    const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
-    void set_resource_id(io::ResourceId resource_id) {
+    void set_resource_id(std::string resource_id) {
         _rowset_meta_pb.set_resource_id(std::move(resource_id));
     }
 
@@ -349,20 +354,13 @@ public:
         }
     }
 
-    void set_oldest_write_timestamp(int64_t timestamp) {
-        _rowset_meta_pb.set_oldest_write_timestamp(timestamp);
-    }
-
     void set_newest_write_timestamp(int64_t timestamp) {
         _rowset_meta_pb.set_newest_write_timestamp(timestamp);
     }
 
-    int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
-
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema) {
-        DCHECK(_schema == nullptr);
         _schema = TabletSchemaCache::instance()->insert(tablet_schema->to_key());
     }
 

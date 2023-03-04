@@ -94,7 +94,6 @@ export MYSQL_PWD=${PASSWORD}
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
-echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 
 run_sql() {
@@ -150,4 +149,4 @@ run_sql "set global exec_mem_limit=${origin_exec_mem_limit};"
 run_sql "set global batch_size=${origin_batch_size};"
 echo '============================================'
 
-echo 'Done.'
+echo 'Finish ssb-flat queries.'

@@ -28,21 +28,6 @@ suite("explode_split") {
 
     sql """ INSERT INTO ${tableName} VALUES (1, 'a,b,c') """
 
-    // not_vectorized
-    sql """ set enable_vectorized_engine = false """
-    qt_explode_split """ select * from ${tableName} 
-                        lateral view explode_split(k2, ',') tmp1 as e1 """
-
-    qt_explode_split """ select * from ${tableName}
-                        lateral view explode_split(k2, ',') tmp1 as e1 
-                        lateral view explode_split(k2, ',') tmp2 as e2 """
-
-    qt_explode_split """ WITH example1  AS ( select  6 AS k1 ,'a,b,c' AS k2)
-                         select  k1, e1 from example1
-                         lateral view explode_split(k2, ',') tmp as  e1 """
-
-    // vectorized
-    sql """ set enable_vectorized_engine = true """
     qt_explode_split """ select * from ${tableName} 
                         lateral view explode_split(k2, ',') tmp1 as e1 """
 

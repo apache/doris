@@ -24,16 +24,15 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -59,7 +58,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     // Physical plans
     // *******************************
     @Override
-    public PhysicalAggregate visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, CascadesContext context) {
+    public PhysicalHashAggregate visitPhysicalHashAggregate(
+            PhysicalHashAggregate<? extends Plan> agg, CascadesContext context) {
         agg.child().accept(this, context);
         context.getRuntimeFilterContext().addEffectiveSrcNode(agg);
         return agg;
@@ -129,19 +129,19 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan olapScan, CascadesContext context) {
+    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(olapScan.getId());
+        List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getId());
         if (slots != null) {
             for (Slot slot : slots) {
                 //if this scan node is the target of any effective RF, it is effective source
                 if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
-                    context.getRuntimeFilterContext().addEffectiveSrcNode(olapScan);
+                    context.getRuntimeFilterContext().addEffectiveSrcNode(scan);
                     break;
                 }
             }
         }
-        return olapScan;
+        return scan;
     }
 
     // *******************************
@@ -154,15 +154,6 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             context.getRuntimeFilterContext().addEffectiveSrcNode(distribute);
         }
         return distribute;
-    }
-
-    public PhysicalLocalQuickSort visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort,
-            CascadesContext context) {
-        sort.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(sort.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(sort);
-        }
-        return sort;
     }
 
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,

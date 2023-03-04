@@ -265,11 +265,13 @@ message BitmapIndexPB {
 
 enum HashStrategyPB {
     HASH_MURMUR3_X64_64 = 0;
+    CITY_HASH_64 = 1;
 }
 
 enum BloomFilterAlgorithmPB {
     BLOCK_BLOOM_FILTER = 0;
     CLASSIC_BLOOM_FILTER = 1;
+    NGRAM_BLOOM_FILTER = 2;
 }
 
 message BloomFilterIndexPB {

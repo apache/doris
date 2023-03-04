@@ -22,7 +22,6 @@
 
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
@@ -77,7 +76,7 @@ public:
     /// thread-local state should be initialized. Otherwise, if scope is THREAD_LOCAL, only
     /// thread-local state should be initialized.
     //
-    /// Subclasses overriding this function should call Expr::Open() to recursively call
+    /// Subclasses overriding this function should call VExpr::Open() to recursively call
     /// Open() on the expr tree
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
@@ -100,6 +99,8 @@ public:
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
     TExprNodeType::type node_type() const { return _node_type; }
+
+    TExprOpcode::type op() const { return _opcode; }
 
     void add_child(VExpr* expr) { _children.push_back(expr); }
 
@@ -148,9 +149,9 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    Status get_const_col(VExprContext* context, ColumnPtrWrapper** output);
+    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
-    int fn_context_index() const { return _fn_context_index; };
+    int fn_context_index() const { return _fn_context_index; }
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
         if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
@@ -179,6 +180,7 @@ public:
     }
 
 protected:
+    static FunctionContext::TypeDesc column_type_to_type_desc(const TypeDescriptor& type);
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;
@@ -203,6 +205,8 @@ protected:
                                 const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
+    // Used to check what opcode
+    TExprOpcode::type _opcode;
     TypeDescriptor _type;
     DataTypePtr _data_type;
     std::vector<VExpr*> _children;

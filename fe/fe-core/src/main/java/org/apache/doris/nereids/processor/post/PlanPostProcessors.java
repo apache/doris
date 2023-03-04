@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -57,7 +58,10 @@ public class PlanPostProcessors {
     public List<PlanPostProcessor> getProcessors() {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
-        if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
+        builder.add(new MergeProjectPostProcessor());
+        if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()
+                && !cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
+                        .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
             builder.add(new RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());

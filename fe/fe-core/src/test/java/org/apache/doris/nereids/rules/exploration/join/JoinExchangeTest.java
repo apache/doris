@@ -22,15 +22,15 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class JoinExchangeTest implements PatternMatchSupported {
+class JoinExchangeTest implements MemoPatternMatchSupported {
     @Test
     public void testSimple() {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -40,11 +40,11 @@ class JoinExchangeTest implements PatternMatchSupported {
 
         LogicalPlan plan = new LogicalPlanBuilder(
                 new LogicalPlanBuilder(scan1)
-                        .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                        .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                         .build())
-                .hashJoinUsing(
+                .join(
                         new LogicalPlanBuilder(scan3)
-                                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
+                                .join(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
                                 .build(),
                         JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(2, 2)))
                 .build();

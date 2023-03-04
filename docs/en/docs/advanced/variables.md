@@ -69,6 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
+* `insert_timeout`<version since="dev"></version>
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -358,7 +359,12 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `query_timeout`
 
-    Used to set the query timeout. This variable applies to all query statements in the current connection, as well as INSERT statements. The default is 5 minutes, in seconds.
+    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 5 minutes, in seconds.
+
+* `insert_timeout`
+
+  <version since="dev"></version>Used to set the insert timeout. This variable applies to INSERT statements particularly in the current connection, and is recommended to manage long-duration INSERT action. The default is 4 hours, in seconds. It will lose effect when query_timeout is
+    greater than itself to make it compatible with the habits of older version users to use query_timeout to control the timeout of INSERT statements.
 
 * `resource_group`
 
@@ -527,10 +533,16 @@ Translated with www.DeepL.com/Translator (free version)
   Used to control whether trim the tailing spaces while quering Hive external tables. The default is false.
 
 * `skip_storage_engine_merge`
-  For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
+
+    For debugging purpose. In vectorized execution engine, in case of problems of reading data of Aggregate Key model and Unique Key model, setting value to `true` will read data as Duplicate Key model.
 
 * `skip_delete_predicate`
-  For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
+
+    For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
+
+* `skip_delete_bitmap`
+
+    For debugging purpose. In Unique Key MoW table, in case of problems of reading data, setting value to `true` will also read deleted data.
 
 * `default_password_lifetime`
 
@@ -553,3 +565,54 @@ Translated with www.DeepL.com/Translator (free version)
 * `validate_password_policy`
 
 	Password strength verification policy. Defaults to `NONE` or `0`, i.e. no verification. Can be set to `STRONG` or `2`. When set to `STRONG` or `2`, when setting a password via the `ALTER USER` or `SET PASSWORD` commands, the password must contain any of "uppercase letters", "lowercase letters", "numbers" and "special characters". 3 items, and the length must be greater than or equal to 8. Special characters include: `~!@#$%^&*()_+|<>,.?/:;'[]{}"`.
+
+* `group_concat_max_len`
+
+    For compatible purpose. This variable has no effect, just enable some BI tools can query or set this session variable sucessfully.
+
+* `rewrite_or_to_in_predicate_threshold`
+
+    The default threshold of rewriting OR to IN. The default value is 2, which means that when there are 2 ORs, if they can be compact, they will be rewritten as IN predicate.
+
+*   `group_by_and_having_use_alias_first`
+
+    Specifies whether group by and having clauses use column aliases rather than searching for column name in From clause. The default value is false.
+
+* `enable_file_cache`
+
+    Set wether to use block file cache. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+
+* `topn_opt_limit_threshold`
+
+    Set threshold for limit of topn query (eg. SELECT * FROM t ORDER BY k LIMIT n). If n <= threshold, topn optimizations(runtime predicate pushdown, two phase result fetch and read order by key) will enable automatically, otherwise disable. Default value is 1024.
+
+* `drop_table_if_ctas_failed`
+
+    Controls whether create table as select deletes created tables when a insert error occurs, the default value is true.
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
+
+* `use_fix_replica`
+
+    Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+
+* `dry_run_query`
+
+    <version since="dev"></version>
+
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+
+    This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
+
+    ```
+    mysql> select * from bigtable;
+    +--------------+
+    | ReturnedRows |
+    +--------------+
+    | 10000000     |
+    +--------------+
+    ```

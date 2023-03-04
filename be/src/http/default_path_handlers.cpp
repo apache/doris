@@ -103,7 +103,7 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
-    je_malloc_stats_print(write_cb, &tmp, "a");
+    jemalloc_stats_print(write_cb, &tmp, "a");
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp << "</pre>";
 #else
@@ -147,11 +147,9 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                                                    MemTrackerLimiter::Type::SCHEMA_CHANGE);
         } else if (iter->second == "clone") {
             MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::CLONE);
-        } else if (iter->second == "batch_load") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::BATCHLOAD);
-        } else if (iter->second == "consistency") {
+        } else if (iter->second == "experimental") {
             MemTrackerLimiter::make_type_snapshots(&snapshots,
-                                                   MemTrackerLimiter::Type::CONSISTENCY);
+                                                   MemTrackerLimiter::Type::EXPERIMENTAL);
         }
     } else {
         (*output) << "<h4>*Note: (see documentation for details)</h4>\n";

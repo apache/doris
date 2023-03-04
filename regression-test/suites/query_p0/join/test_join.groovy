@@ -21,6 +21,10 @@ suite("test_join", "query,p0") {
     def tbName1 = "test"
     def tbName2 = "baseall"
     def tbName3 = "bigtable"
+    def empty_name = "empty"
+
+    sql"drop view if exists empty"
+    sql"create view empty as select * from baseall where k1 = 0"
 
     order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
@@ -719,6 +723,14 @@ suite("test_join", "query,p0") {
 
     qt_left_anti_join_with_other_pred "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by b.k1"
 
+    qt_left_anti_join_null_1 "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 = t.k1 order by b.k1"
+
+    qt_left_anti_join_null_2 "select b.k1 from ${tbName2} b left anti join ${empty_name} t on b.k1 = t.k1 order by b.k1"
+
+    qt_left_anti_join_null_3 "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 > t.k2 order by b.k1"
+
+    qt_left_anti_join_null_4 "select b.k1 from ${tbName2} b left anti join ${empty_name} t on b.k1 > t.k2 order by b.k1"
+
     // right anti join
     for (s in right_selected){
         def res43 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b 
@@ -790,6 +802,10 @@ suite("test_join", "query,p0") {
 
     qt_right_anti_join_with_other_pred "select t.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by t.k1"
 
+    qt_right_anti_join_null_1 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+
+    qt_right_anti_join_null_2 "select /*+SET_VAR(batch_size=3) */ b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+
     // join with no join keyword
     for (s in selected){
         qt_join_without_keyword1"""select ${s} from ${tbName1} a , ${tbName2} b 
@@ -832,9 +848,6 @@ suite("test_join", "query,p0") {
     }
 
     // join with empty table
-    sql"drop view if exists empty"
-    sql"create view empty as select * from baseall where k1 = 0"
-    String empty_name = "empty"
     qt_join_with_emptyTable1"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a join ${empty_name} b on a.k1 = b.k1 
             order by 1, 2, 3, 4, 5"""
     qt_join_with_emptyTable2"""select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from ${tbName2} a inner join ${empty_name} b on a.k1 = b.k1 
@@ -920,7 +933,7 @@ suite("test_join", "query,p0") {
     // https://github.com/apache/doris/issues/4210
     qt_join_bug3"""select * from baseall t1 where k1 = (select min(k1) from test t2 where t2.k1 = t1.k1 and t2.k2=t1.k2)
            order by k1"""
-
+    qt_join_bug4"""select b.k1 from baseall b where b.k1 not in( select k1 from baseall where k1 is not null )"""
 
 
     // basic join
@@ -1083,11 +1096,6 @@ suite("test_join", "query,p0") {
     def res90 = sql"""select k1, k2 from ${tbName2} order by k1, k2"""
     check2_doris(res89, res90)
 
-    def res91 = sql"""select a.n1, a.n2 from ${null_name} a left anti join ${tbName2} b on b.k1 = a.n2 
-           order by 1, 2"""
-    def res92 = sql"""select n1, n2 from ${null_name} order by n1, n2"""
-    check2_doris(res91, res92)
-
     // join on predicate
     qt_join_on_predicate1"""select c.k1 from ${tbName2} a join ${tbName1} b on a.k2 between 0 and 1000 
             join ${tbName3} c on a.k10 = c.k10 order by k1 limit 65535"""
@@ -1219,7 +1227,15 @@ suite("test_join", "query,p0") {
     sql"""drop table ${table_3}"""
     sql"""drop table ${table_4}"""
 
+    qt_sql """select k1 from baseall left semi join test on true order by k1;"""
+    qt_sql """select k1 from baseall left semi join test on false order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on true order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on false order by k1;"""
 
+    qt_sql """select k1 from test right semi join baseall on true order by k1;"""
+    qt_sql """select k1 from test right semi join baseall on false order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on true order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on false order by k1;"""
 
     // test bucket shuffle join, github issue #6171
     sql"""create database if not exists test_issue_6171"""

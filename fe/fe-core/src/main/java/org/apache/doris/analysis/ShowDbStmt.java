@@ -68,6 +68,7 @@ public class ShowDbStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        this.catalogName = this.catalogName == null ? analyzer.getDefaultCatalog() : this.catalogName;
     }
 
     @Override
@@ -88,7 +89,11 @@ public class ShowDbStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-
+        if (catalogName != null) {
+            analyzer.setSchemaInfo(null, null, null, catalogName);
+        } else {
+            analyzer.setSchemaInfo(null, null, null, analyzer.getDefaultCatalog());
+        }
         return selectStmt;
     }
 
@@ -98,7 +103,7 @@ public class ShowDbStmt extends ShowStmt {
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
         }
-        if (catalogName != null) {
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
             sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();

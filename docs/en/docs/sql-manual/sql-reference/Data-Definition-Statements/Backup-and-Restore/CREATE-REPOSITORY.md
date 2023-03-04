@@ -139,6 +139,26 @@ PROPERTIES
 );
 ```
 
+<version since="1.2">
+
+7. Create a repository named minio_repo via temporary security credentials.
+
+```
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+( 
+    "AWS_ENDPOINT" = "AWS_ENDPOINT",
+    "AWS_ACCESS_KEY" = "AWS_TEMP_ACCESS_KEY",
+    "AWS_SECRET_KEY" = "AWS_TEMP_SECRET_KEY",
+    "AWS_TOKEN" = "AWS_TEMP_TOKEN",
+    "AWS_REGION" = "AWS_REGION"
+)
+```
+
+</version>
+
 ### Keywords
 
     CREATE, REPOSITORY

@@ -1,4 +1,3 @@
-set enable_vectorized_engine=true;
 SELECT [1, 2];
 SELECT [1.0, 2];
 SELECT [-1, 2];

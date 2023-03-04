@@ -28,11 +28,11 @@ class VExprContext {
 public:
     VExprContext(VExpr* expr);
     ~VExprContext();
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
-    Status open(RuntimeState* state);
+    [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
+    [[nodiscard]] Status open(RuntimeState* state);
     void close(RuntimeState* state);
-    Status clone(RuntimeState* state, VExprContext** new_ctx);
-    Status execute(Block* block, int* result_column_id);
+    [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
+    [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
     VExpr* root() { return _root; }
     void set_root(VExpr* expr) { _root = expr; }
@@ -42,8 +42,7 @@ public:
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
     int register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                      const std::vector<FunctionContext::TypeDesc>& arg_types,
-                      int varargs_buffer_size);
+                      const std::vector<FunctionContext::TypeDesc>& arg_types);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
     /// register_func(). This should only be called by VExprs.
@@ -53,9 +52,10 @@ public:
         return _fn_contexts[i];
     }
 
-    static Status filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep);
-    static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                               int column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
+                                             int column_to_keep);
+    [[nodiscard]] static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr,
+                                             Block* block, int column_to_keep);
 
     static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
                                                       const Block&, Status&);
@@ -94,10 +94,10 @@ private:
     /// and owned by this VExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
-    /// Pool backing fn_contexts_.
-    std::unique_ptr<MemPool> _pool;
-
     int _last_result_column_id;
+
+    /// The depth of expression-tree.
+    int _depth_num = 0;
 
     bool _stale;
 };

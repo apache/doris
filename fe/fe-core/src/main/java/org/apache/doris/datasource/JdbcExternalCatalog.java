@@ -17,19 +17,21 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.external.jdbc.JdbcClient;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -37,75 +39,99 @@ import java.util.Map;
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
 
-    public static final String PROP_USER = "jdbc.user";
-    public static final String PROP_PASSWORD = "jdbc.password";
-    public static final String PROP_JDBC_URL = "jdbc.jdbc_url";
-    public static final String PROP_DRIVER_URL = "jdbc.driver_url";
-    public static final String PROP_DRIVER_CLASS = "jdbc.driver_class";
+    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+            JdbcResource.JDBC_URL,
+            JdbcResource.DRIVER_URL,
+            JdbcResource.DRIVER_CLASS
+    );
 
     // Must add "transient" for Gson to ignore this field,
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
-    private String databaseTypeName;
-    private String jdbcUser;
-    private String jdbcPasswd;
-    private String jdbcUrl;
-    private String driverUrl;
-    private String driverClass;
-    private String checkSum;
 
-    public JdbcExternalCatalog(long catalogId, String name, Map<String, String> props) {
-        this.id = catalogId;
-        this.name = name;
+    public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
+            throws DdlException {
+        super(catalogId, name);
         this.type = "jdbc";
-        setProperties(props);
-        this.catalogProperty = new CatalogProperty();
-        this.catalogProperty.setProperties(props);
+        this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        for (String requiredProperty : REQUIRED_PROPERTIES) {
+            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+                throw new DdlException("Required property '" + requiredProperty + "' is missing");
+            }
+        }
     }
 
     @Override
     public void onClose() {
+        super.onClose();
         if (jdbcClient != null) {
             jdbcClient.closeClient();
         }
     }
 
-    private void setProperties(Map<String, String> props) {
-        jdbcUser = props.getOrDefault(PROP_USER, "");
-        jdbcPasswd = props.getOrDefault(PROP_PASSWORD, "");
-        jdbcUrl = props.getOrDefault(PROP_JDBC_URL, "");
-        handleJdbcUrl();
-        driverUrl = props.getOrDefault(PROP_DRIVER_URL, "");
-        driverClass = props.getOrDefault(PROP_DRIVER_CLASS, "");
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) throws DdlException {
+        Map<String, String> properties = Maps.newHashMap();
+        for (Map.Entry<String, String> kv : props.entrySet()) {
+            properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
+        }
+        String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
+        if (!Strings.isNullOrEmpty(jdbcUrl)) {
+            jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
+            properties.put(JdbcResource.JDBC_URL, jdbcUrl);
+        }
+
+        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+            properties.put(JdbcResource.CHECK_SUM,
+                    JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
+        }
+        return properties;
     }
 
-    // `yearIsDateType` is a parameter of JDBC, and the default is `yearIsDateType=true`
-    // We force the use of `yearIsDateType=false`
-    private void handleJdbcUrl() {
-        // delete all space in jdbcUrl
-        jdbcUrl.replaceAll(" ", "");
-        if (jdbcUrl.contains("yearIsDateType=false")) {
-            return;
-        } else if (jdbcUrl.contains("yearIsDateType=true")) {
-            jdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
-        } else {
-            String yearIsDateType = "yearIsDateType=false";
-            if (jdbcUrl.contains("?")) {
-                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
-                    jdbcUrl += "&";
-                }
-            } else {
-                jdbcUrl += "?";
-            }
-            jdbcUrl += yearIsDateType;
-        }
+    public String getDatabaseTypeName() {
+        return jdbcClient.getDbType();
+    }
+
+    public String getJdbcUser() {
+        return catalogProperty.getOrDefault(JdbcResource.USER, "");
+    }
+
+    public String getJdbcPasswd() {
+        return catalogProperty.getOrDefault(JdbcResource.PASSWORD, "");
+    }
+
+    public String getJdbcUrl() {
+        return catalogProperty.getOrDefault(JdbcResource.JDBC_URL, "");
+    }
+
+    public String getDriverUrl() {
+        return catalogProperty.getOrDefault(JdbcResource.DRIVER_URL, "");
+    }
+
+    public String getDriverClass() {
+        return catalogProperty.getOrDefault(JdbcResource.DRIVER_CLASS, "");
+    }
+
+    public String getCheckSum() {
+        return catalogProperty.getOrDefault(JdbcResource.CHECK_SUM, "");
+    }
+
+    public String getOnlySpecifiedDatabase() {
+        return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
+    }
+
+    public String getLowerCaseTableNames() {
+        return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(jdbcUser, jdbcPasswd, jdbcUrl, driverUrl, driverClass);
-        databaseTypeName = jdbcClient.getDbType();
-        checkSum = jdbcClient.getCheckSum();
+        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass(),
+                getOnlySpecifiedDatabase(), getLowerCaseTableNames());
     }
 
     @Override
@@ -161,17 +187,5 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         return jdbcClient.isTableExist(dbName, tblName);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        super.gsonPostProcess();
-        setProperties(this.catalogProperty.getProperties());
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        return jdbcClient.getColumnsFromJdbc(dbName, tblName);
     }
 }

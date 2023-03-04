@@ -25,6 +25,7 @@
 #include "agent/task_worker_pool.h"
 #include "agent/topic_subscriber.h"
 #include "agent/user_resource_listener.h"
+#include "agent/utils.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -49,6 +50,8 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
         }
     }
 
+    MasterServerClient::create(master_info);
+
     // It is the same code to create workers of each type, so we use a macro
     // to make code to be more readable.
 
@@ -69,12 +72,14 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
     CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
     CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
+
     // Both PUSH and REALTIME_PUSH type use _push_workers
     CREATE_AND_START_POOL(PUSH, _push_workers);
     CREATE_AND_START_POOL(PUBLISH_VERSION, _publish_version_workers);
     CREATE_AND_START_POOL(CLEAR_TRANSACTION_TASK, _clear_transaction_task_workers);
     CREATE_AND_START_POOL(DELETE, _delete_workers);
     CREATE_AND_START_POOL(ALTER_TABLE, _alter_tablet_workers);
+    CREATE_AND_START_POOL(ALTER_INVERTED_INDEX, _alter_inverted_index_workers);
     CREATE_AND_START_POOL(CLONE, _clone_workers);
     CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE, _storage_medium_migrate_workers);
     CREATE_AND_START_POOL(CHECK_CONSISTENCY, _check_consistency_workers);
@@ -84,13 +89,13 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_POOL(RELEASE_SNAPSHOT, _release_snapshot_workers);
     CREATE_AND_START_POOL(MOVE, _move_dir_workers);
     CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
+    CREATE_AND_START_THREAD(PUSH_COOLDOWN_CONF, _push_cooldown_conf_workers);
 
     CREATE_AND_START_THREAD(REPORT_TASK, _report_task_workers);
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_THREAD(REFRESH_STORAGE_POLICY, _storage_refresh_policy_workers);
-    CREATE_AND_START_POOL(UPDATE_STORAGE_POLICY, _storage_update_policy_workers);
+    CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -153,8 +158,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             HANDLE_TYPE(TTaskType::UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers,
                         update_tablet_meta_info_req);
             HANDLE_TYPE(TTaskType::COMPACTION, _submit_table_compaction_workers, compaction_req);
-            HANDLE_TYPE(TTaskType::NOTIFY_UPDATE_STORAGE_POLICY, _storage_update_policy_workers,
-                        update_policy);
+            HANDLE_TYPE(TTaskType::PUSH_STORAGE_POLICY, _push_storage_policy_workers,
+                        push_storage_policy_req);
 
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:
@@ -163,8 +168,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                         "task(signature={}) has wrong request member = push_req", signature);
                 break;
             }
-            if (task.push_req.push_type == TPushType::LOAD ||
-                task.push_req.push_type == TPushType::LOAD_V2) {
+            if (task.push_req.push_type == TPushType::LOAD_V2) {
                 _push_workers->submit_task(task);
             } else if (task.push_req.push_type == TPushType::DELETE) {
                 _delete_workers->submit_task(task);
@@ -183,6 +187,24 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                         signature);
             }
             break;
+        case TTaskType::ALTER_INVERTED_INDEX:
+            if (task.__isset.alter_inverted_index_req) {
+                _alter_inverted_index_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(strings::Substitute(
+                        "task(signature=$0) has wrong request member = alter_inverted_index_req",
+                        signature));
+            }
+            break;
+        case TTaskType::PUSH_COOLDOWN_CONF:
+            if (task.__isset.push_cooldown_conf) {
+                _push_cooldown_conf_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = push_cooldown_conf",
+                        signature);
+            }
+            break;
         default:
             ret_st = Status::InvalidArgument("task(signature={}, type={}) has wrong task type",
                                              signature, task_type);
@@ -191,7 +213,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
 #undef HANDLE_TYPE
 
         if (!ret_st.ok()) {
-            LOG_WARNING("failed to submit task").tag("task", task).error(ret_st.get_error_msg());
+            LOG_WARNING("failed to submit task").tag("task", task).error(ret_st);
             // For now, all tasks in the batch share one status, so if any task
             // was failed to submit, we can only return error to FE(even when some
             // tasks have already been successfully submitted).

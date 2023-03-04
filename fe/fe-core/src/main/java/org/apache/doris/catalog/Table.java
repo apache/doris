@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
@@ -49,7 +50,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -70,7 +70,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected volatile String qualifiedDbName;
     protected TableType type;
     protected long createTime;
-    protected ReentrantReadWriteLock rwLock;
+    protected QueryableReentrantReadWriteLock rwLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -110,7 +110,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new ReentrantReadWriteLock(true);
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -124,13 +124,13 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (this.fullSchema != null) {
             for (Column col : this.fullSchema) {
-                nameToColumn.put(col.getName(), col);
+                nameToColumn.put(col.getDefineName(), col);
             }
         } else {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new ReentrantReadWriteLock();
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
     }
 
@@ -148,7 +148,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
+            boolean res = this.rwLock.readLock().tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try read lock at table[" + name + "]", e);
             return false;
@@ -174,7 +179,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;
@@ -258,6 +268,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
+    }
+
+    public String getQualifiedDbName() {
+        return qualifiedDbName;
     }
 
     public String getQualifiedName() {
@@ -518,7 +532,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * @return estimated row count
      */
     public long estimatedRowCount() {
-        long cardinality = 1;
+        long cardinality = 0;
         if (this instanceof OlapTable) {
             OlapTable table = (OlapTable) this;
             for (long selectedPartitionId : table.getPartitionIds()) {
@@ -527,6 +541,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
                 cardinality += baseIndex.getRowCount();
             }
         }
-        return cardinality;
+        return Math.max(cardinality, 1);
     }
 }

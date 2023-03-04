@@ -17,18 +17,18 @@
 
 #pragma once
 
-#include <vec/exec/format/parquet/parquet_common.h>
-
 #include <string>
 
 #include "runtime/runtime_state.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
 
 class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(GenericReader* file_format_reader);
+    ~TableFormatReader() override = default;
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
         return _file_format_reader->get_next_block(block, read_rows, eof);
     }
@@ -37,7 +37,7 @@ public:
         return _file_format_reader->get_columns(name_to_type, missing_cols);
     }
 
-    virtual void filter_rows() = 0;
+    virtual Status init_row_filters(const TFileRangeDesc& range) = 0;
 
 protected:
     std::string _table_format;                          // hudi, iceberg

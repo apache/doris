@@ -63,7 +63,9 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _slot_idx(tdesc.slotIdx),
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized) {}
+          _is_materialized(tdesc.isMaterialized),
+          _is_key(tdesc.is_key),
+          _need_materialize(tdesc.need_materialize) {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -74,11 +76,13 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
-          _col_unique_id(-1),
+          _col_unique_id(pdesc.col_unique_id()),
           _slot_idx(pdesc.slot_idx()),
           _slot_size(_type.get_slot_size()),
           _field_idx(-1),
-          _is_materialized(pdesc.is_materialized()) {}
+          _is_materialized(pdesc.is_materialized()),
+          _is_key(pdesc.is_key()),
+          _need_materialize(true) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
@@ -92,6 +96,8 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
     pslot->set_is_materialized(_is_materialized);
+    pslot->set_col_unique_id(_col_unique_id);
+    pslot->set_is_key(_is_key);
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
@@ -117,6 +123,7 @@ std::string SlotDescriptor::debug_string() const {
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
         : _name(tdesc.tableName),
           _database(tdesc.dbName),
+          _table_id(tdesc.id),
           _num_cols(tdesc.numCols),
           _num_clustering_cols(tdesc.numClusteringCols) {}
 
@@ -246,14 +253,15 @@ std::string JdbcTableDescriptor::debug_string() const {
     return fmt::to_string(buf);
 }
 
-TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
+TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
           _table_desc(nullptr),
           _byte_size(tdesc.byteSize),
           _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
           _slots(),
-          _has_varlen_slots(false) {
+          _has_varlen_slots(false),
+          _own_slots(own_slots) {
     if (false == tdesc.__isset.numNullSlots) {
         //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;
@@ -262,14 +270,15 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
     }
 }
 
-TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
+TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
         : _id(pdesc.id()),
           _table_desc(nullptr),
           _byte_size(pdesc.byte_size()),
           _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
           _slots(),
-          _has_varlen_slots(false) {
+          _has_varlen_slots(false),
+          _own_slots(own_slots) {
     if (!pdesc.has_num_null_slots()) {
         //be compatible for existing tables with no nullptr value
         _num_null_slots = 0;
@@ -542,6 +551,9 @@ int RowDescriptor::get_column_id(int slot_id) const {
     int column_id_counter = 0;
     for (const auto tuple_desc : _tuple_desc_map) {
         for (const auto slot : tuple_desc->slots()) {
+            if (!slot->need_materialize()) {
+                continue;
+            }
             if (slot->id() == slot_id) {
                 return column_id_counter;
             }

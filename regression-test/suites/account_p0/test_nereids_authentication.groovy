@@ -41,17 +41,17 @@ suite("test_nereids_authentication", "query") {
 
     def user='nereids_user'
     try_sql "DROP USER ${user}"
-    sql "CREATE USER ${user} IDENTIFIED BY '123456'"
+    sql "CREATE USER ${user} IDENTIFIED BY 'Doris_123456'"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName1} TO ${user}"
 
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
-    def result = connect(user=user, password='123456', url=url) {
+    def result = connect(user=user, password='Doris_123456', url=url) {
         sql "SELECT * FROM ${tableName1}"
     }
     assertEquals(result.size(), 0)
 
-    connect(user=user, password='123456', url=url) {
+    connect(user=user, password='Doris_123456', url=url) {
         try {
             sql "SELECT * FROM ${tableName2}"
             fail()
@@ -61,7 +61,7 @@ suite("test_nereids_authentication", "query") {
         }
     }
 
-    connect(user=user, password='123456', url=url) {
+    connect(user=user, password='Doris_123456', url=url) {
         try {
             sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
             fail()
@@ -72,11 +72,11 @@ suite("test_nereids_authentication", "query") {
     }
 
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName2} TO ${user}"
-    connect(user=user, password='123456', url=url) {
+    connect(user=user, password='Doris_123456', url=url) {
         sql "SELECT * FROM ${tableName2}"
     }
     assertEquals(result.size(), 0)
-    connect(user=user, password='123456', url=url) {
+    connect(user=user, password='Doris_123456', url=url) {
         sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
     }
     assertEquals(result.size(), 0)

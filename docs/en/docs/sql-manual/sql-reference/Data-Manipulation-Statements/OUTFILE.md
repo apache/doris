@@ -101,6 +101,7 @@ illustrate:
     AWS_ACCESS_KEY
     AWS_SECRET_KEY
     AWS_REGION
+    use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
     ```
 
 ### example
@@ -249,11 +250,12 @@ illustrate:
    )
    ````
 
-8. Use hdfs export to export simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as CSV and the user name as work. Specify the column separator as `,` and the row separator as `\n`.
+8. Use hdfs export to export simple query results to the file `hdfs://${host}:${fileSystem_port}/path/to/result.txt`. Specify the export format as CSV and the user name as work. Specify the column separator as `,` and the row separator as `\n`.
 
    ```sql
+   -- the default port of fileSystem_port is 9000
    SELECT * FROM tbl
-   INTO OUTFILE "hdfs://path/to/result_"
+   INTO OUTFILE "hdfs://${host}:${fileSystem_port}/path/to/result_"
    FORMAT AS CSV
    PROPERTIES
    (

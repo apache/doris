@@ -27,7 +27,7 @@ public:
     FileMetaData(tparquet::FileMetaData& metadata);
     ~FileMetaData() = default;
     Status init_schema();
-    const FieldDescriptor& schema() const { return _schema; };
+    const FieldDescriptor& schema() const { return _schema; }
     const tparquet::FileMetaData& to_thrift();
     std::string debug_string() const;
 

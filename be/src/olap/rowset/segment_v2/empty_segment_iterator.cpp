@@ -17,18 +17,10 @@
 
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 
-#include "olap/row_block2.h"
-
 namespace doris {
 namespace segment_v2 {
 
 EmptySegmentIterator::EmptySegmentIterator(const doris::Schema& schema) : _schema(schema) {}
-
-Status EmptySegmentIterator::next_batch(RowBlockV2* block) {
-    block->set_num_rows(0);
-    block->set_selected_size(0);
-    return Status::EndOfFile("no more data in segment");
-}
 
 Status EmptySegmentIterator::next_batch(vectorized::Block* block) {
     return Status::EndOfFile("no more data in segment");

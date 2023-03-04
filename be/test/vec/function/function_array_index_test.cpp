@@ -21,7 +21,6 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "runtime/tuple_row.h"
 #include "util/url_coding.h"
 #include "vec/core/field.h"
 

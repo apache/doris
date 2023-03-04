@@ -55,6 +55,7 @@ void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactor
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -68,6 +69,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
+        register_aggregate_function_group_concat(instance);
         register_aggregate_function_combinator_distinct(instance);
         register_aggregate_function_reader_load(
                 instance); // register aggregate function for agg reader
@@ -75,7 +77,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_stddev_variance_pop(instance);
         register_aggregate_function_topn(instance);
         register_aggregate_function_approx_count_distinct(instance);
-        register_aggregate_function_group_concat(instance);
         register_aggregate_function_percentile(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
@@ -84,6 +85,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_collect_list(instance);
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
+        register_aggregate_function_histogram(instance);
 
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);

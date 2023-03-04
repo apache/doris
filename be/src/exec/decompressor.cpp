@@ -17,6 +17,8 @@
 
 #include "exec/decompressor.h"
 
+#include "common/logging.h"
+
 namespace doris {
 
 Status Decompressor::create_decompressor(CompressType type, Decompressor** decompressor) {
@@ -67,7 +69,7 @@ GzipDecompressor::~GzipDecompressor() {
 }
 
 Status GzipDecompressor::init() {
-    _z_strm = {nullptr};
+    _z_strm = {};
     _z_strm.zalloc = Z_NULL;
     _z_strm.zfree = Z_NULL;
     _z_strm.opaque = Z_NULL;

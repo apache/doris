@@ -86,7 +86,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     {
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
-        EXPECT_TRUE(st.ok()) << st.get_error_msg();
+        EXPECT_TRUE(st.ok()) << st;
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -129,7 +129,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     }
     auto type_info = get_scalar_type_info(type);
     io::FileReaderSPtr file_reader;
-    ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
+    ASSERT_EQ(fs->open_file(fname, &file_reader, nullptr), Status::OK());
     // read and check
     {
         // sequence read
@@ -259,7 +259,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     {
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
-        EXPECT_TRUE(st.ok()) << st.get_error_msg();
+        EXPECT_TRUE(st.ok()) << st;
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -305,7 +305,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     }
     auto type_info = get_type_info(&meta);
     io::FileReaderSPtr file_reader;
-    ASSERT_EQ(fs->open_file(fname, &file_reader), Status::OK());
+    ASSERT_EQ(fs->open_file(fname, &file_reader, nullptr), Status::OK());
     // read and check
     {
         ColumnReaderOptions reader_opts;
@@ -450,10 +450,10 @@ void test_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(
-                tablet_column.has_default_value(), tablet_column.default_value(),
-                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
-                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
+        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
+                                        tablet_column.default_value(), tablet_column.is_nullable(),
+                                        create_static_type_info_ptr(scalar_type_info),
+                                        tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
@@ -556,10 +556,10 @@ void test_v_read_default_value(string value, void* result) {
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(
-                tablet_column.has_default_value(), tablet_column.default_value(),
-                tablet_column.is_nullable(), create_static_type_info_ptr(scalar_type_info),
-                tablet_column.length(), tablet_column.precision(), tablet_column.frac());
+        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
+                                        tablet_column.default_value(), tablet_column.is_nullable(),
+                                        create_static_type_info_ptr(scalar_type_info),
+                                        tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());

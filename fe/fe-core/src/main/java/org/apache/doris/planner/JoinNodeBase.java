@@ -87,6 +87,10 @@ public abstract class JoinNodeBase extends PlanNode {
         }
     }
 
+    public boolean isMarkJoin() {
+        return innerRef != null && innerRef.isMark();
+    }
+
     public JoinOperator getJoinOp() {
         return joinOp;
     }
@@ -203,6 +207,15 @@ public abstract class JoinNodeBase extends PlanNode {
                 }
             }
         }
+
+        // add mark slot if needed
+        if (isMarkJoin() && analyzer.needPopUpMarkTuple(innerRef)) {
+            SlotDescriptor markSlot = analyzer.getMarkTuple(innerRef).getSlots().get(0);
+            SlotDescriptor outputSlotDesc =
+                    analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, markSlot);
+            srcTblRefToOutputTupleSmap.put(new SlotRef(markSlot), new SlotRef(outputSlotDesc));
+        }
+
         // 2. compute srcToOutputMap
         vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
         for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
@@ -215,6 +228,7 @@ public abstract class JoinNodeBase extends PlanNode {
                 rSlotRef.getDesc().setIsMaterialized(true);
             }
         }
+
         vOutputTupleDesc.computeStatAndMemLayout();
         // 3. add tupleisnull in null-side
         Preconditions.checkState(srcTblRefToOutputTupleSmap.getLhs().size() == vSrcToOutputSMap.getLhs().size());
@@ -308,7 +322,7 @@ public abstract class JoinNodeBase extends PlanNode {
     }
 
     @Override
-    public void projectOutputTuple() throws NotImplementedException {
+    public void projectOutputTuple() {
         if (vOutputTupleDesc == null) {
             return;
         }
@@ -345,6 +359,13 @@ public abstract class JoinNodeBase extends PlanNode {
         vIntermediateTupleDescList = new ArrayList<>();
         vIntermediateTupleDescList.add(vIntermediateLeftTupleDesc);
         vIntermediateTupleDescList.add(vIntermediateRightTupleDesc);
+        // if join type is MARK, add mark tuple to intermediate tuple. mark slot will be generated after join.
+        if (isMarkJoin()) {
+            TupleDescriptor markTuple = analyzer.getMarkTuple(innerRef);
+            if (markTuple != null) {
+                vIntermediateTupleDescList.add(markTuple);
+            }
+        }
         boolean leftNullable = false;
         boolean rightNullable = false;
 
@@ -471,6 +492,10 @@ public abstract class JoinNodeBase extends PlanNode {
         // so need replace the outsmap in nullableTupleID
         replaceOutputSmapForOuterJoin();
         computeStats(analyzer);
+
+        if (isMarkJoin() && !joinOp.supportMarkJoin()) {
+            throw new UserException("Mark join is supported only for LEFT SEMI JOIN/LEFT ANTI JOIN/CROSS JOIN");
+        }
     }
 
     /**
@@ -560,5 +585,37 @@ public abstract class JoinNodeBase extends PlanNode {
      */
     public void setvSrcToOutputSMap(List<Expr> lhs) {
         this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
+    }
+
+    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
+        outputSmap = smap;
+        ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(Lists.newArrayList(vSrcToOutputSMap.getRhs()),
+                Lists.newArrayList(vSrcToOutputSMap.getLhs()));
+        List<Expr> newRhs = Lists.newArrayList();
+        boolean bSmapChanged = false;
+        for (Expr expr : smap.getRhs()) {
+            if (expr instanceof SlotRef) {
+                newRhs.add(expr);
+            } else {
+                // we need do project in the join node
+                // add a new slot for projection result and add the project expr to vSrcToOutputSMap
+                SlotDescriptor slotDesc = analyzer.addSlotDescriptor(vOutputTupleDesc);
+                slotDesc.initFromExpr(expr);
+                slotDesc.setIsMaterialized(true);
+                // the project expr is from smap, which use the slots of hash join node's output tuple
+                // we need substitute it to make sure the project expr use slots from intermediate tuple
+                expr.substitute(tmpSmap);
+                vSrcToOutputSMap.getLhs().add(expr);
+                SlotRef slotRef = new SlotRef(slotDesc);
+                vSrcToOutputSMap.getRhs().add(slotRef);
+                newRhs.add(slotRef);
+                bSmapChanged = true;
+            }
+        }
+
+        if (bSmapChanged) {
+            outputSmap.updateRhsExprs(newRhs);
+            vOutputTupleDesc.computeStatAndMemLayout();
+        }
     }
 }

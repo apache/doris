@@ -91,7 +91,6 @@ export MYSQL_PWD=${PASSWORD}
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
-echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 echo "Time Unit: ms"
 
@@ -122,3 +121,5 @@ for i in $(seq 1 22); do
     sum=$((sum + cost))
 done
 echo "Total cost: ${sum} ms"
+
+echo 'Finish tpch queries.'

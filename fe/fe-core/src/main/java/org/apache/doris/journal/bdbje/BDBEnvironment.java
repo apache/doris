@@ -156,14 +156,20 @@ public class BDBEnvironment {
                 // get replicationGroupAdmin object.
                 Set<InetSocketAddress> adminNodes = new HashSet<InetSocketAddress>();
                 // 1. add helper node
-                InetSocketAddress helper = new InetSocketAddress(helperHostPort.split(":")[0],
-                                                                 Integer.parseInt(helperHostPort.split(":")[1]));
+                // If host is ipv6 address there will be more than one colon in host str
+                int helperColonIdx = helperHostPort.lastIndexOf(":");
+                String helperHost = helperHostPort.substring(0, helperColonIdx);
+                int helperPort = Integer.parseInt(helperHostPort.substring(helperColonIdx + 1));
+                InetSocketAddress helper = new InetSocketAddress(helperHost, helperPort);
                 adminNodes.add(helper);
                 LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
+
                 // 2. add self if is electable
                 if (!selfNodeHostPort.equals(helperHostPort) && Env.getCurrentEnv().isElectable()) {
-                    InetSocketAddress self = new InetSocketAddress(selfNodeHostPort.split(":")[0],
-                                                                   Integer.parseInt(selfNodeHostPort.split(":")[1]));
+                    int selfColonIdx = selfNodeHostPort.lastIndexOf(":");
+                    String selfHost = selfNodeHostPort.substring(0, selfColonIdx);
+                    int selfPort = Integer.parseInt(selfNodeHostPort.substring(selfColonIdx + 1));
+                    InetSocketAddress self = new InetSocketAddress(selfHost, selfPort);
                     adminNodes.add(self);
                     LOG.info("add self[{}] as ReplicationGroupAdmin", selfNodeHostPort);
                 }
@@ -195,7 +201,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
@@ -336,7 +342,7 @@ public class BDBEnvironment {
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             } catch (DatabaseException e) {
                 LOG.warn("catch an exception when calling getDatabaseNames", e);
@@ -415,7 +421,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);

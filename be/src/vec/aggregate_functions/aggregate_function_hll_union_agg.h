@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/hll_function.h"
 #include "olap/hll.h"
 #include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -99,8 +98,7 @@ class AggregateFunctionHLLUnion
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>> {
 public:
     AggregateFunctionHLLUnion(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types,
-                                                                                  {}) {}
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types) {}
 
     String get_name() const override { return Data::name(); }
 
@@ -135,7 +133,6 @@ public:
 template <bool is_nullable = false>
 AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name,
                                                          const DataTypes& argument_types,
-                                                         const Array& parameters,
                                                          const bool result_is_nullable);
 
 } // namespace doris::vectorized

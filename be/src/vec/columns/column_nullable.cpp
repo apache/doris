@@ -268,7 +268,7 @@ void ColumnNullable::insert(const Field& x) {
         _has_null = true;
     } else {
         get_nested_column().insert(x);
-        get_null_map_data().push_back(0);
+        _get_null_map_data().push_back(0);
     }
 }
 
@@ -288,8 +288,7 @@ void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
 void ColumnNullable::insert_range_from_not_nullable(const IColumn& src, size_t start,
                                                     size_t length) {
     get_nested_column().insert_range_from(src, start, length);
-    _get_null_map_data().resize_fill(get_null_map_data().size() + length, 0);
-    _need_update_has_null = true;
+    _get_null_map_data().resize_fill(_get_null_map_data().size() + length, 0);
 }
 
 void ColumnNullable::insert_many_from_not_nullable(const IColumn& src, size_t position,
@@ -308,6 +307,13 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
     ColumnPtr filtered_data = get_nested_column().filter(filt, result_size_hint);
     ColumnPtr filtered_null_map = get_null_map_column().filter(filt, result_size_hint);
     return ColumnNullable::create(filtered_data, filtered_null_map);
+}
+
+size_t ColumnNullable::filter(const Filter& filter) {
+    const auto data_result_size = get_nested_column().filter(filter);
+    const auto map_result_size = get_null_map_column().filter(filter);
+    CHECK_EQ(data_result_size, map_result_size);
+    return data_result_size;
 }
 
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
@@ -417,7 +423,7 @@ void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direct
 
 void ColumnNullable::reserve(size_t n) {
     get_nested_column().reserve(n);
-    get_null_map_data().reserve(n);
+    _get_null_map_data().reserve(n);
 }
 
 void ColumnNullable::resize(size_t n) {
@@ -619,6 +625,12 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     }
 
     return column;
+}
+
+ColumnPtr ColumnNullable::index(const IColumn& indexes, size_t limit) const {
+    ColumnPtr indexed_data = get_nested_column().index(indexes, limit);
+    ColumnPtr indexed_null_map = get_null_map_column().index(indexes, limit);
+    return ColumnNullable::create(indexed_data, indexed_null_map);
 }
 
 } // namespace doris::vectorized

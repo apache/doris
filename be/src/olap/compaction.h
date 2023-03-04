@@ -27,7 +27,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "rowset/rowset_id_generator.h"
-#include "util/semaphore.hpp"
 
 namespace doris {
 
@@ -43,7 +42,7 @@ class Merger;
 //  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, const std::string& label);
+    Compaction(const TabletSharedPtr& tablet, const std::string& label);
     virtual ~Compaction();
 
     // This is only for http CompactionAction
@@ -65,7 +64,7 @@ protected:
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
 
-    Status modify_rowsets();
+    virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
     Status construct_output_rowset_writer(bool is_vertical = false);
@@ -106,7 +105,6 @@ protected:
 
     Version _output_version;
 
-    int64_t _oldest_write_timestamp;
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;

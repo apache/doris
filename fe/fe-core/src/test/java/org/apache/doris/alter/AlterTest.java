@@ -118,7 +118,8 @@ public class AlterTest {
                 + "PROPERTIES('replication_num' = '1');");
 
         createTable(
-                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 time(3),\n" + "    v1 int \n,"
+                "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
+                        + "    v1 int \n,"
                         + "    v2 datetime(3)\n" + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
@@ -139,7 +140,7 @@ public class AlterTest {
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
                         + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
-                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\",  \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
         createRemoteStorageResource(
@@ -148,7 +149,7 @@ public class AlterTest {
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
                         + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
-                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\", \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
         createRemoteStoragePolicy(
@@ -410,15 +411,15 @@ public class AlterTest {
         alterTable(stmt, true);
 
         // no conflict
-        stmt = "alter table test.tbl6 add column k3 int, add column k4 time(6)";
+        stmt = "alter table test.tbl6 add column k3 int, add column k4 datetime(6)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(false);
 
-        stmt = "alter table test.tbl6 add rollup r1 (k1, k2)";
+        stmt = "alter table test.tbl6 add rollup r1 (k2, k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
 
-        stmt = "alter table test.tbl6 add rollup r2 (k1, k2), r3 (k1, k2)";
+        stmt = "alter table test.tbl6 add rollup r2 (k2, k1), r3 (k2, k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
 
@@ -1038,14 +1039,14 @@ public class AlterTest {
         // external table support reorder column
         db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertTrue(odbcTable.getBaseSchema().stream()
+        Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
         stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
         alterTable(stmt, false);
-        Assert.assertTrue(odbcTable.getBaseSchema().stream()
+        Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
 
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k6";
@@ -1124,7 +1125,7 @@ public class AlterTest {
 
     @Test
     public void testShowMV() throws Exception {
-        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test;", false);
+        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;", false);
         waitSchemaChangeJobDone(true);
 
         String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.show_test;";
@@ -1132,7 +1133,7 @@ public class AlterTest {
                 showMvSql, connectContext);
         ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
         Assert.assertEquals(executor.execute().getResultRows().get(0).get(2),
-                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test;");
+                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;");
 
         showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv_empty on test.show_test;";
         showStmt = (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);

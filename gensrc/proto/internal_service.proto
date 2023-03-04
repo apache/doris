@@ -65,6 +65,8 @@ message PTabletInfo {
     // Delta Writer will write data to local disk and then check if there are new raw values not in global dict
     // if appears, then it should add the column name to this vector
     repeated string invalid_dict_cols = 3; 
+    // total rows num received by DeltaWriter
+    optional int64 received_rows = 4;
 }
 
 // open a tablet writer
@@ -190,6 +192,7 @@ message PTabletWriterCancelResult {
 enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
+    VERSION_3 = 3;  // multi TPipelineFragmentParams in request
 };
 
 message PExecPlanFragmentRequest {
@@ -230,6 +233,38 @@ message PFetchDataResult {
     optional bool empty_batch = 6;
 };
 
+message KeyTuple {
+    repeated string key_column_rep = 1;
+}
+
+message UUID {
+    required int64 uuid_high = 1;
+    required int64 uuid_low = 2;
+}
+
+// We use thrift definition for some structure, since TExpr,
+// list<Exprs.TExpr>, Descriptors.TDescriptorTable are all thrift format.
+// Modify them to protobuf is a redundant work.
+message PTabletKeyLookupRequest {
+    required int64 tablet_id = 1;
+    repeated KeyTuple key_tuples = 2;
+
+    // reusable structures
+    // serilized from Descriptors.TDescriptorTable
+    optional UUID uuid = 3;
+    optional bytes desc_tbl = 4;
+    // serilized from TExprList 
+    optional bytes output_expr = 5;
+    // return binary mysql row format if true
+    optional bool is_binary_row = 6;
+}
+
+message PTabletKeyLookupResponse {
+    required PStatus status = 1;
+    optional bytes row_batch = 2;
+    optional bool empty_batch = 3;
+}
+
 //Add message definition to fetch and update cache
 enum PCacheStatus {    
     DEFAULT = 0;
@@ -241,6 +276,7 @@ enum PCacheStatus {
     INVALID_KEY_RANGE = 6;
     DATA_OVERDUE = 7;
     EMPTY_DATA = 8;
+    CANCELED = 9;
 };
 
 enum CacheType {
@@ -349,6 +385,7 @@ message PDataRow {
 message PSendDataRequest {
     required PUniqueId fragment_instance_id = 1;
     repeated PDataRow data = 2;
+    optional PUniqueId load_id = 3; // load_id == query_id in fragment exec
 }
 
 message PSendDataResult {
@@ -357,6 +394,7 @@ message PSendDataResult {
 
 message PCommitRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional PUniqueId load_id = 2;
 }
 
 message PCommitResult {
@@ -365,6 +403,7 @@ message PCommitResult {
 
 message PRollbackRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional PUniqueId load_id = 2;
 }
 
 message PRollbackResult {
@@ -438,6 +477,7 @@ message PMergeFilterRequest {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
+    optional bool is_pipeline = 8;
 };
 
 message PMergeFilterResponse {
@@ -452,6 +492,7 @@ message PPublishFilterRequest {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
+    optional bool is_pipeline = 8;
 };
 
 message PPublishFilterResponse {
@@ -534,6 +575,25 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message PMultiGetRequest {
+    message RowId {
+        optional int64 tablet_id = 1;
+        optional string rowset_id = 2;
+        optional uint64 segment_id = 3;
+        optional uint64 ordinal_id = 4;
+    };
+    repeated RowId rowids = 1;
+    optional PTupleDescriptor desc = 2;
+    repeated PSlotDescriptor slots = 3;
+    // for compability
+    optional int32 be_exec_version = 4;
+};
+
+message PMultiGetResponse {
+    optional PBlock block = 1;
+    optional PStatus status = 2;
 };
 
 service PBackendService {
@@ -547,8 +607,6 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
-    rpc tablet_writer_add_batch_by_http(PEmptyRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
@@ -570,5 +628,7 @@ service PBackendService {
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
+    rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
+    rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
 };
 

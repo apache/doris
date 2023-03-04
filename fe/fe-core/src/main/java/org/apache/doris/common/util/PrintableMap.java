@@ -32,12 +32,15 @@ public class PrintableMap<K, V> {
     private String entryDelimiter = ",";
 
     public static final Set<String> SENSITIVE_KEY;
+    public static final String PASSWORD_MASK = "*XXX";
 
     static {
         SENSITIVE_KEY = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         SENSITIVE_KEY.add("password");
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
+        SENSITIVE_KEY.add("jdbc.password");
+        SENSITIVE_KEY.add("elasticsearch.password");
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
@@ -79,7 +82,7 @@ public class PrintableMap<K, V> {
                 sb.append("\"");
             }
             if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
-                sb.append("*XXX");
+                sb.append(PASSWORD_MASK);
             } else {
                 sb.append(entry.getValue());
             }

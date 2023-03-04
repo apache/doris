@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AnalyticWindow.Boundary;
 import org.apache.doris.analysis.AnalyticWindow.BoundaryType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -63,7 +64,6 @@ import java.util.Objects;
  */
 public class AnalyticExpr extends Expr {
     private static final Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
-    private static String NTILE = "NTILE";
 
     private FunctionCallExpr fnCall;
     private final List<Expr> partitionExprs;
@@ -80,6 +80,7 @@ public class AnalyticExpr extends Expr {
     // SQL string of this AnalyticExpr before standardization. Returned in toSqlImpl().
     private String sqlString;
 
+    private static String NTILE = "NTILE";
     private static String LEAD = "LEAD";
     private static String LAG = "LAG";
     private static String FIRSTVALUE = "FIRST_VALUE";
@@ -95,9 +96,6 @@ public class AnalyticExpr extends Expr {
     // Internal function used to implement FIRST_VALUE with a window equal and
     // additional null handling in the backend.
     public static String FIRST_VALUE_REWRITE = "FIRST_VALUE_REWRITE";
-
-    // The function of HLL_UNION_AGG can't be used with a window by now.
-    public static String HLL_UNION_AGG = "HLL_UNION_AGG";
 
     public AnalyticExpr(FunctionCallExpr fnCall, List<Expr> partitionExprs,
                         List<OrderByElement> orderByElements, AnalyticWindow window) {
@@ -248,7 +246,7 @@ public class AnalyticExpr extends Expr {
             return false;
         }
 
-        return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
+        return fn.functionName().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG);
     }
 
     private static boolean isNTileFn(Function fn) {
@@ -786,7 +784,7 @@ public class AnalyticExpr extends Expr {
         }
 
         // Reverse the ordering and window for windows ending with UNBOUNDED FOLLOWING,
-        // and and not starting with UNBOUNDED PRECEDING.
+        // and not starting with UNBOUNDED PRECEDING.
         if (window != null
                 && window.getRightBoundary().getType() == BoundaryType.UNBOUNDED_FOLLOWING
                 && window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
@@ -910,9 +908,8 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    protected Expr substituteImpl(ExprSubstitutionMap sMap, Analyzer analyzer)
-            throws AnalysisException {
-        Expr e = super.substituteImpl(sMap, analyzer);
+    protected Expr substituteImpl(ExprSubstitutionMap sMap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer) {
+        Expr e = super.substituteImpl(sMap, disjunctsMap, analyzer);
         if (!(e instanceof AnalyticExpr)) {
             return e;
         }
@@ -1004,5 +1001,9 @@ public class AnalyticExpr extends Expr {
             strings.add(expr.toDigest());
         }
         return Joiner.on(", ").join(strings);
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
     }
 }

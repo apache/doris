@@ -39,6 +39,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -359,9 +360,18 @@ public class DynamicPartitionUtil {
         }
         StoragePolicy storagePolicy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
                 .getPolicy(checkedPolicyCondition);
-        if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
+        // cooldownttlms <= 0 means didn't set cooldownttl in properties
+        if (storagePolicy.getCooldownTtl() <= 0) {
             throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
                     + DynamicPartitionProperty.STORAGE_POLICY + ": " + policyName);
+        }
+    }
+
+    private static void checkStorageMedium(String storageMedium) throws DdlException {
+        try {
+            TStorageMedium.valueOf(storageMedium.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new DdlException("invalid storage medium: " + storageMedium + ". Should be SSD or HDD");
         }
     }
 
@@ -624,6 +634,14 @@ public class DynamicPartitionUtil {
                 analyzedProperties.put(DynamicPartitionProperty.STORAGE_POLICY, remoteStoragePolicy);
             }
         }
+        if (properties.containsKey(DynamicPartitionProperty.STORAGE_MEDIUM)) {
+            String storageMedium = properties.get(DynamicPartitionProperty.STORAGE_MEDIUM);
+            checkStorageMedium(storageMedium);
+            properties.remove(DynamicPartitionProperty.STORAGE_MEDIUM);
+            if (!Strings.isNullOrEmpty(storageMedium)) {
+                analyzedProperties.put(DynamicPartitionProperty.STORAGE_MEDIUM, storageMedium);
+            }
+        }
         return analyzedProperties;
     }
 
@@ -729,7 +747,7 @@ public class DynamicPartitionUtil {
     }
 
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
-            String time, String format) {
+            String time, String format) throws AnalysisException {
         ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
         Date date = null;
         Timestamp timestamp = null;
@@ -740,8 +758,7 @@ public class DynamicPartitionUtil {
             date = simpleDateFormat.parse(time);
         } catch (ParseException e) {
             LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
-            return getFormattedTimeWithoutMinuteSecond(
-                    ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+            throw new AnalysisException("Parse dynamic partition periods error. Error=" + e.getMessage());
         }
         timestamp = new Timestamp(date.getTime());
         return getFormattedTimeWithoutMinuteSecond(

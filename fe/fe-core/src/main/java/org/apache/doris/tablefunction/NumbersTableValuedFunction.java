@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -64,9 +63,9 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     /**
      * Constructor.
      * @param params params from user
-     * @throws UserException exception
+     * @throws AnalysisException exception
      */
-    public NumbersTableValuedFunction(Map<String, String> params) throws UserException {
+    public NumbersTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -78,17 +77,17 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         try {
             tabletsNum = Integer.parseInt(validParams.getOrDefault(BACKEND_NUM, "1"));
         } catch (NumberFormatException e) {
-            throw new UserException("can not parse `backend_num` param to natural number");
+            throw new AnalysisException("can not parse `backend_num` param to natural number");
         }
         String numberStr = validParams.get(NUMBER);
         if (!Strings.isNullOrEmpty(numberStr)) {
             try {
                 totalNumbers = Long.parseLong(numberStr);
             } catch (NumberFormatException e) {
-                throw new UserException("can not parse `number` param to natural number");
+                throw new AnalysisException("can not parse `number` param to natural number");
             }
         } else {
-            throw new UserException(
+            throw new AnalysisException(
                     "can not find `number` param, please specify `number`, like: numbers(\"number\" = \"10\")");
         }
     }

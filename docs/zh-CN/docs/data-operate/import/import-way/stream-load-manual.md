@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -65,7 +65,9 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 ## 支持数据格式
 
-目前 Stream Load 支持两个数据格式：CSV（文本） 和 JSON
+目前 Stream Load 支持数据格式：CSV（文本）、JSON
+
+<version since="1.2"> 1.2+ 支持PARQUET 和 ORC</version> 1.2+ 支持PARQUET 和 ORC
 
 ## 基本操作
 
@@ -78,7 +80,7 @@ Stream Load 通过 HTTP 协议提交和传输数据。这里通过 `curl` 命令
 ```shell
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-# Header 中支持属性见下面的 ‘导入任务参数’ 说明 
+# Header 中支持属性见下面的 ‘导入任务参数’ 说明
 # 格式为: -H "key1:value1"
 ```
 
@@ -150,15 +152,20 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   待导入数据的函数变换配置，目前 Stream load 支持的函数变换方法包含列的顺序变化以及表达式变换，其中表达式变换的方法与查询语句的一致。
 
+- format
+
+  指定导入数据格式，支持csv、json，默认是csv
+  <version since="1.2"> format </version> 1.2 支持csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、parquet、orc
+
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
-  
+
   如果原始表的src_c1列对应目标表dst_c1列，原始表的src_c2列对应目标表dst_c2列，原始表的src_c3列对应目标表dst_c3列，则写法如下：
   columns: dst_c1, dst_c2, dst_c3
-  
+
   如果原始表的src_c1列对应目标表dst_c2列，原始表的src_c2列对应目标表dst_c3列，原始表的src_c3列对应目标表dst_c1列，则写法如下：
   columns: dst_c2, dst_c3, dst_c1
-  
+
   表达式变换例子：原始文件有两列，目标表也有两列（c1,c2）但是原始文件的两列均需要经过函数变换才能对应目标表的两列，则写法如下：
   columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = month(tmp_c2)
   其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
@@ -184,12 +191,8 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
-  默认的两阶段批量事务提交为关闭。
-
-  > **开启方式：** 在be.conf中配置`disable_stream_load_2pc=false` 并且 在 HEADER 中声明 `two_phase_commit=true` 。 
-  
   示例：
-  
+
   1. 发起stream load预提交操作
   ```shell
   curl  --location-trusted -u user:passwd -H "two_phase_commit:true" -T test.txt http://fe_host:http_port/api/{db}/{table}/_stream_load
@@ -213,16 +216,20 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   }
   ```
   2. 对事务触发commit操作
+  注意1) 请求发往fe或be均可
+  注意2) commit 的时候可以省略 url 中的 `{table}`
   ```shell
-  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18036] commit successfully."
   }
   ```
   3. 对事务触发abort操作
+  注意1) 请求发往fe或be均可
+  注意2) abort 的时候可以省略 url 中的 `{table}`
   ```shell
-  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18037] abort successfully."
@@ -417,6 +424,14 @@ timeout = 1000s 等于 10G / 10M/s
            <version>4.5.13</version>
          </dependency>
      ```
+- 用户在开启 BE 上的 Stream Load 记录后，查询不到记录
+
+  这是因为拉取速度慢造成的，可以尝试调整下面的参数：
+  
+  1. 调大 BE 配置 `stream_load_record_batch_size`，这个配置表示每次从 BE 上最多拉取多少条 Stream load 的记录数，默认值为50条，可以调大到500条。
+  2. 调小 FE 的配置 `fetch_stream_load_record_interval_second`，这个配置表示获取 Stream load 记录间隔，默认每120秒拉取一次，可以调整到60秒。
+  3. 如果要保存更多的 Stream load 记录（不建议，占用 FE 更多的资源）可以将 FE 的配置 `max_stream_load_record_size` 调大，默认是5000条。
+
 ## 更多帮助
 
 关于 Stream Load 使用的更多详细语法及最佳实践，请参阅 [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP STREAM LOAD` 获取更多帮助信息。

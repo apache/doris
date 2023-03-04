@@ -44,8 +44,6 @@ suite("test_like_predicate_with_nullable") {
             (26, null),
             (25, null); """
 
-    sql """ set enable_vectorized_engine = true; """
-
     qt_select1 """ select id, url from ${tableName} order by id, url; """
     qt_select2 """ select id, url from ${tableName} where url is null; """
     qt_select3 """ select id, url from ${tableName} where url like '%google%' order by id, url; """

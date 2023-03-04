@@ -26,16 +26,21 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public abstract class BaseAnalysisTask {
+
+    public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " SELECT "
-            + "CONCAT(${tblId}, '-', '${colId}', '-', ${partId}) AS id, "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
             + "${catalogId} AS catalog_id, "
             + "${dbId} AS db_id, "
             + "${tblId} AS tbl_id, "
+            + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
             + "${partId} AS part_id, "
             + "COUNT(1) AS row_count, "
@@ -48,13 +53,14 @@ public abstract class BaseAnalysisTask {
 
     protected static final String INSERT_COL_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + "    SELECT id, catalog_id, db_id, tbl_id, col_id, part_id, row_count, "
+            + "    SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id, row_count, "
             + "        ndv, null_count, min, max, data_size, update_time\n"
             + "    FROM \n"
-            + "     (SELECT CONCAT(${tblId}, '-', '${colId}') AS id, "
+            + "     (SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "         ${catalogId} AS catalog_id, "
             + "         ${dbId} AS db_id, "
             + "         ${tblId} AS tbl_id, "
+            + "         ${idxId} AS idx_id, "
             + "         '${colId}' AS col_id, "
             + "         NULL AS part_id, "
             + "         SUM(count) AS row_count, \n"
@@ -67,6 +73,7 @@ public abstract class BaseAnalysisTask {
             + "     WHERE ${internalDB}.${columnStatTbl}.db_id = '${dbId}' AND "
             + "     ${internalDB}.${columnStatTbl}.tbl_id='${tblId}' AND "
             + "     ${internalDB}.${columnStatTbl}.col_id='${colId}' AND "
+            + "     ${internalDB}.${columnStatTbl}.idx_id='${idxId}' AND "
             + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n";
 
@@ -116,7 +123,8 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
-        if (info.analysisType != null && info.analysisType.equals(AnalysisType.COLUMN)) {
+        if (info.analysisType != null && (info.analysisType.equals(AnalysisType.COLUMN)
+                || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
                 Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(

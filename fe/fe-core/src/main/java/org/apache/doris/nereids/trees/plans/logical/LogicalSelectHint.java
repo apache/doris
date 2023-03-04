@@ -41,7 +41,8 @@ import java.util.stream.Collectors;
  * e.g. LogicalSelectHint (set_var(query_timeout='1800', exec_mem_limit='2147483648'))
  */
 public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-    private final ImmutableMap<String, SelectHint> hints;
+
+    private final Map<String, SelectHint> hints;
 
     public LogicalSelectHint(Map<String, SelectHint> hints, CHILD_TYPE child) {
         this(hints, Optional.empty(), Optional.empty(), child);

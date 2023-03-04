@@ -73,7 +73,7 @@ TPC-H是一个决策支持基准（Decision Support Benchmark），它由一套�
 
 ## 4. 测试SQL
 
-TPCH 22 个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/incubator-doris/tree/master/tools/tpch-tools/queries)
+TPCH 22 个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/doris/tree/master/tools/tpch-tools/queries)
 
 **注意：**
 
@@ -131,7 +131,7 @@ TPCH 22 个测试查询语句 ： [TPCH-Query-SQL](https://github.com/apache/inc
 
 ### 7.1 下载安装 TPC-H 数据生成工具
 
-执行以下脚本下载并编译  [tpch-tools](https://github.com/apache/incubator-doris/tree/master/tools/tpch-tools)  工具。
+执行以下脚本下载并编译  [tpch-tools](https://github.com/apache/doris/tree/master/tools/tpch-tools)  工具。
 
 ```shell
 sh build-tpch-dbgen.sh
@@ -159,7 +159,7 @@ sh gen-tpch-data.sh
 
 在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
 
-文件位置和 `load-tpch-data.sh` 平级。
+文件位置在 `${DORIS_HOME}/tools/tpch-tools/conf/` 目录下。
 
 文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
 
@@ -183,7 +183,7 @@ export DB='tpch1'
 ```shell
 sh create-tpch-tables.sh
 ```
-或者复制 [create-tpch-tables.sql](https://github.com/apache/incubator-doris/blob/master/tools/tpch-tools/create-tpch-tables.sql) 中的建表语句，在 Doris 中执行。
+或者复制 [create-tpch-tables.sql](https://github.com/apache/doris/tree/master/tools/tpch-tools/ddl/create-tpch-tables.sql) 中的建表语句，在 Doris 中执行。
 
 
 ### 7.4 导入数据

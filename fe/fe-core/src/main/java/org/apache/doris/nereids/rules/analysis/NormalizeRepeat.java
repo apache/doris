@@ -20,9 +20,13 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotContext;
+import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotTriplet;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -47,6 +51,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /** NormalizeRepeat
  * eg: select sum(k2 + 1), grouping(k1) from t1 group by grouping sets ((k1));
@@ -83,16 +88,17 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private void checkIfAggFuncSlotInGroupingSets(LogicalRepeat<Plan> repeat) {
-        Set<Slot> aggUsedSlot = repeat.getOutputExpressions().stream()
+        Set<Slot> aggUsedSlots = repeat.getOutputExpressions().stream()
                 .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
                 .collect(ImmutableSet.toImmutableSet());
-        Set<Slot> groupingSetsUsedSlot = repeat.getGroupingSets().stream()
-                .flatMap(e -> e.stream())
+        Set<ExprId> groupingSetsUsedSlotExprIds = repeat.getGroupingSets().stream()
+                .flatMap(Collection::stream)
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
+                .map(SlotReference::getExprId)
                 .collect(Collectors.toSet());
-        for (Slot slot : aggUsedSlot) {
-            if (groupingSetsUsedSlot.contains(slot)) {
+        for (Slot slot : aggUsedSlots) {
+            if (groupingSetsUsedSlotExprIds.contains(slot.getExprId())) {
                 throw new AnalysisException("column: " + slot.toSql() + " cannot both in select "
                         + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
                         + "please use union instead.");
@@ -111,19 +117,19 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private LogicalAggregate<Plan> normalizeRepeat(LogicalRepeat<Plan> repeat) {
-        Set<Expression> needPushDownExpr = collectPushDownExpressions(repeat);
-        PushDownContext pushDownContext = PushDownContext.toPushDownContext(repeat, needPushDownExpr);
+        Set<Expression> needToSlots = collectNeedToSlotExpressions(repeat);
+        NormalizeToSlotContext context = buildContext(repeat, needToSlots);
 
         // normalize grouping sets to List<List<Slot>>
         List<List<Slot>> normalizedGroupingSets = repeat.getGroupingSets()
                 .stream()
-                .map(groupingSet -> (List<Slot>) (List) pushDownContext.normalizeToUseSlotRef(groupingSet))
+                .map(groupingSet -> (List<Slot>) (List) context.normalizeToUseSlotRef(groupingSet))
                 .collect(ImmutableList.toImmutableList());
 
         // replace the arguments of grouping scalar function to virtual slots
         // replace some complex expression to slot, e.g. `a + 1`
-        List<NamedExpression> normalizedAggOutput =
-                pushDownContext.normalizeToUseSlotRef(repeat.getOutputExpressions());
+        List<NamedExpression> normalizedAggOutput = context.normalizeToUseSlotRef(
+                        repeat.getOutputExpressions(), this::normalizeGroupingScalarFunction);
 
         Set<VirtualSlotReference> virtualSlotsInFunction =
                 ExpressionUtils.collect(normalizedAggOutput, VirtualSlotReference.class::isInstance);
@@ -150,7 +156,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .addAll(allVirtualSlots)
                 .build();
 
-        Set<NamedExpression> pushedProject = pushDownContext.pushDownToNamedExpression(needPushDownExpr);
+        Set<NamedExpression> pushedProject = context.pushDownToNamedExpression(needToSlots);
         Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
 
         LogicalRepeat<Plan> normalizedRepeat = repeat.withNormalizedExpr(
@@ -164,7 +170,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 Optional.of(normalizedRepeat), normalizedRepeat);
     }
 
-    private Set<Expression> collectPushDownExpressions(LogicalRepeat<Plan> repeat) {
+    private Set<Expression> collectNeedToSlotExpressions(LogicalRepeat<Plan> repeat) {
         // 3 parts need push down:
         // flattenGroupingSetExpr, argumentsOfGroupingScalarFunction, argumentsOfAggregateFunction
 
@@ -182,7 +188,13 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(function -> function.getArguments().stream())
+                .flatMap(function -> function.getArguments().stream().map(arg -> {
+                    if (arg instanceof OrderExpression) {
+                        return arg.child(0);
+                    } else {
+                        return arg;
+                    }
+                }))
                 .collect(ImmutableSet.toImmutableSet());
 
         ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()
@@ -198,115 +210,64 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private Plan pushDownProject(Set<NamedExpression> pushedExprs, Plan originBottomPlan) {
-        if (!pushedExprs.equals(originBottomPlan.getOutputSet())) {
+        if (!pushedExprs.equals(originBottomPlan.getOutputSet()) && !pushedExprs.isEmpty()) {
             return new LogicalProject<>(ImmutableList.copyOf(pushedExprs), originBottomPlan);
         }
         return originBottomPlan;
     }
 
-    private static class PushDownContext {
-        private final Map<Expression, PushDownTriplet> pushDownMap;
-
-        public PushDownContext(Map<Expression, PushDownTriplet> pushDownMap) {
-            this.pushDownMap = pushDownMap;
+    /** buildContext */
+    public NormalizeToSlotContext buildContext(Repeat<? extends Plan> repeat,
+            Set<? extends Expression> sourceExpressions) {
+        Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
+        Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
+        for (Alias existsAlias : aliases) {
+            existsAliasMap.put(existsAlias.child(), existsAlias);
         }
 
-        public static PushDownContext toPushDownContext(Repeat<? extends Plan> repeat,
-                Set<? extends Expression> sourceExpressions) {
-            List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
-            Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
+        List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
 
-            Map<Expression, PushDownTriplet> pushDownMap = Maps.newLinkedHashMap();
-            for (Expression expression : sourceExpressions) {
-                Optional<PushDownTriplet> pushDownTriplet;
-                if (groupingSetExpressions.contains(expression)) {
-                    boolean isCommonGroupingSetExpression = commonGroupingSetExpressions.contains(expression);
-                    pushDownTriplet = PushDownTriplet.toGroupingSetExpressionPushDownTriplet(
-                            isCommonGroupingSetExpression, expression);
-                } else {
-                    pushDownTriplet = PushDownTriplet.toPushDownTriplet(expression);
-                }
+        // nullable will be different from grouping set and output expressions,
+        // so we can not use the slot in grouping set，but use the equivalent slot in output expressions.
+        List<NamedExpression> outputs = repeat.getOutputExpressions();
 
-                if (pushDownTriplet.isPresent()) {
-                    pushDownMap.put(expression, pushDownTriplet.get());
-                }
+        Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
+        for (Expression expression : sourceExpressions) {
+            Optional<NormalizeToSlotTriplet> pushDownTriplet;
+            if (expression instanceof NamedExpression && outputs.contains(expression)) {
+                expression = outputs.get(outputs.indexOf(expression));
             }
-            return new PushDownContext(pushDownMap);
-        }
+            if (groupingSetExpressions.contains(expression)) {
+                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
+            } else {
+                pushDownTriplet = Optional.of(
+                        NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression)));
+            }
 
-        public <E extends Expression> List<E> normalizeToUseSlotRef(List<E> expressions) {
-            return expressions.stream()
-                    .map(expr -> (E) expr.rewriteDownShortCircuit(child -> {
-                        if (child instanceof GroupingScalarFunction) {
-                            GroupingScalarFunction function = (GroupingScalarFunction) child;
-                            List<Expression> normalizedRealExpressions = normalizeToUseSlotRef(function.getArguments());
-                            function = function.withChildren(normalizedRealExpressions);
-                            // eliminate GroupingScalarFunction and replace to VirtualSlotReference
-                            return Repeat.generateVirtualSlotByFunction(function);
-                        }
-
-                        PushDownTriplet pushDownTriplet = pushDownMap.get(child);
-                        return pushDownTriplet == null ? child : pushDownTriplet.remainExpr;
-                    })).collect(ImmutableList.toImmutableList());
+            if (pushDownTriplet.isPresent()) {
+                normalizeToSlotMap.put(expression, pushDownTriplet.get());
+            }
         }
-
-        /**
-         * generate bottom projections with groupByExpressions.
-         * eg:
-         * groupByExpressions: k1#0, k2#1 + 1;
-         * bottom: k1#0, (k2#1 + 1) AS (k2 + 1)#2;
-         */
-        public Set<NamedExpression> pushDownToNamedExpression(Collection<? extends Expression> needToPushExpressions) {
-            return needToPushExpressions.stream()
-                    .map(expr -> {
-                        PushDownTriplet pushDownTriplet = pushDownMap.get(expr);
-                        return pushDownTriplet == null ? (NamedExpression) expr : pushDownTriplet.pushedExpr;
-                    }).collect(ImmutableSet.toImmutableSet());
-        }
+        return new NormalizeToSlotContext(normalizeToSlotMap);
     }
 
-    private static class PushDownTriplet {
-        public final Expression originExpr;
-        public final Slot remainExpr;
-        public final NamedExpression pushedExpr;
+    private Optional<NormalizeToSlotTriplet> toGroupingSetExpressionPushDownTriplet(
+            Expression expression, @Nullable Alias existsAlias) {
+        NormalizeToSlotTriplet originTriplet = NormalizeToSlotTriplet.toTriplet(expression, existsAlias);
+        SlotReference remainSlot = (SlotReference) originTriplet.remainExpr;
+        Slot newSlot = remainSlot.withNullable(true);
+        return Optional.of(new NormalizeToSlotTriplet(expression, newSlot, originTriplet.pushedExpr));
+    }
 
-        public PushDownTriplet(Expression originExpr, Slot remainExpr, NamedExpression pushedExpr) {
-            this.originExpr = originExpr;
-            this.remainExpr = remainExpr;
-            this.pushedExpr = pushedExpr;
-        }
-
-        private static Optional<PushDownTriplet> toGroupingSetExpressionPushDownTriplet(
-                boolean isCommonGroupingSetExpression, Expression expression) {
-            Optional<PushDownTriplet> pushDownTriplet = toPushDownTriplet(expression);
-            if (!pushDownTriplet.isPresent()) {
-                return pushDownTriplet;
-            }
-
-            PushDownTriplet originTriplet = pushDownTriplet.get();
-            SlotReference remainSlot = (SlotReference) originTriplet.remainExpr;
-            Slot newSlot = remainSlot.withCommonGroupingSetExpression(isCommonGroupingSetExpression);
-            return Optional.of(new PushDownTriplet(expression, newSlot, originTriplet.pushedExpr));
-        }
-
-        private static Optional<PushDownTriplet> toPushDownTriplet(Expression expression) {
-
-            if (expression instanceof SlotReference) {
-                PushDownTriplet pushDownTriplet =
-                        new PushDownTriplet(expression, (SlotReference) expression, (SlotReference) expression);
-                return Optional.of(pushDownTriplet);
-            }
-
-            if (expression instanceof NamedExpression) {
-                NamedExpression namedExpression = (NamedExpression) expression;
-                PushDownTriplet pushDownTriplet =
-                        new PushDownTriplet(expression, namedExpression.toSlot(), namedExpression);
-                return Optional.of(pushDownTriplet);
-            }
-
-            Alias alias = new Alias(expression, expression.toSql());
-            PushDownTriplet pushDownTriplet = new PushDownTriplet(expression, alias.toSlot(), alias);
-            return Optional.of(pushDownTriplet);
+    private Expression normalizeGroupingScalarFunction(NormalizeToSlotContext context, Expression expr) {
+        if (expr instanceof GroupingScalarFunction) {
+            GroupingScalarFunction function = (GroupingScalarFunction) expr;
+            List<Expression> normalizedRealExpressions = context.normalizeToUseSlotRef(function.getArguments());
+            function = function.withChildren(normalizedRealExpressions);
+            // eliminate GroupingScalarFunction and replace to VirtualSlotReference
+            return Repeat.generateVirtualSlotByFunction(function);
+        } else {
+            return expr;
         }
     }
 }

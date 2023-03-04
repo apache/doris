@@ -49,6 +49,9 @@ public interface Journal {
     // Write a journal and sync to disk
     public void write(short op, Writable writable) throws IOException;
 
+    // Get current journal number
+    public long getJournalNum();
+
     // Delete journals whose max id is less than deleteToJournalId
     public void deleteJournals(long deleteJournalToId);
 

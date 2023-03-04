@@ -30,6 +30,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /*
@@ -110,6 +111,17 @@ public class ColocateGroupSchema implements Writable {
         if (!replicaAlloc.equals(this.replicaAlloc)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
                     this.replicaAlloc);
+        }
+    }
+
+    public void checkDynamicPartition(Map<String, String> properties,
+                                      DistributionInfo distributionInfo) throws DdlException {
+        if (properties.get(DynamicPartitionProperty.BUCKETS) != null) {
+            HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
+            if (info.getBucketNum() != Integer.parseInt(properties.get(DynamicPartitionProperty.BUCKETS))) {
+                ErrorReport.reportDdlException(
+                        ErrorCode.ERR_DYNAMIC_PARTITION_MUST_HAS_SAME_BUCKET_NUM_WITH_COLOCATE_TABLE, bucketsNum);
+            }
         }
     }
 

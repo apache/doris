@@ -28,8 +28,6 @@
 #include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
 
-using namespace std;
-
 namespace doris {
 
 const uint32_t PUSH_MAX_RETRY = 1;
@@ -60,7 +58,7 @@ private:
     // @param [in] request specify tablet and delete conditions
     // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
-    // @return OLAP_SUCCESS if submit delete_data success
+    // @return OK if submit delete_data success
     virtual Status _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
 
     Status _get_tmp_file_dir(const std::string& root_path, std::string* local_path);

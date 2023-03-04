@@ -45,6 +45,10 @@ namespace pipeline {
 class PipelineFragmentContext;
 }
 
+namespace io {
+class StreamLoadPipe;
+}
+
 class QueryFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
@@ -54,9 +58,22 @@ class TExecPlanFragmentParams;
 class TExecPlanFragmentParamsList;
 class TUniqueId;
 class RuntimeFilterMergeController;
-class StreamLoadPipe;
 
 std::string to_load_error_http_path(const std::string& file_name);
+
+struct ReportStatusRequest {
+    const Status& status;
+    RuntimeProfile* profile;
+    bool done;
+    TNetworkAddress coord_addr;
+    TUniqueId query_id;
+    int fragment_id;
+    TUniqueId fragment_instance_id;
+    int backend_num;
+    RuntimeState* runtime_state;
+    std::function<Status(Status)> update_fn;
+    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+};
 
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
@@ -69,11 +86,15 @@ public:
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
 
+    Status exec_plan_fragment(const TPipelineFragmentParams& params);
+
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
+
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -86,6 +107,8 @@ public:
 
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
+
+    bool query_is_canceled(const TUniqueId& query_id);
 
     void cancel_worker();
 
@@ -104,17 +127,29 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
+    std::string to_http_path(const std::string& file_name);
 
-    std::shared_ptr<StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
+    void coordinator_callback(const ReportStatusRequest& req);
 
 private:
-    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
     void _set_scan_concurrency(const TExecPlanFragmentParams& params,
                                QueryFragmentsCtx* fragments_ctx);
 
+    void _set_scan_concurrency(const TPipelineFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
+
     bool _is_scan_node(const TPlanNodeType::type& type);
+
+    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
+
+    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                    const TPipelineInstanceParams& local_params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
 
     // This is input params
     ExecEnv* _exec_env;
@@ -122,9 +157,6 @@ private:
     std::mutex _lock;
 
     std::condition_variable _cv;
-
-    std::mutex _lock_for_shared_hash_table;
-    std::condition_variable _cv_for_sharing_hashtable;
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;

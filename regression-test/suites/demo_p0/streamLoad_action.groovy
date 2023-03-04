@@ -19,6 +19,8 @@ suite("streamLoad_action") {
 
     def tableName = "test_streamload_action1"
 
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 id int,
@@ -78,4 +80,33 @@ suite("streamLoad_action") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
+
+    // to test merge sort
+    sql """ DROP TABLE IF EXISTS B """
+    sql """
+        CREATE TABLE IF NOT EXISTS B
+        (
+            b_id int
+        )
+        DISTRIBUTED BY HASH(b_id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+    """
+
+    sql " INSERT INTO B values (1);"
+
+    qt_sql """
+        SELECT subq_0.`c1` AS c1
+        FROM
+        (SELECT version() AS c0,
+                  ref_0.`id` AS c1
+        FROM test_streamload_action1 AS ref_0
+        LEFT JOIN B AS ref_9 ON (ref_0.`id` = ref_9.`b_id`)
+        WHERE ref_9.`b_id` IS NULL) AS subq_0
+        WHERE subq_0.`c0` IS NOT NULL
+        ORDER BY subq_0.`c1`, subq_0.`c0` DESC
+        LIMIT 5;
+    """
+
+    sql """ DROP TABLE ${tableName} """
+    sql """ DROP TABLE B """
 }

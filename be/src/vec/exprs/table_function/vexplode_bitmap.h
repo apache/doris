@@ -17,16 +17,20 @@
 
 #pragma once
 
-#include "exprs/table_function/explode_bitmap.h"
-#include "exprs/table_function/table_function.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
+#include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
 
-class VExplodeBitmapTableFunction : public ExplodeBitmapTableFunction {
+class VExplodeBitmapTableFunction final : public TableFunction {
 public:
     VExplodeBitmapTableFunction();
+    ~VExplodeBitmapTableFunction() override;
+
+    Status reset() override;
+    Status get_value(void** output) override;
+    Status forward(bool* eos) override;
 
     Status process_init(vectorized::Block* block) override;
     Status process_row(size_t row_idx) override;
@@ -34,6 +38,14 @@ public:
     Status get_value_length(int64_t* length) override;
 
 private:
+    void _reset_iterator();
+
+    const BitmapValue* _cur_bitmap = nullptr;
+    // iterator of _cur_bitmap
+    BitmapValueIterator* _cur_iter = nullptr;
+    // current value read from bitmap, it will be referenced by
+    // table function scan node.
+    uint64_t _cur_value = 0;
     ColumnPtr _value_column;
 };
 

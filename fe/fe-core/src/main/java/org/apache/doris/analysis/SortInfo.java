@@ -51,6 +51,7 @@ public class SortInfo {
     private static final float SORT_MATERIALIZATION_COST_THRESHOLD = Expr.FUNCTION_CALL_COST;
 
     private List<Expr> orderingExprs;
+    private List<Expr> origOrderingExprs;
     private final List<Boolean> isAscOrder;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
@@ -63,6 +64,7 @@ public class SortInfo {
     // Input expressions materialized into sortTupleDesc_. One expr per slot in
     // sortTupleDesc_.
     private List<Expr> sortTupleSlotExprs;
+    private boolean useTwoPhaseRead = false;
 
     public SortInfo(List<Expr> orderingExprs, List<Boolean> isAscOrder,
                     List<Boolean> nullsFirstParams) {
@@ -121,6 +123,10 @@ public class SortInfo {
         return orderingExprs;
     }
 
+    public List<Expr> getOrigOrderingExprs() {
+        return origOrderingExprs;
+    }
+
     public List<Boolean> getIsAscOrder() {
         return isAscOrder;
     }
@@ -143,6 +149,14 @@ public class SortInfo {
 
     public void setSortTupleDesc(TupleDescriptor tupleDesc) {
         sortTupleDesc = tupleDesc;
+    }
+
+    public void setUseTwoPhaseRead() {
+        useTwoPhaseRead = true;
+    }
+
+    public boolean useTwoPhaseRead() {
+        return useTwoPhaseRead;
     }
 
     public TupleDescriptor getSortTupleDescriptor() {
@@ -252,12 +266,16 @@ public class SortInfo {
             }
         }
 
+        // backup before substitute orderingExprs
+        origOrderingExprs = orderingExprs;
+
         // The ordering exprs are evaluated against the sort tuple, so they must reflect the
         // materialization decision above.
         substituteOrderingExprs(substOrderBy, analyzer);
 
         // Update the tuple descriptor used to materialize the input of the sort.
         setMaterializedTupleInfo(sortTupleDesc, sortTupleExprs);
+        LOG.debug("sortTupleDesc {}", sortTupleDesc);
 
         return substOrderBy;
     }
@@ -285,6 +303,13 @@ public class SortInfo {
             SlotDescriptor materializedDesc = analyzer.addSlotDescriptor(sortTupleDesc);
             materializedDesc.initFromExpr(origOrderingExpr);
             materializedDesc.setIsMaterialized(true);
+            SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
+            LOG.debug("origOrderingExpr {}", origOrderingExpr);
+            if (origSlotRef != null) {
+                // need do this for two phase read of topn query optimization
+                // check https://github.com/apache/doris/pull/15642 for detail
+                materializedDesc.setSrcColumn(origSlotRef.getColumn());
+            }
             SlotRef materializedRef = new SlotRef(materializedDesc);
             substOrderBy.put(origOrderingExpr, materializedRef);
             materializedOrderingExprs.add(origOrderingExpr);
@@ -301,6 +326,9 @@ public class SortInfo {
                 Expr.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
+        if (useTwoPhaseRead) {
+            sortInfo.setUseTwoPhaseRead(true);
+        }
         return sortInfo;
     }
 }

@@ -22,7 +22,6 @@
 #include "common/config.h"
 #include "exec/data_sink.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/row_batch.h"
 
 namespace doris {
 
@@ -119,7 +118,7 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
     config::fragment_pool_thread_num_min = 1;
     config::fragment_pool_thread_num_max = 1;
     config::fragment_pool_queue_size = 0;
-    FragmentMgr mgr(nullptr);
+    FragmentMgr mgr(doris::ExecEnv::GetInstance());
 
     TExecPlanFragmentParams params;
     params.params.fragment_instance_id = TUniqueId();

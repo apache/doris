@@ -110,7 +110,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(be.getId());
-            location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+            location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
             locations.addToLocations(location);
             locations.setScanRange(new TScanRange());
             result.add(locations);
@@ -127,15 +127,10 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
             }
         }
         createPartitionInfo(partitionColumns);
-        PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap = backendPartitionInfo.getIdToItem(false);
-        if (analyzer.partitionPruneV2Enabled()) {
-            partitionPruner = new ListPartitionPrunerV2(keyItemMap, backendPartitionInfo.getPartitionColumns(),
-                    columnNameToRange);
-        } else {
-            partitionPruner = new ListPartitionPruner(keyItemMap,
-                    backendPartitionInfo.getPartitionColumns(), columnFilters);
-        }
+        PartitionPruner partitionPruner = new ListPartitionPrunerV2(keyItemMap,
+                backendPartitionInfo.getPartitionColumns(),
+                columnNameToRange);
         selectedPartitionIds = partitionPruner.prune();
     }
 

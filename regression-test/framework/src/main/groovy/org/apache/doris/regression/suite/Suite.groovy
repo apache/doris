@@ -22,8 +22,10 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
+import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
+import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
 import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
@@ -32,6 +34,7 @@ import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
+import org.apache.doris.regression.util.SuiteUtils
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -42,10 +45,12 @@ import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.stream.Collectors
 import java.util.stream.LongStream
-
+import java.math.BigDecimal;
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
 import java.io.File
+import java.sql.PreparedStatement
+import java.sql.ResultSetMetaData
 
 @Slf4j
 class Suite implements GroovyInterceptable {
@@ -139,10 +144,7 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> Tuple2<T, Long> timer(Closure<T> actionSupplier) {
-        long startTime = System.currentTimeMillis()
-        T result = actionSupplier.call()
-        long endTime = System.currentTimeMillis()
-        return [result, endTime - startTime]
+        return SuiteUtils.timer(actionSupplier)
     }
 
     public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
@@ -196,6 +198,23 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
+        def (tmp, rsmd) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        int count = rsmd.getColumnCount();
+        List<List<String>> result = new ArrayList<>()
+        for (int i = 0; i < count; i++) {
+            List<String> item = new ArrayList<>()
+            String columnName = rsmd.getColumnName(i + 1);
+            int columnType = rsmd.getColumnType(i+1);
+            String columnTypeName = rsmd.getColumnTypeName(i+1);
+            item.add(columnName);
+            item.add(columnTypeName);
+            result.add(item);
+        }
+        return result;
     }
 
     List<List<Object>> order_sql(String sqlStr) {
@@ -253,8 +272,20 @@ class Suite implements GroovyInterceptable {
         runAction(new ExplainAction(context), actionSupplier)
     }
 
+    void createMV(String sql) {
+        (new CreateMVAction(context, sql)).run()
+    }
+
+    void createMV(String sql, String expection) {
+        (new CreateMVAction(context, sql, expection)).run()
+    }
+
     void test(Closure actionSupplier) {
         runAction(new TestAction(context), actionSupplier)
+    }
+
+    void benchmark(Closure actionSupplier) {
+        runAction(new BenchmarkAction(context), actionSupplier)
     }
 
     String getBrokerName() {
@@ -298,6 +329,20 @@ class Suite implements GroovyInterceptable {
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         String remotePath = hdfs.upload(localFile)
         return remotePath;
+    }
+
+    String getLoalFilePath(String fileName) {
+        if (!new File(fileName).isAbsolute()) {
+            fileName = new File(context.dataPath, fileName).getAbsolutePath()
+        }
+        def file = new File(fileName)
+        if (!file.exists()) {
+            log.warn("Stream load input file not exists: ${file}".toString())
+            throw new IllegalStateException("Stream load input file not exists: ${file}");
+        }
+        def localFile = file.canonicalPath
+        log.info("Set stream load input: ${file.canonicalPath}".toString())
+        return localFile;
     }
 
     boolean enableBrokerLoad() {
@@ -378,11 +423,19 @@ class Suite implements GroovyInterceptable {
         action.run()
     }
 
-    void quickTest(String tag, String sql, boolean isOrder = false) {
-        logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
+    PreparedStatement prepareStatement(String sql) {
+        return JdbcUtils.prepareStatement(context.getConnection(), sql)
+    } 
 
+    void quickRunTest(String tag, Object arg, boolean isOrder = false) {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
-            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+            Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+            if (arg instanceof PreparedStatement) {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+            } else {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+            }
+            def (result, meta) = tupleResult
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -400,8 +453,13 @@ class Suite implements GroovyInterceptable {
             }
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
-
-            def (realResults, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+            Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+            if (arg instanceof PreparedStatement) {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+            } else {
+                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+            }
+            def (realResults, meta) = tupleResult
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -417,15 +475,25 @@ class Suite implements GroovyInterceptable {
                     { row ->  OutputUtils.toCsvString(row) },
                     "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
-                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
+                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
                 logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
-                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
             }
         }
     }
 
+    void quickTest(String tag, String sql, boolean isOrder = false) {
+        logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
+        quickRunTest(tag, sql, isOrder) 
+    }
+
+    void quickExecute(String tag, PreparedStatement stmt) {
+        logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
+        quickRunTest(tag, stmt) 
+    }
+    
     @Override
     Object invokeMethod(String name, Object args) {
         // qt: quick test
@@ -433,6 +501,8 @@ class Suite implements GroovyInterceptable {
             return quickTest(name.substring("qt_".length()), (args as Object[])[0] as String)
         } else if (name.startsWith("order_qt_")) {
             return quickTest(name.substring("order_qt_".length()), (args as Object[])[0] as String, true)
+        } else if (name.startsWith("qe_")) {
+            return quickExecute(name.substring("qe_".length()), (args as Object[])[0] as PreparedStatement)
         } else if (name.startsWith("assert") && name.length() > "assert".length()) {
             // delegate to junit Assertions dynamically
             return Assertions."$name"(*args) // *args: spread-dot
@@ -449,5 +519,6 @@ class Suite implements GroovyInterceptable {
             return metaClass.invokeMethod(this, name, args)
         }
     }
+
 }
 

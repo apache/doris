@@ -22,12 +22,14 @@
 
 #include <string>
 
+#include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/field.h"
 #include "olap/options.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta_manager.h"
@@ -35,7 +37,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -246,7 +247,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;
     request->tablet_schema.storage_type = TStorageType::COLUMN;
-    request->tablet_schema.__set_sequence_col_idx(2);
+    request->tablet_schema.__set_sequence_col_idx(4);
     request->__set_storage_format(TStorageFormat::V2);
 
     TColumn k1;
@@ -261,13 +262,6 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     k2.column_type.type = TPrimitiveType::SMALLINT;
     request->tablet_schema.columns.push_back(k2);
 
-    TColumn sequence_col;
-    sequence_col.column_name = SEQUENCE_COL;
-    sequence_col.__set_is_key(false);
-    sequence_col.column_type.type = TPrimitiveType::INT;
-    sequence_col.__set_aggregation_type(TAggregationType::REPLACE);
-    request->tablet_schema.columns.push_back(sequence_col);
-
     TColumn v1;
     v1.column_name = "v1";
     v1.__set_is_key(false);
@@ -281,6 +275,13 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     v2.column_type.type = TPrimitiveType::DATEV2;
     v2.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v2);
+
+    TColumn sequence_col;
+    sequence_col.column_name = SEQUENCE_COL;
+    sequence_col.__set_is_key(false);
+    sequence_col.column_type.type = TPrimitiveType::INT;
+    sequence_col.__set_aggregation_type(TAggregationType::REPLACE);
+    request->tablet_schema.columns.push_back(sequence_col);
 }
 
 static TDescriptorTable create_descriptor_tablet() {
@@ -345,15 +346,15 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
             TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("k1").column_pos(0).build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
+    tuple_builder.add_slot(
+            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(2).build());
+    tuple_builder.add_slot(
+            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("v2").column_pos(3).build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
                                    .type(TYPE_INT)
                                    .column_name(SEQUENCE_COL)
-                                   .column_pos(2)
+                                   .column_pos(4)
                                    .build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(3).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("v2").column_pos(4).build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -382,23 +383,17 @@ TEST_F(TestDeltaWriter, open) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {10003,   270068375,  WriteType::LOAD,      20001, 30001,
-                              load_id, tuple_desc, &tuple_desc->slots(), true};
+                              load_id, tuple_desc, &tuple_desc->slots(), true,  &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
-    EXPECT_NE(delta_writer, nullptr);
-    res = delta_writer->close();
-    EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
-    EXPECT_EQ(Status::OK(), res);
-    SAFE_DELETE(delta_writer);
 
     // test vec delta writer
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId(), true);
+    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -408,128 +403,6 @@ TEST_F(TestDeltaWriter, open) {
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-}
-
-TEST_F(TestDeltaWriter, write) {
-    TCreateTabletReq request;
-    create_tablet_request(10004, 270068376, &request);
-    Status res = k_engine->create_tablet(request);
-    EXPECT_EQ(Status::OK(), res);
-
-    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
-    ObjectPool obj_pool;
-    DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
-
-    PUniqueId load_id;
-    load_id.set_hi(0);
-    load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
-                              30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
-    DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
-    EXPECT_NE(delta_writer, nullptr);
-
-    MemPool pool;
-    // Tuple 1
-    {
-        Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
-        memset(tuple, 0, tuple_desc->byte_size());
-        *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = -127;
-        *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = -32767;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = -2147483647;
-        *(int64_t*)(tuple->get_slot(slots[3]->tuple_offset())) = -9223372036854775807L;
-
-        int128_t large_int_value = -90000;
-        memcpy(tuple->get_slot(slots[4]->tuple_offset()), &large_int_value, sizeof(int128_t));
-
-        ((DateTimeValue*)(tuple->get_slot(slots[5]->tuple_offset())))
-                ->from_date_str("2048-11-10", 10);
-        ((DateTimeValue*)(tuple->get_slot(slots[6]->tuple_offset())))
-                ->from_date_str("2636-08-16 19:39:43", 19);
-
-        StringValue* char_ptr = (StringValue*)(tuple->get_slot(slots[7]->tuple_offset()));
-        char_ptr->ptr = (char*)pool.allocate(4);
-        memcpy(char_ptr->ptr, "abcd", 4);
-        char_ptr->len = 4;
-
-        StringValue* var_ptr = (StringValue*)(tuple->get_slot(slots[8]->tuple_offset()));
-        var_ptr->ptr = (char*)pool.allocate(5);
-        memcpy(var_ptr->ptr, "abcde", 5);
-        var_ptr->len = 5;
-
-        DecimalV2Value decimal_value;
-        decimal_value.assign_from_double(1.1);
-        *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
-        ((doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)(tuple->get_slot(
-                 slots[10]->tuple_offset())))
-                ->from_date_str("2048-11-10", 10);
-
-        *(int8_t*)(tuple->get_slot(slots[11]->tuple_offset())) = -127;
-        *(int16_t*)(tuple->get_slot(slots[12]->tuple_offset())) = -32767;
-        *(int32_t*)(tuple->get_slot(slots[13]->tuple_offset())) = -2147483647;
-        *(int64_t*)(tuple->get_slot(slots[14]->tuple_offset())) = -9223372036854775807L;
-
-        memcpy(tuple->get_slot(slots[15]->tuple_offset()), &large_int_value, sizeof(int128_t));
-
-        ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))
-                ->from_date_str("2048-11-10", 10);
-        ((DateTimeValue*)(tuple->get_slot(slots[17]->tuple_offset())))
-                ->from_date_str("2636-08-16 19:39:43", 19);
-
-        char_ptr = (StringValue*)(tuple->get_slot(slots[18]->tuple_offset()));
-        char_ptr->ptr = (char*)pool.allocate(4);
-        memcpy(char_ptr->ptr, "abcd", 4);
-        char_ptr->len = 4;
-
-        var_ptr = (StringValue*)(tuple->get_slot(slots[19]->tuple_offset()));
-        var_ptr->ptr = (char*)pool.allocate(5);
-        memcpy(var_ptr->ptr, "abcde", 5);
-        var_ptr->len = 5;
-
-        DecimalV2Value val_decimal;
-        val_decimal.assign_from_double(1.1);
-
-        *(DecimalV2Value*)(tuple->get_slot(slots[20]->tuple_offset())) = val_decimal;
-
-        ((doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*)(tuple->get_slot(
-                 slots[21]->tuple_offset())))
-                ->from_date_str("2048-11-10", 10);
-
-        res = delta_writer->write(tuple);
-        EXPECT_EQ(Status::OK(), res);
-    }
-
-    res = delta_writer->close();
-    EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
-    EXPECT_EQ(Status::OK(), res);
-
-    // publish version success
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
-    OlapMeta* meta = tablet->data_dir()->get_meta();
-    Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
-    std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
-    for (auto& tablet_rs : tablet_related_rs) {
-        RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
-        EXPECT_EQ(Status::OK(), res);
-        res = tablet->add_inc_rowset(rowset);
-        EXPECT_EQ(Status::OK(), res);
-    }
-    EXPECT_EQ(1, tablet->num_rows());
-
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
-    EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 
 TEST_F(TestDeltaWriter, vec_write) {
@@ -544,14 +417,15 @@ TEST_F(TestDeltaWriter, vec_write) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     //     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
-                              30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10004,   270068376,  WriteType::LOAD,        20002, 30002,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId(), true);
+    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
     MemPool pool;
@@ -678,73 +552,6 @@ TEST_F(TestDeltaWriter, vec_write) {
     delete delta_writer;
 }
 
-TEST_F(TestDeltaWriter, sequence_col) {
-    TCreateTabletReq request;
-    create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status res = k_engine->create_tablet(request);
-    EXPECT_EQ(Status::OK(), res);
-
-    TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
-    ObjectPool obj_pool;
-    DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
-
-    PUniqueId load_id;
-    load_id.set_hi(0);
-    load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
-    DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
-    EXPECT_NE(delta_writer, nullptr);
-
-    MemPool pool;
-    // Tuple 1
-    {
-        Tuple* tuple = reinterpret_cast<Tuple*>(pool.allocate(tuple_desc->byte_size()));
-        memset(tuple, 0, tuple_desc->byte_size());
-        *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = 123;
-        *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = 456;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = 1;
-        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))
-                ->from_date_str("2020-07-16 19:39:43", 19);
-
-        res = delta_writer->write(tuple);
-        EXPECT_EQ(Status::OK(), res);
-    }
-
-    res = delta_writer->close();
-    EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
-    EXPECT_EQ(Status::OK(), res);
-
-    // publish version success
-    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
-    OlapMeta* meta = tablet->data_dir()->get_meta();
-    Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
-    std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
-    for (auto& tablet_rs : tablet_related_rs) {
-        RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
-        EXPECT_EQ(Status::OK(), res);
-        res = tablet->add_inc_rowset(rowset);
-        EXPECT_EQ(Status::OK(), res);
-    }
-    EXPECT_EQ(1, tablet->num_rows());
-
-    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
-    EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
-}
-
 TEST_F(TestDeltaWriter, vec_sequence_col) {
     TCreateTabletReq request;
     sleep(20);
@@ -757,14 +564,15 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId(), true);
+    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
     MemPool pool;
@@ -784,23 +592,43 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         int16_t c2 = 456;
         columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-        int32_t c3 = 1;
-        columns[2]->insert_data((const char*)&c3, sizeof(c2));
+        DateTimeValue c3;
+        c3.from_date_str("2020-07-16 19:39:43", 19);
+        int64_t c3_int = c3.to_int64();
+        columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
-        DateTimeValue c4;
-        c4.from_date_str("2020-07-16 19:39:43", 19);
-        int64_t c4_int = c4.to_int64();
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c4;
+        c4.set_time(2022, 6, 6, 0, 0, 0, 0);
+        uint32_t c4_int = c4.to_date_int_val();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c5;
-        c5.set_time(2022, 6, 6, 0, 0, 0, 0);
-        uint32_t c5_int = c5.to_date_int_val();
-        columns[4]->insert_data((const char*)&c5_int, sizeof(c5));
-
+        int32_t c5 = 100;
+        columns[4]->insert_data((const char*)&c5, sizeof(c2));
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }
+    {
+        int8_t c1 = 123;
+        columns[0]->insert_data((const char*)&c1, sizeof(c1));
 
+        int16_t c2 = 456;
+        columns[1]->insert_data((const char*)&c2, sizeof(c2));
+
+        DateTimeValue c3;
+        c3.from_date_str("2020-07-31 19:39:43", 19);
+        int64_t c3_int = c3.to_int64();
+        columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
+
+        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c4;
+        c4.set_time(2022, 7, 6, 0, 0, 0, 0);
+        uint32_t c4_int = c4.to_date_int_val();
+        columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
+
+        int32_t c5 = 90;
+        columns[4]->insert_data((const char*)&c5, sizeof(c2));
+        res = delta_writer->write(&block, {1});
+        ASSERT_TRUE(res.ok());
+    }
     res = delta_writer->close();
     ASSERT_TRUE(res.ok());
     res = delta_writer->close_wait(PSlaveTabletNodes(), false);
@@ -818,20 +646,42 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
-    for (auto& tablet_rs : tablet_related_rs) {
-        std::cout << "start to publish txn" << std::endl;
-        RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                   write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
-        ASSERT_TRUE(res.ok());
-        std::cout << "start to add inc rowset:" << rowset->rowset_id()
-                  << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
-                  << "-" << rowset->version().second << std::endl;
-        res = tablet->add_inc_rowset(rowset);
-        ASSERT_TRUE(res.ok());
-    }
+    ASSERT_EQ(1, tablet_related_rs.size());
+
+    std::cout << "start to publish txn" << std::endl;
+    RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
+    res = k_engine->txn_manager()->publish_txn(
+            meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version);
+    ASSERT_TRUE(res.ok());
+    std::cout << "start to add inc rowset:" << rowset->rowset_id()
+              << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
+              << "-" << rowset->version().second << std::endl;
+    res = tablet->add_inc_rowset(rowset);
+    ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, tablet->num_rows());
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    res = ((BetaRowset*)rowset.get())->load_segments(&segments);
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(1, rowset->num_segments());
+    ASSERT_EQ(1, segments.size());
+
+    // read data, verify the data correct
+    OlapReaderStatistics stats;
+    StorageReadOptions opts;
+    opts.stats = &stats;
+    opts.tablet_schema = rowset->tablet_schema();
+
+    std::unique_ptr<RowwiseIterator> iter;
+    Schema schema(rowset->tablet_schema());
+    segments[0]->new_iterator(schema, opts, &iter);
+    auto read_block = rowset->tablet_schema()->create_block();
+    res = iter->next_batch(&read_block);
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(1, read_block.rows());
+    // get the value from sequence column
+    auto seq_v = read_block.get_by_position(4).column->get_int(0);
+    ASSERT_EQ(100, seq_v);
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());

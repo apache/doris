@@ -23,7 +23,6 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
@@ -52,12 +51,6 @@ public class MVStatisticsTest extends TestWithFeService {
 
     @Test
     public void testCreate() throws Exception {
-        new Expectations() {
-            {
-                statisticsCache.refreshSync(anyLong, anyString);
-                times = 5;
-            }
-        };
         new MockUp<StatisticsRepository>() {
         };
         new MockUp<StatisticsUtil>() {
@@ -79,7 +72,7 @@ public class MVStatisticsTest extends TestWithFeService {
         };
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         Deencapsulation.setField(analysisManager, "statisticsCache", statisticsCache);
-        getSqlStmtExecutor("analyze t1");
+        getSqlStmtExecutor("analyze table t1");
         Thread.sleep(3000);
     }
 }

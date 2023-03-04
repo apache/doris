@@ -27,17 +27,24 @@ import org.apache.doris.thrift.TFileType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
 /**
  * The Implement of table valued function
  * S3("uri" = "xxx", "access_key" = "xx", "SECRET_KEY" = "qqq", "FORMAT" = "csv").
+ * <p>
+ * For AWS S3, uri should be:
+ * s3://bucket.s3.us-east-1.amazonaws.com/csv/taxi.csv
+ * or
+ * https://us-east-1.amazonaws.com/bucket/csv/taxi.csv with "use_path_style"="true"
+ * or
+ * https://bucket.us-east-1.amazonaws.com/csv/taxi.csv with "use_path_style"="false"
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
-    public static final Logger LOG = LogManager.getLogger(S3TableValuedFunction.class);
+    private static final Logger LOG = LogManager.getLogger(BrokerDesc.class);
     public static final String NAME = "s3";
     public static final String S3_URI = "uri";
     public static final String S3_AK = "AWS_ACCESS_KEY";
@@ -64,7 +71,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     private String virtualBucket;
     private boolean forceVirtualHosted;
 
-    public S3TableValuedFunction(Map<String, String> params) throws UserException {
+    public S3TableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase()) && !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
@@ -75,14 +82,18 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         String originUri = validParams.getOrDefault(S3_URI, "");
         if (originUri.toLowerCase().startsWith("s3")) {
-            // s3 protocol
-            forceVirtualHosted = false;
+            // s3 protocol, default virtual-hosted style
+            forceVirtualHosted = true;
         } else {
             // not s3 protocol, forceVirtualHosted is determined by USE_PATH_STYLE.
             forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
         }
 
-        s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
+        try {
+            s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
+        } catch (UserException e) {
+            throw new AnalysisException("parse s3 uri failed, uri = " + validParams.get(S3_URI), e);
+        }
         if (forceVirtualHosted) {
             // s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:
             //          uri: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt

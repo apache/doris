@@ -47,14 +47,14 @@ inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instanc
 
 std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
         RuntimeState* state, const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, int buffer_size, RuntimeProfile* profile,
-        bool is_merging, std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) {
+        PlanNodeId dest_node_id, int num_senders, RuntimeProfile* profile, bool is_merging,
+        std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) {
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << fragment_instance_id
               << ", node=" << dest_node_id;
     std::shared_ptr<VDataStreamRecvr> recvr(new VDataStreamRecvr(
             this, state, row_desc, fragment_instance_id, dest_node_id, num_senders, is_merging,
-            buffer_size, profile, sub_plan_query_statistics_recvr));
+            profile, sub_plan_query_statistics_recvr));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     std::lock_guard<std::mutex> l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
@@ -67,8 +67,10 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
                                                              bool acquire_lock) {
     VLOG_ROW << "looking up fragment_instance_id=" << fragment_instance_id << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    // Create lock guard and not own lock currently and will lock conditionally
+    std::unique_lock recvr_lock(_lock, std::defer_lock);
     if (acquire_lock) {
-        _lock.lock();
+        recvr_lock.lock();
     }
     std::pair<StreamMap::iterator, StreamMap::iterator> range =
             _receiver_map.equal_range(hash_value);
@@ -76,15 +78,9 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
         auto recvr = range.first->second;
         if (recvr->fragment_instance_id() == fragment_instance_id &&
             recvr->dest_node_id() == node_id) {
-            if (acquire_lock) {
-                _lock.unlock();
-            }
             return recvr;
         }
         ++range.first;
-    }
-    if (acquire_lock) {
-        _lock.unlock();
     }
     return std::shared_ptr<VDataStreamRecvr>();
 }

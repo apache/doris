@@ -67,10 +67,12 @@
 #define JSONB_JSONBDOCUMENT_H
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <limits>
+#include <type_traits>
 
 // #include "util/string_parser.hpp"
 
@@ -119,6 +121,8 @@ enum class JsonbType : char {
     T_Binary = 0x09,
     T_Object = 0x0A,
     T_Array = 0x0B,
+    T_Int128 = 0x0C,
+    T_Float = 0x0D,
     NUM_TYPES,
 };
 
@@ -287,13 +291,8 @@ typedef std::underlying_type<JsonbType>::type JsonbTypeUnder;
  */
 class JsonbKeyValue {
 public:
-#ifdef USE_LARGE_DICT
     static const int sMaxKeyId = 65535;
     typedef uint16_t keyid_type;
-#else
-    static const int sMaxKeyId = 255;
-    typedef uint8_t keyid_type;
-#endif // #ifdef USE_LARGE_DICT
 
     static const uint8_t sMaxKeyLen = 64;
 
@@ -343,10 +342,12 @@ public:
     bool isInt32() const { return (type_ == JsonbType::T_Int32); }
     bool isInt64() const { return (type_ == JsonbType::T_Int64); }
     bool isDouble() const { return (type_ == JsonbType::T_Double); }
+    bool isFloat() const { return (type_ == JsonbType::T_Float); }
     bool isString() const { return (type_ == JsonbType::T_String); }
     bool isBinary() const { return (type_ == JsonbType::T_Binary); }
     bool isObject() const { return (type_ == JsonbType::T_Object); }
     bool isArray() const { return (type_ == JsonbType::T_Array); }
+    bool isInt128() const { return (type_ == JsonbType::T_Int128); }
 
     JsonbType type() const { return type_; }
 
@@ -365,6 +366,8 @@ public:
             return "bigint";
         case JsonbType::T_Double:
             return "double";
+        case JsonbType::T_Float:
+            return "float";
         case JsonbType::T_String:
             return "string";
         case JsonbType::T_Binary:
@@ -475,12 +478,38 @@ inline bool JsonbInt64Val::setVal(int64_t value) {
     return true;
 }
 
+typedef NumberValT<__int128_t> JsonbInt128Val;
+
+// override setVal for Int64Val
+template <>
+inline bool JsonbInt128Val::setVal(__int128_t value) {
+    if (!isInt128()) {
+        return false;
+    }
+
+    num_ = value;
+    return true;
+}
+
 typedef NumberValT<double> JsonbDoubleVal;
 
 // override setVal for DoubleVal
 template <>
 inline bool JsonbDoubleVal::setVal(double value) {
     if (!isDouble()) {
+        return false;
+    }
+
+    num_ = value;
+    return true;
+}
+
+typedef NumberValT<float> JsonbFloatVal;
+
+// override setVal for DoubleVal
+template <>
+inline bool JsonbFloatVal::setVal(float value) {
+    if (!isFloat()) {
         return false;
     }
 
@@ -952,6 +981,12 @@ inline unsigned int JsonbValue::numPackedBytes() const {
     case JsonbType::T_Double: {
         return sizeof(type_) + sizeof(double);
     }
+    case JsonbType::T_Float: {
+        return sizeof(type_) + sizeof(float);
+    }
+    case JsonbType::T_Int128: {
+        return sizeof(type_) + sizeof(__int128_t);
+    }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
         return ((JsonbBlobVal*)(this))->numPackedBytes();
@@ -983,6 +1018,12 @@ inline unsigned int JsonbValue::size() const {
     case JsonbType::T_Double: {
         return sizeof(double);
     }
+    case JsonbType::T_Float: {
+        return sizeof(float);
+    }
+    case JsonbType::T_Int128: {
+        return sizeof(__int128_t);
+    }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
         return ((JsonbBlobVal*)(this))->getBlobLen();
@@ -1007,6 +1048,8 @@ inline const char* JsonbValue::getValuePtr() const {
     case JsonbType::T_Int32:
     case JsonbType::T_Int64:
     case JsonbType::T_Double:
+    case JsonbType::T_Float:
+    case JsonbType::T_Int128:
         return ((char*)this) + sizeof(JsonbType);
 
     case JsonbType::T_String:

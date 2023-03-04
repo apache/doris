@@ -55,7 +55,6 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         super(extCatalog, id, name);
     }
 
-    // TODO(ftw): drew out the public multiple parts
     @Override
     protected void init() {
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
@@ -128,7 +127,6 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         return Lists.newArrayList(idToTbl.values());
     }
 
-    // TODO(ftw): drew
     @Override
     public JdbcExternalTable getTableNullable(String tableName) {
         makeSureInitialized();

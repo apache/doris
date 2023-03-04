@@ -2,6 +2,50 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230221
+- Modified: clucene 2.4.4 -> 2.4.6
+
+## v20230218
+- Modified: libhdfs3 2.3.7 -> 2.3.8
+- Modified: jemalloc 5.2.1 -> 5.3.0
+
+## v20230130
+- Modified: libhdfs3 2.3.6 -> 2.3.7
+
+## v20230120
+- Modified: libhdfs3 2.3.5 -> 2.3.6
+
+## v20230117
+- Modified: bitshuffle 0.3.5 -> 0.5.1
+
+## v20230112
+- Added: clucene 2.4.4
+
+## v20230111
+- Fixed: libgsasl enable GSSAPI
+
+## v20230110
+- Modified: libhdfs3 2.3.4 -> 2.3.5
+
+## v20230105
+- Modified: openssl 1.1.1m -> 1.1.1s fix CVE-2022-1292
+
+## v20221230
+- Modified: libhdfs3 2.3.2 -> 2.3.4
+
+## v20221228
+- Modified: simdjson 1.0.2 -> 3.0.1
+
+## v20221213
+- Modified: protobuf 3.14.0 -> 3.15.0
+
+## v20221212
+- Modified: s2geometry 0.9.0 -> 0.10.0
+- Added: Abseil, it is dependency of new s2geometry
+
+## v20221209
+- Modified: update parallel-hashmap from 1.33 to 1.3.8
+
 ## v20221015
 
 - Modified: zstd 1.5.0 -> 1.5.2

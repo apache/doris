@@ -28,17 +28,20 @@
 
 extern "C" {
 void* doris_malloc(size_t size) __THROW {
-    TRY_CONSUME_MEM_TRACKER(je_nallocx(size, 0), nullptr);
-    void* ptr = je_malloc(size);
+    // Both je_nallocx and je_malloc will use the lock je_malloc_mutex_lock_slow,
+    // so enabling the jemalloc hook will double the lock usage.
+    // In extreme cases this will affect performance, consider turning off mem hook
+    TRY_CONSUME_MEM_TRACKER(jenallocx(size, 0), nullptr);
+    void* ptr = jemalloc(size);
     if (UNLIKELY(ptr == nullptr)) {
-        RELEASE_MEM_TRACKER(je_nallocx(size, 0));
+        RELEASE_MEM_TRACKER(jenallocx(size, 0));
     }
     return ptr;
 }
 
 void doris_free(void* p) __THROW {
-    RELEASE_MEM_TRACKER(je_malloc_usable_size(p));
-    je_free(p);
+    RELEASE_MEM_TRACKER(jemalloc_usable_size(p));
+    jefree(p);
 }
 
 void* doris_realloc(void* p, size_t size) __THROW {
@@ -47,13 +50,13 @@ void* doris_realloc(void* p, size_t size) __THROW {
     }
 
 #if USE_MEM_TRACKER
-    int64_t old_size = je_malloc_usable_size(p);
+    int64_t old_size = jemalloc_usable_size(p);
 #endif
 
-    TRY_CONSUME_MEM_TRACKER(je_nallocx(size, 0) - old_size, nullptr);
-    void* ptr = je_realloc(p, size);
+    TRY_CONSUME_MEM_TRACKER(jenallocx(size, 0) - old_size, nullptr);
+    void* ptr = jerealloc(p, size);
     if (UNLIKELY(ptr == nullptr)) {
-        RELEASE_MEM_TRACKER(je_nallocx(size, 0) - old_size);
+        RELEASE_MEM_TRACKER(jenallocx(size, 0) - old_size);
     }
     return ptr;
 }
@@ -64,77 +67,77 @@ void* doris_calloc(size_t n, size_t size) __THROW {
     }
 
     TRY_CONSUME_MEM_TRACKER(n * size, nullptr);
-    void* ptr = je_calloc(n, size);
+    void* ptr = jecalloc(n, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(n * size);
     } else {
-        CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - n * size);
+        CONSUME_MEM_TRACKER(jemalloc_usable_size(ptr) - n * size);
     }
     return ptr;
 }
 
 void doris_cfree(void* ptr) __THROW {
-    RELEASE_MEM_TRACKER(je_malloc_usable_size(ptr));
-    je_free(ptr);
+    RELEASE_MEM_TRACKER(jemalloc_usable_size(ptr));
+    jefree(ptr);
 }
 
 void* doris_memalign(size_t align, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
-    void* ptr = je_aligned_alloc(align, size);
+    void* ptr = jealigned_alloc(align, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
     } else {
-        CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
+        CONSUME_MEM_TRACKER(jemalloc_usable_size(ptr) - size);
     }
     return ptr;
 }
 
 void* doris_aligned_alloc(size_t align, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
-    void* ptr = je_aligned_alloc(align, size);
+    void* ptr = jealigned_alloc(align, size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
     } else {
-        CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
+        CONSUME_MEM_TRACKER(jemalloc_usable_size(ptr) - size);
     }
     return ptr;
 }
 
 void* doris_valloc(size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
-    void* ptr = je_valloc(size);
+    void* ptr = jevalloc(size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
     } else {
-        CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
+        CONSUME_MEM_TRACKER(jemalloc_usable_size(ptr) - size);
     }
     return ptr;
 }
 
 void* doris_pvalloc(size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
-    void* ptr = je_valloc(size);
+    void* ptr = jevalloc(size);
     if (UNLIKELY(ptr == nullptr)) {
         RELEASE_MEM_TRACKER(size);
     } else {
-        CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
+        CONSUME_MEM_TRACKER(jemalloc_usable_size(ptr) - size);
     }
     return ptr;
 }
 
 int doris_posix_memalign(void** r, size_t align, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, ENOMEM);
-    int ret = je_posix_memalign(r, align, size);
+    int ret = jeposix_memalign(r, align, size);
     if (UNLIKELY(ret != 0)) {
         RELEASE_MEM_TRACKER(size);
     } else {
-        CONSUME_MEM_TRACKER(je_malloc_usable_size(*r) - size);
+        CONSUME_MEM_TRACKER(jemalloc_usable_size(*r) - size);
     }
     return ret;
 }
 
 size_t doris_malloc_usable_size(void* ptr) __THROW {
-    size_t ret = je_malloc_usable_size(ptr);
+    size_t ret = jemalloc_usable_size(ptr);
     return ret;
 }
 

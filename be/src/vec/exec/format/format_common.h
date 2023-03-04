@@ -47,4 +47,64 @@ struct DecimalScaleParams {
     }
 };
 
+/**
+ * Key-Value Cache Helper.
+ *
+ * It store a object instance global. User can invoke get method by key and a
+ * object creator callback. If there is a instance stored in cache, then it will
+ * return a void pointer of it, otherwise, it will invoke creator callback, create
+ * a new instance store global, and return it.
+ *
+ * The stored objects will be deleted when deconstructing, so user do not need to
+ * delete the returned pointer.
+ *
+ * User can invoke erase method by key to delete data.
+ *
+ * @tparam KType is the key type
+ */
+template <typename KType>
+class KVCache {
+public:
+    KVCache() = default;
+
+    ~KVCache() {
+        for (auto& kv : _storage) {
+            _delete_fn[kv.first](kv.second);
+        }
+    }
+
+    void erase(const KType& key) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto it = _storage.find(key);
+        if (it != _storage.end()) {
+            _delete_fn[key](_storage[key]);
+            _storage.erase(key);
+            _delete_fn.erase(key);
+        }
+    }
+
+    template <class T>
+    T* get(const KType& key, const std::function<T*()> createIfNotExists) {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto it = _storage.find(key);
+        if (it != _storage.end()) {
+            return reinterpret_cast<T*>(it->second);
+        } else {
+            T* rawPtr = createIfNotExists();
+            if (rawPtr != nullptr) {
+                _delete_fn[key] = [](void* obj) { delete reinterpret_cast<T*>(obj); };
+                _storage[key] = rawPtr;
+            }
+            return rawPtr;
+        }
+    }
+
+private:
+    using DeleteFn = void (*)(void*);
+
+    std::mutex _lock;
+    std::unordered_map<KType, DeleteFn> _delete_fn;
+    std::unordered_map<KType, void*> _storage;
+};
+
 } // namespace doris::vectorized

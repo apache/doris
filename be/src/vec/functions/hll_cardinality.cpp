@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/hll_function.h"
 #include "udf/udf.h"
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/number_traits.h"

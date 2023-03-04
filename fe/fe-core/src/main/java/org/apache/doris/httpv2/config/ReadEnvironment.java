@@ -19,6 +19,8 @@ package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Log4jConfig;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.beans.BeansException;
 import org.springframework.boot.logging.LogFile;
 import org.springframework.boot.logging.LoggingInitializationContext;
@@ -34,7 +36,7 @@ import java.io.File;
 
 @Component
 public class ReadEnvironment implements ApplicationContextAware {
-
+    private static final Logger LOG = LogManager.getLogger(ReadEnvironment.class);
     private ApplicationContext applicationContext;
 
     @Override
@@ -59,7 +61,7 @@ public class ReadEnvironment implements ApplicationContextAware {
             system.initialize(new LoggingInitializationContext(environment),
                     logConfig, logFile);
         } catch (Exception ex) {
-            ex.printStackTrace();
+            LOG.warn("", ex);
         }
 
     }

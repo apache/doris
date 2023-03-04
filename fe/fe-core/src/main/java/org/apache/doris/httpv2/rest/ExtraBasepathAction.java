@@ -36,9 +36,13 @@ import javax.servlet.http.HttpServletResponse;
  * This Api will return the path configured in Config.http_api_extra_base_path.
  */
 @RestController
-public class ExtraBasepathAction {
+public class ExtraBasepathAction extends RestBaseController {
     @RequestMapping(path = "/api/basepath", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         BasepathResponse resp = new BasepathResponse();
         resp.path = Config.http_api_extra_base_path;
         if (Strings.isNullOrEmpty(Config.http_api_extra_base_path)) {

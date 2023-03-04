@@ -51,8 +51,9 @@ suite("test_javaudf_addisoperioud") {
 
         qt_select """ SELECT add_days(col_1, 'YYYYMMdd', 'PT02H00M') as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION add_days(string, string, string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS add_days(string, string, string);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

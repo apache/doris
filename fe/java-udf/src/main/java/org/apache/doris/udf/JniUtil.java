@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-import org.apache.doris.monitor.jvm.JvmPauseMonitor;
 import org.apache.doris.thrift.TGetJMXJsonResponse;
 import org.apache.doris.thrift.TGetJvmMemoryMetricsResponse;
 import org.apache.doris.thrift.TGetJvmThreadsInfoRequest;

@@ -346,6 +346,7 @@ public class SparkResource extends Resource {
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
         updateProperties(properties);
+        super.modifyProperties(properties);
     }
 
     @Override

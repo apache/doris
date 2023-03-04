@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <utility>
-
 #include "operator.h"
 
 namespace doris {
@@ -38,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SortSourceOperator final : public Operator<SortSourceOperatorBuilder> {
+class SortSourceOperator final : public SourceOperator<SortSourceOperatorBuilder> {
 public:
     SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
     Status open(RuntimeState*) override { return Status::OK(); }

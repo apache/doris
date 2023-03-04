@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 
 import com.google.common.collect.Lists;
 import org.apache.spark.sql.Row;

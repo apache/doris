@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -26,6 +28,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -61,7 +65,24 @@ public class OdbcScanNode extends ScanNode {
                 return false;
             }
         }
-        return true;
+        return Config.enable_func_pushdown;
+    }
+
+    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr) {
+        if (tableType.equals(TOdbcTableType.ORACLE) && expr.contains(DateLiteral.class)
+                && (expr instanceof BinaryPredicate)) {
+            ArrayList<Expr> children = expr.getChildren();
+            // k1 OP '2022-12-10 20:55:59'  changTo ---> k1 OP to_date('{}','yyyy-mm-dd hh24:mi:ss')
+            // oracle datetime push down is different: https://github.com/apache/doris/discussions/15069
+            if (children.get(1).isConstant() && (children.get(1).getType().equals(Type.DATETIME) || children
+                    .get(1).getType().equals(Type.DATETIMEV2))) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "to_date('" + children.get(1).getStringValue() + "','yyyy-mm-dd hh24:mi:ss')";
+                return filter;
+            }
+        }
+        return expr.toMySql();
     }
 
     private final List<String> columns = new ArrayList<String>();
@@ -182,7 +203,7 @@ public class OdbcScanNode extends ScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             if (shouldPushDownConjunct(odbcType, p)) {
-                String filter = p.toMySql();
+                String filter = conjunctExprToString(odbcType, p);
                 filters.add(filter);
                 conjuncts.remove(p);
             }

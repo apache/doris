@@ -45,13 +45,15 @@ public class JoinCommute extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> check(swapType, join))
+                .whenNot(LogicalJoin::hasJoinHint)
                 .then(join -> {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
                             join.getOtherJoinConjuncts(),
-                            join.right(), join.left(),
-                            join.getJoinReorderContext());
+                            join.getHint(),
+                            join.right(), join.left());
+                    newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
@@ -65,8 +67,15 @@ public class JoinCommute extends OneExplorationRuleFactory {
         LEFT_DEEP, ZIG_ZAG, BUSHY
     }
 
+    /**
+     * Check if commutative law needs to be enforced.
+     */
     public static boolean check(SwapType swapType, LogicalJoin<GroupPlan, GroupPlan> join) {
         if (swapType == SwapType.LEFT_DEEP && isNotBottomJoin(join)) {
+            return false;
+        }
+
+        if (join.getJoinType().isNullAwareLeftAntiJoin()) {
             return false;
         }
 

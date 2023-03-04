@@ -29,6 +29,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
@@ -36,6 +37,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
@@ -53,8 +55,6 @@ protected:
         }
         EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
         EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
-        _data_dir->update_capacity();
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         StorageEngine::_s_instance = k_engine;
@@ -162,10 +162,9 @@ protected:
         rowset_id.init(inc_id);
         rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
-        rowset_writer_context->rowset_dir = "tablet_path";
+        rowset_writer_context->rowset_dir = absolute_dir + "/tablet_path";
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
@@ -251,35 +250,7 @@ protected:
                 "hi": -5350970832824939812,
                 "lo": -6717994719194512122
             },
-            "creation_time": 1553765670,
-            "alpha_rowset_extra_meta_pb": {
-                "segment_groups": [
-                {
-                    "segment_group_id": 0,
-                    "num_segments": 2,
-                    "index_size": 132,
-                    "data_size": 576,
-                    "num_rows": 5,
-                    "zone_maps": [
-                    {
-                        "min": "MQ==",
-                        "max": "NQ==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MQ==",
-                        "max": "Mw==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "J2J1c2gn",
-                        "max": "J3RvbSc=",
-                        "null_flag": false
-                    }
-                    ],
-                    "empty": false
-                }]
-            }
+            "creation_time": 1553765670
         })";
         pb1->init_from_json(json_rowset_meta);
         pb1->set_start_version(start);
@@ -330,7 +301,7 @@ protected:
         TabletMetaSharedPtr tablet_meta(
                 new TabletMeta(2, 2, 2, 2, 2, 2, t_tablet_schema, 2, col_ordinal_to_unique_id,
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
-                               TCompressionType::LZ4F, "", enable_unique_key_merge_on_write));
+                               TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
         TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
         tablet->init();
@@ -390,7 +361,6 @@ protected:
 private:
     const std::string kTestDir = "/ut_dir/vertical_compaction_test";
     string absolute_dir;
-    std::unique_ptr<DataDir> _data_dir;
 };
 
 TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
@@ -531,7 +501,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
@@ -639,7 +609,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
@@ -740,7 +710,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(),
               num_input_rowset * num_segments * rows_per_segment - num_input_rowset * 100);
@@ -835,7 +805,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;

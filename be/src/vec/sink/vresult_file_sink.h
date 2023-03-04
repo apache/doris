@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include "runtime/result_file_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 namespace vectorized {
 class VResultWriter;
 
-class VResultFileSink : public VDataStreamSender {
+class VResultFileSink : public DataSink {
 public:
     VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc, const TResultFileSink& sink,
                     int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
@@ -40,7 +40,6 @@ public:
     Status open(RuntimeState* state) override;
     // send data in 'batch' to this backend stream mgr
     // Blocks until all rows in batch are placed in the buffer
-    Status send(RuntimeState* state, RowBatch* batch) override;
     Status send(RuntimeState* state, Block* block, bool eos = false) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
@@ -48,6 +47,7 @@ public:
     RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
+    const RowDescriptor& row_desc() const { return _row_desc; }
 
 private:
     Status prepare_exprs(RuntimeState* state);
@@ -62,11 +62,15 @@ private:
 
     std::unique_ptr<Block> _output_block = nullptr;
     std::shared_ptr<BufferControlBlock> _sender;
+    std::unique_ptr<VDataStreamSender> _stream_sender;
     std::shared_ptr<VResultWriter> _writer;
     int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;
     std::string _header_type;
+
+    RowDescriptor _row_desc;
+    RuntimeProfile* _profile;
 };
 } // namespace vectorized
 } // namespace doris

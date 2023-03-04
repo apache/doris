@@ -35,6 +35,7 @@ header:
     - "**/*.log"
     - "**/*.sql"
     - "**/*.lock"
+    - "**/*.out"
     - "tsan_suppressions"
     - "docs/.markdownlintignore"
     - "fe/fe-core/src/test/resources/data/net_snmp_normal"
@@ -52,6 +53,7 @@ header:
     - "be/src/util/jsonb_document.h"
     - "be/src/util/jsonb_error.h"
     - "be/src/util/jsonb_parser.h"
+    - "be/src/util/jsonb_parser_simd.h"
     - "be/src/util/jsonb_stream.h"
     - "be/src/util/jsonb_updater.h"
     - "be/src/util/jsonb_utils.h"
@@ -63,6 +65,7 @@ header:
     - "be/src/util/sse2neo.h"
     - "be/src/util/sse2neon.h"
     - "be/src/util/utf8_check.cpp"
+    - "be/src/util/cityhash102"
     - "build-support/run_clang_format.py"
     - "regression-test/data"
     - "docs/.vuepress/public/css/animate.min.css"
@@ -76,5 +79,6 @@ header:
     - "docker/thirdparties/docker-compose/hive/scripts/create_tpch1_orc.hql"
     - "docker/thirdparties/docker-compose/hive/scripts/create_tpch1_parquet.hql"
     - "docker/thirdparties/docker-compose/hive/scripts/preinstalled_data/"
+    - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
 
   comment: on-failure

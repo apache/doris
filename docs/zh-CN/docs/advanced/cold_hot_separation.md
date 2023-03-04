@@ -51,6 +51,10 @@ under the License.
 
 存储策略是使用冷热分离功能的入口，用户只需要在建表或使用doris过程中，给表或分区关联上storage policy，即可以使用冷热分离的功能。
 
+<version since="dev"></version> 创建S3 RESOURCE的时候，会进行S3远端的链接校验，以保证RESOURCE创建的正确。
+
+此外，需要新增fe配置：`enable_storage_policy=true`
+
 例如：
 
 ```
@@ -95,13 +99,13 @@ ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");
 ```
 ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");
 ```
-具体可以参考docs目录下resource、policy、create table、alter等文档，里面有详细介绍
+具体可以参考docs目录下[resource](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md)、 [policy](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY.md)、 [create table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)、 [alter table](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md)等文档，里面有详细介绍
 
 ### 一些限制
 
 - 单表或单partition只能关联一个storage policy，关联后不能drop掉storage policy
 - storage policy关联的对象信息不支持修改数据存储path的信息，比如bucket、endpoint、root_path等信息
-- storage policy目前只支持创建，不支持删除
+- storage policy目前只支持创建和修改，不支持删除
 
 ## 冷数据占用对象大小
 方式一：
@@ -109,6 +113,14 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 
 方式二：
 通过show tablets from tableName可以查看到表的每个tablet占用的对象大小，RemoteDataSize项
+
+## 冷数据的cache
+上文提到冷数据为了优化查询的性能和对象存储资源节省，引入了cache的概念。在冷却后首次命中，Doris会将已经冷却的数据又重新加载到be的本地磁盘，cache有以下特性：
+- cache实际存储于be磁盘，不占用内存空间。
+- cache可以限制膨胀，通过LRU进行数据的清理
+- be参数`file_cache_alive_time_sec`可以设置cache数据再未被访问后的最大保存时间，默认是604800，即一周。
+- be参数`file_cache_max_size_per_disk` 可以设置cache占用磁盘大小，一旦超过这个设置，会删除最久未访问cache，默认是0，单位：字节，即不限制大小。
+- be参数`file_cache_type` 可选项`sub_file_cache`（切分远端文件进行本地缓存）和`whole_file_cache`（整个远端文件进行本地缓存），默认为""，即不缓存文件，需要缓存的时候请设置此参数。
 
 
 ## 未尽事项

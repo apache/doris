@@ -19,7 +19,7 @@
 
 #include <string>
 
-#include "exprs/bloomfilter_predicate.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
@@ -45,7 +45,8 @@ RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
 Status RuntimeFilterMgr::init() {
     DCHECK(_state->query_mem_tracker() != nullptr);
-    _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr");
+    _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr",
+                                            ExecEnv::GetInstance()->experimental_mem_tracker());
     return Status::OK();
 }
 
@@ -161,7 +162,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
     _fragment_instance_id = fragment_instance_id;
-    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity");
+    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity",
+                                                ExecEnv::GetInstance()->experimental_mem_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
@@ -238,6 +240,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             size_t cur = rpc_contexts.size() - 1;
             rpc_contexts[cur]->request = apply_request;
             rpc_contexts[cur]->request.set_filter_id(request->filter_id());
+            rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
+                                                       request->is_pipeline());
             *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
             if (has_attachment) {
                 rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
@@ -298,6 +302,37 @@ Status RuntimeFilterMergeController::add_entity(
                 new RuntimeFilterMergeControllerEntity(state), entity_closer);
         _filter_controller_map[shard][query_id_str] = *handle;
         const TRuntimeFilterParams& filter_params = params.params.runtime_filter_params;
+        RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
+                                            params.query_options));
+    } else {
+        *handle = _filter_controller_map[shard][query_id_str].lock();
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterMergeController::add_entity(
+        const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
+        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
+    if (!local_params.__isset.runtime_filter_params ||
+        local_params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
+        return Status::OK();
+    }
+
+    runtime_filter_merge_entity_closer entity_closer =
+            std::bind(runtime_filter_merge_entity_close, this, std::placeholders::_1);
+
+    UniqueId query_id(params.query_id);
+    std::string query_id_str = query_id.to_string();
+    UniqueId fragment_instance_id = UniqueId(local_params.fragment_instance_id);
+    uint32_t shard = _get_controller_shard_idx(query_id);
+    std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
+    auto iter = _filter_controller_map[shard].find(query_id_str);
+
+    if (iter == _filter_controller_map[shard].end()) {
+        *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
+                new RuntimeFilterMergeControllerEntity(state), entity_closer);
+        _filter_controller_map[shard][query_id_str] = *handle;
+        const TRuntimeFilterParams& filter_params = local_params.runtime_filter_params;
         RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
                                             params.query_options));
     } else {

@@ -706,6 +706,7 @@ public class HashJoinNode extends JoinNodeBase {
         msg.hash_join_node = new THashJoinNode();
         msg.hash_join_node.join_op = joinOp.toThrift();
         msg.hash_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
+        msg.hash_join_node.setIsMark(isMarkJoin());
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
                     eqJoinPredicate.getChild(1).treeToThrift());
@@ -757,7 +758,7 @@ public class HashJoinNode extends JoinNodeBase {
         StringBuilder output =
                 new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
                         .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
-
+        output.append(detailPrefix).append("is mark: ").append(isMarkJoin()).append("\n");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
@@ -840,5 +841,22 @@ public class HashJoinNode extends JoinNodeBase {
      */
     public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
         this.otherJoinConjuncts = otherJoinConjuncts;
+    }
+
+    SlotRef getMappedInputSlotRef(SlotRef slotRef) {
+        if (outputSmap != null) {
+            Expr mappedExpr = outputSmap.mappingForRhsExpr(slotRef);
+            if (mappedExpr != null && mappedExpr instanceof SlotRef) {
+                return (SlotRef) mappedExpr;
+            } else {
+                if (outputSmap.containsMappingFor(slotRef)) {
+                    return slotRef;
+                } else {
+                    return null;
+                }
+            }
+        } else {
+            return slotRef;
+        }
     }
 }

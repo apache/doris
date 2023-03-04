@@ -49,6 +49,7 @@ usage() {
 Usage: $0 <options>
   Optional options:
      -j                 build thirdparty parallel
+     --clean            clean the extracted data
   "
     exit 1
 }
@@ -58,6 +59,7 @@ if ! OPTS="$(getopt \
     -o '' \
     -o 'h' \
     -l 'help' \
+    -l 'clean' \
     -o 'j:' \
     -- "$@")"; then
     usage
@@ -88,6 +90,10 @@ if [[ "$#" -ne 1 ]]; then
             HELP=1
             shift
             ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
         --)
             shift
             break
@@ -102,11 +108,11 @@ fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit
 fi
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
+    CLEAN               -- ${CLEAN}
 "
 
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
@@ -123,6 +129,12 @@ fi
 
 cd "${TP_DIR}"
 
+if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
+    echo 'Clean the extracted data ...'
+    find "${TP_SOURCE_DIR}" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} \;
+    echo 'Success!'
+fi
+
 # Download thirdparties.
 "${TP_DIR}/download-thirdparty.sh"
 
@@ -134,6 +146,7 @@ if [[ "${CC}" == *gcc ]]; then
     warning_stringop_truncation='-Wno-stringop-truncation'
     warning_class_memaccess='-Wno-class-memaccess'
     warning_array_parameter='-Wno-array-parameter'
+    warning_narrowing='-Wno-narrowing'
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -144,6 +157,7 @@ elif [[ "${CC}" == *clang ]]; then
     warning_reserved_identifier='-Wno-reserved-identifier'
     warning_suggest_override='-Wno-suggest-override -Wno-suggest-destructor-override'
     warning_option_ignored='-Wno-option-ignored'
+    warning_narrowing='-Wno-c++11-narrowing'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
 
@@ -437,7 +451,7 @@ build_gflags() {
     rm -rf CMakeCache.txt CMakeFiles/
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -669,7 +683,7 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
@@ -844,7 +858,8 @@ build_librdkafka() {
     # PKG_CONFIG="pkg-config --static"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2 \
+        -lgssapi_krb5 -lkrb5 -lkrb5support -lk5crypto -lcom_err -lresolv" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
@@ -917,7 +932,7 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_NAME}"
+    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -969,6 +984,23 @@ build_arrow() {
     strip_lib libparquet.a
 }
 
+# abseil
+build_abseil() {
+    check_if_source_exist "${ABSEIL_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
+
+    LDFLAGS="-L${TP_LIB_DIR}" \
+        "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DABSL_ENABLE_INSTALL=ON \
+        -DBUILD_DEPS=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_CXX_STANDARD=11
+
+    cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
+    cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
+}
+
 # s2
 build_s2() {
     check_if_source_exist "${S2_SOURCE}"
@@ -979,23 +1011,13 @@ build_s2() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
-    else
-        ldflags="-L${TP_LIB_DIR}"
-    fi
-
-    CXXFLAGS="-O3" \
-        LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -DBUILD_SHARED_LIBS=OFF \
-        -DGFLAGS_ROOT_DIR="${TP_INSTALL_DIR}/include" \
         -DWITH_GFLAGS=ON \
-        -DGLOG_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" \
-        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}/include" \
-        -DWITH_GLOG=ON ..
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1014,11 +1036,11 @@ build_bitshuffle() {
     cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
     PREFIX="${TP_INSTALL_DIR}"
 
-    # This library has significant optimizations when built with -mavx2. However,
-    # we still need to support non-AVX2-capable hardware. So, we build it twice,
-    # once with the flag and once without, and use some linker tricks to
-    # suffix the AVX2 symbols with '_avx2'.
-    arches=('default' 'avx2')
+    # This library has significant optimizations when built with AVX2/AVX512. However,
+    # we still need to support non-AVX2-capable hardware. So, we build it three times,
+    # with the flag AVX2, AVX512 each and once without, and use some linker tricks to
+    # suffix the AVX2 symbols with '_avx2', AVX512 symbols with '_avx512'
+    arches=('default' 'avx2' 'avx512')
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
@@ -1031,6 +1053,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx2" ]]; then
             arch_flag="-mavx2"
         fi
+        if [[ "${arch}" == "avx512" ]]; then
+            arch_flag="-mavx512bw -mavx512f"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1040,14 +1065,14 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]]; then
+        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
             if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
             if [[ ! -f "${objcopy}" ]]; then
                 if ! objcopy="$(command -v objcopy)"; then
-                    objcopy="${TP_INSTALL_DIR}/bin/objcopy"
+                    objcopy="${TP_INSTALL_DIR}/binutils/bin/objcopy"
                 fi
             fi
 
@@ -1321,7 +1346,9 @@ build_gsasl() {
         cflags='-Wno-implicit-function-declaration'
     fi
 
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
+    KRB5_CONFIG="${TP_INSTALL_DIR}/bin/krb5-config" \
+        CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" \
+        ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
     make install
@@ -1378,8 +1405,8 @@ build_hdfs3() {
 
 # jemalloc
 build_jemalloc() {
-    check_if_source_exist "${JEMALLOC_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
@@ -1495,9 +1522,10 @@ build_binutils() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}" --enable-install-libiberty
+    ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
+        --enable-install-libiberty --without-msgpack
     make -j "${PARALLEL}"
-    make install
+    make install-bfd install-libiberty install-binutils
 }
 
 build_gettext() {
@@ -1508,7 +1536,8 @@ build_gettext() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    ../gettext-runtime/configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    cd intl
     make -j "${PARALLEL}"
     make install
 
@@ -1520,6 +1549,58 @@ build_concurrentqueue() {
     check_if_source_exist "${CONCURRENTQUEUE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CONCURRENTQUEUE_SOURCE}"
     cp ./*.h "${TP_INSTALL_DIR}/include/"
+}
+
+# fast_float
+build_fast_float() {
+    check_if_source_exist "${FAST_FLOAT_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${FAST_FLOAT_SOURCE}"
+    cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
+}
+
+#clucene
+build_clucene() {
+    if [[ "$(uname -m)" == 'x86_64' ]]; then
+        USE_AVX2="${USE_AVX2:-1}"
+    else
+        USE_AVX2="${USE_AVX2:-0}"
+    fi
+    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+        USE_BTHREAD_SCANNER='OFF'
+    fi
+    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
+        USE_BTHREAD=1
+    else
+        USE_BTHREAD=0
+    fi
+
+    check_if_source_exist "${CLUCENE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    rm -rf CMakeCache.txt CMakeFiles/
+
+    ${CMAKE_CMD} -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DBUILD_STATIC_LIBRARIES=ON \
+        -DBUILD_SHARED_LIBRARIES=OFF \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" \
+        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
+        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
+        -DUSE_STAT64=0 \
+        -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_BTHREAD="${USE_BTHREAD}" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DBUILD_CONTRIBS_LIB=ON ..
+    ${BUILD_SYSTEM} -j "${PARALLEL}"
+    ${BUILD_SYSTEM} install
+
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+    if [[ ! -d "${TP_INSTALL_DIR}"/share ]]; then
+        mkdir -p "${TP_INSTALL_DIR}"/share
+    fi
+    cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -1558,6 +1639,7 @@ build_librdkafka
 build_flatbuffers
 build_orc
 build_arrow
+build_abseil
 build_s2
 build_bitshuffle
 build_croaringbitmap
@@ -1583,5 +1665,7 @@ build_libbacktrace
 build_sse2neon
 build_xxhash
 build_concurrentqueue
+build_fast_float
+build_clucene
 
 echo "Finished to build all thirdparties"

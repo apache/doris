@@ -29,8 +29,12 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class TableFunctionOperator final : public DataStateOperator<TableFunctionOperatorBuilder> {
+class TableFunctionOperator final : public StatefulOperator<TableFunctionOperatorBuilder> {
 public:
     TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
+
+    Status prepare(RuntimeState* state) override;
+
+    Status close(RuntimeState* state) override;
 };
 } // namespace doris::pipeline

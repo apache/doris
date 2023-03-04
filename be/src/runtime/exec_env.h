@@ -40,17 +40,14 @@ class BrokerMgr;
 template <class T>
 class BrpcClientCache;
 
-class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
-class DiskIoMgr;
-class EtlJobMgr;
 class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
 class ResultCache;
 class LoadPathMgr;
-class LoadStreamMgr;
+class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
 class StorageEngine;
@@ -60,13 +57,13 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class StoragePolicyMgr;
+class BlockSpillManager;
 
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
@@ -103,10 +100,9 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    const bool initialized() const { return _is_init; }
+    bool initialized() const { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
-    DataStreamMgr* stream_mgr() { return _stream_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
@@ -122,18 +118,15 @@ public:
         return nullptr;
     }
 
-    void set_orphan_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& orphan_tracker) {
-        _orphan_mem_tracker = orphan_tracker;
-        _orphan_mem_tracker_raw = orphan_tracker.get();
-    }
+    void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
-    ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
-    PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
-    PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
-    ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
+    MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
+    ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
+    ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+
     void set_serial_download_cache_thread_token() {
         _serial_download_cache_thread_token =
                 download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
@@ -155,7 +148,6 @@ public:
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
-    DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
@@ -165,11 +157,10 @@ public:
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
     }
-    BufferPool* buffer_pool() { return _buffer_pool; }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
-    LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
+    NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
+    BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -181,13 +172,20 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
+    // only for unit test
+    void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
+    void set_new_load_stream_mgr(NewLoadStreamMgr* new_load_stream_mgr) {
+        this->_new_load_stream_mgr = new_load_stream_mgr;
+    }
+    void set_stream_load_executor(StreamLoadExecutor* stream_load_executor) {
+        this->_stream_load_executor = stream_load_executor;
+    }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
     Status _init_mem_env();
-    /// Initialise 'buffer_pool_' with given capacity.
-    void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
     void _register_metrics();
     void _deregister_metrics();
@@ -198,14 +196,12 @@ private:
     std::map<std::string, size_t> _store_path_map;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
-    DataStreamMgr* _stream_mgr = nullptr;
     doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
-    ThreadResourceMgr* _thread_mgr = nullptr;
 
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
@@ -214,20 +210,7 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
-
-    // The following two thread pools are used in different scenarios.
-    // _scan_thread_pool is a priority thread pool.
-    // Scanner threads for common queries will use this thread pool,
-    // and the priority of each scan task is set according to the size of the query.
-
-    // _limited_scan_thread_pool is also the thread pool used for scanner.
-    // The difference is that it is no longer a priority queue, but according to the concurrency
-    // set by the user to control the number of threads that can be used by a query.
-
-    // TODO(cmy): find a better way to unify these 2 pools.
-    PriorityThreadPool* _scan_thread_pool = nullptr;
-    PriorityThreadPool* _remote_scan_thread_pool = nullptr;
-    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+    std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
@@ -235,6 +218,10 @@ private:
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
+    // Pool used by fragment manager to send profile or status to FE coordinator
+    std::unique_ptr<ThreadPool> _send_report_thread_pool;
+    // Pool used by join node to build hash table
+    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
@@ -243,17 +230,14 @@ private:
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
-    DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
-    LoadStreamMgr* _load_stream_mgr = nullptr;
+    NewLoadStreamMgr* _new_load_stream_mgr = nullptr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
-
-    BufferPool* _buffer_pool = nullptr;
 
     StorageEngine* _storage_engine = nullptr;
 
@@ -261,8 +245,9 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    StoragePolicyMgr* _storage_policy_mgr = nullptr;
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
+
+    BlockSpillManager* _block_spill_mgr = nullptr;
 };
 
 template <>

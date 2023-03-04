@@ -16,15 +16,8 @@
 // under the License.
 
 suite("test_insert_nested_array", "load") {
-    def test_nested_array_2_depths = { enable_vectorized ->
-        sql "set enable_vectorized_engine = ${enable_vectorized}"
-
-        def tableName
-        if (enable_vectorized) {
-            tableName = "nested_array_test_2_vectorized"
-        } else {
-            tableName = "nested_array_test_2_non_vectorized"
-        }
+    def test_nested_array_2_depths = {
+        def tableName = "nested_array_test_2_vectorized"
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
@@ -53,15 +46,8 @@ suite("test_insert_nested_array", "load") {
         qt_select "select * from ${tableName} order by `key`"
     }
 
-    def test_nested_array_3_depths = { enable_vectorized ->
-        sql "set enable_vectorized_engine = ${enable_vectorized}"
-
-        def tableName
-        if (enable_vectorized) {
-            tableName = "nested_array_test_3_vectorized"
-        } else {
-            tableName = "nested_array_test_3_non_vectorized"
-        }
+    def test_nested_array_3_depths = {
+        def tableName = "nested_array_test_3_vectorized"
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
@@ -90,9 +76,7 @@ suite("test_insert_nested_array", "load") {
         qt_select "select * from ${tableName} order by `key`"
     }
 
-    test_nested_array_2_depths.call(false)
-    test_nested_array_2_depths.call(true)
+    test_nested_array_2_depths.call()
 
-    test_nested_array_3_depths.call(false)
-    test_nested_array_3_depths.call(true)
+    test_nested_array_3_depths.call()
 }

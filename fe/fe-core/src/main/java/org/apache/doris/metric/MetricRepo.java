@@ -86,7 +86,9 @@ public final class MetricRepo {
 
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CURRENT;
     public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
+    public static LongCounterMetric COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES;
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
@@ -105,6 +107,7 @@ public final class MetricRepo {
     public static Histogram HISTO_TXN_EXEC_LATENCY;
     public static Histogram HISTO_TXN_PUBLISH_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_NUM;
+    public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_PUBLISH_TXN_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_REPLICA_NUM;
 
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
@@ -344,9 +347,18 @@ public final class MetricRepo {
                 "counter of edit log read from bdbje");
         COUNTER_EDIT_LOG_READ.addLabel(new MetricLabel("type", "read"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_READ);
-        COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log", MetricUnit.BYTES, "size of edit log");
-        COUNTER_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "bytes"));
+        COUNTER_EDIT_LOG_CURRENT = new LongCounterMetric("edit_log", MetricUnit.OPERATIONS,
+                "counter of current edit log in bdbje");
+        COUNTER_EDIT_LOG_CURRENT.addLabel(new MetricLabel("type", "current"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CURRENT);
+        COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log", MetricUnit.BYTES,
+                "size of accumulated edit log");
+        COUNTER_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "accumulated_bytes"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
+        COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log", MetricUnit.BYTES,
+                "size of current edit log");
+        COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "current_bytes"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES);
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("editlog", "write", "latency", "ms"));
 
@@ -419,7 +431,18 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(txnNum);
         DB_GAUGE_TXN_NUM = addLabeledMetrics("db", () ->
-            new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+                new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+        GaugeMetric<Long> publishTxnNum = new GaugeMetric<Long>("publish_txn_num", MetricUnit.NOUNIT,
+                "number of publish transactions") {
+            @Override
+            public Long getValue() {
+                return Env.getCurrentGlobalTransactionMgr().getAllPublishTxnNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(publishTxnNum);
+        DB_GAUGE_PUBLISH_TXN_NUM = addLabeledMetrics("db",
+                () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT, "number of publish transactions"));
+
         GaugeMetric<Long> txnReplicaNum = new GaugeMetric<Long>("txn_replica_num", MetricUnit.NOUNIT,
                 "number of writing tablets in all running transactions") {
             @Override
@@ -589,7 +612,7 @@ public final class MetricRepo {
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
                 }
             };
-            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
+            tabletNum.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
             DORIS_METRIC_REGISTER.addMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
@@ -603,7 +626,7 @@ public final class MetricRepo {
                     return be.getTabletMaxCompactionScore();
                 }
             };
-            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
             DORIS_METRIC_REGISTER.addMetrics(tabletMaxCompactionScore);
 
         } // end for backends

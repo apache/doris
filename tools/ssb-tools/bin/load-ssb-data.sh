@@ -188,18 +188,18 @@ ON (p.p_partkey = l.lo_partkey);
 
 check_prerequest "curl --version" "curl"
 
-# load lineorder
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
-echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 
-date
+start_time=$(date +%s)
+echo "Start time: $(date)"
 echo "==========Start to load data into ssb tables=========="
+
 echo 'Loading data for table: part'
 curl --location-trusted -u "${USER}":"${PASSWORD}" \
     -H "column_separator:|" \
@@ -257,16 +257,12 @@ date
 
 echo "==========Start to insert data into ssb flat table=========="
 echo "change some session variables before load, and then restore after load."
-origin_query_timeout=$(
-    set -e
-    run_sql 'select @@query_timeout;' | sed -n '3p'
-)
 origin_parallel=$(
     set -e
     run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
 )
 # set parallel_fragment_exec_instance_num=1, loading maybe slow but stable.
-run_sql "set global query_timeout=7200;"
+run_sql "set global insert_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
 echo '============================================'
 date
@@ -274,8 +270,10 @@ load_lineitem_flat
 date
 echo '============================================'
 echo "restore session variables"
-run_sql "set global query_timeout=${origin_query_timeout};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
 echo '============================================'
 
-echo "DONE."
+end_time=$(date +%s)
+echo "End time: $(date)"
+
+echo "Finish load ssb data, Time taken: $((end_time - start_time)) seconds"

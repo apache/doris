@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -43,7 +44,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.planner.external.ExternalFileScanNode;
@@ -52,7 +52,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TLoadErrorHubInfo;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -170,25 +170,46 @@ public class StreamLoadPlanner {
             }
         }
 
+        // Plan scan tuple of dynamic table
+        if (destTable.isDynamicSchema()) {
+            if (!Config.enable_vectorized_load) {
+                throw new UserException("Only support vectorized load for dyanmic table: " + destTable.getName());
+            }
+            descTable.addReferencedTable(destTable);
+            scanTupleDesc.setTable(destTable);
+            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
+        }
+
         // create scan node
-        if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
-            ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
-            // 1. create file group
-            DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
-            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
-            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-            fileGroup.parse(db, dataDescription);
-            // 2. create dummy file status
-            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc, false);
+        // 1. create file group
+        DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
+        dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.parse(db, dataDescription);
+        // 2. create dummy file status
+        TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+        if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
+            fileStatus.setPath(taskInfo.getPath());
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(taskInfo.getFileSize()); // must set to -1, means stream.
+        } else {
             fileStatus.setPath("");
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
-            fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                    fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
-            scanNode = fileScanNode;
-        } else {
-            scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
         }
+        // The load id will pass to csv reader to find the stream load context from new load stream manager
+        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns());
+        scanNode = fileScanNode;
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -263,15 +284,6 @@ public class StreamLoadPlanner {
 
         params.setQueryGlobals(queryGlobals);
 
-        // set load error hub if exist
-        LoadErrorHub.Param param = Env.getCurrentEnv().getLoadInstance().getLoadErrorHubInfo();
-        if (param != null) {
-            TLoadErrorHubInfo info = param.toThrift();
-            if (info != null) {
-                params.setLoadErrorHubInfo(info);
-            }
-        }
-
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
@@ -296,27 +308,28 @@ public class StreamLoadPlanner {
         if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
             PartitionInfo partitionInfo = destTable.getPartitionInfo();
             Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
-            Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+            Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
             for (Column column : partitionInfo.getPartitionColumns()) {
                 SlotDescriptor slotDesc = tupleDesc.getColumnSlot(column.getName());
                 if (null == slotDesc) {
                     continue;
                 }
-                PartitionColumnFilter keyFilter = SingleNodePlanner.createPartitionFilter(slotDesc, conjuncts);
-                if (null != keyFilter) {
-                    columnFilters.put(column.getName(), keyFilter);
+                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts);
+                if (columnRange != null) {
+                    columnNameToRange.put(column.getName(), columnRange);
                 }
             }
-            if (columnFilters.isEmpty()) {
+            if (columnNameToRange.isEmpty()) {
                 return null;
             }
+
             PartitionPruner partitionPruner = null;
             if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                partitionPruner = new RangePartitionPruner(itemById,
-                        partitionInfo.getPartitionColumns(), columnFilters);
+                partitionPruner = new RangePartitionPrunerV2(itemById,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
             } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
-                partitionPruner = new ListPartitionPruner(itemById,
-                        partitionInfo.getPartitionColumns(), columnFilters);
+                partitionPruner = new ListPartitionPrunerV2(itemById,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
             }
             partitionIds.addAll(partitionPruner.prune());
             return partitionIds;
@@ -324,3 +337,4 @@ public class StreamLoadPlanner {
         return null;
     }
 }
+

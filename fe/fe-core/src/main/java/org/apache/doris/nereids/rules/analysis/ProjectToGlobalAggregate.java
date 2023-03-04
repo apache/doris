@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -59,7 +60,8 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     }
 
     private boolean hasNonWindowedAggregateFunction(Expression expression) {
-        // TODO: exclude windowed aggregate function
-        return expression.anyMatch(AggregateFunction.class::isInstance);
+        return expression.anyMatch(WindowExpression.class::isInstance)
+            ? false
+            : expression.anyMatch(AggregateFunction.class::isInstance);
     }
 }

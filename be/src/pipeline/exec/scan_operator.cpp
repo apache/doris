@@ -22,35 +22,41 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(ScanOperator, Operator)
-
-Status ScanOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(Operator::open(state));
-    return _node->open(state);
-}
+OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
 
 bool ScanOperator::can_read() {
-    if (_node->_eos || !_node->_scanner_ctx || _node->_scanner_ctx->done() ||
-        _node->_scanner_ctx->can_finish()) {
+    if (_node->_eos || _node->_scanner_ctx->done() || _node->_scanner_ctx->no_schedule()) {
         // _eos: need eos
-        // !_scanner_ctx: need call open
         // _scanner_ctx->done(): need finish
-        // _scanner_ctx->can_finish(): should be scheduled
+        // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
         return true;
     } else {
-        return !_node->_scanner_ctx->empty_in_queue(); // have block to process
+        return !_node->_scanner_ctx->empty_in_queue(); // there are some blocks to process
     }
 }
 
 bool ScanOperator::is_pending_finish() const {
-    return _node->_scanner_ctx && !_node->_scanner_ctx->can_finish();
+    return _node->_scanner_ctx && !_node->_scanner_ctx->no_schedule();
 }
 
-Status ScanOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::close(state));
-    _node->close(state);
-    return Status::OK();
+Status ScanOperator::try_close() {
+    return _node->try_close();
+}
+
+bool ScanOperator::runtime_filters_are_ready_or_timeout() {
+    return _node->runtime_filters_are_ready_or_timeout();
+}
+
+std::string ScanOperator::debug_string() const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
+                   SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
+    if (_node->_scanner_ctx) {
+        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}, num_scheduling_ctx = {} ",
+                       _node->_scanner_ctx->get_num_running_scanners(),
+                       _node->_scanner_ctx->get_num_scheduling_ctx());
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace doris::pipeline

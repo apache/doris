@@ -79,40 +79,40 @@ public class ListPartitionPrunerTest extends PartitionPruneTestBase {
 
     private void initTestCases() {
         // Select by partition name
-        addCase("select * from test.t1 partition p1;", "partitions=1/2", "partitions=1/2");
-        addCase("select * from test.t2 partition (p2, p3);", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t3 partition (p1, p2);", "partitions=2/2", "partitions=2/2");
-        addCase("select * from test.t4 partition p2;", "partitions=1/3", "partitions=1/3");
+        addCase("select * from test.t1 partition p1;", "partitions=1/2");
+        addCase("select * from test.t2 partition (p2, p3);", "partitions=2/3");
+        addCase("select * from test.t3 partition (p1, p2);", "partitions=2/2");
+        addCase("select * from test.t4 partition p2;", "partitions=1/3");
 
         // Single partition column
-        addCase("select * from test.t2 where k1 < 7", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t2 where k1 = 1;", "partitions=1/3", "partitions=1/3");
-        addCase("select * from test.t2 where k1 in (1, 2);", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t2 where k1 >= 6;", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t2 where k1 < 8 and k1 > 6;", "partitions=1/3", "partitions=1/3");
-        addCase("select * from test.t2 where k2 = \"beijing\";", "partitions=3/3", "partitions=3/3");
-        addCase("select * from test.t1 where k1 != 1", "partitions=2/2", "partitions=1/2");
-        addCase("select * from test.t4 where k2 != \"beijing\"", "partitions=3/3", "partitions=2/3");
+        addCase("select * from test.t2 where k1 < 7", "partitions=2/3");
+        addCase("select * from test.t2 where k1 = 1;", "partitions=1/3");
+        addCase("select * from test.t2 where k1 in (1, 2);", "partitions=2/3");
+        addCase("select * from test.t2 where k1 >= 6;", "partitions=2/3");
+        addCase("select * from test.t2 where k1 < 8 and k1 > 6;", "partitions=1/3");
+        addCase("select * from test.t2 where k2 = \"beijing\";", "partitions=3/3");
+        addCase("select * from test.t1 where k1 != 1", "partitions=1/2");
+        addCase("select * from test.t4 where k2 != \"beijing\"", "partitions=2/3");
 
         // Multiple partition columns
-        addCase("select * from test.t4 where k1 = 2;", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t4 where k2 = \"tianjin\";", "partitions=1/3", "partitions=1/3");
-        addCase("select * from test.t4 where k1 = 1 and k2 = \"shanghai\";", "partitions=2/3", "partitions=1/3");
-        addCase("select * from test.t4 where k1 in (1, 3) and k2 in (\"tianjin\", \"shanghai\");", "partitions=2/3", "partitions=1/3");
-        addCase("select * from test.t4 where k1 in (1, 3);", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t4 where k2 in (\"tianjin\", \"shanghai\");", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t4 where k1 < 3;", "partitions=3/3", "partitions=3/3");
-        addCase("select * from test.t4 where k1 > 2;", "partitions=1/3", "partitions=1/3");
-        addCase("select * from test.t4 where k2 <\"shanghai\";", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t4 where k2 >=\"shanghai\";", "partitions=2/3", "partitions=2/3");
-        addCase("select * from test.t4 where k1 > 1 and k2 < \"shanghai\";", "partitions=2/3", "partitions=1/3");
-        addCase("select * from test.t4 where k1 >= 2 and k2 = \"shanghai\";", "partitions=2/3", "partitions=1/3");
+        addCase("select * from test.t4 where k1 = 2;", "partitions=2/3");
+        addCase("select * from test.t4 where k2 = \"tianjin\";", "partitions=1/3");
+        addCase("select * from test.t4 where k1 = 1 and k2 = \"shanghai\";", "partitions=1/3");
+        addCase("select * from test.t4 where k1 in (1, 3) and k2 in (\"tianjin\", \"shanghai\");", "partitions=1/3");
+        addCase("select * from test.t4 where k1 in (1, 3);", "partitions=2/3");
+        addCase("select * from test.t4 where k2 in (\"tianjin\", \"shanghai\");", "partitions=2/3");
+        addCase("select * from test.t4 where k1 < 3;", "partitions=3/3");
+        addCase("select * from test.t4 where k1 > 2;", "partitions=1/3");
+        addCase("select * from test.t4 where k2 <\"shanghai\";", "partitions=2/3");
+        addCase("select * from test.t4 where k2 >=\"shanghai\";", "partitions=2/3");
+        addCase("select * from test.t4 where k1 > 1 and k2 < \"shanghai\";", "partitions=1/3");
+        addCase("select * from test.t4 where k1 >= 2 and k2 = \"shanghai\";", "partitions=1/3");
 
         // Disjunctive predicates
-        addCase("select * from test.t2 where k1=1 or k1=4", "partitions=3/3", "partitions=2/3");
-        addCase("select * from test.t4 where k1=1 or k1=3", "partitions=3/3", "partitions=2/3");
-        addCase("select * from test.t4 where k2=\"tianjin\" or k2=\"shanghai\"", "partitions=3/3", "partitions=2/3");
-        addCase("select * from test.t4 where k1 > 1 or k2 < \"shanghai\"", "partitions=3/3", "partitions=3/3");
+        addCase("select * from test.t2 where k1=1 or k1=4", "partitions=2/3");
+        addCase("select * from test.t4 where k1=1 or k1=3", "partitions=2/3");
+        addCase("select * from test.t4 where k2=\"tianjin\" or k2=\"shanghai\"", "partitions=2/3");
+        addCase("select * from test.t4 where k1 > 1 or k2 < \"shanghai\"", "partitions=3/3");
     }
 
     @Test

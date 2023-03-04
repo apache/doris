@@ -26,7 +26,7 @@
 namespace doris {
 
 void GetResultBatchCtx::on_failure(const Status& status) {
-    DCHECK(!status.ok()) << "status is ok, errmsg=" << status.get_error_msg();
+    DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
     status.to_protobuf(result->mutable_status());
     {
         // call by result sink
@@ -64,7 +64,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
             result->set_packet_seq(packet_seq);
             result->set_eos(eos);
         } else {
-            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
+            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st;
         }
     } else {
         result->set_empty_batch(true);
@@ -110,7 +110,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     int num_rows = result->result_batch.rows.size();
 
     while ((!_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
-        _data_removal.wait(l);
+        _data_removal.wait_for(l, std::chrono::seconds(1), [&]() { return _is_cancelled.load(); });
     }
 
     if (_is_cancelled) {
@@ -127,45 +127,6 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
         ctx->on_data(result, _packet_num);
         _packet_num++;
     }
-    return Status::OK();
-}
-
-Status BufferControlBlock::get_batch(TFetchDataResult* result) {
-    std::unique_lock<std::mutex> l(_lock);
-
-    while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
-        _data_arrival.wait(l);
-    }
-
-    // if Status has been set, return fail;
-    RETURN_IF_ERROR(_status);
-
-    // cancelled
-    if (_is_cancelled) {
-        return Status::Cancelled("Cancelled");
-    }
-
-    if (_batch_queue.empty()) {
-        if (_is_close) {
-            // no result, normal end
-            result->eos = true;
-            result->__set_packet_num(_packet_num);
-            _packet_num++;
-            return Status::OK();
-        } else {
-            // can not get here
-            return Status::InternalError("Internal error, can not Get here!");
-        }
-    }
-
-    // get result
-    std::unique_ptr<TFetchDataResult> item = std::move(_batch_queue.front());
-    _batch_queue.pop_front();
-    _buffer_rows -= item->result_batch.rows.size();
-    _data_removal.notify_one();
-    *result = *item;
-    result->__set_packet_num(_packet_num);
-    _packet_num++;
     return Status::OK();
 }
 

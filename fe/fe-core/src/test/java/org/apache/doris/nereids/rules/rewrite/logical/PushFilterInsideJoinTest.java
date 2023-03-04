@@ -23,14 +23,14 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
-class PushFilterInsideJoinTest implements PatternMatchSupported {
+class PushFilterInsideJoinTest implements MemoPatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -40,12 +40,12 @@ class PushFilterInsideJoinTest implements PatternMatchSupported {
         Expression predicates = new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
                 .filter(predicates)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(PushFilterInsideJoin.INSTANCE)
+                .applyTopDown(new PushFilterInsideJoin())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalJoin().when(join -> join.getOtherJoinConjuncts().get(0).equals(predicates))

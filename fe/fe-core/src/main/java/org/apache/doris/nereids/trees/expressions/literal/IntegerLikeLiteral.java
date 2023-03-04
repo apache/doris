@@ -34,5 +34,9 @@ public abstract class IntegerLikeLiteral extends Literal {
         return getNumber().intValue();
     }
 
+    public long getLongValue() {
+        return getNumber().longValue();
+    }
+
     public abstract Number getNumber();
 }

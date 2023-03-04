@@ -24,18 +24,24 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -76,7 +82,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     @Override
-    public PhysicalProperties visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
+    public PhysicalProperties visitPhysicalHashAggregate(
+            PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
         switch (agg.getAggPhase()) {
@@ -85,7 +92,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
                 DistributionSpec childSpec = childOutputProperty.getDistributionSpec();
-                if (childSpec instanceof DistributionSpecHash) {
+                // If child's property is enforced, change it to bucketed
+                if (childSpec instanceof DistributionSpecHash
+                        && ((DistributionSpecHash) childSpec).getShuffleType().equals(ShuffleType.ENFORCED)) {
                     DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childSpec;
                     return new PhysicalProperties(distributionSpecHash.withShuffleType(ShuffleType.BUCKETED));
                 }
@@ -93,15 +102,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalLocalQuickSort(
-            PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
-        Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return new PhysicalProperties(
-                childrenOutputProperties.get(0).getDistributionSpec(),
-                new OrderSpec(sort.getOrderKeys()));
     }
 
     @Override
@@ -113,6 +113,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
+        if (sort.getSortPhase().isLocal()) {
+            return new PhysicalProperties(
+                    childrenOutputProperties.get(0).getDistributionSpec(),
+                    new OrderSpec(sort.getOrderKeys()));
+        }
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec(sort.getOrderKeys()));
     }
 
@@ -218,7 +223,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
-        if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
+        // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
+        if (!olapScan.getTable().isColocateTable() && olapScan.getScanTabletNum() == 1) {
+            return PhysicalProperties.GATHER;
+        } else if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
             return PhysicalProperties.createHash((DistributionSpecHash) olapScan.getDistributionSpec());
         } else {
             return PhysicalProperties.ANY;
@@ -226,8 +234,41 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     @Override
+    public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
+        return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
+        return storageLayerAggregate.getRelation().accept(this, context);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
+        return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
+        return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, PlanContext context) {
+        TableValuedFunction function = tvfRelation.getFunction();
+        return function.getPhysicalProperties();
+    }
+
+    @Override
     public PhysicalProperties visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             PlanContext context) {
         return PhysicalProperties.GATHER;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return childrenOutputProperties.get(0);
     }
 }

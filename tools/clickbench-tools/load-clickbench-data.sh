@@ -86,13 +86,15 @@ check_prerequest "wget --version" "wget"
 
 source $CURDIR/conf/doris-cluster.conf
 
+wget_pids=()
+
 echo "FE_HOST: $FE_HOST"
 echo "FE_HTTP_PORT: $FE_HTTP_PORT"
 echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-function check_doirs_conf() {
+function check_doris_conf() {
     cv=$(mysql -h$FE_HOST -P$FE_QUERY_PORT -u$USER -e 'admin show frontend config' | grep 'stream_load_default_timeout_second' | awk '{print $2}')
     if (($cv < 3600)); then
         echo "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above"
@@ -113,6 +115,8 @@ function load() {
             echo "will download hits_split${i} to $DATA_DIR"
             wget --continue "https://doris-test-data.oss-cn-hongkong.aliyuncs.com/ClickBench/hits_split${i}" &
             # wget --continue "https://doris-test-data.oss-cn-hongkong-internal.aliyuncs.com/ClickBench/hits_split${i}" &
+            PID=$!
+            wget_pids[${#wget_pids[@]}]=$PID
         fi
     done
 
@@ -132,9 +136,18 @@ function load() {
     done
 }
 
+function signal_handler() {
+
+    for PID in ${wget_pids[@]}; do
+        kill -9 $PID
+    done
+}
+
+trap signal_handler 2 3 6 15
+
 echo "start..."
 start=$(date +%s)
-check_doirs_conf
+check_doris_conf
 load
 end=$(date +%s)
 echo "load cost time: $((end - start)) seconds"

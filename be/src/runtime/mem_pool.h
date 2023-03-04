@@ -154,12 +154,6 @@ public:
     /// All offsets handed out by calls to GetCurrentOffset() for 'src' become invalid.
     void acquire_data(MemPool* src, bool keep_current);
 
-    // Exchange all chunks with input source, including reserved chunks.
-    // This function will keep its own MemTracker, and update it after exchange.
-    // Why we need this other than std::swap? Because swap will swap MemTracker too, which would
-    // lead error. We only has MemTracker's pointer, which can be invalid after swap.
-    void exchange_data(MemPool* other);
-
     std::string debug_string();
 
     int64_t total_allocated_bytes() const { return total_allocated_bytes_; }
@@ -277,7 +271,7 @@ private:
     Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
         uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment);
         if (result == nullptr) {
-            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+            return Status::Error<ErrorCode::MEM_ALLOC_FAILED>();
         }
         ret = result;
         return Status::OK();

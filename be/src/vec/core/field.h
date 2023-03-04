@@ -85,8 +85,16 @@ using FieldVector = std::vector<Field>;
 
 DEFINE_FIELD_VECTOR(Array);
 DEFINE_FIELD_VECTOR(Tuple);
-
+DEFINE_FIELD_VECTOR(Map);
 #undef DEFINE_FIELD_VECTOR
+
+using FieldMap = std::map<String, Field, std::less<String>>;
+#define DEFINE_FIELD_MAP(X)       \
+    struct X : public FieldMap {  \
+        using FieldMap::FieldMap; \
+    }
+DEFINE_FIELD_MAP(VariantMap);
+#undef DEFINE_FIELD_MAP
 
 struct AggregateFunctionStateData {
     String name; /// Name with arguments.
@@ -168,7 +176,7 @@ public:
     }
 
     const char* get_value() const { return data; }
-    const uint32_t get_size() const { return size; }
+    uint32_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
@@ -308,6 +316,8 @@ public:
             AggregateFunctionState = 22,
             JSONB = 23,
             Decimal128I = 24,
+            Map = 25,
+            VariantMap = 26,
         };
 
         static const int MIN_NON_POD = 16;
@@ -334,6 +344,8 @@ public:
                 return "Array";
             case Tuple:
                 return "Tuple";
+            case Map:
+                return "Map";
             case Decimal32:
                 return "Decimal32";
             case Decimal64:
@@ -346,6 +358,8 @@ public:
                 return "AggregateFunctionState";
             case FixedLengthObject:
                 return "FixedLengthObject";
+            case VariantMap:
+                return "VariantMap";
             }
 
             LOG(FATAL) << "Bad type of Field";
@@ -365,6 +379,9 @@ public:
     }
 
     Field() : which(Types::Null) {}
+
+    // set Types::Null explictly and avoid other types
+    Field(Types::Which w) : which(w) { DCHECK_EQ(Types::Null, which); }
 
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
@@ -505,6 +522,8 @@ public:
             return get<Array>() < rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() < rhs.get<Tuple>();
+        case Types::Map:
+            return get<Map>() < rhs.get<Map>();
         case Types::Decimal32:
             return get<DecimalField<Decimal32>>() < rhs.get<DecimalField<Decimal32>>();
         case Types::Decimal64:
@@ -517,6 +536,8 @@ public:
             return get<AggregateFunctionStateData>() < rhs.get<AggregateFunctionStateData>();
         case Types::FixedLengthObject:
             break;
+        case Types::VariantMap:
+            return get<VariantMap>() < rhs.get<VariantMap>();
         }
 
         LOG(FATAL) << "Bad type of Field";
@@ -550,6 +571,8 @@ public:
             return get<Array>() <= rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() <= rhs.get<Tuple>();
+        case Types::Map:
+            return get<Map>() < rhs.get<Map>();
         case Types::Decimal32:
             return get<DecimalField<Decimal32>>() <= rhs.get<DecimalField<Decimal32>>();
         case Types::Decimal64:
@@ -562,6 +585,8 @@ public:
             return get<AggregateFunctionStateData>() <= rhs.get<AggregateFunctionStateData>();
         case Types::FixedLengthObject:
             break;
+        case Types::VariantMap:
+            return get<VariantMap>() <= rhs.get<VariantMap>();
         }
         LOG(FATAL) << "Bad type of Field";
         return {};
@@ -587,6 +612,8 @@ public:
             return get<Array>() == rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() == rhs.get<Tuple>();
+        case Types::Map:
+            return get<Map>() < rhs.get<Map>();
         case Types::UInt128:
             return get<UInt128>() == rhs.get<UInt128>();
         case Types::Int128:
@@ -603,6 +630,8 @@ public:
             return get<AggregateFunctionStateData>() == rhs.get<AggregateFunctionStateData>();
         case Types::FixedLengthObject:
             break;
+        case Types::VariantMap:
+            return get<VariantMap>() == rhs.get<VariantMap>();
         }
 
         CHECK(false) << "Bad type of Field";
@@ -612,8 +641,8 @@ public:
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonbField, Array, Tuple, DecimalField<Decimal32>,
-                         DecimalField<Decimal64>, DecimalField<Decimal128>,
+                         Int128, Float64, String, JsonbField, Array, Tuple, VariantMap,
+                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
                          DecimalField<Decimal128I>, AggregateFunctionStateData>
             storage;
 
@@ -677,6 +706,9 @@ private:
         case Types::Tuple:
             f(field.template get<Tuple>());
             return;
+        case Types::Map:
+            f(field.template get<Map>());
+            return;
         case Types::Decimal32:
             f(field.template get<DecimalField<Decimal32>>());
             return;
@@ -695,6 +727,9 @@ private:
         case Types::FixedLengthObject:
             LOG(FATAL) << "FixedLengthObject not supported";
             break;
+        case Types::VariantMap:
+            f(field.template get<VariantMap>());
+            return;
         }
     }
 
@@ -749,8 +784,14 @@ private:
         case Types::Tuple:
             destroy<Tuple>();
             break;
+        case Types::Map:
+            destroy<Map>();
+            break;
         case Types::AggregateFunctionState:
             destroy<AggregateFunctionStateData>();
+            break;
+        case Types::VariantMap:
+            destroy<VariantMap>();
             break;
         default:
             break;
@@ -770,32 +811,56 @@ private:
 #undef DBMS_MIN_FIELD_SIZE
 
 template <>
+struct TypeId<AggregateFunctionStateData> {
+    static constexpr const TypeIndex value = TypeIndex::AggregateFunction;
+};
+template <>
+struct TypeId<Tuple> {
+    static constexpr const TypeIndex value = TypeIndex::Tuple;
+};
+template <>
+struct TypeId<DecimalField<Decimal32>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal32;
+};
+template <>
+struct TypeId<DecimalField<Decimal64>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal64;
+};
+template <>
+struct TypeId<DecimalField<Decimal128>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128;
+};
+template <>
+struct TypeId<DecimalField<Decimal128I>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+};
+template <>
 struct Field::TypeToEnum<Null> {
-    static const Types::Which value = Types::Null;
+    static constexpr Types::Which value = Types::Null;
 };
 template <>
 struct Field::TypeToEnum<UInt64> {
-    static const Types::Which value = Types::UInt64;
+    static constexpr Types::Which value = Types::UInt64;
 };
 template <>
 struct Field::TypeToEnum<UInt128> {
-    static const Types::Which value = Types::UInt128;
+    static constexpr Types::Which value = Types::UInt128;
 };
 template <>
 struct Field::TypeToEnum<Int64> {
-    static const Types::Which value = Types::Int64;
+    static constexpr Types::Which value = Types::Int64;
 };
 template <>
 struct Field::TypeToEnum<Int128> {
-    static const Types::Which value = Types::Int128;
+    static constexpr Types::Which value = Types::Int128;
 };
 template <>
 struct Field::TypeToEnum<Float64> {
-    static const Types::Which value = Types::Float64;
+    static constexpr Types::Which value = Types::Float64;
 };
 template <>
 struct Field::TypeToEnum<String> {
-    static const Types::Which value = Types::String;
+    static constexpr Types::Which value = Types::String;
 };
 template <>
 struct Field::TypeToEnum<JsonbField> {
@@ -803,31 +868,39 @@ struct Field::TypeToEnum<JsonbField> {
 };
 template <>
 struct Field::TypeToEnum<Array> {
-    static const Types::Which value = Types::Array;
+    static constexpr Types::Which value = Types::Array;
 };
 template <>
 struct Field::TypeToEnum<Tuple> {
-    static const Types::Which value = Types::Tuple;
+    static constexpr Types::Which value = Types::Tuple;
+};
+template <>
+struct Field::TypeToEnum<Map> {
+    static const Types::Which value = Types::Map;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal32>> {
-    static const Types::Which value = Types::Decimal32;
+    static constexpr Types::Which value = Types::Decimal32;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal64>> {
-    static const Types::Which value = Types::Decimal64;
+    static constexpr Types::Which value = Types::Decimal64;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal128>> {
-    static const Types::Which value = Types::Decimal128;
+    static constexpr Types::Which value = Types::Decimal128;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal128I>> {
-    static const Types::Which value = Types::Decimal128I;
+    static constexpr Types::Which value = Types::Decimal128I;
 };
 template <>
 struct Field::TypeToEnum<AggregateFunctionStateData> {
-    static const Types::Which value = Types::AggregateFunctionState;
+    static constexpr Types::Which value = Types::AggregateFunctionState;
+};
+template <>
+struct Field::TypeToEnum<VariantMap> {
+    static constexpr Types::Which value = Types::VariantMap;
 };
 
 template <>
@@ -871,6 +944,10 @@ struct Field::EnumToType<Field::Types::Tuple> {
     using Type = Tuple;
 };
 template <>
+struct Field::EnumToType<Field::Types::Map> {
+    using Type = Map;
+};
+template <>
 struct Field::EnumToType<Field::Types::Decimal32> {
     using Type = DecimalField<Decimal32>;
 };
@@ -889,6 +966,10 @@ struct Field::EnumToType<Field::Types::Decimal128I> {
 template <>
 struct Field::EnumToType<Field::Types::AggregateFunctionState> {
     using Type = DecimalField<AggregateFunctionStateData>;
+};
+template <>
+struct Field::EnumToType<Field::Types::VariantMap> {
+    using Type = VariantMap;
 };
 
 template <typename T>
@@ -918,6 +999,15 @@ struct TypeName<Array> {
 template <>
 struct TypeName<Tuple> {
     static std::string get() { return "Tuple"; }
+};
+
+template <>
+struct TypeName<VariantMap> {
+    static std::string get() { return "VariantMap"; }
+};
+template <>
+struct TypeName<Map> {
+    static std::string get() { return "Map"; }
 };
 template <>
 struct TypeName<AggregateFunctionStateData> {
@@ -961,6 +1051,11 @@ struct NearestFieldTypeImpl<Int16> {
 template <>
 struct NearestFieldTypeImpl<Int32> {
     using Type = Int64;
+};
+
+template <>
+struct NearestFieldTypeImpl<VariantMap> {
+    using Type = VariantMap;
 };
 
 /// long and long long are always different types that may behave identically or not.
@@ -1047,6 +1142,10 @@ struct NearestFieldTypeImpl<Tuple> {
     using Type = Tuple;
 };
 template <>
+struct NearestFieldTypeImpl<Map> {
+    using Type = Map;
+};
+template <>
 struct NearestFieldTypeImpl<bool> {
     using Type = UInt64;
 };
@@ -1056,17 +1155,35 @@ struct NearestFieldTypeImpl<Null> {
 };
 
 template <>
+struct NearestFieldTypeImpl<std::string_view> {
+    using Type = String;
+};
+
+template <>
 struct NearestFieldTypeImpl<AggregateFunctionStateData> {
     using Type = AggregateFunctionStateData;
+};
+
+template <>
+struct Field::TypeToEnum<PackedInt128> {
+    static const Types::Which value = Types::Int128;
+};
+
+template <>
+struct NearestFieldTypeImpl<PackedInt128> {
+    using Type = Int128;
 };
 
 template <typename T>
 decltype(auto) cast_to_nearest_field_type(T&& x) {
     using U = NearestFieldType<std::decay_t<T>>;
-    if constexpr (std::is_same_v<std::decay_t<T>, U>)
+    if constexpr (std::is_same_v<PackedInt128, std::decay_t<T>>) {
+        return U(x.value);
+    } else if constexpr (std::is_same_v<std::decay_t<T>, U>) {
         return std::forward<T>(x);
-    else
+    } else {
         return U(x);
+    }
 }
 
 /// This (rather tricky) code is to avoid ambiguity in expressions like

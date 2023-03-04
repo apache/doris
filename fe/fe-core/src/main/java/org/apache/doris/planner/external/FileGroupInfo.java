@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,6 +84,7 @@ public class FileGroupInfo {
     private long bytesPerInstance = 0;
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
+    private List<String> hiddenColumns = null;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -98,11 +100,13 @@ public class FileGroupInfo {
         this.filesAdded = filesAdded;
         this.strictMode = strictMode;
         this.loadParallelism = loadParallelism;
+        this.fileType = brokerDesc.getFileType();
     }
 
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
+            TFileType fileType, List<String> hiddenColumns) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -114,6 +118,7 @@ public class FileGroupInfo {
         this.filesAdded = 1;
         this.strictMode = strictMode;
         this.fileType = fileType;
+        this.hiddenColumns = hiddenColumns;
     }
 
     public Table getTargetTable() {
@@ -140,10 +145,18 @@ public class FileGroupInfo {
         return loadParallelism;
     }
 
+    public TFileType getFileType() {
+        return fileType;
+    }
+
     public String getExplainString(String prefix) {
         StringBuilder sb = new StringBuilder();
         sb.append("file scan\n");
         return sb.toString();
+    }
+
+    public List<String> getHiddenColumns() {
+        return hiddenColumns;
     }
 
     public void getFileStatusAndCalcInstance(BackendPolicy backendPolicy) throws UserException {
@@ -186,6 +199,7 @@ public class FileGroupInfo {
             long tmpBytes = curInstanceBytes + leftBytes;
             // header_type
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            context.params.setFormatType(formatType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
             // Assign scan range locations only for broker load.
@@ -238,7 +252,7 @@ public class FileGroupInfo {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
+                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getIp());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -261,7 +275,7 @@ public class FileGroupInfo {
         if (jobType == JobType.BULK_LOAD) {
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(selectedBackend.getId());
-            location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+            location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
             locations.addToLocations(location);
         } else {
             // stream load do not need locations
@@ -301,12 +315,23 @@ public class FileGroupInfo {
             rangeDesc.setPath(fileStatus.path);
             rangeDesc.setStartOffset(curFileOffset);
             rangeDesc.setSize(rangeBytes);
+            rangeDesc.setFileSize(fileStatus.size);
             rangeDesc.setColumnsFromPath(columnsFromPath);
         } else {
+            // for stream load
+            if (getFileType() == TFileType.FILE_LOCAL) {
+                // when loading parquet via stream, there will be a local file saved on BE
+                // so to read it as a local file.
+                Preconditions.checkState(fileGroup.getFilePaths().size() == 1);
+                rangeDesc.setPath(fileGroup.getFilePaths().get(0));
+                rangeDesc.setStartOffset(0);
+            }
             rangeDesc.setLoadId(loadId);
             rangeDesc.setSize(fileStatus.size);
+            rangeDesc.setFileSize(fileStatus.size);
         }
         return rangeDesc;
     }
 }
+
 

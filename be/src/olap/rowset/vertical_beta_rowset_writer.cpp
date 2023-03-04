@@ -20,6 +20,7 @@
 #include "olap/rowset/beta_rowset.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {
@@ -52,6 +53,7 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
     if (UNLIKELY(max_rows_per_segment > _context.max_rows_per_segment)) {
         max_rows_per_segment = _context.max_rows_per_segment;
     }
+
     if (_segment_writers.empty()) {
         // it must be key columns
         DCHECK(is_key);
@@ -64,6 +66,10 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
         if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment) {
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], true));
+
+            _segment_num_rows.resize(_cur_writer_idx + 1);
+            _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
+
             std::unique_ptr<segment_v2::SegmentWriter> writer;
             RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
             _segment_writers.emplace_back(std::move(writer));
@@ -99,7 +105,8 @@ Status VerticalBetaRowsetWriter::_flush_columns(
         std::unique_ptr<segment_v2::SegmentWriter>* segment_writer, bool is_key) {
     uint64_t index_size = 0;
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
-    RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
+    RETURN_IF_ERROR((*segment_writer)->finalize_columns_data());
+    RETURN_IF_ERROR((*segment_writer)->finalize_columns_index(&index_size));
     if (is_key) {
         // record segment key bound
         KeyBoundsPB key_bounds;
@@ -114,13 +121,13 @@ Status VerticalBetaRowsetWriter::_flush_columns(
     return Status::OK();
 }
 
-Status VerticalBetaRowsetWriter::flush_columns() {
+Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
     if (_segment_writers.empty()) {
         return Status::OK();
     }
 
     DCHECK(_segment_writers[_cur_writer_idx]);
-    RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
+    RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], is_key));
     _cur_writer_idx = 0;
     return Status::OK();
 }
@@ -132,19 +139,19 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable file. path=" << path
-                     << ", err: " << st.get_error_msg();
+        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
     }
 
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
     writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
                                                 _context.tablet_schema, _context.data_dir,
                                                 _context.max_rows_per_segment, writer_options));

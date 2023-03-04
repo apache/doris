@@ -15,17 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/exec/varrow_scanner.h"
+
 #include "exec/arrow/parquet_reader.h"
-#include "exprs/expr.h"
 #include "io/file_factory.h"
+#include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/vorc_scanner.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VArrowScanner::VArrowScanner(RuntimeState* state, RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,
@@ -49,6 +51,19 @@ VArrowScanner::~VArrowScanner() {
     close();
 }
 
+void VArrowScanner::_init_system_properties(const TBrokerRangeDesc& range) {
+    _system_properties.system_type = range.file_type;
+    _system_properties.properties = _params.properties;
+    _system_properties.hdfs_params = range.hdfs_params;
+    _system_properties.broker_addresses.assign(_broker_addresses.begin(), _broker_addresses.end());
+}
+
+void VArrowScanner::_init_file_description(const TBrokerRangeDesc& range) {
+    _file_description.path = range.path;
+    _file_description.start_offset = range.start_offset;
+    _file_description.file_size = range.__isset.file_size ? range.file_size : 0;
+}
+
 Status VArrowScanner::_open_next_reader() {
     // open_file_reader
     if (_cur_file_reader != nullptr) {
@@ -62,13 +77,16 @@ Status VArrowScanner::_open_next_reader() {
             return Status::OK();
         }
         const TBrokerRangeDesc& range = _ranges[_next_range++];
-        std::unique_ptr<FileReader> file_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                range.file_type, _state->exec_env(), _profile, _broker_addresses,
-                _params.properties, range, range.start_offset, file_reader));
-        RETURN_IF_ERROR(file_reader->open());
+        io::FileReaderSPtr file_reader;
+        _init_system_properties(range);
+        _init_file_description(range);
+        // no use
+        doris::IOContext io_ctx;
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
+                                                        &file_reader, &io_ctx));
+
         if (file_reader->size() == 0) {
-            file_reader->close();
             continue;
         }
 
@@ -76,19 +94,16 @@ Status VArrowScanner::_open_next_reader() {
         if (range.__isset.num_of_columns_from_file) {
             num_of_columns_from_file = range.num_of_columns_from_file;
         }
-        _cur_file_reader =
-                _new_arrow_reader(_src_slot_descs, file_reader.release(), num_of_columns_from_file,
-                                  range.start_offset, range.size);
+        _cur_file_reader = _new_arrow_reader(_src_slot_descs, file_reader, num_of_columns_from_file,
+                                             range.start_offset, range.size);
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
-        Status status =
-                _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
+        Status status = _cur_file_reader->init_reader(tuple_desc, _state->timezone());
 
-        if (status.is_end_of_file()) {
+        if (status.is<END_OF_FILE>()) {
             continue;
         } else {
             if (!status.ok()) {
-                return Status::InternalError(" file: {} error:{}", range.path,
-                                             status.get_error_msg());
+                return Status::InternalError(" file: {} error:{}", range.path, status.to_string());
             } else {
                 update_profile(_cur_file_reader->statistics());
                 return status;
@@ -200,7 +215,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     {
         Status st = _init_arrow_batch_if_necessary();
         if (!st.ok()) {
-            if (!st.is_end_of_file()) {
+            if (!st.is<END_OF_FILE>()) {
                 return st;
             }
             *eof = true;
@@ -224,7 +239,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
             continue;
         }
         // return error if not EOF
-        if (!status.is_end_of_file()) {
+        if (!status.is<END_OF_FILE>()) {
             return status;
         }
         _cur_file_eof = true;

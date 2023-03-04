@@ -132,7 +132,7 @@ public class RoutineLoadManager implements Writable {
     public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
             throws UserException {
         // check load auth
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 createRoutineLoadStmt.getDBName(),
                 createRoutineLoadStmt.getTableName(),
                 PrivPredicate.LOAD)) {
@@ -154,6 +154,7 @@ public class RoutineLoadManager implements Writable {
         }
 
         routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
+        routineLoadJob.setComment(createRoutineLoadStmt.getComment());
         addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
     }
 
@@ -228,7 +229,7 @@ public class RoutineLoadManager implements Writable {
         } catch (MetaNotFoundException e) {
             throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
         }
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 dbFullName,
                 tableName,
                 PrivPredicate.LOAD)) {
@@ -257,7 +258,7 @@ public class RoutineLoadManager implements Writable {
             for (RoutineLoadJob job : jobs) {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                             dbName, tableName, PrivPredicate.LOAD)) {
                         continue;
                     }

@@ -27,45 +27,39 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 #include "runtime/type_limit.h"
 #include "uint24.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-namespace std {
-// for string value
 template <>
-struct hash<doris::StringValue> {
-    uint64_t operator()(const doris::StringValue& rhs) const { return hash_value(rhs); }
-};
-
-template <>
-struct equal_to<doris::StringValue> {
-    bool operator()(const doris::StringValue& lhs, const doris::StringValue& rhs) const {
+struct std::equal_to<doris::StringRef> {
+    bool operator()(const doris::StringRef& lhs, const doris::StringRef& rhs) const {
         return lhs == rhs;
     }
 };
 // for decimal12_t
 template <>
-struct hash<doris::decimal12_t> {
+struct std::hash<doris::decimal12_t> {
     int64_t operator()(const doris::decimal12_t& rhs) const {
         return hash<int64_t>()(rhs.integer) ^ hash<int32_t>()(rhs.fraction);
     }
 };
 
 template <>
-struct equal_to<doris::decimal12_t> {
+struct std::equal_to<doris::decimal12_t> {
     bool operator()(const doris::decimal12_t& lhs, const doris::decimal12_t& rhs) const {
         return lhs == rhs;
     }
 };
 // for uint24_t
 template <>
-struct hash<doris::uint24_t> {
+struct std::hash<doris::uint24_t> {
     size_t operator()(const doris::uint24_t& rhs) const {
         uint32_t val(rhs);
         return hash<int>()(val);
@@ -73,12 +67,11 @@ struct hash<doris::uint24_t> {
 };
 
 template <>
-struct equal_to<doris::uint24_t> {
+struct std::equal_to<doris::uint24_t> {
     bool operator()(const doris::uint24_t& lhs, const doris::uint24_t& rhs) const {
         return lhs == rhs;
     }
 };
-} // namespace std
 
 namespace doris {
 
@@ -123,13 +116,14 @@ public:
             auto values = ((HybridSetType*)hybrid_set.get())->get_inner_set();
 
             if constexpr (is_string_type(Type)) {
-                for (auto& value : *values) {
-                    StringValue sv = {value.data(), int(value.size())};
+                // values' type is "phmap::flat_hash_set<std::string>"
+                for (const std::string& value : *values) {
+                    StringRef sv = value;
                     if constexpr (Type == TYPE_CHAR) {
                         _temp_datas.push_back("");
                         _temp_datas.back().resize(std::max(char_length, value.size()));
                         memcpy(_temp_datas.back().data(), value.data(), value.size());
-                        sv = {_temp_datas.back().data(), int(_temp_datas.back().size())};
+                        sv = _temp_datas.back();
                     }
                     _values->insert(sv);
                 }
@@ -152,7 +146,6 @@ public:
                 }
             }
         } else {
-            should_delete = false;
             _values = ((HybridSetType*)hybrid_set.get())->get_inner_set();
         }
 
@@ -162,48 +155,12 @@ public:
     }
 
     ~InListPredicateBase() override {
-        if (should_delete) {
+        if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
             delete _values;
         }
     }
 
-    // Only for test
-    InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>& values,
-                        T min_value = type_limit<T>::min(), T max_value = type_limit<T>::max(),
-                        bool is_opposite = false)
-            : ColumnPredicate(column_id, is_opposite),
-              _values(&values),
-              _min_value(min_value),
-              _max_value(max_value) {
-        should_delete = false;
-    }
-
     PredicateType type() const override { return PT; }
-
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true>(block, sel, size);
-        } else {
-            _base_evaluate<false>(block, sel, size);
-        }
-    }
-
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true, false>(block, sel, size, flags);
-        } else {
-            _base_evaluate<false, false>(block, sel, size, flags);
-        }
-    }
-
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
-                      bool* flags) const override {
-        if (block->is_nullable()) {
-            _base_evaluate<true, true>(block, sel, size, flags);
-        } else {
-            _base_evaluate<false, true>(block, sel, size, flags);
-        }
-    }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
@@ -220,7 +177,7 @@ public:
             bool exact_match;
             Status s = iterator->seek_dictionary(&value, &exact_match);
             rowid_t seeked_ordinal = iterator->current_ordinal();
-            if (!s.is_not_found()) {
+            if (!s.is<ErrorCode::NOT_FOUND>()) {
                 if (!s.ok()) {
                     return s;
                 }
@@ -238,6 +195,29 @@ public:
             *result -= indices;
         }
 
+        return Status::OK();
+    }
+
+    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* result) const override {
+        if (iterator == nullptr) {
+            return Status::OK();
+        }
+        auto column_desc = schema.column(_column_id);
+        std::string column_name = column_desc->name();
+        roaring::Roaring indices;
+        for (auto value : *_values) {
+            InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            roaring::Roaring index;
+            RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
+                                                               num_rows, &index));
+            indices |= index;
+        }
+        if constexpr (PT == PredicateType::IN_LIST) {
+            *result &= indices;
+        } else {
+            *result -= indices;
+        }
         return Status::OK();
     }
 
@@ -316,8 +296,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _max_value &&
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _min_value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) <= _max_value &&
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) >= _min_value;
             }
         } else {
             return true;
@@ -338,8 +318,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _max_value ||
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _min_value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) > _max_value ||
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) < _min_value;
             }
         } else {
             return false;
@@ -349,8 +329,8 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             for (auto value : *_values) {
-                if constexpr (std::is_same_v<T, StringValue>) {
-                    if (bf->test_bytes(value.ptr, value.len)) {
+                if constexpr (std::is_same_v<T, StringRef>) {
+                    if (bf->test_bytes(value.data, value.size)) {
                         return true;
                     }
                 } else if constexpr (Type == TYPE_DATE) {
@@ -384,69 +364,6 @@ private:
         return lhs == rhs;
     }
 
-    template <bool is_nullable>
-    void _base_evaluate(const ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-        uint16_t new_size = 0;
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_uint32_value = 0;
-                memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^
-                                (!block->cell(idx).is_null() &&
-                                 _operator(_values->find(tmp_uint32_value), _values->end()));
-                } else {
-                    new_size +=
-                            _opposite ^ _operator(_values->find(tmp_uint32_value), _values->end());
-                }
-            } else {
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                if constexpr (is_nullable) {
-                    new_size += _opposite ^ (!block->cell(idx).is_null() &&
-                                             _operator(_values->find(*cell_value), _values->end()));
-                } else {
-                    new_size += _opposite ^ _operator(_values->find(*cell_value), _values->end());
-                }
-            }
-        }
-        *size = new_size;
-    }
-
-    template <bool is_nullable, bool is_and>
-    void _base_evaluate(const ColumnBlock* block, const uint16_t* sel, uint16_t size,
-                        bool* flags) const {
-        for (uint16_t i = 0; i < size; ++i) {
-            if (!flags[i]) {
-                continue;
-            }
-
-            uint16_t idx = sel[i];
-            auto result = true;
-            if constexpr (Type == TYPE_DATE) {
-                T tmp_uint32_value = 0;
-                memcpy((char*)(&tmp_uint32_value), block->cell(idx).cell_ptr(), sizeof(uint24_t));
-                if constexpr (is_nullable) {
-                    result &= !block->cell(idx).is_null();
-                }
-                result &= _operator(_values->find(tmp_uint32_value), _values->end());
-            } else {
-                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr());
-                if constexpr (is_nullable) {
-                    result &= !block->cell(idx).is_null();
-                }
-                result &= _operator(_values->find(*cell_value), _values->end());
-            }
-
-            if constexpr (is_and) {
-                flags[i] &= _opposite ^ result;
-            } else {
-                flags[i] |= _opposite ^ result;
-            }
-        }
-    }
-
     template <bool is_nullable, bool is_opposite>
     uint16_t _base_evaluate(const vectorized::IColumn* column,
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
@@ -454,7 +371,7 @@ private:
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
@@ -493,7 +410,7 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<
@@ -533,7 +450,7 @@ private:
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
@@ -569,7 +486,7 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<
@@ -623,7 +540,6 @@ private:
     }
 
     phmap::flat_hash_set<T>* _values;
-    bool should_delete = true;
     mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;

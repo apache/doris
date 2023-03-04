@@ -21,11 +21,11 @@
 #include "olap/uint24.h"
 #include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -95,10 +95,10 @@ private:
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
-            auto& sv = reinterpret_cast<StringValue&>(data[n]);
-            refs[i].data = sv.ptr;
-            refs[i].size = sv.len;
-            length += sv.len;
+            auto& sv = reinterpret_cast<StringRef&>(data[n]);
+            refs[i].data = sv.data;
+            refs[i].size = sv.size;
+            length += sv.size;
         }
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
@@ -186,8 +186,17 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
     }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in PredicateColumnType";
+    }
+
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported in PredicateColumnType";
+    }
+
     void insert_string_value(const char* data_ptr, size_t length) {
-        StringValue sv((char*)data_ptr, length);
+        StringRef sv((char*)data_ptr, length);
         data.push_back_without_reserve(sv);
     }
 
@@ -211,7 +220,7 @@ public:
     }
 
     void insert_data(const char* data_ptr, size_t length) override {
-        if constexpr (std::is_same_v<T, StringValue>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_value(data_ptr, length);
         } else if constexpr (std::is_same_v<T, decimal12_t>) {
             insert_decimal_value(data_ptr, length);
@@ -242,7 +251,7 @@ public:
             insert_many_in_copy_way(data_ptr, num);
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
             insert_many_in_copy_way(data_ptr, num);
-        } else if constexpr (std::is_same_v<T, StringValue>) {
+        } else if constexpr (std::is_same_v<T, StringRef>) {
             // here is unreachable, just for compilation to be able to pass
         } else if constexpr (Type == TYPE_DATE) {
             insert_many_date(data_ptr, num);
@@ -253,7 +262,7 @@ public:
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
-        if constexpr (std::is_same_v<T, StringValue>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
                 int32_t codeword = data_array[start_index];
                 insert_string_value(dict[codeword].data, dict[codeword].size);
@@ -266,7 +275,7 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-        if constexpr (std::is_same_v<T, StringValue>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             if (_pool == nullptr) {
                 _pool.reset(new MemPool());
             }
@@ -278,10 +287,10 @@ public:
 
             auto* data_ptr = &data[org_elem_num];
             for (size_t i = 0; i != num; ++i) {
-                data_ptr[i].ptr = destination + offsets[i] - offsets[0];
-                data_ptr[i].len = offsets[i + 1] - offsets[i];
+                data_ptr[i].data = destination + offsets[i] - offsets[0];
+                data_ptr[i].size = offsets[i + 1] - offsets[i];
             }
-            DCHECK(data_ptr[num - 1].ptr + data_ptr[num - 1].len == destination + total_mem_size);
+            DCHECK(data_ptr[num - 1].data + data_ptr[num - 1].size == destination + total_mem_size);
         }
     }
 
@@ -290,7 +299,7 @@ public:
         if (num == 0) {
             return;
         }
-        if constexpr (std::is_same_v<T, StringValue>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             if (_pool == nullptr) {
                 _pool.reset(new MemPool());
             }
@@ -307,8 +316,8 @@ public:
             uint32_t fragment_start_offset = start_offset_array[0];
             size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
-                data[org_elem_num + i].ptr = destination + fragment_len;
-                data[org_elem_num + i].len = len_array[i];
+                data[org_elem_num + i].data = destination + fragment_len;
+                data[org_elem_num + i].size = len_array[i];
                 fragment_len += len_array[i];
                 // Compute the largest continuous memcpy block and copy them.
                 // If this is the last element in data array, then should copy the current memory block.
@@ -422,11 +431,15 @@ public:
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported in PredicateColumnType";
-    };
+    }
+
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in PredicateColumnType";
+    }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in PredicateColumnType";
-    };
+    }
 
     Container& get_data() { return data; }
 
@@ -434,7 +447,7 @@ public:
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         LOG(FATAL) << "replicate not supported in PredicateColumnType";
-    };
+    }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
@@ -446,8 +459,12 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
     }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
+    }
+
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
-        if constexpr (std::is_same_v<T, StringValue>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_to_res_column(sel, sel_size,
                                         reinterpret_cast<vectorized::ColumnString*>(col_ptr));
         } else if constexpr (std::is_same_v<T, decimal12_t>) {

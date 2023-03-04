@@ -39,15 +39,25 @@
 
 namespace doris {
 
-class MemPool;
-class RowBatch;
 class RowDescriptor;
 class Status;
-class Tuple;
 class TupleDescriptor;
 struct TypeDescriptor;
 
 namespace vectorized {
+
+// DYNAMIC block is a special type of Block.
+// It could extends it's structure by align with
+// other blocks by add_rows, merge, append_block_by_selector ...
+// eg.
+// BlockA: A(int) | B(double) | C(float) | D(string)
+// BlockB: E(date) | F(int)
+// when BlockA.add_rows/merge/... with BlockB
+// then BlockA structure will become:
+// A(int) | B(double) | C(float) | D(string) | E(date) | F(int)
+// Both E & F are added to BlockA with same rows, and missing columns are
+// filled with default values
+enum class BlockType { NORMAL, DYNAMIC };
 
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
@@ -55,7 +65,7 @@ namespace vectorized {
   *  (either original names from a table, or generated names during temporary calculations).
   * Allows to insert, remove columns in arbitrary position, to change order of columns.
   */
-
+class MutableBlock;
 class Block {
 private:
     using Container = ColumnsWithTypeAndName;
@@ -63,18 +73,21 @@ private:
 
     Container data;
     IndexByName index_by_name;
+    std::vector<bool> row_same_bit;
 
     int64_t _decompress_time_ns = 0;
     int64_t _decompressed_bytes = 0;
 
     mutable int64_t _compress_time_ns = 0;
+    BlockType _type {BlockType::NORMAL};
 
 public:
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
     Block(const PBlock& pblock);
-    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size);
+    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
+          bool ignore_trivial_slot = false);
 
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
@@ -87,6 +100,8 @@ public:
     void insert_unique(ColumnWithTypeAndName&& elem);
     /// remove the column at the specified position
     void erase(size_t position);
+    /// remove the column at the [start, end)
+    void erase_tail(size_t start);
     /// remove the columns at the specified positions
     void erase(const std::set<size_t>& positions);
     /// remove the column with the specified name
@@ -100,6 +115,8 @@ public:
         }
         std::swap(data, new_data);
     }
+
+    void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
@@ -146,6 +163,9 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
+    void set_block_type(BlockType type) { _type = type; }
+    BlockType get_block_type() { return _type; }
+
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -179,6 +199,8 @@ public:
 
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
+
+    std::string each_col_size();
 
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
@@ -239,6 +261,8 @@ public:
 
     bool is_empty_column() { return data.empty(); }
 
+    bool empty() const { return rows() == 0; }
+
     /** Updates SipHash of the Block, using update method of columns.
       * Returns hash for block, that could be used to differentiate blocks
       *  with same structure, but different data.
@@ -254,7 +278,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableColumns& columns, const IColumn::Selector& selector) const;
+    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                       const IColumn::Filter& filter);
@@ -268,18 +292,13 @@ public:
     static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
-        for (int i = block->columns() - 1; i >= column_to_keep; --i) {
-            block->erase(i);
-        }
+        block->erase_tail(column_to_keep);
     }
 
     // serialize block to PBlock
     Status serialize(int be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
-
-    // serialize block to PRowbatch
-    void serialize(RowBatch*, const RowDescriptor&);
 
     std::unique_ptr<Block> create_same_struct_block(size_t size) const;
 
@@ -344,9 +363,6 @@ public:
         return res;
     }
 
-    doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int,
-                                  bool padding_char = false);
-
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
@@ -354,14 +370,26 @@ public:
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
     int64_t get_compress_time() const { return _compress_time_ns; }
 
+    void set_same_bit(std::vector<bool>::const_iterator begin,
+                      std::vector<bool>::const_iterator end) {
+        row_same_bit.insert(row_same_bit.end(), begin, end);
+
+        DCHECK_EQ(row_same_bit.size(), rows());
+    }
+
+    bool get_same_bit(size_t position) {
+        if (position >= row_same_bit.size()) {
+            return false;
+        }
+        return row_same_bit[position];
+    }
+
+    void clear_same_bit() { row_same_bit.clear(); }
+
 private:
     void erase_impl(size_t position);
-    void initialize_index_by_name();
     bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
                              const IColumn* column_with_type_and_name, int row);
-    void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
-                        const StringRef& data_ref, const IColumn* column, int row,
-                        bool padding_char);
 };
 
 using Blocks = std::vector<Block>;
@@ -373,24 +401,46 @@ class MutableBlock {
 private:
     MutableColumns _columns;
     DataTypes _data_types;
+    Names _names;
+
+    using IndexByName = phmap::flat_hash_map<String, size_t>;
+    IndexByName index_by_name;
+    BlockType _type {BlockType::NORMAL};
 
 public:
+    void set_block_type(BlockType type) { _type = type; }
+    BlockType get_block_type() { return _type; }
+
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);
     }
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0);
+    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
+                 bool igore_trivial_slot = false);
 
     MutableBlock(Block* block)
-            : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
+            : _columns(block->mutate_columns()),
+              _data_types(block->get_data_types()),
+              _names(block->get_names()),
+              _type(block->get_block_type()) {
+        initialize_index_by_name();
+    }
     MutableBlock(Block&& block)
-            : _columns(block.mutate_columns()), _data_types(block.get_data_types()) {}
+            : _columns(block.mutate_columns()),
+              _data_types(block.get_data_types()),
+              _names(block.get_names()),
+              _type(block.get_block_type()) {
+        initialize_index_by_name();
+    }
 
     void operator=(MutableBlock&& m_block) {
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
+        _names = std::move(m_block._names);
+        _type = m_block.get_block_type();
+        initialize_index_by_name();
     }
 
     size_t rows() const;
@@ -431,10 +481,32 @@ public:
         }
         return 0;
     }
+
+    int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
+                   const MutableBlock& rhs, int nan_direction_hint) const {
+        DCHECK_GE(columns(), compare_columns->size());
+        DCHECK_GE(rhs.columns(), compare_columns->size());
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (auto i : *compare_columns) {
+            DCHECK(get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i)));
+            auto res = get_column_by_position(i)->compare_at(n, m, *(rhs.get_column_by_position(i)),
+                                                             nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
     template <typename T>
     void merge(T&& block) {
+        // merge is not supported in dynamic block
+        DCHECK(_type != BlockType::DYNAMIC);
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
+            _names = block.get_names();
             _columns.resize(block.columns());
             for (size_t i = 0; i < block.columns(); ++i) {
                 if (block.get_by_position(i).column) {
@@ -445,11 +517,14 @@ public:
                     _columns[i] = _data_types[i]->create_column();
                 }
             }
+            initialize_index_by_name();
         } else {
             DCHECK_EQ(_columns.size(), block.columns());
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
-                    DCHECK(_data_types[i]->is_nullable());
+                    DCHECK(_data_types[i]->is_nullable())
+                            << " target type: " << _data_types[i]->get_name()
+                            << " src type: " << block.get_by_position(i).type->get_name();
                     DCHECK(((DataTypeNullable*)_data_types[i].get())
                                    ->get_nested_type()
                                    ->equals(*block.get_by_position(i).type));
@@ -485,6 +560,7 @@ public:
     void clear() {
         _columns.clear();
         _data_types.clear();
+        _names.clear();
     }
 
     void clear_column_data() noexcept;
@@ -499,6 +575,18 @@ public:
 
         return res;
     }
+
+    Names& get_names() { return _names; }
+
+    bool has(const std::string& name) const;
+
+    size_t get_position_by_name(const std::string& name) const;
+
+    /** Get a list of column names separated by commas. */
+    std::string dump_names() const;
+
+private:
+    void initialize_index_by_name();
 };
 
 struct IteratorRowRef {
@@ -519,6 +607,7 @@ struct IteratorRowRef {
 };
 
 using BlockView = std::vector<IteratorRowRef>;
+using BlockUPtr = std::unique_ptr<Block>;
 
 } // namespace vectorized
 } // namespace doris

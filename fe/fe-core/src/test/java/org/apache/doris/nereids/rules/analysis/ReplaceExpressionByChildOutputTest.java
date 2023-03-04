@@ -29,17 +29,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class ReplaceExpressionByChildOutputTest implements PatternMatchSupported {
+public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSupported {
 
     @Test
     void testSortProject() {
@@ -83,7 +84,7 @@ public class ReplaceExpressionByChildOutputTest implements PatternMatchSupported
         LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(
                 ImmutableList.of(alias), ImmutableList.of(alias), logicalOlapScan);
-        LogicalHaving<Plan> logicalHaving = new LogicalHaving<>(BooleanLiteral.TRUE, logicalAggregate);
+        LogicalHaving<Plan> logicalHaving = new LogicalHaving<>(ImmutableSet.of(BooleanLiteral.TRUE), logicalAggregate);
         List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(slotReference, true, true));
         LogicalSort<Plan> logicalSort = new LogicalSort<>(orderKeys, logicalHaving);
 

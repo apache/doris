@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/anyval_util.h"
 #include "olap/hll.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -73,7 +72,7 @@ public:
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
                                            AggregateFunctionApproxCountDistinct<ColumnDataType>>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
@@ -87,7 +86,7 @@ public:
         } else {
             auto value = static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
             StringVal sv = value.to_string_val();
-            uint64_t hash_value = AnyValUtil::hash64_murmur(sv, HashUtil::MURMUR_SEED);
+            uint64_t hash_value = HashUtil::murmur_hash64A(sv.ptr, sv.len, HashUtil::MURMUR_SEED);
             this->data(place).add(hash_value);
         }
     }

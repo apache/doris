@@ -37,6 +37,8 @@ under the License.
 path 的内容不能包含 ", [ 和 ]。
 如果 json_string 格式不对，或 json_path 格式不对，或无法找到匹配项，则返回 NULL。
 
+另外，推荐使用jsonb类型和jsonb_extract_XXX函数实现同样的功能。
+
 ### example
 
 1. 获取 key 为 "k1" 的 value

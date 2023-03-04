@@ -35,14 +35,8 @@ public:
     // Initialize BlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) override {
-        return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
-    }
-
-    Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) override {
-        return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+    Status next_block_with_aggregation(Block* block, bool* eof) override {
+        return (this->*_next_block_func)(block, eof);
     }
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
@@ -56,21 +50,19 @@ public:
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
-    Status _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _direct_next_block(Block* block, bool* eof);
     // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
     // And this is an optimization for AGGR tables.
     // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    Status _direct_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                      bool* eof);
+    Status _direct_agg_key_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
-    Status _agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
-    Status _unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _unique_key_next_block(Block* block, bool* eof);
 
-    Status _init_collect_iter(const ReaderParams& read_params,
-                              std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _init_collect_iter(const ReaderParams& read_params);
 
     void _init_agg_state(const ReaderParams& read_params);
 
@@ -83,6 +75,10 @@ private:
     size_t _copy_agg_data();
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
+
+    bool _get_next_row_same();
+
+    bool _rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
@@ -107,12 +103,13 @@ private:
 
     bool _eof = false;
 
-    Status (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                            bool* eof) = nullptr;
+    Status (BlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
 
     std::vector<RowLocation> _block_row_locations;
 
     ColumnPtr _delete_filter_column;
+
+    bool _is_rowsets_overlapping = true;
 };
 
 } // namespace vectorized

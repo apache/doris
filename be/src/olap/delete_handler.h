@@ -88,8 +88,8 @@ public:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
     // return:
-    //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
-    //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
+    //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
+    //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
     Status init(TabletSchemaSPtr tablet_schema,
                 const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
 
@@ -101,7 +101,7 @@ public:
     void get_delete_conditions_after_version(
             int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
             std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
-                    col_id_to_del_predicates) const;
+                    del_predicates_for_zone_map) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'

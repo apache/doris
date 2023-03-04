@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "s3_uri.h"
 
 namespace doris {
 
@@ -117,6 +118,9 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
     Aws::Auth::AWSCredentials aws_cred(properties.find(S3_AK)->second,
                                        properties.find(S3_SK)->second);
     DCHECK(!aws_cred.IsExpiredOrEmpty());
+    if (properties.find(S3_TOKEN) != properties.end()) {
+        aws_cred.SetSessionToken(properties.find(S3_TOKEN)->second);
+    }
 
     Aws::Client::ClientConfiguration aws_config;
     aws_config.endpointOverride = properties.find(S3_ENDPOINT)->second;
@@ -169,7 +173,42 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(const S3Conf& s3_conf) 
     }
     return std::make_shared<Aws::S3::S3Client>(
             std::move(aws_cred), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never);
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+            s3_conf.use_virtual_addressing);
+}
+
+Status ClientFactory::convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
+                                                    const S3URI& s3_uri, S3Conf* s3_conf) {
+    if (!is_s3_conf_valid(prop)) {
+        return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
+    }
+    StringCaseMap<std::string> properties(prop.begin(), prop.end());
+    s3_conf->ak = properties.find(S3_AK)->second;
+    s3_conf->sk = properties.find(S3_SK)->second;
+    s3_conf->endpoint = properties.find(S3_ENDPOINT)->second;
+    s3_conf->region = properties.find(S3_REGION)->second;
+
+    if (properties.find(S3_MAX_CONN_SIZE) != properties.end()) {
+        s3_conf->max_connections = std::atoi(properties.find(S3_MAX_CONN_SIZE)->second.c_str());
+    }
+    if (properties.find(S3_REQUEST_TIMEOUT_MS) != properties.end()) {
+        s3_conf->request_timeout_ms =
+                std::atoi(properties.find(S3_REQUEST_TIMEOUT_MS)->second.c_str());
+    }
+    if (properties.find(S3_CONN_TIMEOUT_MS) != properties.end()) {
+        s3_conf->connect_timeout_ms =
+                std::atoi(properties.find(S3_CONN_TIMEOUT_MS)->second.c_str());
+    }
+    s3_conf->bucket = s3_uri.get_bucket();
+    s3_conf->prefix = "";
+
+    // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
+    s3_conf->use_virtual_addressing = true;
+    if (properties.find(USE_PATH_STYLE) != properties.end()) {
+        s3_conf->use_virtual_addressing =
+                properties.find(USE_PATH_STYLE)->second == "true" ? false : true;
+    }
+    return Status::OK();
 }
 
 } // end namespace doris

@@ -29,7 +29,9 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.HashMap;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
 /**
@@ -38,19 +40,25 @@ import java.util.Map;
 public class CreateCatalogStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final String catalogName;
+    private final String resource;
     private final Map<String, String> properties;
 
     /**
      * Statement for create a new catalog.
      */
-    public CreateCatalogStmt(boolean ifNotExists, String catalogName, Map<String, String> properties) {
+    public CreateCatalogStmt(boolean ifNotExists, String catalogName, String resource, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.catalogName = catalogName;
-        this.properties = properties == null ? new HashMap<>() : properties;
+        this.resource = resource == null ? "" : resource;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public String getResource() {
+        return resource;
     }
 
     public Map<String, String> getProperties() {
@@ -69,7 +77,7 @@ public class CreateCatalogStmt extends DdlStmt {
             throw new AnalysisException("Internal catalog name can't be create.");
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
@@ -86,6 +94,9 @@ public class CreateCatalogStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE CATALOG ").append("`").append(catalogName).append("`");
+        if (!Strings.isNullOrEmpty(resource)) {
+            stringBuilder.append(" WITH RESOURCE `").append(resource).append("`");
+        }
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));

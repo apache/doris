@@ -29,8 +29,10 @@ import com.google.common.base.Strings;
 public class ShowMTMVJobStmt extends ShowStmt {
 
     private final String jobName; // optional
-    private String dbName; // optional
+    private final String dbName; // optional
     private final TableName mvName; // optional
+
+    private String analyzedDbName;
 
     public ShowMTMVJobStmt() {
         this.jobName = null;
@@ -51,11 +53,11 @@ public class ShowMTMVJobStmt extends ShowStmt {
     }
 
     public boolean isShowAllJobs() {
-        return dbName == null && mvName == null && jobName == null;
+        return analyzedDbName == null && mvName == null && jobName == null;
     }
 
     public boolean isShowAllJobsFromDb() {
-        return dbName != null && mvName == null;
+        return analyzedDbName != null && mvName == null;
     }
 
     public boolean isShowAllJobsOnMv() {
@@ -67,13 +69,7 @@ public class ShowMTMVJobStmt extends ShowStmt {
     }
 
     public String getDbName() {
-        if (dbName != null) {
-            return dbName;
-        } else if (mvName != null) {
-            return mvName.getDb();
-        } else {
-            return null;
-        }
+        return analyzedDbName;
     }
 
     public String getMVName() {
@@ -87,11 +83,20 @@ public class ShowMTMVJobStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (dbName != null && mvName != null && !dbName.equals(mvName.getDb())) {
+        if (dbName != null && mvName != null && mvName.getDb() != null && !dbName.equals(mvName.getDb())) {
             throw new UserException("Database name should be same when they both been set.");
         }
-        if (!Strings.isNullOrEmpty(dbName)) {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        analyzedDbName = dbName;
+        if (Strings.isNullOrEmpty(analyzedDbName)) {
+            if (mvName != null) {
+                analyzedDbName = mvName.getDb();
+            }
+            if (Strings.isNullOrEmpty(analyzedDbName)) {
+                analyzedDbName = analyzer.getDefaultDb();
+            }
+        }
+        if (!Strings.isNullOrEmpty(analyzedDbName)) {
+            analyzedDbName = ClusterNamespace.getFullName(getClusterName(), analyzedDbName);
         }
     }
 
@@ -114,11 +119,11 @@ public class ShowMTMVJobStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW MTMV JOB");
 
-        if (jobName != null) {
+        if (!Strings.isNullOrEmpty(jobName)) {
             sb.append(" FOR ");
             sb.append(getJobName());
         }
-        if (dbName != null) {
+        if (!Strings.isNullOrEmpty(dbName)) {
             sb.append(" FROM ");
             sb.append(ClusterNamespace.getNameFromFullName(dbName));
         }
