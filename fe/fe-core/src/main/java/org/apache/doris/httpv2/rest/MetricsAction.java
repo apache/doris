@@ -25,6 +25,8 @@ import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,7 +38,7 @@ import javax.servlet.http.HttpServletResponse;
 //fehost:port/metrics?type=core
 @RestController
 public class MetricsAction extends RestBaseController {
-
+    private static final Logger LOG = LogManager.getLogger(MetricsAction.class);
     private static final String TYPE_PARAM = "type";
 
     @RequestMapping(path = "/metrics")
@@ -58,7 +60,7 @@ public class MetricsAction extends RestBaseController {
         try {
             response.getWriter().write(MetricRepo.getMetric(visitor));
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
 
     }

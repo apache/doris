@@ -99,7 +99,7 @@ min_backend_num_for_external_table=3
 
 > 参数说明请参阅：[FE 配置项](../admin-manual/config/fe-config.md)
 
-当查询时使用[MultiCatalog](../lakehouse/multi-catalog/multi-catalog)功能时, 查询会优先调度到计算节点。
+当查询时使用[MultiCatalog](../lakehouse/multi-catalog/multi-catalog.md)功能时, 查询会优先调度到计算节点。
 
 ### 一些限制
 

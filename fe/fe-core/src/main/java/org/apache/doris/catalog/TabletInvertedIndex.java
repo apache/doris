@@ -190,10 +190,11 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownReplicaId()) {
+                            if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownTerm()) {
                                 handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
                                         cooldownConfToUpdate);
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
+                                replica.setCooldownTerm(backendTabletInfo.getCooldownTerm());
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -395,7 +396,7 @@ public class TabletInvertedIndex {
             return;
         }
 
-        if (cooldownConf.first != beTabletInfo.getCooldownReplicaId()) {
+        if (beTabletInfo.getCooldownTerm() < cooldownConf.second) {
             CooldownConf conf = new CooldownConf(beTabletInfo.tablet_id, cooldownConf.first, cooldownConf.second);
             synchronized (cooldownConfToPush) {
                 cooldownConfToPush.add(conf);

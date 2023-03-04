@@ -106,7 +106,7 @@ min_backend_num_for_external_table=3
 
 > For parameter description, please refer to: [FE configuration item](../admin-manual/config/fe-config.md)
 
-When using the [MultiCatalog](../lakehouse/multi-catalog/multi-catalog) function when querying, the query will be dispatched to the computing node first.
+When using the [MultiCatalog](../lakehouse/multi-catalog/multi-catalog.md) function when querying, the query will be dispatched to the computing node first.
 
 ### some restrictions
 
