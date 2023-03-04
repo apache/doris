@@ -61,9 +61,11 @@ public class InsertStreamTxnExecutor {
     public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
+        // StreamLoadTask's id == request's load_id
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(
                 txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
+        // Will using load id as query id in fragment
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
                 .needLoadAvailable().needQueryAvailable().build();
@@ -82,6 +84,10 @@ public class InsertStreamTxnExecutor {
             }
         }
         txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);
+        this.loadId = request.getLoadId();
+        this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
+                .setHi(loadId.getHi())
+                .setLo(loadId.getLo()).build());
 
         Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
         txnConf.setUserIp(backend.getIp());
@@ -109,11 +115,12 @@ public class InsertStreamTxnExecutor {
                 .setHi(txnConf.getFragmentInstanceId().getHi())
                 .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
+
         Backend backend = txnEntry.getBackend();
         TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
         try {
             Future<InternalService.PCommitResult> future = BackendServiceProxy
-                    .getInstance().commit(address, fragmentInstanceId);
+                    .getInstance().commit(address, fragmentInstanceId, this.txnEntry.getpLoadId());
             InternalService.PCommitResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -135,7 +142,7 @@ public class InsertStreamTxnExecutor {
         TNetworkAddress address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
         try {
             Future<InternalService.PRollbackResult> future = BackendServiceProxy.getInstance().rollback(address,
-                    fragmentInstanceId);
+                    fragmentInstanceId, this.txnEntry.getpLoadId());
             InternalService.PRollbackResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -161,7 +168,7 @@ public class InsertStreamTxnExecutor {
         TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
         try {
             Future<InternalService.PSendDataResult> future = BackendServiceProxy.getInstance().sendData(
-                    address, fragmentInstanceId, txnEntry.getDataToSend());
+                    address, fragmentInstanceId, this.txnEntry.getpLoadId(), txnEntry.getDataToSend());
             InternalService.PSendDataResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -180,6 +187,9 @@ public class InsertStreamTxnExecutor {
 
     public void setLoadId(TUniqueId loadId) {
         this.loadId = loadId;
+        this.txnEntry.setpLoadId(Types.PUniqueId.newBuilder()
+                .setHi(loadId.getHi())
+                .setLo(loadId.getLo()).build());
     }
 
     public long getTxnId() {
