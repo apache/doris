@@ -413,7 +413,9 @@ public class ConnectProcessor {
                 executor.execute();
                 if (i != stmts.size() - 1) {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    finalizeCommand();
+                    if (ctx.getState().getStateType() != MysqlStateType.ERR) {
+                        finalizeCommand();
+                    }
                 }
                 auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
                 // execute failed, skip remaining stmts
