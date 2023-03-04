@@ -133,7 +133,8 @@ suite("test_alter_table_column") {
     sql """
             ALTER TABLE ${tbNameAddArray} 
             ADD COLUMN value2 ARRAY<INT> DEFAULT '[]' AFTER value1,
-            ADD COLUMN value3 ARRAY<INT> AFTER value2
+            ADD COLUMN value3 ARRAY<INT> AFTER value2,
+            ADD COLUMN value4 ARRAY<INT> NOT NULL DEFAULT '[]' AFTER value3;
         """
     max_try_secs = 60
     while (max_try_secs--) {
