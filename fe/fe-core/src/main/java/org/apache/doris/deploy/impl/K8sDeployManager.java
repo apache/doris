@@ -217,9 +217,7 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(
-                        new HostInfo(eaddr.getIp(), getDomainName(eaddr.getHostname(), serviceName),
-                                port));
+                result.add(new HostInfo(eaddr.getIp(), null, port));
             }
         }
 
