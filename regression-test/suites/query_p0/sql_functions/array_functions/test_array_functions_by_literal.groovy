@@ -189,6 +189,19 @@ suite("test_array_functions_by_literal") {
     qt_sql "select (array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))[1:2]"
     qt_sql "select (array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)))[1:2]"
 
+    // array_popfront function
+    qt_sql "select array_popfront([1,2,3,4,5,6])"
+    qt_sql "select array_popfront([])"
+    qt_sql "select array_popfront(null)"
+    qt_sql "select array_popfront([null,2,3,4,5])"
+    qt_sql "select array_popfront([1,2,3,4,null])"
+    qt_sql "select array_popfront(['1','2','3','4','5','6'])"
+    qt_sql "select array_popfront([null,'2','3','4','5','6'])"
+    qt_sql "select array_popfront(['1','2','3','4','5',null])"
+    qt_sql "select array_popfront(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2), cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_popfront(array(null, cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2), cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_popfront(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3)), cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+
     // array_join function 
     qt_sql "select array_join([1, 2, 3], '_')"
     qt_sql "select array_join(['1', '2', '3', null], '_')"
