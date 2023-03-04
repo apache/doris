@@ -392,7 +392,14 @@ Default value: 0.0.0.0
 
 Default：none
 
-Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly..
+Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 , If no ip match this rule, will choose one randomly.
+
+#### `network_interfaces`
+
+Default: none
+
+Declare a selection strategy for those servers with many IPs. Note that at most one network interface name should match this list. This is a semicolon-separated list represented by the network interface name, such as `eth0`. Doris will prioritize IPs that match this rule and only match `priority_networks` if no matching IPs are found.
+
 
 #### `http_port`
 

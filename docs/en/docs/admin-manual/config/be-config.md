@@ -144,6 +144,11 @@ There are two ways to configure BE configuration items:
 * Description: Declare a selection strategy for those servers with many IPs. Note that at most one ip should match this list. This is a semicolon-separated list in CIDR notation, such as 10.10.10.0/24. If there is no IP matching this rule, one will be randomly selected
 * Default value: blank
 
+#### `network_interfaces`
+
+* Description: Declare a selection strategy for those servers with many IPs. Note that at most one network interface name should match this list. This is a semicolon-separated list represented by the network interface name, such as `eth0`. Doris will prioritize IPs that match this rule and only match `priority_networks` if no matching IPs are found.
+* Default value: blank
+
 #### `storage_root_path`
 
 * Type: string

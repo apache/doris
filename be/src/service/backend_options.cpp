@@ -33,7 +33,7 @@ namespace doris {
 static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
-std::vector<std::string> BackendOptions::_s_net_interfaces;
+std::vector<std::string> BackendOptions::_s_network_interfaces;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
 
 bool BackendOptions::init() {
@@ -64,8 +64,8 @@ bool BackendOptions::init() {
             VLOG_CRITICAL << "check ip=" << addr_it->get_host_address_v4();
             if ((*addr_it).is_loopback_v4()) {
                 loopback = addr_it->get_host_address_v4();
-            } else if (!_s_net_interfaces.empty()) {
-                if (is_in_net_interface(addr_it->get_host_address_v4())) {
+            } else if (!_s_network_interfaces.empty()) {
+                if (is_in_network_interface(addr_it->get_host_address_v4())) {
                     _s_localhost = addr_it->get_host_address_v4();
                 }
             } else if (!_s_priority_cidrs.empty()) {
@@ -119,7 +119,7 @@ bool BackendOptions::analyze_network_interfaces() {
     LOG(INFO) << "network interfaces in conf: " << config::network_interfaces;
 
     struct ifaddrs * if_Addr_Struct = NULL;
-    void * tmpAddrPtr = NULL;
+    void * tmpAddrPtr = nullptr;
     getifaddrs(&if_Addr_Struct); 
 
     std::vector<std::string> nic_names =
@@ -132,7 +132,7 @@ bool BackendOptions::analyze_network_interfaces() {
                 tmpAddrPtr = &((struct sockaddr_in *)if_Addr_Struct->ifa_addr)->sin_addr;
                 char addressBuffer[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
-                _s_net_interfaces.push_back(addressBuffer);
+                _s_network_interfaces.push_back(addressBuffer);
                 flag = true;
             }
         }
@@ -140,8 +140,8 @@ bool BackendOptions::analyze_network_interfaces() {
     return flag;
 }
 
-bool BackendOptions::is_in_net_interface(const std::string& ip) {
-    for (auto& name : _s_net_interfaces) {
+bool BackendOptions::is_in_network_interface(const std::string& ip) {
+    for (auto& name : _s_network_interfaces) {
         if (name == ip) {
             return true;
         }
