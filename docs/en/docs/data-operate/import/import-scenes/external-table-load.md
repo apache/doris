@@ -101,7 +101,7 @@ Here we create an `ext_oracle_demo` external table and reference the `oracle_tes
      `k6` double NOT NULL COMMENT ""
    )
    COMMENT "Doris Table"
-   DISTRIBUTED BY HASH(k1) BUCKETS 2;
+   DISTRIBUTED BY HASH(k1) BUCKETS 2
    PROPERTIES (
        "replication_num" = "1"
    );

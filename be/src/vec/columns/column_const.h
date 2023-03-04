@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
@@ -226,4 +228,10 @@ public:
     }
 };
 
+/*
+ * @return first : pointer to column itself if it's not ColumnConst, else to column's data column.
+ *         second : zero if column is ColumnConst, else itself.
+*/
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                const size_t row_num) noexcept;
 } // namespace doris::vectorized

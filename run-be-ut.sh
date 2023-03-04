@@ -262,7 +262,7 @@ mkdir "${UT_TMP_DIR}"
 touch "${UT_TMP_DIR}/tmp_file"
 
 # set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
 export UBSAN_OPTIONS=print_stacktrace=1
 
 # find all executable test files

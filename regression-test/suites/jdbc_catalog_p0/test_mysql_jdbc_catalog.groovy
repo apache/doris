@@ -121,6 +121,25 @@ suite("test_mysql_jdbc_catalog", "p0") {
         sql """ drop catalog if exists ${catalog_name} """
         sql """ drop resource if exists ${resource_name} """
 
+        // test only_specified_database argument
+        sql """create resource if not exists ${resource_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "only_specified_database" = "true"
+        );"""
+        
+        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
+        sql """switch ${catalog_name}"""
+
+        qt_specified_database   """ show databases; """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
+
         // test old create-catalog syntax for compatibility
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
             "type"="jdbc",

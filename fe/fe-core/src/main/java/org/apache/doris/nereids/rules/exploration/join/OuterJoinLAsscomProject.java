@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -60,7 +59,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderUtils.checkProject(join.left()))
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topJoin -> {
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
@@ -85,20 +84,21 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         return null;
                     }
 
-                    // topJoin condition -> newBottomJoin condition, bottomJoin condition -> newTopJoin condition
-                    JoinReorderHelper helper = new JoinReorderHelper(bottomJoin.getHashJoinConjuncts(),
-                            bottomJoin.getOtherJoinConjuncts(), topJoin.getHashJoinConjuncts(),
-                            topJoin.getOtherJoinConjuncts(), projects, aProjects, bProjects);
-
                     // Add all slots used by OnCondition when projects not empty.
-                    helper.addSlotsUsedByOn(JoinReorderUtils.combineProjectAndChildExprId(a, helper.newLeftProjects),
-                            Collections.EMPTY_SET);
+                    Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
+                    Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
+                                    bottomJoin.getHashJoinConjuncts().stream(),
+                                    bottomJoin.getHashJoinConjuncts().stream())
+                            .flatMap(onExpr -> onExpr.getInputSlots().stream())
+                            .collect(Collectors.partitioningBy(
+                                    slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
+                    JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 
                     aProjects.addAll(forceToNullable(c.getOutputSet()));
 
                     /* ********** new Plan ********** */
-                    LogicalJoin newBottomJoin = topJoin.withConjunctsChildren(helper.newBottomHashConjuncts,
-                            helper.newBottomOtherConjuncts, a, c);
+                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(a, c);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
@@ -106,8 +106,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Plan left = JoinReorderUtils.projectOrSelf(aProjects, newBottomJoin);
                     Plan right = JoinReorderUtils.projectOrSelf(bProjects, b);
 
-                    LogicalJoin newTopJoin = bottomJoin.withConjunctsChildren(helper.newTopHashConjuncts,
-                            helper.newTopOtherConjuncts, left, right);
+                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(left, right);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 

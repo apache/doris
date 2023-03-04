@@ -62,7 +62,7 @@ This import method can still guarantee the atomicity of a batch of import tasks,
 6. `COLUMNS TERMINATED BY` specifies the column separator
 7. `LINES TERMINATED BY` specifies the line separator
 8. `IGNORE num LINES` The user skips the header of the CSV and can skip any number of lines. This syntax can also be replaced by'IGNORE num ROWS '
-9. Column mapping syntax, please refer to the column mapping chapter of [Imported Data Transformation](../../../data-operate/import/import-way/mysql-load-manual.md)
+9. Column mapping syntax, please refer to the column mapping chapter of [Imported Data Transformation](../../../../data-operate/import/import-way/mysql-load-manual.md)
 10. `PROPERTIES` parameter configuration, see below for details
 
 ### PROPERTIES
