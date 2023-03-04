@@ -351,9 +351,13 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     // TABLE_NAME
     {
         StringRef strs[columns_num];
+        int offset_index = 0;
         for (int i = 0; i < columns_num; ++i) {
-            strs[i] = StringRef(_desc_result.tables_name[i].c_str(),
-                                _desc_result.tables_name[i].length());
+            while (_desc_result.tables_offset[offset_index] <= i) {
+                ++offset_index;
+            }
+            strs[i] = StringRef(_table_result.tables[offset_index].c_str(),
+                                _table_result.tables[offset_index].length());
             datas[i] = strs + i;
         }
         fill_dest_column_for_range(block, 2, datas);
@@ -371,8 +375,14 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     // ORDINAL_POSITION
     {
         int64_t srcs[columns_num];
+        int offset_index = 0;
+        int columns_index = 1;
         for (int i = 0; i < columns_num; ++i) {
-            srcs[i] = i + 1;
+            while (_desc_result.tables_offset[offset_index] <= i) {
+                ++offset_index;
+                columns_index = 1;
+            }
+            srcs[i] = columns_index++;
             datas[i] = srcs + i;
         }
         fill_dest_column_for_range(block, 4, datas);

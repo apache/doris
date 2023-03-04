@@ -745,10 +745,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("get desc tables request: {}", params);
         TDescribeTablesResult result = new TDescribeTablesResult();
         List<TColumnDef> columns = Lists.newArrayList();
-        List<String> tableNames = Lists.newArrayList();
+        List<Integer> tablesOffset = Lists.newArrayList();
         List<String> tables = params.getTablesName();
         result.setColumns(columns);
-        result.setTablesName(tableNames);
+        result.setTablesOffset(tablesOffset);
 
         // database privs should be checked in analysis phrase
         UserIdentity currentUser = null;
@@ -802,11 +802,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 }
                             }
                             columns.add(colDef);
-                            tableNames.add(tableName);
                         }
                     } finally {
                         table.readUnlock();
                     }
+                    tablesOffset.add(columns.size());
                 }
             }
         }

@@ -92,7 +92,8 @@ struct TDescribeTablesParams {
 
 // Results of a call to describeTable()
 struct TDescribeTablesResult {
-  1: required list<string> tables_name
+  // tables_offset means that the offset for each table in columns
+  1: required list<i32> tables_offset
   2: required list<TColumnDef> columns
 }
 
