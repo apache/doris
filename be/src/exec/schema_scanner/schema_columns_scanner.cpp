@@ -352,12 +352,15 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         StringRef strs[columns_num];
         int offset_index = 0;
+        int cur_table_index = _table_index - _desc_result.tables_offset.size();
+
         for (int i = 0; i < columns_num; ++i) {
             while (_desc_result.tables_offset[offset_index] <= i) {
                 ++offset_index;
+                ++cur_table_index;
             }
-            strs[i] = StringRef(_table_result.tables[offset_index].c_str(),
-                                _table_result.tables[offset_index].length());
+            strs[i] = StringRef(_table_result.tables[cur_table_index].c_str(),
+                                _table_result.tables[cur_table_index].length());
             datas[i] = strs + i;
         }
         fill_dest_column_for_range(block, 2, datas);
