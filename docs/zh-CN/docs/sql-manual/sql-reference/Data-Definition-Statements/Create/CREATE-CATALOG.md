@@ -160,7 +160,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"user"="postgres",
 		"password"="123456",
 		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
-		"driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"driver_url" = "file:///path/to/postgresql-42.5.1.jar",
 		"driver_class" = "org.postgresql.Driver"
 	);
 	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
@@ -171,7 +171,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"jdbc.user"="postgres",
 		"jdbc.password"="123456",
 		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
-		"jdbc.driver_url" = "file:/path/to/postgresql-42.5.1.jar",
+		"jdbc.driver_url" = "file:///path/to/postgresql-42.5.1.jar",
 		"jdbc.driver_class" = "org.postgresql.Driver"
 	);
 	```
@@ -206,7 +206,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"user"="doris",
 		"password"="123456",
 		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-		"driver_url" = "file:/path/to/ojdbc6.jar",
+		"driver_url" = "file:///path/to/ojdbc6.jar",
 		"driver_class" = "oracle.jdbc.driver.OracleDriver"
 	);
 	CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
@@ -217,7 +217,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"jdbc.user"="doris",
 		"jdbc.password"="123456",
 		"jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-		"jdbc.driver_url" = "file:/path/to/ojdbc6.jar",
+		"jdbc.driver_url" = "file:///path/to/ojdbc6.jar",
 		"jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
 	);	
 	```
@@ -230,7 +230,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"user"="SA",
 		"password"="Doris123456",
 		"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
-		"driver_url" = "file:/path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"driver_url" = "file:///path/to/mssql-jdbc-11.2.3.jre8.jar",
 		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 	);
 	CREATE CATALOG sqlserver_catlog WITH RESOURCE sqlserver_resource;
@@ -241,7 +241,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"jdbc.user"="SA",
 		"jdbc.password"="Doris123456",
 		"jdbc.jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
-		"jdbc.driver_url" = "file:/path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"jdbc.driver_url" = "file:///path/to/mssql-jdbc-11.2.3.jre8.jar",
 		"jdbc.driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 	);	
 	```
