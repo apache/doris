@@ -125,7 +125,8 @@ CREATE CATALOG hive PROPERTIES (
 2. 配置所有 FE 环境： 
    a. 将 HMS conf 目录下的三个 Ranger 配置文件Copy到 <doris_home>/conf 目录下
    b. 修改其中 ranger-<ranger_service_name>-security.xml 的属性 `ranger.plugin.hive.policy.cache.dir` 的值为一个可写目录
-   c. 重启 FE
+   c. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties
+   d. 重启 FE
 
 </version>
 

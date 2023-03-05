@@ -131,7 +131,8 @@ when connecting to Hive Metastore which is authorized by Ranger, need some prope
 2. update all FEs' runtime environment：
    a. copy all ranger-*.xml files to <doris_home>/conf which are located in HMS/conf directory
    b. update value of `ranger.plugin.hive.policy.cache.dir` in ranger-<ranger_service_name>-security.xml to a writable directory
-   c. restart FE
+   c. add a log4j.properties to <doris_home>/conf, thus you can get logs of ranger authorizer
+   d. restart FE
 
 </version>
 
