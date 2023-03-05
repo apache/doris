@@ -39,15 +39,10 @@ public class BatchRemoveTransactionsOperationV2 implements Writable {
     @SerializedName(value = "latestTxnIdForLong")
     private long latestTxnIdForLong;
 
-    @SerializedName(value = "numOfClearedTransaction")
-    private int numOfClearedTransaction;
-
-    public BatchRemoveTransactionsOperationV2(long dbId, long latestTxnIdForShort, long latestTxnIdForLong,
-            int numOfClearedTransaction) {
+    public BatchRemoveTransactionsOperationV2(long dbId, long latestTxnIdForShort, long latestTxnIdForLong) {
         this.dbId = dbId;
         this.latestTxnIdForShort = latestTxnIdForShort;
         this.latestTxnIdForLong = latestTxnIdForLong;
-        this.numOfClearedTransaction = numOfClearedTransaction;
     }
 
     public long getDbId() {
@@ -60,10 +55,6 @@ public class BatchRemoveTransactionsOperationV2 implements Writable {
 
     public long getLatestTxnIdForLong() {
         return latestTxnIdForLong;
-    }
-
-    public int getNumOfClearedTransaction() {
-        return numOfClearedTransaction;
     }
 
     @Override

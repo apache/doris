@@ -745,12 +745,10 @@ public class DatabaseTransactionMgr {
     public void replayBatchRemoveTransaction(BatchRemoveTransactionsOperationV2 operation) {
         writeLock();
         try {
-            int numOfClearedTransaction = 0;
             if (operation.getLatestTxnIdForShort() != -1) {
                 while (!finalStatusTransactionStateDequeShort.isEmpty()) {
                     TransactionState transactionState = finalStatusTransactionStateDequeShort.pop();
                     clearTransactionState(transactionState.getTransactionId());
-                    numOfClearedTransaction++;
                     if (operation.getLatestTxnIdForShort() == transactionState.getTransactionId()) {
                         break;
                     }
@@ -761,13 +759,11 @@ public class DatabaseTransactionMgr {
                 while (!finalStatusTransactionStateDequeLong.isEmpty()) {
                     TransactionState transactionState = finalStatusTransactionStateDequeLong.pop();
                     clearTransactionState(transactionState.getTransactionId());
-                    numOfClearedTransaction++;
                     if (operation.getLatestTxnIdForLong() == transactionState.getTransactionId()) {
                         break;
                     }
                 }
             }
-            Preconditions.checkState(numOfClearedTransaction == operation.getNumOfClearedTransaction());
         } finally {
             writeUnlock();
         }
@@ -1410,7 +1406,7 @@ public class DatabaseTransactionMgr {
             int numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
             if (numOfClearedTransaction > 0) {
                 BatchRemoveTransactionsOperationV2 op = new BatchRemoveTransactionsOperationV2(dbId,
-                        expiredTxnsInfoForShort.first, expiredTxnsInfoForLong.first, numOfClearedTransaction);
+                        expiredTxnsInfoForShort.first, expiredTxnsInfoForLong.first);
                 editLog.logBatchRemoveTransactions(op);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Remove {} expired transactions", numOfClearedTransaction);
