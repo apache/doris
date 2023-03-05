@@ -2525,16 +2525,6 @@ SmallFileMgr 中存储的最大文件数
 
 此配置用于控制每个 DB 能够记录的 backup/restore 任务的数量
 
-#### `restore_replica_dispatch_timeout_second`
-
-默认值：600
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-用于控制 FE 在 restore 作业启动时为 BE 分配待下载副本任务工作的超时时间，如果一次 restore 恢复的副本数很多，可适当调大此值
-
 #### `enable_quantile_state_type`
 
 默认值：false
