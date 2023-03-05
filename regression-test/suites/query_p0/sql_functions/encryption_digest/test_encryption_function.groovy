@@ -23,6 +23,10 @@ suite("test_encryption_function") {
     qt_sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', '0123456789'));"
     qt_sql "SELECT AES_DECRYPT(FROM_BASE64('wr2JEDVXzL9+2XtRhgIloA=='),'F3229A0B371ED2D9441B830D21A390C3');"
     qt_sql "SELECT AES_DECRYPT(FROM_BASE64('mvZT1KJw7N0RJf27aipUpg=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');"
+    test {
+        sql "SELECT TO_BASE64(SM4_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"
+        exception "session variable block_encryption_mode is invalid with sm4"
+    }
 
     sql "set block_encryption_mode=\"AES_256_ECB\";"
     qt_sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"
@@ -55,6 +59,10 @@ suite("test_encryption_function") {
     }
     qt_sql "SELECT SM4_DECRYPT(FROM_BASE64('G7yqOKfEyxdagboz6Qf01A=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');"
     qt_sql "SELECT SM4_DECRYPT(FROM_BASE64('1Y4NGIukSbv9OrkZnRD1bQ=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');"
+    test {
+        sql "SELECT TO_BASE64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));"
+        exception "session variable block_encryption_mode is invalid with aes"
+    }
 
     qt_sql "SELECT SM3(\"abc\");"
     qt_sql "select sm3(\"abcd\");"

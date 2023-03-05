@@ -981,15 +981,15 @@ public class FunctionCallExpr extends Expr {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "AES_128_ECB";
                     }
+                    if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
+                        throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
+
+                    }
                     if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
                             && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
                             && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
                         throw new AnalysisException("Incorrect parameter count in the call to native function "
                                 + "'aes_encrypt' or 'aes_decrypt'");
-                    }
-                    if (!aesModes.contains(blockEncryptionMode.toUpperCase())) {
-                        throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
-
                     }
                 }
                 if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
@@ -997,13 +997,13 @@ public class FunctionCallExpr extends Expr {
                     if (StringUtils.isAllBlank(blockEncryptionMode)) {
                         blockEncryptionMode = "SM4_128_ECB";
                     }
-                    if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("SM4_128_ECB")) {
-                        throw new AnalysisException("Incorrect parameter count in the call to native function "
-                                + "'sm4_encrypt' or 'sm4_decrypt'");
-                    }
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
 
+                    }
+                    if (children.size() == 2) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'sm4_encrypt' or 'sm4_decrypt'");
                     }
                 }
             }

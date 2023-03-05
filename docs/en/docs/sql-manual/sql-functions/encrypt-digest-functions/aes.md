@@ -43,7 +43,7 @@ AES_ENCRYPT(str,key_str[,init_vector])
 
 - `str`: Content to be encrypted
 - `key_str`: Secret key
-- `init_vector`: Initialization Vector. The default value for the block_encryption_mode system variable is aes-128-ecb, or ECB mode, which does not require an initialization vector. The alternative permitted block encryption modes CBC, CFB1, CFB8, CFB128, and OFB all require an initialization vector.
+- `init_vector`: Initialization Vector. The default value for the block_encryption_mode system variable is aes ecb mode, which does not require an initialization vector. The alternative permitted block encryption modes CBC, CFB1, CFB8, CFB128, and OFB all require an initialization vector.
 
 #### Return Type
 
