@@ -39,7 +39,7 @@ If `function_name` contains the database name, then the custom function will be 
 grammar:
 
 ```sql
-CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
+CREATE [GLOBAL] [AGGREGATE] [ALIAS] FUNCTION function_name
     (arg_type [, ...])
     [RETURNS ret_type]
     [INTERMEDIATE inter_type]
@@ -48,6 +48,8 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 ````
 
 Parameter Description:
+
+- `GLOBAL`: If there is this item, it means that the created function is a global function.
 
 - `AGGREGATE`: If there is this item, it means that the created function is an aggregate function.
 
@@ -146,6 +148,21 @@ Parameter Description:
    ```sql
    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
    ````
+
+6. Create a global custom scalar function
+
+   ```sql
+   CREATE GLOBAL FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+   "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+   "object_file" = "http://host:port/libmyadd.so"
+   );
+   ````
+
+7. Create a global custom alias function
+
+   ```sql
+   CREATE GLOBAL ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+   ```` 
 
 ### Keywords
 
