@@ -402,6 +402,11 @@ public class EditLog {
                     env.replayAddFrontend(fe);
                     break;
                 }
+                case OperationType.OP_MODIFY_FRONTEND: {
+                    Frontend fe = (Frontend) journal.getData();
+                    env.replayModifyFrontend(fe);
+                    break;
+                }
                 case OperationType.OP_REMOVE_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
@@ -1234,6 +1239,10 @@ public class EditLog {
 
     public void logAddFirstFrontend(Frontend fe) {
         logEdit(OperationType.OP_ADD_FIRST_FRONTEND, fe);
+    }
+
+    public void logModifyFrontend(Frontend fe) {
+        logEdit(OperationType.OP_MODIFY_FRONTEND, fe);
     }
 
     public void logRemoveFrontend(Frontend fe) {
