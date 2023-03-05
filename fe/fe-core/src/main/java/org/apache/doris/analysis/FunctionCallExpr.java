@@ -1012,7 +1012,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
-                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")) {
+                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1494,7 +1495,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
-                || fnName.getFunction().equalsIgnoreCase("array_except")) {
+                || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }
