@@ -18,6 +18,8 @@
 #include "service/backend_options.h"
 
 #include <algorithm>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -31,14 +33,19 @@ namespace doris {
 static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
+std::vector<std::string> BackendOptions::_s_network_interfaces;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
 bool BackendOptions::_bind_ipv6 = false;
 const char* _service_bind_address = "0.0.0.0";
 
 bool BackendOptions::init() {
-    if (!analyze_priority_cidrs()) {
+    bool interfaceResult = get_network_interfaces();
+    bool cidrResult = analyze_priority_cidrs();
+
+    if (!interfaceResult && !cidrResult) {
         return false;
     }
+    
     std::vector<InetAddress> hosts;
     Status status = get_hosts(&hosts);
 
@@ -56,7 +63,11 @@ bool BackendOptions::init() {
     std::vector<InetAddress>::iterator addr_it = hosts.begin();
     for (; addr_it != hosts.end(); ++addr_it) {
         VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();
-        if (!_s_priority_cidrs.empty()) {
+        if (!_s_network_interfaces.empty()) {
+            if (is_in_network_interface(addr_it->get_host_address())) {
+                _s_localhost = addr_it->get_host_address();
+            }
+        } else if (!_s_priority_cidrs.empty()) {
             // Whether to use IPV4 or IPV6, it's configured by CIDR format.
             // If both IPV4 and IPV6 are configured, the config order decides priority.
             if (is_in_prior_network(addr_it->get_host_address())) {
@@ -116,6 +127,43 @@ bool BackendOptions::analyze_priority_cidrs() {
         _s_priority_cidrs.push_back(cidr);
     }
     return true;
+}
+
+bool BackendOptions::get_network_interfaces() {
+    if (config::network_interfaces == "") {
+        return true;
+    }
+    LOG(INFO) << "network interfaces in conf: " << config::network_interfaces;
+
+    struct ifaddrs * if_addr_struct = nullptr;
+    void * tmp_addr_ptr = nullptr;
+    getifaddrs(&if_addr_struct); 
+
+    std::vector<std::string> nic_names =
+            strings::Split(config::network_interfaces, PRIORITY_CIDR_SEPARATOR);
+    bool flag = false;
+
+    for (auto& nic_name : nic_names) {
+        for (;if_addr_struct != nullptr; if_addr_struct = if_addr_struct->ifa_next) {
+            if (nic_name == if_addr_struct->ifa_name) {
+                tmp_addr_ptr = &((struct sockaddr_in *)if_addr_struct->ifa_addr)->sin_addr;
+                char address_buffer[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, tmp_addr_ptr, address_buffer, INET_ADDRSTRLEN);
+                _s_network_interfaces.push_back(address_buffer);
+                flag = true;
+            }
+        }
+    }
+    return flag;
+}
+
+bool BackendOptions::is_in_network_interface(const std::string& ip) {
+    for (auto& interface_ip : _s_network_interfaces) {
+        if (interface_ip == ip) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool BackendOptions::is_in_prior_network(const std::string& ip) {

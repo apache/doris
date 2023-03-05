@@ -312,6 +312,8 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String priority_networks = "";
 
+    @ConfField public static String network_interfaces = "";
+
     /**
      * If true, FE will reset bdbje replication group(that is, to remove all electable nodes info)
      * and is supposed to start as Master.

@@ -28,17 +28,23 @@ import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
+
 
 public class FrontendOptions {
     private static final Logger LOG = LogManager.getLogger(FrontendOptions.class);
 
     private static String PRIORITY_CIDR_SEPARATOR = ";";
 
+    private static List<InetAddress> netInterfaces = Lists.newArrayList();
     private static List<CIDR> priorityCidrs = Lists.newArrayList();
     private static InetAddress localAddr = InetAddress.getLoopbackAddress();
 
@@ -51,6 +57,12 @@ public class FrontendOptions {
             localAddr = InetAddress.getByName(Config.frontend_address);
             LOG.info("use configured address. {}", localAddr);
             return;
+        }
+
+        try {
+            analyzeNetworkInterfaces();
+        } catch (Exception e) {
+            LOG.info("Failed to analyze the netInterface");
         }
 
         analyzePriorityCidrs();
@@ -68,6 +80,11 @@ public class FrontendOptions {
             LOG.info("check ip address: {}", addr);
             if (addr.isLoopbackAddress()) {
                 loopBack = addr;
+            } else if (!netInterfaces.isEmpty()) {
+                if (isInNetInterface(addr.getHostAddress())) {
+                    localAddr = addr;
+                    break;
+                }
             } else if (!priorityCidrs.isEmpty()) {
                 if (isInPriorNetwork(addr.getHostAddress())) {
                     localAddr = addr;
@@ -127,6 +144,31 @@ public class FrontendOptions {
         }
     }
 
+    private static void analyzeNetworkInterfaces() throws Exception {
+        String netNames = Config.network_interfaces;
+        if (Strings.isNullOrEmpty(netNames)) {
+            return;
+        }
+        LOG.info("configured Network Interface value: {}", netNames);
+
+        String[] nameList = netNames.split(PRIORITY_CIDR_SEPARATOR);
+        List<String> netinterLists = Lists.newArrayList(nameList);
+        Enumeration<NetworkInterface> nets = NetworkInterface.getNetworkInterfaces();
+
+        for (String nameStr : netinterLists) {
+            for (NetworkInterface netint : Collections.list(nets)) {
+                Enumeration<InetAddress> inetAddresses = netint.getInetAddresses();
+                if (nameStr.equals(netint.getName())) {
+                    for (InetAddress inetAddress : Collections.list(inetAddresses)) {
+                        if (inetAddress instanceof Inet4Address) {
+                            netInterfaces.add(inetAddress);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private static boolean isInPriorNetwork(String ip) {
         for (CIDR cidr : priorityCidrs) {
             if (cidr.contains(ip)) {
@@ -136,8 +178,16 @@ public class FrontendOptions {
         return false;
     }
 
+    private static boolean isInNetInterface(String ip) {
+        for (InetAddress netaddr : netInterfaces) {
+            if (ip.equals(netaddr.getHostAddress())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean isBindIPV6() {
         return localAddr instanceof Inet6Address;
     }
-
 }
