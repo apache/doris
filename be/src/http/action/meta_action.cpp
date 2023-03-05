@@ -60,8 +60,6 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
         return Status::InternalError("no tablet exist");
     }
-    tablet->tablet_local_size();
-    tablet->tablet_remote_size();
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     tablet->generate_tablet_meta_copy(tablet_meta);
     json2pb::Pb2JsonOptions json_options;
