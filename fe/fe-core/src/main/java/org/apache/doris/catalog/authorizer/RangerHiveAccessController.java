@@ -18,10 +18,12 @@
 package org.apache.doris.catalog.authorizer;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Role;
 
 import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveAccessControlException;
 import org.apache.logging.log4j.LogManager;
@@ -65,8 +67,10 @@ public class RangerHiveAccessController implements CatalogAccessController {
         request.setClusterName(userArray[0]);
         Set<String> roles = new HashSet<>();
         for (String role : currentUser.getRoles()) {
-            // some roles are as of form: default_role_rbac_test@%, only use `default_role_rbac_test`
-            roles.add(role.split("@")[0]);
+            // default role is as of form: default_role_rbac_xxx@%, not useful for Ranger
+            if (!Role.isDefaultRoleName(role)) {
+                roles.add(role);
+            }
         }
         request.setUserRoles(roles);
         request.setAction(accessType.name());
@@ -170,11 +174,6 @@ public class RangerHiveAccessController implements CatalogAccessController {
         }
     }
 
-    private String removeDefaultClusterName(String nameWithDefaultCluster) {
-        return nameWithDefaultCluster.startsWith("default_cluster:")
-             ? nameWithDefaultCluster.split(":")[1] : nameWithDefaultCluster;
-    }
-
     @Override
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         return true;
@@ -182,13 +181,15 @@ public class RangerHiveAccessController implements CatalogAccessController {
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        RangerHiveResource resource = new RangerHiveResource(HiveObjectType.DATABASE, removeDefaultClusterName(db));
+        RangerHiveResource resource = new RangerHiveResource(HiveObjectType.DATABASE,
+                ClusterNamespace.getNameFromFullName(db));
         return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
     }
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        RangerHiveResource resource = new RangerHiveResource(HiveObjectType.TABLE, removeDefaultClusterName(db), tbl);
+        RangerHiveResource resource = new RangerHiveResource(HiveObjectType.TABLE,
+                ClusterNamespace.getNameFromFullName(db), tbl);
         return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
     }
 
@@ -197,8 +198,8 @@ public class RangerHiveAccessController implements CatalogAccessController {
                               PrivPredicate wanted) throws AuthorizationException {
         List<RangerHiveResource> resources = new ArrayList<>();
         for (String col : cols) {
-            RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN, removeDefaultClusterName(db),
-                    tbl, col);
+            RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,
+                    ClusterNamespace.getNameFromFullName(db), tbl, col);
             resources.add(resource);
         }
 
