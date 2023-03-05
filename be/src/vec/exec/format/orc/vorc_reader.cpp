@@ -152,13 +152,13 @@ void OrcReader::_init_profile() {
 }
 
 Status OrcReader::_create_file_reader() {
-    if (_file_input_stream.get() == nullptr) {
+    if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
                                                         _file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
-
-        _file_input_stream.reset(new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics));
+        _file_input_stream.reset(
+                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics));
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -166,7 +166,8 @@ Status OrcReader::_create_file_reader() {
     // create orc reader
     try {
         orc::ReaderOptions options;
-        _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
+        _reader = orc::createReader(
+                std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }

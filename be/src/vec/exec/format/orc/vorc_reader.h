@@ -286,7 +286,7 @@ private:
 class ORCFileInputStream : public orc::InputStream {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
-            OrcReader::Statistics* statistics)
+                       OrcReader::Statistics* statistics)
             : _file_name(file_name), _file_reader(file_reader), _statistics(statistics) {}
 
     ~ORCFileInputStream() override = default;
@@ -305,6 +305,5 @@ private:
     // Owned by OrcReader
     OrcReader::Statistics* _statistics;
 };
-
 
 } // namespace doris::vectorized
