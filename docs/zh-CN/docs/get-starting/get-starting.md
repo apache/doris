@@ -53,7 +53,7 @@ tar zxf apache-doris-x.x.x.tar.gz
 cd apache-doris-x.x.x/fe
 ```
 
-修改 FE 配置文件 `conf/fe.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `meta_dir` ，如果你需要更多优化配置，请参考 [FE 参数配置](../admin-manual/config/fe-config)说明，进行调整。
+修改 FE 配置文件 `conf/fe.conf` ，这里我们主要修改两个参数：`priority_networks` 或 `network_interfaces` 及 `meta_dir` ，如果你需要更多优化配置，请参考 [FE 参数配置](../admin-manual/config/fe-config)说明，进行调整。
 
 1. 添加 priority_networks 参数
 
@@ -61,13 +61,20 @@ cd apache-doris-x.x.x/fe
 priority_networks=172.23.16.0/24
 ```
 
+2. 添加 network_interfaces 参数
+
+```
+network_interfaces=eth0
+```
+
 >注意：
 >
->这个参数我们在安装的时候是必须要配置的，特别是当一台机器拥有多个IP地址的时候，我们要为 FE 指定唯一的IP地址。
+>这两个参数我们在安装的时候必须至少配置其中一个（`network_interfaces` 优先级高于 `priority_networks`），特别是当一台机器拥有多个IP地址的时候，我们要为 FE 指定唯一的IP地址。
 
-> 这里假设你的节点 IP 是 `172.23.16.32`，那么我们可以通过掩码的方式配置为 `172.23.16.0/24`。
+>这里假设你的节点 IP 是 `172.23.16.32`，那么我们可以通过掩码的方式配置为 `172.23.16.0/24`。
+>假设配置完正确的 `network_interfaces`，那么我们配置后会优先使用 `network_interfaces` 的配置，而不是选择 `priority_networks`，尽管你已经配置了。
 
-2. 添加元数据目录
+3. 添加元数据目录
 
 ```
 meta_dir=/path/your/doris-meta
@@ -179,7 +186,7 @@ Doris FE 的停止可以通过下面的命令完成
 cd apache-doris-x.x.x/be
 ```
 
-修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config)说明，进行调整。
+修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks` 或 `network_interfaces` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config)说明，进行调整。
 
 1. 添加 priority_networks 参数
 
@@ -187,11 +194,17 @@ cd apache-doris-x.x.x/be
 priority_networks=172.23.16.0/24
 ```
 
->注意：
->
->这个参数我们在安装的时候是必须要配置的，特别是当一台机器拥有多个IP地址的时候，我们要为 BE 指定唯一的IP地址。
+2. 添加 network_interfaces 参数
 
-2. 配置 BE 数据存储目录
+```
+network_interfaces=eth0
+```
+
+>注意： 
+>
+>这两个参数我们在安装的时候必须至少配置其中一个（`network_interfaces` 优先级高于 `priority_networks`），特别是当一台机器拥有多个IP地址的时候，我们要为 BE 指定唯一的IP地址。
+
+3. 配置 BE 数据存储目录
 
 
 ```

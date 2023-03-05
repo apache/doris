@@ -128,15 +128,20 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 
 #### IP 绑定
 
-因为有多网卡的存在，或因为安装过 docker 等环境导致的虚拟网卡的存在，同一个主机可能存在多个不同的 ip。当前 Doris 并不能自动识别可用 IP。所以当遇到部署主机上有多个 IP 时，必须通过 priority\_networks 配置项来强制指定正确的 IP。
+因为有多网卡的存在，或因为安装过 docker 等环境导致的虚拟网卡的存在，同一个主机可能存在多个不同的 ip。当前 Doris 并不能自动识别可用 IP。所以当遇到部署主机上有多个 IP 时，必须通过 priority\_networks 或 network\_interfaces (注意 network\_interfaces 优先于 priority\_networks) 配置项来强制指定正确的 IP。
 
-priority\_networks 是 FE 和 BE 都有的一个配置，配置项需写在 fe.conf 和 be.conf 中。该配置项用于在 FE 或 BE 启动时，告诉进程应该绑定哪个IP。示例如下：
+priority\_networks 跟 network\_interfaces 是 FE 和 BE 都有的一个配置，配置项需写在 fe.conf 和 be.conf 中。该配置项用于在 FE 或 BE 启动时，告诉进程应该绑定哪个IP。示例如下：
 
 `priority_networks=10.1.3.0/24`
 
 这是一种 [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing) 的表示方法。FE 或 BE 会根据这个配置项来寻找匹配的IP，作为自己的 localIP。
 
-**注意**：当配置完 priority\_networks 并启动 FE 或 BE 后，只是保证了 FE 或 BE 自身的 IP 进行了正确的绑定。而在使用 ADD BACKEND 或 ADD FRONTEND 语句中，也需要指定和 priority\_networks 配置匹配的 IP，否则集群无法建立。举例：
+`network_interfaces=eth0`
+
+这里使用网卡名的表示方法。FE或BE会优先根据这个配置项来寻找匹配的IP，作为自己的 localIP，如果该配置项没有匹配到IP，才会执行 priority\_networks 配置项。
+
+
+**注意**：当配置完 priority\_networks 或 network\_interfaces 并启动 FE 或 BE 后，只是保证了 FE 或 BE 自身的 IP 进行了正确的绑定。而在使用 ADD BACKEND 或 ADD FRONTEND 语句中，也需要指定和 priority\_networks 或 network\_interfaces 配置匹配的 IP，否则集群无法建立。举例：
 
 BE 的配置为：`priority_networks=10.1.3.0/24`
 

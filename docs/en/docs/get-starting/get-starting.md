@@ -53,7 +53,7 @@ Go to the `apache-doris-x.x.x/fe` directory
 cd apache-doris-x.x.x/fe
 ```
 
-Modify the FE configuration file `conf/fe.conf`, here we mainly modify two parameters: `priority_networks` and `meta_dir`, if you need more optimized configuration, please refer to [FE parameter configuration](../admin-manual/config/fe-config) for instructions on how to adjust them.
+Modify the FE configuration file `conf/fe.conf`, here we mainly modify two parameters: `priority_networks` or `network_interfaces` and `meta_dir`, if you need more optimized configuration, please refer to [FE parameter configuration](../admin-manual/config/fe-config) for instructions on how to adjust them.
 
 1. add priority_networks parameter
 
@@ -61,11 +61,20 @@ Modify the FE configuration file `conf/fe.conf`, here we mainly modify two param
 priority_networks=172.23.16.0/24
 ```
 
+2. add network_interfaces parameter
+
+```
+network_interfaces=eth0
+```
+
 >Note: 
 >
->This parameter we have to configure during installation, especially when a machine has multiple IP addresses, we have to specify a unique IP address for FE.
+>At least one of these parameters must be configured during installation(`network_interfaces` takes precedence over `priority_networks`), especially when a machine has multiple IP addresses, we have to specify a unique IP address for FE.
 
-2. Adding a metadata directory
+>Assuming that your node IP is `172.23.16.32`, we can configure it using the mask as `172.23.16.0/24`.
+>If the `network_interfaces` are configured correctly, they will be given priority over `priority_networks` even if they are already configured.
+
+3. Adding a metadata directory
 
 ```
 meta_dir=/path/your/doris-meta
@@ -175,7 +184,7 @@ Go to the `apache-doris-x.x.x/be` directory
 cd apache-doris-x.x.x/be
 ```
 
-Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config) instructions to make adjustments.
+Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config) instructions to make adjustments.
 
 1. Add priority_networks parameter
 
@@ -183,9 +192,15 @@ Modify the BE configuration file `conf/be.conf`, here we mainly modify two param
 priority_networks=172.23.16.0/24
 ```
 
+2. add network_interfaces parameter
+
+```
+network_interfaces=eth0
+```
+
 >Note: 
 >
->This parameter we have to configure during installation, especially when a machine has multiple IP addresses, we have to assign a unique IP address to the BE.
+>At least one of these parameters must be configured during installation(`network_interfaces` takes precedence over `priority_networks`), especially when a machine has multiple IP addresses, we have to assign a unique IP address to the BE.
 
 2. Configure the BE data storage directory
 

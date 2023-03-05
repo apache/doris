@@ -133,13 +133,17 @@ Doris instances communicate directly over the network. The following table shows
 
 #### IP Binding
 
-Because of the existence of multiple network cards, or the existence of virtual network cards caused by the installation of docker and other environments, the same host may have multiple different IPs. Currently Doris does not automatically identify available IPs. So when you encounter multiple IPs on the deployment host, you must specify the correct IP via the `priority_networks` configuration item.
+Because of the existence of multiple network cards, or the existence of virtual network cards caused by the installation of docker and other environments, the same host may have multiple different IPs. Currently Doris does not automatically identify available IPs. So when you encounter multiple IPs on the deployment host, you must specify the correct IP via the `priority_networks` or `network_interfaces` configuration item(note that `network_interfaces` takes priority over `priority_networks`).
 
-`priority_networks` is a configuration item that both FE and BE have. It needs to be written in fe.conf and be.conf. It is used to tell the process which IP should be bound when FE or BE starts. Examples are as follows:
+`priority_networks` and `network_interfaces` are configurations item that both FE and BE have. It needs to be written in fe.conf and be.conf. It is used to tell the process which IP should be bound when FE or BE starts. Examples are as follows:
 
 `priority_networks=10.1.3.0/24`
 
 This is a representation of [CIDR](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing). FE or BE will find the matching IP based on this configuration item as their own local IP.
+
+`network_interfaces=eth0`
+
+This is a representation method using the network card name. FE or BE will look for a matching IP based on this configuration item as its `localIP`. If this configuration item does not match any IP, `priority_networks` configuration item will be executed instead.
 
 **Note**: Configuring `priority_networks` and starting FE or BE only ensure the correct IP binding of FE or BE.  You also need to specify the same IP in ADD BACKEND or ADD FRONTEND statements, otherwise the cluster cannot be created. For example:
 
