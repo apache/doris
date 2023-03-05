@@ -407,6 +407,8 @@ Status VScanNode::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
             type = slots[slot_idx]->type().children[0].type;

@@ -52,6 +52,9 @@ Status ColumnChunkReader::init() {
 }
 
 Status ColumnChunkReader::next_page() {
+    if (_state == HEADER_PARSED) {
+        return Status::OK();
+    }
     if (UNLIKELY(_state == NOT_INIT)) {
         return Status::Corruption("Should initialize chunk reader");
     }

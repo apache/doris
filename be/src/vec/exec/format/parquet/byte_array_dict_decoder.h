@@ -35,6 +35,14 @@ public:
 
     Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
+    Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
+
+    Status get_dict_codes(const ColumnString* columnString,
+                          std::vector<int32_t>* dict_codes) override;
+
+    MutableColumnPtr convert_dict_column_to_string_column(
+            const ColumnDictI32* dict_column) override;
+
 protected:
     template <typename DecimalPrimitiveType>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -44,6 +52,7 @@ protected:
     std::vector<StringRef> _dict_items;
     std::vector<uint8_t> _dict_data;
     size_t _max_value_length;
+    std::unordered_map<StringRef, int32_t> _dict_value_to_code;
 };
 
 template <typename DecimalPrimitiveType>

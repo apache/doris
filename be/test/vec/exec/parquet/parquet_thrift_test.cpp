@@ -421,12 +421,13 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     std::shared_ptr<RowGroupReader> row_group_reader;
     RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
     row_group_reader.reset(new RowGroupReader(file_reader, read_columns, 0, row_group, &ctz,
-                                              position_delete_ctx, lazy_read_ctx));
+                                              position_delete_ctx, lazy_read_ctx, nullptr));
     std::vector<RowRange> row_ranges;
     row_ranges.emplace_back(0, row_group.num_rows);
 
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
-    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);
+    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets, nullptr,
+                                      nullptr, nullptr, nullptr, nullptr);
     EXPECT_TRUE(stg.ok());
 
     vectorized::Block block;

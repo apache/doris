@@ -298,6 +298,8 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
 
+    std::unordered_map<std::string, int> _colname_to_slot_id;
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();

@@ -56,6 +56,7 @@ void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_va
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
+    column->reserve(size);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }
