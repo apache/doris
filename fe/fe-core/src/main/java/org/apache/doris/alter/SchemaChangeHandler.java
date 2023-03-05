@@ -1601,15 +1601,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public List<List<Comparable>> getAllAlterJobInfos() {
         List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
-        ConnectContext ctx = ConnectContext.get();
         for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (ctx != null) {
-                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
-                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(alterJob.getDbId()).getFullName(),
-                        alterJob.getTableName(), PrivPredicate.ALTER)) {
-                    continue;
-                }
-            }
+            // no need to check priv here. This method is only called in show proc stmt,
+            // which already check the ADMIN priv.
             alterJob.getInfo(schemaChangeJobInfos);
         }
 

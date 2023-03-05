@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadManager;
 
 import com.google.common.base.Preconditions;
@@ -99,21 +98,14 @@ public class JobsProcDir implements ProcDirInterface {
         long dbId = db.getId();
 
         // load
-        Load load = Env.getCurrentEnv().getLoadInstance();
         LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
-        Long pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING, dbId)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING, dbId);
-        Long runningNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.ETL, dbId)
-                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.LOADING, dbId)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.LOADING, dbId);
-        Long finishedNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.QUORUM_FINISHED, dbId)
-                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.FINISHED, dbId)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.FINISHED, dbId);
-        Long cancelledNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.CANCELLED, dbId)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.CANCELLED, dbId);
+        Long pendingNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING, dbId));
+        Long runningNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.LOADING, dbId));
+        Long finishedNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.FINISHED, dbId));
+        Long cancelledNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.CANCELLED, dbId));
         Long totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(LOAD, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
-                                         cancelledNum.toString(), totalNum.toString()));
+                cancelledNum.toString(), totalNum.toString()));
 
         // delete
         // TODO: find it from delete handler
@@ -168,18 +160,11 @@ public class JobsProcDir implements ProcDirInterface {
 
         result.setNames(TITLE_NAMES);
         // load
-        Load load = Env.getCurrentEnv().getLoadInstance();
         LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
-        Long pendingNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.PENDING)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING);
-        Long runningNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.ETL)
-                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.LOADING)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.LOADING);
-        Long finishedNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.QUORUM_FINISHED)
-                + load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.FINISHED)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.FINISHED);
-        Long cancelledNum = load.getLoadJobNum(org.apache.doris.load.LoadJob.JobState.CANCELLED)
-                + loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.CANCELLED);
+        Long pendingNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.PENDING));
+        Long runningNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.LOADING));
+        Long finishedNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.FINISHED));
+        Long cancelledNum = new Long(loadManager.getLoadJobNum(org.apache.doris.load.loadv2.JobState.CANCELLED));
         Long totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(LOAD, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                 cancelledNum.toString(), totalNum.toString()));
