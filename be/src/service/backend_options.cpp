@@ -118,21 +118,21 @@ bool BackendOptions::analyze_network_interfaces() {
     }
     LOG(INFO) << "network interfaces in conf: " << config::network_interfaces;
 
-    struct ifaddrs * if_Addr_Struct = NULL;
-    void * tmpAddrPtr = nullptr;
-    getifaddrs(&if_Addr_Struct); 
+    struct ifaddrs * if_addr_struct = NULL;
+    void * tmp_addr_ptr = nullptr;
+    getifaddrs(&if_addr_struct); 
 
     std::vector<std::string> nic_names =
             strings::Split(config::network_interfaces, PRIORITY_CIDR_SEPARATOR);
     bool flag = false;
 
     for (auto& nic_name : nic_names) {
-        for (;if_Addr_Struct != nullptr; if_Addr_Struct = if_Addr_Struct->ifa_next) {
-            if (nic_name == if_Addr_Struct->ifa_name) {
-                tmpAddrPtr = &((struct sockaddr_in *)if_Addr_Struct->ifa_addr)->sin_addr;
-                char addressBuffer[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
-                _s_network_interfaces.push_back(addressBuffer);
+        for (;if_addr_struct != nullptr; if_addr_struct = if_addr_struct->ifa_next) {
+            if (nic_name == if_addr_struct->ifa_name) {
+                tmp_addr_ptr = &((struct sockaddr_in *)if_addr_struct->ifa_addr)->sin_addr;
+                char address_buffer[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, tmp_addr_ptr, address_buffer, INET_ADDRSTRLEN);
+                _s_network_interfaces.push_back(address_buffer);
                 flag = true;
             }
         }
