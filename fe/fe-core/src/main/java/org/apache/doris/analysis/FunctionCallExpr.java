@@ -137,7 +137,7 @@ public class FunctionCallExpr extends Expr {
                         return returnType;
                     }
                 };
-        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayCaculationRule
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDecimal128Rule
                 = (children, returnType) -> {
                     Preconditions.checkArgument(children != null && children.size() > 0);
                     if (children.get(0).getType().isArrayType() && (
@@ -183,7 +183,9 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("array_max", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("element_at", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("%element_extract%", arrayDateTimeV2OrDecimalV3Rule);
-        PRECISION_INFER_RULE.put("array_avg", arrayCaculationRule);
+        PRECISION_INFER_RULE.put("array_avg", arrayDecimal128Rule);
+        PRECISION_INFER_RULE.put("array_sum", arrayDecimal128Rule);
+        PRECISION_INFER_RULE.put("array_product", arrayDecimal128Rule);
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
