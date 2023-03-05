@@ -461,6 +461,12 @@ public class Config extends ConfigBase {
     public static int max_create_table_timeout_second = 3600;
 
     /**
+     * Maximal waiting time for dispatching replicas when restoring data.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int restore_replica_dispatch_timeout_second = 600;
+
+    /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
      */
     @ConfField(mutable = true, masterOnly = true)

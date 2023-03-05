@@ -2525,6 +2525,17 @@ Default: 10
 
 This configuration is mainly used to control the number of backup/restore tasks recorded in each database.
 
+#### `restore_replica_dispatch_timeout_second`
+
+Default：600
+
+IsMutable：true
+
+MasterOnly：true
+
+default timeout of dispatching replica downloading task to BEs when a restore job preparing
+
+
 #### `enable_quantile_state_type`
 
 Default：false
