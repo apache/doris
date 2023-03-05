@@ -137,6 +137,17 @@ public class FunctionCallExpr extends Expr {
                         return returnType;
                     }
                 };
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayCaculationRule
+                = (children, returnType) -> {
+                    Preconditions.checkArgument(children != null && children.size() > 0);
+                    if (children.get(0).getType().isArrayType() && (
+                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())) {
+                        return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                                ((ScalarType) ((ArrayType) children.get(0).getType()).getItemType()).getScalarScale());
+                    } else {
+                        return returnType;
+                    }
+                };
         PRECISION_INFER_RULE = new HashMap<>();
         PRECISION_INFER_RULE.put("sum", sumRule);
         PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
@@ -172,7 +183,7 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("array_max", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("element_at", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("%element_extract%", arrayDateTimeV2OrDecimalV3Rule);
-
+        PRECISION_INFER_RULE.put("array_avg", arrayCaculationRule);
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
