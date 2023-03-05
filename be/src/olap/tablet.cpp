@@ -211,8 +211,19 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
         auto new_rowset_tree = std::make_unique<RowsetTree>();
         ModifyRowSetTree(*_rowset_tree, rs_to_delete, rs_to_add, new_rowset_tree.get());
         _rowset_tree = std::move(new_rowset_tree);
-        for (auto rowset_ptr : rs_to_add) {
-            RETURN_IF_ERROR(update_delete_bitmap_without_lock(rowset_ptr));
+        std::vector<RowsetSharedPtr> calc_delete_bitmap_rowsets;
+        int64_t to_add_min_version = INT64_MAX;
+        for (auto& rs : rs_to_add) {
+            if (to_add_min_version > rs->start_version()) {
+                to_add_min_version = rs->start_version();
+            }
+        }
+        Version calc_delete_bitmap_ver;
+        calc_delete_bitmap_ver = Version(to_add_min_version, max_version().second);
+        RETURN_IF_ERROR(
+                capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets));
+        for (auto rs : calc_delete_bitmap_rowsets) {
+            RETURN_IF_ERROR(update_delete_bitmap_without_lock(rs));
         }
     }
 
@@ -2138,24 +2149,19 @@ void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
 
 // The caller should hold _rowset_update_lock and _meta_lock lock.
 Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) {
-    int64_t cur_version = rowset->start_version();
+    int64_t cur_version = rowset->end_version();
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
+    RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
-    RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, nullptr, delete_bitmap,
-                                       cur_version - 1, true));
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset->rowset_id(), segments, &cur_rowset_ids,
+                                       delete_bitmap, cur_version - 1, true));
 
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
-        int ret = _tablet_meta->delete_bitmap().set(
+        _tablet_meta->delete_bitmap().merge(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
-        DCHECK(ret == 1);
-        if (ret != 1) {
-            LOG(WARNING) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first)
-                         << "|" << std::get<1>(iter->first) << "|" << cur_version;
-            return Status::InternalError("failed to set delete bimap");
-        }
     }
 
     return Status::OK();
@@ -2214,14 +2220,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
     // and publish_txn runs sequential so no need to lock here
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
-        int ret = _tablet_meta->delete_bitmap().set(
+        _tablet_meta->delete_bitmap().merge(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
-        DCHECK(ret == 1);
-        if (ret != 1) {
-            LOG(WARNING) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first)
-                         << "|" << std::get<1>(iter->first) << "|" << cur_version;
-            return Status::InternalError("failed to set delete bimap");
-        }
     }
 
     return Status::OK();
