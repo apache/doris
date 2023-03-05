@@ -52,7 +52,7 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                const std::vector<TCondition>& filters,
                                const FilterPredicates& filter_predicates,
                                const std::vector<FunctionFilter>& function_filters) {
-    RETURN_IF_ERROR(VScanner::prepare(_state, &_vconjunct_ctx));
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
