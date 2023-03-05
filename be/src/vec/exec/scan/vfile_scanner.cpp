@@ -36,6 +36,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -59,9 +60,11 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, int>* colname_to_slot_id) {
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _colname_to_value_range = colname_to_value_range;
+    _col_name_to_slot_id = colname_to_slot_id;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
     _cast_to_input_block_timer =
@@ -99,6 +102,59 @@ Status VFileScanner::prepare(
                                                   std::vector<bool>({false})));
 
     return Status::OK();
+}
+
+Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
+    static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
+    if (conjunct_expr_root != nullptr) {
+        if (is_leaf(conjunct_expr_root)) {
+            auto impl = conjunct_expr_root->get_impl();
+            // If impl is not null, which means this a conjuncts from runtime filter.
+            VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
+            VExprContext* new_ctx = _state->obj_pool()->add(new VExprContext(cur_expr));
+            _vconjunct_ctx->clone_fn_contexts(new_ctx);
+            RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
+            RETURN_IF_ERROR(new_ctx->open(_state));
+
+            std::vector<int> slot_ids;
+            _get_slot_ids(cur_expr, &slot_ids);
+            if (slot_ids.size() == 0) {
+                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
+                return Status::OK();
+            }
+            bool single_slot = true;
+            for (int i = 1; i < slot_ids.size(); i++) {
+                if (slot_ids[i] != slot_ids[0]) {
+                    single_slot = false;
+                    break;
+                }
+            }
+            if (single_slot) {
+                SlotId slot_id = slot_ids[0];
+                if (_slot_id_to_filter_conjuncts.find(slot_id) ==
+                    _slot_id_to_filter_conjuncts.end()) {
+                    _slot_id_to_filter_conjuncts.insert({slot_id, std::vector<VExprContext*>()});
+                }
+                _slot_id_to_filter_conjuncts[slot_id].emplace_back(new_ctx);
+            } else {
+                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
+            }
+        } else {
+            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[0]));
+            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[1]));
+        }
+    }
+    return Status::OK();
+}
+
+void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
+    for (VExpr* child_expr : expr->children()) {
+        if (child_expr->is_slot_ref()) {
+            VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr);
+            slot_ids->emplace_back(slot_ref->slot_id());
+        }
+        _get_slot_ids(child_expr, slot_ids);
+    }
 }
 
 Status VFileScanner::open(RuntimeState* state) {
@@ -481,7 +537,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_PARQUET: {
             ParquetReader* parquet_reader = new ParquetReader(
                     _profile, _params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get());
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -492,14 +548,18 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
-                init_status = iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
-                                                          _colname_to_value_range, _push_down_expr);
+                init_status = iceberg_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range, _push_down_expr,
+                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 std::vector<std::string> place_holder;
-                init_status = parquet_reader->init_reader(_file_col_names, place_holder,
-                                                          _colname_to_value_range, _push_down_expr);
+                init_status = parquet_reader->init_reader(
+                        _file_col_names, place_holder, _colname_to_value_range, _push_down_expr,
+                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 _cur_reader.reset((GenericReader*)parquet_reader);
             }
             break;
@@ -747,6 +807,20 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_push_down_expr) {
         _push_down_expr->close(state);
+    }
+
+    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
+        for (auto& ctx : v) {
+            if (ctx != nullptr) {
+                ctx->close(state);
+            }
+        }
+    }
+
+    for (auto* ctx : _not_single_slot_filter_conjuncts) {
+        if (ctx != nullptr) {
+            ctx->close(state);
+        }
     }
 
     if (config::enable_file_cache) {

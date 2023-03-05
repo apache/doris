@@ -84,6 +84,20 @@ public:
         return Status::NotSupported("set_dict is not supported");
     }
 
+    virtual Status read_dict_values_to_column(MutableColumnPtr& doris_column) {
+        return Status::NotSupported("read_dict_values_to_column is not supported");
+    }
+
+    virtual Status get_dict_codes(const ColumnString* columnString,
+                                  std::vector<int32_t>* dict_codes) {
+        return Status::NotSupported("get_dict_codes is not supported");
+    }
+
+    virtual MutableColumnPtr convert_dict_column_to_string_column(
+            const ColumnDictI32* dict_column) {
+        LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
+    }
+
 protected:
     int32_t _type_length;
     Slice* _data = nullptr;
@@ -171,7 +185,6 @@ protected:
         return Status::OK();
     }
 
-protected:
     // For dictionary encoding
     std::unique_ptr<uint8_t[]> _dict = nullptr;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
