@@ -422,13 +422,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         break;
                     }
                 }
-
-                // Take a full snapshot, will revise according to missed rowset later.
-                if (ref_tablet->keys_type() == UNIQUE_KEYS &&
-                    ref_tablet->enable_unique_key_merge_on_write()) {
-                    delete_bitmap_snapshot = ref_tablet->tablet_meta()->delete_bitmap().snapshot(
-                            ref_tablet->max_version().second);
-                }
             }
 
             int64_t version = -1;

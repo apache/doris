@@ -83,7 +83,8 @@ public:
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
-                              const std::vector<RowsetSharedPtr>& to_delete);
+                              const std::vector<RowsetSharedPtr>& to_delete,
+                              bool is_incremental_clone);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
