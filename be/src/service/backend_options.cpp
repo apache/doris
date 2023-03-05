@@ -118,7 +118,7 @@ bool BackendOptions::analyze_network_interfaces() {
     }
     LOG(INFO) << "network interfaces in conf: " << config::network_interfaces;
 
-    struct ifaddrs * if_addr_struct = NULL;
+    struct ifaddrs * if_addr_struct = nullptr;
     void * tmp_addr_ptr = nullptr;
     getifaddrs(&if_addr_struct); 
 
