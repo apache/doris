@@ -29,6 +29,7 @@ import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
@@ -293,7 +294,9 @@ public class HeartbeatMgr extends MasterDaemon {
 
         @Override
         public HeartbeatResponse call() {
-            if (fe.getHost().equals(Env.getCurrentEnv().getSelfNode().first)) {
+            HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+            if (fe.getIp().equals(selfNode.getIp())
+                    || (!Strings.isNullOrEmpty(fe.getHostName()) && fe.getHostName().equals(selfNode.getHostName()))) {
                 // heartbeat to self
                 if (Env.getCurrentEnv().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
@@ -309,7 +312,7 @@ public class HeartbeatMgr extends MasterDaemon {
 
         private HeartbeatResponse getHeartbeatResponse() {
             FrontendService.Client client = null;
-            TNetworkAddress addr = new TNetworkAddress(fe.getHost(), Config.rpc_port);
+            TNetworkAddress addr = new TNetworkAddress(fe.getIp(), Config.rpc_port);
             boolean ok = false;
             try {
                 client = ClientPool.frontendHeartbeatPool.borrowObject(addr);
