@@ -32,6 +32,8 @@ import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.stats.StatsCalculator;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +44,7 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
+    private static final Logger LOG = LogManager.getLogger(CostAndEnforcerJob.class);
 
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
@@ -314,7 +317,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // TODO: need to implement this method
             job = (CostAndEnforcerJob) super.clone();
         } catch (CloneNotSupportedException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             throw new RuntimeException("clone cost and enforcer job failed.");
         }
         return job;

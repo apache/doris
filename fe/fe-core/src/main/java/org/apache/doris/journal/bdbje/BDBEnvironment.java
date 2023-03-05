@@ -183,7 +183,6 @@ public class BDBEnvironment {
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();
                 replicatedEnvironment.setStateChangeListener(listener);
-
                 // open epochDB. the first parameter null means auto-commit
                 epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
@@ -201,7 +200,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
@@ -342,7 +341,7 @@ public class BDBEnvironment {
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             } catch (DatabaseException e) {
                 LOG.warn("catch an exception when calling getDatabaseNames", e);
@@ -421,7 +420,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);

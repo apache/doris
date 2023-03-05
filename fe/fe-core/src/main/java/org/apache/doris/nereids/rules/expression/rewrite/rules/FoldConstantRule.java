@@ -31,7 +31,7 @@ public class FoldConstantRule extends AbstractExpressionRewriteRule {
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         if (ctx.connectContext != null && ctx.connectContext.getSessionVariable().isEnableFoldConstantByBe()) {
-            return FoldConstantRuleOnBE.INSTANCE.rewrite(expr, ctx);
+            return new FoldConstantRuleOnBE().rewrite(expr, ctx);
         }
         return FoldConstantRuleOnFE.INSTANCE.rewrite(expr, ctx);
     }

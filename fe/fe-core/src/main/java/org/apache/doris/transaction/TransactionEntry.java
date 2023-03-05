@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TTxnParams;
 
@@ -35,6 +36,7 @@ public class TransactionEntry {
     private TTxnParams txnConf;
     private List<InternalService.PDataRow> dataToSend = new ArrayList<>();
     private long rowsInTransaction = 0;
+    private Types.PUniqueId pLoadId;
 
     public TransactionEntry() {
     }
@@ -115,5 +117,13 @@ public class TransactionEntry {
 
     public void setRowsInTransaction(long rowsInTransaction) {
         this.rowsInTransaction = rowsInTransaction;
+    }
+
+    public Types.PUniqueId getpLoadId() {
+        return pLoadId;
+    }
+
+    public void setpLoadId(Types.PUniqueId pLoadId) {
+        this.pLoadId = pLoadId;
     }
 }

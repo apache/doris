@@ -20,6 +20,9 @@
 
 #include "vec/data_types/data_type_struct.h"
 
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_struct.h"
+
 namespace doris::vectorized {
 
 DataTypeStruct::DataTypeStruct(const DataTypes& elems_)
@@ -258,24 +261,30 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
 }
 
 std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
 
-    std::stringstream ss;
-    ss << "{";
+    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
+
+    std::string str;
+    str += "{";
     for (size_t idx = 0; idx < elems.size(); idx++) {
         if (idx != 0) {
-            ss << ", ";
+            str += ", ";
         }
-        ss << elems[idx]->to_string(struct_column.get_column(idx), row_num);
+        str += elems[idx]->to_string(struct_column.get_column(idx), row_num);
     }
-    ss << "}";
-    return ss.str();
+    str += "}";
+    return str;
 }
 
 void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
     ostr.write("{", 1);
     for (size_t idx = 0; idx < elems.size(); idx++) {
         if (idx != 0) {

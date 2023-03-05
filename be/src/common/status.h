@@ -479,7 +479,7 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    std::string _be_ip = BackendOptions::get_localhost();
+    std::string_view _be_ip = BackendOptions::get_localhost();
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -40,23 +39,16 @@ import java.util.stream.Stream;
  */
 class JoinReorderUtils {
     /**
-     * check project inside Join to prevent matching some pattern.
-     * just allow projection is slot or Alias(slot) to prevent reorder when:
-     * - output of project function is in condition, A join (project [abs(B.id), ..] B join C on ..) on abs(B.id)=A.id.
-     * - hyper edge in projection. project A.id + B.id A join B on .. (this project will prevent join reorder).
+     * check project Expression Input Slot just contains one slot, like:
+     * - one SlotReference like a.id
+     * - Input Slot size == 1, like abs(a.id) + 1
      */
-    static boolean checkProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        List<NamedExpression> exprs = project.getProjects();
-        // must be slot or Alias(slot)
-        return exprs.stream().allMatch(expr -> {
-            if (expr instanceof Slot) {
-                return true;
-            }
-            if (expr instanceof Alias) {
-                return ((Alias) expr).child() instanceof Slot;
-            }
-            return false;
-        });
+    static boolean isOneSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        return project.getProjects().stream().allMatch(expr -> expr.getInputSlotExprIds().size() == 1);
+    }
+
+    static boolean isAllSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
     }
 
     static Map<Boolean, List<NamedExpression>> splitProjection(List<NamedExpression> projects, Plan splitChild) {
