@@ -49,7 +49,7 @@ suite("test_unsigned_int_compatibility") {
         INSERT INTO ${tableName} VALUES
                 (2, 'Beijing', 21474836478, 21474836478);
         """
-    qt_select_tb "SELECT * FROM ${tableName}"
+    qt_select_tb "SELECT * FROM ${tableName} order by user_id"
 
     sql "DROP TABLE ${tableName}"
 }
