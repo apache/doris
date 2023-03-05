@@ -27,11 +27,8 @@
 #include <iostream>
 #include <memory>
 #include <vector>
-
-// This is the only Doris header required to develop UDFs and UDAs. This header
-// contains the types that need to be used and the FunctionContext object. The context
-// object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
+
 class FunctionContextImpl;
 struct ColumnPtrWrapper;
 struct StringRef;
@@ -40,10 +37,6 @@ class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
 struct TypeDescriptor;
-} // namespace doris
-
-namespace doris {
-
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
