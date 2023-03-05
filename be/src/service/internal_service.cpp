@@ -542,7 +542,7 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
                                              const PTabletKeyLookupRequest* request,
                                              PTabletKeyLookupResponse* response,
                                              google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
         Status st = _tablet_fetch_data(request, response);
