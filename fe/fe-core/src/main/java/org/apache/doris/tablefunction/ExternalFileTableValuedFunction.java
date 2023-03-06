@@ -23,8 +23,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.planner.PlanNodeId;
@@ -51,11 +53,12 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
@@ -63,6 +66,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
@@ -80,6 +85,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String READ_JSON_BY_LINE = "read_json_by_line";
     protected static final String NUM_AS_STRING = "num_as_string";
     protected static final String FUZZY_PARSE = "fuzzy_parse";
+    protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    protected static final String SKIP_LINES = "skip_lines";
+    protected static final String CSV_SCHEMA = "csv_schema";
+    // decimal(p,s)
+    private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
+    // datetime(p)
+    private static final Pattern DATETIME_TYPE_PATTERN = Pattern.compile("datetime\\((\\d+)\\)");
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
@@ -91,10 +103,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(FUZZY_PARSE)
             .add(COLUMN_SEPARATOR)
             .add(LINE_DELIMITER)
+            .add(TRIM_DOUBLE_QUOTES)
+            .add(SKIP_LINES)
+            .add(CSV_SCHEMA)
             .build();
 
-
+    // Columns got from file
     protected List<Column> columns = null;
+    // User specified csv columns, it will override columns got from file
+    private List<Column> csvSchema = Lists.newArrayList();
+
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
 
@@ -109,7 +127,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean readJsonByLine;
     private boolean numAsString;
     private boolean fuzzyParse;
-
+    private boolean trimDoubleQuotes;
+    private int skipLines;
 
     public abstract TFileType getTFileType();
 
@@ -123,6 +142,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public Map<String, String> getLocationProperties() {
         return locationProperties;
+    }
+
+    public List<Column> getCsvSchema() {
+        return csvSchema;
     }
 
     public String getFsName() {
@@ -180,6 +203,84 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         stripOuterArray = Boolean.valueOf(validParams.get(STRIP_OUTER_ARRAY)).booleanValue();
         numAsString = Boolean.valueOf(validParams.get(NUM_AS_STRING)).booleanValue();
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
+        trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
+        skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+
+        if (formatString.equals("csv") || formatString.equals("csv_with_names")
+                || formatString.equals("csv_with_names_and_types")) {
+            parseCsvSchema(csvSchema, validParams);
+        }
+    }
+
+    // public for unit test
+    public static void parseCsvSchema(List<Column> csvSchema, Map<String, String> validParams)
+            throws AnalysisException {
+        String csvSchemaStr = validParams.get(CSV_SCHEMA);
+        if (Strings.isNullOrEmpty(csvSchemaStr)) {
+            return;
+        }
+        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)"
+        String[] schemaStrs = csvSchemaStr.split(";");
+        try {
+            for (String schemaStr : schemaStrs) {
+                String[] kv = schemaStr.replace(" ", "").split(":");
+                if (kv.length != 2) {
+                    throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
+                }
+                Column column = null;
+                String name = kv[0].toLowerCase();
+                FeNameFormat.checkColumnName(name);
+                String type = kv[1].toLowerCase();
+                if (type.equals("tinyint")) {
+                    column = new Column(name, PrimitiveType.TINYINT, true);
+                } else if (type.equals("smallint")) {
+                    column = new Column(name, PrimitiveType.SMALLINT, true);
+                } else if (type.equals("int")) {
+                    column = new Column(name, PrimitiveType.INT, true);
+                } else if (type.equals("bigint")) {
+                    column = new Column(name, PrimitiveType.BIGINT, true);
+                } else if (type.equals("largeint")) {
+                    column = new Column(name, PrimitiveType.LARGEINT, true);
+                } else if (type.equals("float")) {
+                    column = new Column(name, PrimitiveType.FLOAT, true);
+                } else if (type.equals("double")) {
+                    column = new Column(name, PrimitiveType.DOUBLE, true);
+                } else if (type.startsWith("decimal")) {
+                    // regex decimal(p, s)
+                    Matcher matcher = DECIMAL_TYPE_PATTERN.matcher(type);
+                    if (!matcher.find()) {
+                        throw new AnalysisException("invalid decimal type: " + type);
+                    }
+                    int precision = Integer.parseInt(matcher.group(1));
+                    int scale = Integer.parseInt(matcher.group(2));
+                    column = new Column(name, ScalarType.createDecimalV3Type(precision, scale), false, null, true, null,
+                            "");
+                } else if (type.equals("date")) {
+                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
+                } else if (type.startsWith("datetime")) {
+                    int scale = 0;
+                    if (!type.equals("datetime")) {
+                        // regex datetime(s)
+                        Matcher matcher = DATETIME_TYPE_PATTERN.matcher(type);
+                        if (!matcher.find()) {
+                            throw new AnalysisException("invalid datetime type: " + type);
+                        }
+                        scale = Integer.parseInt(matcher.group(1));
+                    }
+                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
+                } else if (type.equals("string")) {
+                    column = new Column(name, PrimitiveType.STRING, true);
+                } else if (type.equals("boolean")) {
+                    column = new Column(name, PrimitiveType.BOOLEAN, true);
+                } else {
+                    throw new AnalysisException("unsupported column type: " + type);
+                }
+                csvSchema.add(column);
+            }
+            LOG.debug("get csv schema: {}", csvSchema);
+        } catch (Exception e) {
+            throw new AnalysisException("invalid csv schema: " + e.getMessage());
+        }
     }
 
     public List<TBrokerFileStatus> getFileStatuses() {
@@ -194,6 +295,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileAttributes.setTextParams(fileTextScanRangeParams);
         if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
             fileAttributes.setHeaderType(this.headerType);
+            fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
+            fileAttributes.setSkipLines(skipLines);
         } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
             fileAttributes.setJsonRoot(jsonRoot);
             fileAttributes.setJsonpaths(jsonPaths);
@@ -212,6 +315,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        if (!csvSchema.isEmpty()) {
+            return csvSchema;
+        }
         if (this.columns != null) {
             return columns;
         }

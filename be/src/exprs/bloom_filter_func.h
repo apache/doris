@@ -312,22 +312,18 @@ struct FixedStringFindOp : public StringFindOp {
     }
 };
 
-struct DateTimeFindOp : public CommonFindOp<DateTimeValue> {
+struct DateTimeFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         vectorized::VecDateTimeValue value;
         value.from_olap_datetime(*reinterpret_cast<const uint64_t*>(data));
         return bloom_filter.test(Slice((char*)&value, sizeof(vectorized::VecDateTimeValue)));
-    }
-
-    void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
-        bloom_filter.add_bytes((char*)data, sizeof(vectorized::VecDateTimeValue));
     }
 };
 
 // avoid violating C/C++ aliasing rules.
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
 
-struct DateFindOp : public CommonFindOp<DateTimeValue> {
+struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         uint24_t date = *static_cast<const uint24_t*>(data);
         uint64_t value = uint32_t(date);
@@ -336,10 +332,6 @@ struct DateFindOp : public CommonFindOp<DateTimeValue> {
         date_value.from_olap_date(value);
 
         return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
-    }
-
-    void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
-        bloom_filter.add_bytes((char*)data, sizeof(vectorized::VecDateTimeValue));
     }
 };
 

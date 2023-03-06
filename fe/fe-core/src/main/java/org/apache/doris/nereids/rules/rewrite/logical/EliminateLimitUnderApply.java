@@ -32,7 +32,7 @@ import java.util.List;
 public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(group(), logicalLimit()).then(apply -> {
+        return logicalApply(any(), logicalLimit()).then(apply -> {
             List<Plan> children = new ImmutableList.Builder<Plan>()
                     .add(apply.left())
                     .add(apply.right().child())

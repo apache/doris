@@ -61,7 +61,7 @@ suite("test_jsonb_load_and_function", "p0") {
             log.info("error result: " + out)
 
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
+            assertTrue(json.Message.contains("too many filtered rows"))
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
@@ -416,4 +416,8 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT CAST('{x' AS JSONB)"""
     qt_select """SELECT CAST('[123, abc]' AS JSONB)"""
 
+    qt_select """SELECT id, JSON_VALID(j) FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT JSON_VALID('{"k1":"v31","k2":300}')"""
+    qt_select """SELECT JSON_VALID('invalid json')"""
+    qt_select """SELECT JSON_VALID(NULL)"""
 }

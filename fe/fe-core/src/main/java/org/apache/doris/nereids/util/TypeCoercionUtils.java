@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -298,7 +300,7 @@ public class TypeCoercionUtils {
      * characterLiteralTypeCoercion.
      */
     @Developing
-    private static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
+    public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
         Expression ret = null;
         try {
             if (dataType instanceof BooleanType) {
@@ -824,5 +826,42 @@ public class TypeCoercionUtils {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * add json type info as the last argument of the function.
+     *
+     * @param function function need to add json type info
+     * @param checkKey check key not null
+     * @return function already processed
+     */
+    public static BoundFunction fillJsonTypeArgument(BoundFunction function, boolean checkKey) {
+        List<Expression> arguments = function.getArguments();
+        try {
+            List<Expression> newArguments = Lists.newArrayList();
+            StringBuilder jsonTypeStr = new StringBuilder();
+            for (int i = 0; i < arguments.size(); i++) {
+                Expression argument = arguments.get(i);
+                Type type = argument.getDataType().toCatalogDataType();
+                int jsonType = FunctionCallExpr.computeJsonDataType(type);
+                jsonTypeStr.append(jsonType);
+
+                if (type.isNull()) {
+                    if ((i & 1) == 0 && checkKey) {
+                        throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
+                    }
+                    // Not to return NULL directly, so save string, but flag is '0'
+                    newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("NULL"));
+                } else {
+                    newArguments.add(argument);
+                }
+            }
+            // add json type string to the last
+            newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
+                    jsonTypeStr.toString()));
+            return (BoundFunction) function.withChildren(newArguments);
+        } catch (Throwable t) {
+            throw new AnalysisException(t.getMessage());
+        }
     }
 }

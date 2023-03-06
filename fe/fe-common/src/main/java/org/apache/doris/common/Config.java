@@ -1828,12 +1828,20 @@ public class Config extends ConfigBase {
     public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
     /**
-     * The candidate of the backend node for federation query such as hive table and es table query.
-     * If the backend of computation role is less than this value, it will acquire some mix backend.
-     * If the computation backend is enough, federation query will only assign to computation backend.
+     * If set to true, query on external table will prefer to assign to compute node.
+     * And the max number of compute node is controlled by min_backend_num_for_external_table.
+     * If set to false, query on external table will assign to any node.
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static int backend_num_for_federation = 3;
+    public static boolean prefer_compute_node_for_external_table = false;
+    /**
+     * Only take effect when prefer_compute_node_for_external_table is true.
+     * If the compute node number is less than this value, query on external table will try to get some mix node
+     * to assign, to let the total number of node reach this value.
+     * If the compute node number is larger than this value, query on external table will assign to compute node only.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int min_backend_num_for_external_table = 3;
 
     /**
      * Max query profile num.
@@ -1995,6 +2003,25 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true, mutable = true)
     public static int max_error_tablet_of_broker_load = 3;
+
+    /**
+     * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static boolean enable_ssl = false;
+
+    /**
+     * Default certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/certificate.p12";
+
+    /**
+     * Password for default certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate_password = "doris";
 
     /**
      * Used to set session variables randomly to check more issues in github workflow

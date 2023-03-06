@@ -258,6 +258,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
 
+    // support unicode in label, table, column, common name check
+    public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
+
     public static final String REPEAT_MAX_NUM = "repeat_max_num";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
@@ -279,6 +282,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
+
+    public static final String DRY_RUN_QUERY = "dry_run_query";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -700,7 +705,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    public boolean enableUnicodeNameSupport = false;
+
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
+
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
@@ -744,6 +753,11 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is -1, which means not fix replica
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
+
+    // If set to true, all query will be executed without returning result
+    @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
+    public boolean dryRunQuery = false;
+
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1501,6 +1515,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
+    public boolean isEnableUnicodeNameSupport() {
+        return enableUnicodeNameSupport;
+    }
+
+    public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
+        this.enableUnicodeNameSupport = enableUnicodeNameSupport;
+    }
+
     public boolean isDropTableIfCtasFailed() {
         return dropTableIfCtasFailed;
     }
@@ -1601,6 +1623,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        if (dryRunQuery) {
+            tResult.setDryRunQuery(true);
+        }
 
         return tResult;
     }

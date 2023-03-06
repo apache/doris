@@ -45,6 +45,10 @@ Status ColdDataCompaction::execute_compact_impl() {
 #endif
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t permits = get_compaction_permits();
+    std::shared_lock cooldown_conf_rlock(_tablet->get_cooldown_conf_lock());
+    if (_tablet->cooldown_conf_unlocked().first != _tablet->replica_id()) {
+        return Status::Aborted("this replica is not cooldown replica");
+    }
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
     return Status::OK();
@@ -62,16 +66,6 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
 
 Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
-
-    // write remote tablet meta
-    std::shared_ptr<io::RemoteFileSystem> fs;
-    RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
-    std::vector<RowsetMetaSharedPtr> to_deletes;
-    for (auto& rs : _input_rowsets) {
-        to_deletes.emplace_back(rs->rowset_meta());
-    }
-    RETURN_IF_ERROR(_tablet->write_cooldown_meta(fs, cooldown_meta_id,
-                                                 _output_rowset->rowset_meta(), to_deletes));
     {
         std::lock_guard wlock(_tablet->get_header_lock());
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
@@ -85,6 +79,9 @@ Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
+    // write remote tablet meta
+    // TODO(AlexYue): async call `write_cooldown_meta`
+    RETURN_IF_ERROR(_tablet->write_cooldown_meta());
     return Status::OK();
 }
 

@@ -117,6 +117,25 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
+<version since="dev">
+
+when connecting to Hive Metastore which is authorized by Ranger, need some properties and update FE runtime environment.
+
+1. add below properties when creating Catalog：
+
+```sql
+"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
+"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+```
+
+2. update all FEs' runtime environment：
+   a. copy all ranger-*.xml files to <doris_home>/conf which are located in HMS/conf directory
+   b. update value of `ranger.plugin.hive.policy.cache.dir` in ranger-<ranger_service_name>-security.xml to a writable directory
+   c. add a log4j.properties to <doris_home>/conf, thus you can get logs of ranger authorizer
+   d. restart FE
+
+</version>
+
 In Doris 1.2.1 and newer, you can create a Resource that contains all these parameters, and reuse the Resource when creating new Catalogs. Here is an example:
 
 ```sql

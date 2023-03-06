@@ -527,7 +527,7 @@ FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
                          const DataTypePtr& return_type)
         : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
 
-Status FunctionRPC::prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     _fn = std::make_unique<RPCFnImpl>(_tfn);
 
     if (!_fn->available()) {

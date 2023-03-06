@@ -40,7 +40,8 @@ import java.util.Optional;
 /**
  * LogicalRepeat.
  */
-public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Repeat<CHILD_TYPE> {
+public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Repeat<CHILD_TYPE>, OutputSavePoint {
 
     // max num of distinct sets in grouping sets clause
     public static final int MAX_GROUPING_SETS_NUM = 64;

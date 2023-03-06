@@ -113,6 +113,23 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
+<version since="dev">
+
+连接开启 Ranger 权限校验的 Hive Metastore 需要增加配置 & 配置环境：
+1. 创建 Catalog 时增加：
+
+```sql
+"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
+"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+```
+2. 配置所有 FE 环境： 
+   a. 将 HMS conf 目录下的三个 Ranger 配置文件Copy到 <doris_home>/conf 目录下
+   b. 修改其中 ranger-<ranger_service_name>-security.xml 的属性 `ranger.plugin.hive.policy.cache.dir` 的值为一个可写目录
+   c. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties
+   d. 重启 FE
+
+</version>
+
 在 1.2.1 版本之后，我们也可以将这些信息通过创建一个 Resource 统一存储，然后在创建 Catalog 时使用这个 Resource。示例如下：
 	
 ```sql

@@ -136,7 +136,7 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }

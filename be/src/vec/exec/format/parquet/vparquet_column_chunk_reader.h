@@ -148,6 +148,7 @@ private:
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
+    void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
 
     ColumnChunkReaderState _state = NOT_INIT;
     FieldSchema* _field_schema;
@@ -168,6 +169,8 @@ private:
     Slice _page_data;
     std::unique_ptr<uint8_t[]> _decompress_buf;
     size_t _decompress_buf_size = 0;
+    Slice _v2_rep_levels;
+    Slice _v2_def_levels;
     bool _has_dict = false;
     Decoder* _page_decoder = nullptr;
     // Map: encoding -> Decoder

@@ -26,6 +26,7 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.Lists;
 
@@ -182,7 +183,8 @@ public class ExprRewriter {
     /**
      * FoldConstantsRule rewrite
      */
-    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer) throws AnalysisException {
+    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer, TQueryOptions tQueryOptions)
+            throws AnalysisException {
         if (exprMap.isEmpty()) {
             return;
         }
@@ -190,7 +192,7 @@ public class ExprRewriter {
         // rewrite constant expr
         for (ExprRewriteRule rule : rules) {
             if (rule instanceof FoldConstantsRule) {
-                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed);
+                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed, tQueryOptions);
             }
         }
         if (changed) {

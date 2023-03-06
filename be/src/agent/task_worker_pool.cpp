@@ -1848,6 +1848,7 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             }
             tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
                                          cooldown_conf.cooldown_replica_id);
+            // TODO(AlexYue): if `update_cooldown_conf` success, async call `write_cooldown_meta`
         }
     }
 }

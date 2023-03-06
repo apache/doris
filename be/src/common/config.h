@@ -60,7 +60,9 @@ CONF_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
+// 6.4G is the maximum memory reserved for the system by default.
+CONF_String(mem_limit, "auto");
 
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
@@ -500,7 +502,11 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "100");
+
+// After full gc, no longer full gc and minor gc during sleep.
+// After minor gc, no minor gc during sleep, but full gc is possible.
+CONF_mInt32(memory_gc_sleep_time_s, "1");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -925,6 +931,9 @@ CONF_Int32(max_depth_in_bkd_tree, "32");
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "200");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");

@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -517,11 +518,11 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
         Map<String, Expr> exprMap = new HashMap<>();
         collectExprs(exprMap);
-        rewriter.rewriteConstant(exprMap, analyzer);
+        rewriter.rewriteConstant(exprMap, analyzer, tQueryOptions);
         if (rewriter.changed()) {
             putBackExprs(exprMap);
         }

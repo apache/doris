@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner/schema_columns_scanner.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <sstream>
@@ -63,6 +64,7 @@ SchemaColumnsScanner::SchemaColumnsScanner()
 SchemaColumnsScanner::~SchemaColumnsScanner() = default;
 
 Status SchemaColumnsScanner::start(RuntimeState* state) {
+    SCOPED_TIMER(_get_db_timer);
     if (!_is_init) {
         return Status::InternalError("schema columns scanner not inited.");
     }
@@ -139,6 +141,15 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     }
     case TPrimitiveType::JSONB: {
         return "json";
+    }
+    case TPrimitiveType::MAP: {
+        return "map";
+    }
+    case TPrimitiveType::ARRAY: {
+        return "array";
+    }
+    case TPrimitiveType::STRUCT: {
+        return "struct";
     }
     default:
         return "unknown";
@@ -231,12 +242,19 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
 }
 
 Status SchemaColumnsScanner::_get_new_desc() {
-    TDescribeTableParams desc_params;
+    SCOPED_TIMER(_get_describe_timer);
+    TDescribeTablesParams desc_params;
     desc_params.__set_db(_db_result.dbs[_db_index - 1]);
     if (_db_result.__isset.catalogs) {
         desc_params.__set_catalog(_db_result.catalogs[_db_index - 1]);
     }
-    desc_params.__set_table_name(_table_result.tables[_table_index++]);
+    for (int i = 0; i < 100; ++i) {
+        if (_table_index >= _table_result.tables.size()) {
+            break;
+        }
+        desc_params.tables_name.push_back(_table_result.tables[_table_index++]);
+    }
+    LOG(WARNING) << "_get_new_desc tables_name size: " << desc_params.tables_name.size();
     if (nullptr != _param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
@@ -249,8 +267,8 @@ Status SchemaColumnsScanner::_get_new_desc() {
     }
 
     if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip), _param->port, desc_params,
-                                                     &_desc_result));
+        RETURN_IF_ERROR(SchemaHelper::describe_tables(*(_param->ip), _param->port, desc_params,
+                                                      &_desc_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -259,6 +277,7 @@ Status SchemaColumnsScanner::_get_new_desc() {
 }
 
 Status SchemaColumnsScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -312,20 +331,21 @@ Status SchemaColumnsScanner::get_next_block(vectorized::Block* block, bool* eos)
 }
 
 Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto columns_num = _desc_result.columns.size();
-
+    std::vector<void*> null_datas(columns_num, nullptr);
+    std::vector<void*> datas(columns_num);
     // TABLE_CATALOG
     {
         if (!_db_result.__isset.catalogs) {
-            for (int i = 0; i < columns_num; ++i) {
-                fill_dest_column(block, nullptr, _s_col_columns[0]);
-            }
+            fill_dest_column_for_range(block, 0, null_datas);
         } else {
             std::string catalog_name = _db_result.catalogs[_db_index - 1];
             StringRef str = StringRef(catalog_name.c_str(), catalog_name.size());
             for (int i = 0; i < columns_num; ++i) {
-                fill_dest_column(block, &str, _s_col_columns[0]);
+                datas[i] = &str;
             }
+            fill_dest_column_for_range(block, 0, datas);
         }
     }
     // TABLE_SCHEMA
@@ -333,216 +353,232 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         StringRef str = StringRef(db_name.c_str(), db_name.size());
         for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, &str, _s_col_columns[1]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // TABLE_NAME
     {
-        StringRef str = StringRef(_table_result.tables[_table_index - 1].c_str(),
-                                  _table_result.tables[_table_index - 1].length());
+        StringRef strs[columns_num];
+        int offset_index = 0;
+        int cur_table_index = _table_index - _desc_result.tables_offset.size();
+
         for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, &str, _s_col_columns[2]);
+            while (_desc_result.tables_offset[offset_index] <= i) {
+                ++offset_index;
+                ++cur_table_index;
+            }
+            strs[i] = StringRef(_table_result.tables[cur_table_index].c_str(),
+                                _table_result.tables[cur_table_index].length());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // COLUMN_NAME
     {
+        StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            StringRef str = StringRef(_desc_result.columns[i].columnDesc.columnName.c_str(),
-                                      _desc_result.columns[i].columnDesc.columnName.length());
-            fill_dest_column(block, &str, _s_col_columns[3]);
+            strs[i] = StringRef(_desc_result.columns[i].columnDesc.columnName.c_str(),
+                                _desc_result.columns[i].columnDesc.columnName.length());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 3, datas);
     }
     // ORDINAL_POSITION
     {
+        int64_t srcs[columns_num];
+        int offset_index = 0;
+        int columns_index = 1;
         for (int i = 0; i < columns_num; ++i) {
-            int64_t src = i + 1;
-            fill_dest_column(block, &src, _s_col_columns[4]);
+            while (_desc_result.tables_offset[offset_index] <= i) {
+                ++offset_index;
+                columns_index = 1;
+            }
+            srcs[i] = columns_index++;
+            datas[i] = srcs + i;
         }
+        fill_dest_column_for_range(block, 4, datas);
     }
     // COLUMN_DEFAULT
-    {
-        for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, nullptr, _s_col_columns[5]);
-        }
-    }
+    { fill_dest_column_for_range(block, 5, null_datas); }
     // IS_NULLABLE
     {
+        StringRef str_yes = StringRef("YES", 3);
+        StringRef str_no = StringRef("NO", 2);
         for (int i = 0; i < columns_num; ++i) {
             if (_desc_result.columns[i].columnDesc.__isset.isAllowNull) {
                 if (_desc_result.columns[i].columnDesc.isAllowNull) {
-                    StringRef str = StringRef("YES", 3);
-                    fill_dest_column(block, &str, _s_col_columns[6]);
+                    datas[i] = &str_yes;
                 } else {
-                    StringRef str = StringRef("NO", 2);
-                    fill_dest_column(block, &str, _s_col_columns[6]);
+                    datas[i] = &str_no;
                 }
             } else {
-                StringRef str = StringRef("NO", 2);
-                fill_dest_column(block, &str, _s_col_columns[6]);
+                datas[i] = &str_no;
             }
         }
+        fill_dest_column_for_range(block, 6, datas);
     }
     // DATA_TYPE
     {
+        std::string buffers[columns_num];
+        StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            std::string buffer = _to_mysql_data_type_string(_desc_result.columns[i].columnDesc);
-            StringRef str = StringRef(buffer.c_str(), buffer.length());
-            fill_dest_column(block, &str, _s_col_columns[7]);
+            buffers[i] = _to_mysql_data_type_string(_desc_result.columns[i].columnDesc);
+            strs[i] = StringRef(buffers[i].c_str(), buffers[i].length());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 7, datas);
     }
     // CHARACTER_MAXIMUM_LENGTH
     // For string columns, the maximum length in characters.
     {
+        int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
                 data_type == TPrimitiveType::STRING) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
-                    int64_t src = _desc_result.columns[i].columnDesc.columnLength;
-                    fill_dest_column(block, &src, _s_col_columns[8]);
+                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength;
+                    datas[i] = srcs + i;
                 } else {
-                    fill_dest_column(block, nullptr, _s_col_columns[8]);
+                    datas[i] = nullptr;
                 }
             } else {
-                fill_dest_column(block, nullptr, _s_col_columns[8]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 8, datas);
     }
     // CHARACTER_OCTET_LENGTH
     // For string columns, the maximum length in bytes.
     {
+        int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
                 data_type == TPrimitiveType::STRING) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
-                    int64_t src = _desc_result.columns[i].columnDesc.columnLength * 4;
-                    fill_dest_column(block, &src, _s_col_columns[9]);
+                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4;
+                    datas[i] = srcs + i;
                 } else {
-                    fill_dest_column(block, nullptr, _s_col_columns[9]);
+                    datas[i] = nullptr;
                 }
             } else {
-                fill_dest_column(block, nullptr, _s_col_columns[9]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 9, datas);
     }
     // NUMERIC_PRECISION
     {
+        int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             if (_desc_result.columns[i].columnDesc.__isset.columnPrecision) {
-                int64_t src = _desc_result.columns[i].columnDesc.columnPrecision;
-                fill_dest_column(block, &src, _s_col_columns[10]);
+                srcs[i] = _desc_result.columns[i].columnDesc.columnPrecision;
+                datas[i] = srcs + i;
             } else {
-                fill_dest_column(block, nullptr, _s_col_columns[10]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 10, datas);
     }
     // NUMERIC_SCALE
     {
+        int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
-                int64_t src = _desc_result.columns[i].columnDesc.columnScale;
-                fill_dest_column(block, &src, _s_col_columns[11]);
+                srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
+                datas[i] = srcs + i;
             } else {
-                fill_dest_column(block, nullptr, _s_col_columns[11]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 11, datas);
     }
     // DATETIME_PRECISION
-    {
-        for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, nullptr, _s_col_columns[12]);
-        }
-    }
+    { fill_dest_column_for_range(block, 12, null_datas); }
     // CHARACTER_SET_NAME
-    {
-        for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, nullptr, _s_col_columns[13]);
-        }
-    }
+    { fill_dest_column_for_range(block, 13, null_datas); }
     // COLLATION_NAME
-    {
-        for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, nullptr, _s_col_columns[14]);
-        }
-    }
+    { fill_dest_column_for_range(block, 14, null_datas); }
     // COLUMN_TYPE
     {
+        std::string buffers[columns_num];
+        StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            std::string buffer = _type_to_string(_desc_result.columns[i].columnDesc);
-            StringRef str = StringRef(buffer.c_str(), buffer.length());
-            fill_dest_column(block, &str, _s_col_columns[15]);
+            buffers[i] = _type_to_string(_desc_result.columns[i].columnDesc);
+            strs[i] = StringRef(buffers[i].c_str(), buffers[i].length());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 15, datas);
     }
     // COLUMN_KEY
     {
+        StringRef str = StringRef("", 0);
+        StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             if (_desc_result.columns[i].columnDesc.__isset.columnKey) {
-                StringRef str = StringRef(_desc_result.columns[i].columnDesc.columnKey.c_str(),
-                                          _desc_result.columns[i].columnDesc.columnKey.length());
-                fill_dest_column(block, &str, _s_col_columns[16]);
+                strs[i] = StringRef(_desc_result.columns[i].columnDesc.columnKey.c_str(),
+                                    _desc_result.columns[i].columnDesc.columnKey.length());
+                datas[i] = strs + i;
             } else {
-                StringRef str = StringRef("", 0);
-                fill_dest_column(block, &str, _s_col_columns[16]);
+                datas[i] = &str;
             }
         }
+        fill_dest_column_for_range(block, 16, datas);
     }
     // EXTRA
     {
-        for (int i = 0; i < columns_num; ++i) {
-            StringRef str = StringRef("", 0);
-            fill_dest_column(block, &str, _s_col_columns[17]);
-        }
+        StringRef str = StringRef("", 0);
+        std::vector<void*> datas(columns_num, &str);
+        fill_dest_column_for_range(block, 17, datas);
     }
     // PRIVILEGES
     {
-        for (int i = 0; i < columns_num; ++i) {
-            StringRef str = StringRef("", 0);
-            fill_dest_column(block, &str, _s_col_columns[18]);
-        }
+        StringRef str = StringRef("", 0);
+        std::vector<void*> datas(columns_num, &str);
+        fill_dest_column_for_range(block, 18, datas);
     }
     // COLUMN_COMMENT
     {
+        StringRef strs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
-            StringRef str = StringRef(_desc_result.columns[i].comment.c_str(),
-                                      _desc_result.columns[i].comment.length());
-            fill_dest_column(block, &str, _s_col_columns[19]);
+            strs[i] = StringRef(_desc_result.columns[i].comment.c_str(),
+                                _desc_result.columns[i].comment.length());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 19, datas);
     }
     // COLUMN_SIZE
     {
+        int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
-                int64_t src = _desc_result.columns[i].columnDesc.columnLength;
-                fill_dest_column(block, &src, _s_col_columns[20]);
+                srcs[i] = _desc_result.columns[i].columnDesc.columnLength;
+                datas[i] = srcs + i;
             } else {
-                fill_dest_column(block, nullptr, _s_col_columns[20]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 20, datas);
     }
     // DECIMAL_DIGITS
     {
+        int64_t srcs[columns_num];
         for (int i = 0; i < columns_num; ++i) {
             if (_desc_result.columns[i].columnDesc.__isset.columnScale) {
-                int64_t src = _desc_result.columns[i].columnDesc.columnScale;
-                fill_dest_column(block, &src, _s_col_columns[21]);
+                srcs[i] = _desc_result.columns[i].columnDesc.columnScale;
+                datas[i] = srcs + i;
             } else {
-                fill_dest_column(block, nullptr, _s_col_columns[21]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 21, datas);
     }
     // GENERATION_EXPRESSION
-    {
-        for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, nullptr, _s_col_columns[22]);
-        }
-    }
+    { fill_dest_column_for_range(block, 22, null_datas); }
     // SRS_ID
-    {
-        for (int i = 0; i < columns_num; ++i) {
-            fill_dest_column(block, nullptr, _s_col_columns[23]);
-        }
-    }
+    { fill_dest_column_for_range(block, 23, null_datas); }
     return Status::OK();
 }
 

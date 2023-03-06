@@ -407,7 +407,9 @@ public class SingleNodePlanner {
                 break;
             }
             List<Expr> allConjuncts = analyzer.getAllConjuncts(selectStmt.getTableRefs().get(0).getId());
-            if (allConjuncts != null) {
+            // planner will generate some conjuncts for analysis. These conjuncts are marked as aux expr.
+            // we skip these conjuncts when do pushAggOp
+            if (allConjuncts != null && allConjuncts.stream().noneMatch(Expr::isAuxExpr)) {
                 break;
             }
 

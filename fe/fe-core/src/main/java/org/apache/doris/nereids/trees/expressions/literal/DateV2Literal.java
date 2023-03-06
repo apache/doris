@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -41,6 +42,11 @@ public class DateV2Literal extends DateLiteral {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATEV2);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDateV2Literal(this, context);
     }
 
     public DateV2Literal plusDays(int days) {

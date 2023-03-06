@@ -79,6 +79,7 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -113,6 +114,7 @@ import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.EmptySetNode;
+import org.apache.doris.planner.EsScanNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -509,7 +511,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
                 )
         );
-        olapScanNode.finalizeForNerieds();
+        olapScanNode.finalizeForNereids();
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
         if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
@@ -567,7 +569,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, fileScanNode, context)
             )
         );
-        Utils.execWithUncheckedException(fileScanNode::finalizeForNerieds);
+        Utils.execWithUncheckedException(fileScanNode::finalizeForNereids);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), fileScanNode, dataPartition);
@@ -587,7 +589,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
             )
         );
-        scanNode.finalizeForNereids();
+        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode);
 
         // set label for explain
@@ -616,9 +618,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
             )
         );
-        Utils.execWithUncheckedException(jdbcScanNode::finalizeForNerieds);
+        Utils.execWithUncheckedException(jdbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalEsScan(PhysicalEsScan esScan, PlanTranslatorContext context) {
+        List<Slot> slotList = esScan.getOutput();
+        ExternalTable table = esScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
+        tupleDescriptor.setTable(table);
+        EsScanNode esScanNode = new EsScanNode(context.nextPlanNodeId(), tupleDescriptor, "EsScanNode", true);
+        Utils.execWithUncheckedException(esScanNode::init);
+        context.addScanNode(esScanNode);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(esScan.getId()).forEach(
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
+            )
+        );
+        Utils.execWithUncheckedException(esScanNode::finalizeForNereids);
+        DataPartition dataPartition = DataPartition.RANDOM;
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), esScanNode, dataPartition);
         context.addPlanFragment(planFragment);
         return planFragment;
     }
@@ -1267,17 +1290,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return inputFragment;
         }
         List<Expr> predicateList = inputPlanNode.getConjuncts();
-        Set<SlotId> requiredSlotIdList = new HashSet<>();
-        for (Expr expr : predicateList) {
-            extractExecSlot(expr, requiredSlotIdList);
-        }
-
+        Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
         for (Expr expr : execExprList) {
-            extractExecSlot(expr, requiredSlotIdList);
+            extractExecSlot(expr, requiredSlotIdSet);
+        }
+        Set<SlotId> requiredByProjectSlotIdSet = Sets.newHashSet(requiredSlotIdSet);
+        for (Expr expr : predicateList) {
+            extractExecSlot(expr, requiredSlotIdSet);
         }
         if (inputPlanNode instanceof TableFunctionNode) {
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
-            tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdList));
+            tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
@@ -1285,14 +1308,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
 
         if (inputPlanNode instanceof ScanNode) {
-            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
+            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet, requiredByProjectSlotIdSet, context);
             return inputFragment;
         }
         return inputFragment;
     }
 
     private void updateChildSlotsMaterialization(PlanNode execPlan,
-            Set<SlotId> requiredSlotIdList,
+            Set<SlotId> requiredSlotIdSet, Set<SlotId> requiredByProjectSlotIdSet,
             PlanTranslatorContext context) {
         Set<SlotRef> slotRefSet = new HashSet<>();
         for (Expr expr : execPlan.getConjuncts()) {
@@ -1300,7 +1323,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         Set<SlotId> slotIdSet = slotRefSet.stream()
                 .map(SlotRef::getSlotId).collect(Collectors.toSet());
-        slotIdSet.addAll(requiredSlotIdList);
+        slotIdSet.addAll(requiredSlotIdSet);
         boolean noneMaterialized = execPlan.getTupleIds().stream()
                 .map(context::getTupleDesc)
                 .map(TupleDescriptor::getSlots)
@@ -1314,7 +1337,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (execPlan instanceof ScanNode) {
             try {
-                ((ScanNode) execPlan).updateRequiredSlots();
+                ((ScanNode) execPlan).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             } catch (UserException e) {
                 Util.logAndThrowRuntimeException(LOG,
                         "User Exception while reset external file scan node contexts.", e);
