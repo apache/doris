@@ -142,7 +142,7 @@ public:
         std::vector<Path> local_paths;
         RETURN_IF_ERROR(_local_fs->list(get_remote_path(path), &local_paths));
         for (Path local_path : local_paths) {
-            files->emplace_back(fmt::format("remote/{}/{}", path, local_path.string()));
+            files->emplace_back(fmt::format("remote/{}/{}", path.string(), local_path.string()));
         }
         return Status::OK();
     }
