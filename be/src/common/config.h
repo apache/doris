@@ -908,6 +908,8 @@ CONF_Bool(enable_fuzzy_mode, "false");
 // max depth of expression tree allowed.
 CONF_Int32(max_depth_of_expr_tree, "200");
 
+CONF_mBool(enable_stack_trace, "true");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

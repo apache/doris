@@ -17,6 +17,11 @@
 
 #include "util/stack_util.h"
 
+#include <bvar/latency_recorder.h>
+
+#include "common/config.h"
+#include "util/runtime_profile.h"
+
 namespace google {
 namespace glog_internal_namespace_ {
 void DumpStackTraceToString(std::string* stacktrace);
@@ -24,6 +29,7 @@ void DumpStackTraceToString(std::string* stacktrace);
 } // namespace google
 
 namespace doris {
+bvar::LatencyRecorder g_util_stack_trace_latency("doris_util", "stack_trace");
 
 // `boost::stacktrace::stacktrace()` has memory leak, so use the glog internal func to print stacktrace.
 // The reason for the boost::stacktrace memory leak is that a state is saved in the thread local of each
@@ -32,7 +38,15 @@ namespace doris {
 // https://github.com/boostorg/stacktrace/issues/111
 std::string get_stack_trace() {
     std::string s;
-    google::glog_internal_namespace_::DumpStackTraceToString(&s);
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        if (config::enable_stack_trace) {
+            google::glog_internal_namespace_::DumpStackTraceToString(&s);
+        }
+    }
+    g_util_stack_trace_latency << (duration_ns / 1000);
+
     return s;
 }
 
