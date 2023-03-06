@@ -62,7 +62,7 @@ public:
             ColumnPtr src_column =
                     block.get_by_position(col).column->convert_to_full_column_if_const();
             const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
-            total_size += src_column_array->size();
+            total_size += src_column_array->get_data().size();
         }
         result_nested_col.reserve(total_size);
 
