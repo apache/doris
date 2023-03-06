@@ -676,13 +676,18 @@ public class HiveMetaStoreClientHelper {
      */
     private static int findNextNestedField(String commaSplitFields) {
         int numLess = 0;
+        int numBracket = 0;
         for (int i = 0; i < commaSplitFields.length(); i++) {
             char c = commaSplitFields.charAt(i);
             if (c == '<') {
                 numLess++;
             } else if (c == '>') {
                 numLess--;
-            } else if (c == ',' && numLess == 0) {
+            } else if (c == '(') {
+                numBracket++;
+            } else if (c == ')') {
+                numBracket--;
+            } else if (c == ',' && numLess == 0 && numBracket == 0) {
                 return i;
             }
         }
