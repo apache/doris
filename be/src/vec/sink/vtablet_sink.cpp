@@ -1038,8 +1038,6 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
     return status;
 }
 
-// row_cnt could be Block.rows() if load block to single tablet
-// otherwise it's a single row
 void VOlapTableSink::_generate_row_distribution_payload(
         ChannelDistributionPayload& channel_to_payload, const VOlapTablePartition* partition,
         uint32_t tablet_index, int row_idx, size_t row_cnt) {
@@ -1114,27 +1112,17 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
-    bool load_block_to_single_tablet = false;
     std::vector<std::unordered_map<
             VNodeChannel*,
             std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
             channel_to_payload;
     channel_to_payload.resize(_channels.size());
-    switch (findTabletMode) {
-    case FIND_TABLET_EVERY_BATCH:
+    if (findTabletMode == FIND_TABLET_EVERY_BATCH) {
         // Recaculate is needed
         _partition_to_tablet_map.clear();
-        break;
-    case FIND_TABLET_EVERY_SINK: {
-        // Load block to single tablet
-        load_block_to_single_tablet = true;
-        break;
-    }
-    default:
-        break;
     }
     for (int i = 0; i < num_rows; ++i) {
-        if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
+        if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
             continue;
         }
         const VOlapTablePartition* partition = nullptr;
@@ -1147,14 +1135,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         }
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
-        if (load_block_to_single_tablet) {
-            break;
-        }
     }
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
-    load_block_to_single_tablet =
-            load_block_to_single_tablet || _partition_to_tablet_map.size() == 1;
+    bool load_block_to_single_tablet =
+            !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
     if (load_block_to_single_tablet) {
         // clear and release the references of columns
         input_block->clear();
