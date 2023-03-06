@@ -77,17 +77,17 @@ public:
     Status abort() override { return _local_file_writer->abort(); }
 
     Status append(const Slice& data) override {
-        printf("append: %s\n", path.string().c_str());
+        printf("append: %s\n", _path.string().c_str());
         return _local_file_writer->append(data);
     }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
-        printf("appendv: %s\n", path.string().c_str());
+        printf("appendv: %s\n", _path.string().c_str());
         return _local_file_writer->appendv(data, data_cnt);
     }
 
     Status write_at(size_t offset, const Slice& data) override {
-        printf("write_at: %s\n", path.string().c_str());
+        printf("write_at: %s\n", _path.string().c_str());
         return _local_file_writer->write_at(offset, data);
     }
 
