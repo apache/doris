@@ -163,10 +163,7 @@ set(TESTUTIL_TEST_FILES
     testutil/function_utils.cpp
     testutil/run_all_tests.cpp
 )
-set(UDF_TEST_FILES
-    # udf/udf_test.cpp
-    # udf/uda_test.cpp
-)
+
 set(UTIL_TEST_FILES
     util/bit_util_test.cpp
     util/brpc_client_cache_test.cpp
@@ -286,7 +283,6 @@ add_executable(doris_be_test
     ${OLAP_TEST_FILES}
     ${RUNTIME_TEST_FILES}
     ${TESTUTIL_TEST_FILES}
-    ${UDF_TEST_FILES}
     ${UTIL_TEST_FILES}
     ${VEC_TEST_FILES}
 )

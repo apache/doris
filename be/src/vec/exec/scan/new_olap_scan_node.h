@@ -46,7 +46,7 @@ protected:
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringVal* constant_str,
-                                             doris_udf::FunctionContext** fn_ctx,
+                                             doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
     PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }

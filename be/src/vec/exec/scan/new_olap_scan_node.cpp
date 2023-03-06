@@ -294,7 +294,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                           VExprContext* expr_ctx,
                                                           StringVal* constant_str,
-                                                          doris_udf::FunctionContext** fn_ctx,
+                                                          doris::FunctionContext** fn_ctx,
                                                           VScanNode::PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
@@ -303,7 +303,7 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     }
 
     const auto& children = fn_call->children();
-    doris_udf::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
+    doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {

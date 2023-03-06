@@ -22,6 +22,7 @@
 
 #include <ostream>
 
+#include "runtime/primitive_type.h"
 namespace doris {
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
