@@ -150,7 +150,7 @@ constexpr TypeIndex get_type_index() {
 
 struct UTDataTypeDesc {
     DataTypePtr data_type;
-    doris_udf::FunctionContext::TypeDesc type_desc;
+    doris::TypeDescriptor type_desc;
     std::string col_name;
     bool is_const = false;
     bool is_nullable = true;
@@ -206,7 +206,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 1.2 prepare args for function call
     ColumnNumbers arguments;
-    std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
+    std::vector<doris::TypeDescriptor> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
@@ -229,22 +229,22 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             func_name, block.get_columns_with_type_and_name(), return_type);
     EXPECT_TRUE(func != nullptr);
 
-    doris_udf::FunctionContext::TypeDesc fn_ctx_return;
+    doris::TypeDescriptor fn_ctx_return;
     if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_BOOLEAN;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_INT;
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
                          std::is_same_v<ReturnType, DataTypeTime>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
     } else if (std::is_same_v<ReturnType, DateV2>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATEV2;
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIMEV2;
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
     } else {
-        fn_ctx_return.type = doris_udf::FunctionContext::INVALID_TYPE;
+        fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
     }
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);

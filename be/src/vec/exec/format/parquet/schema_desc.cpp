@@ -18,6 +18,7 @@
 #include "schema_desc.h"
 
 #include "common/logging.h"
+#include "util/slice.h"
 
 namespace doris::vectorized {
 
