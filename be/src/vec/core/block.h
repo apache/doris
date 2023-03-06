@@ -75,7 +75,6 @@ private:
     IndexByName index_by_name;
     std::vector<bool> row_same_bit;
 
-    int _effective_col = INT_MIN;
     int64_t _decompress_time_ns = 0;
     int64_t _decompressed_bytes = 0;
 
@@ -202,9 +201,6 @@ public:
     size_t rows() const;
 
     std::string each_col_size() const;
-
-    // Specify column index to calculate rows(), default rows() uses the size of the first column.
-    void set_effective_col(int col) { _effective_col = col; }
 
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);

@@ -389,7 +389,7 @@ void VScanNode::release_resource(RuntimeState* state) {
         (*ctx)->close(state);
     }
     if (_common_vexpr_ctxs_pushdown) {
-        _common_vexpr_ctxs_pushdown->close(state);
+        (*_common_vexpr_ctxs_pushdown)->close(state);
     }
     _scanner_pool.clear();
 
@@ -461,7 +461,7 @@ Status VScanNode::_normalize_conjuncts() {
             if (new_root) {
                 (*_vconjunct_ctx_ptr)->set_root(new_root);
                 if (_should_push_down_common_expr()) {
-                    _common_vexpr_ctxs_pushdown = *_vconjunct_ctx_ptr;
+                    _common_vexpr_ctxs_pushdown = std::move(_vconjunct_ctx_ptr);
                     _vconjunct_ctx_ptr.reset(nullptr);
                 }
             } else { // All conjucts are pushed down as predicate column

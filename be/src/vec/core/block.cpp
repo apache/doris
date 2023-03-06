@@ -198,7 +198,6 @@ void Block::erase(size_t position) {
     DCHECK(position < data.size()) << fmt::format(
             "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
 
-    DCHECK(position != _effective_col);
     erase_impl(position);
 }
 
@@ -329,9 +328,6 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
 }
 
 size_t Block::rows() const {
-    if (_effective_col != INT_MIN) {
-        return data[_effective_col].column->size();
-    }
     for (const auto& elem : data) {
         if (elem.column) {
             return elem.column->size();
@@ -628,7 +624,6 @@ void Block::clear() {
     data.clear();
     index_by_name.clear();
     row_same_bit.clear();
-    _effective_col = INT_MIN;
 }
 
 void Block::clear_column_data(int column_size) noexcept {

@@ -52,10 +52,10 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                const std::vector<TCondition>& filters,
                                const FilterPredicates& filter_predicates,
                                const std::vector<FunctionFilter>& function_filters,
-                               VExprContext* common_vexpr_ctxs_pushdown) {
+                               VExprContext** common_vexpr_ctxs_pushdown) {
     if (common_vexpr_ctxs_pushdown != nullptr) {
         // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
-        RETURN_IF_ERROR(common_vexpr_ctxs_pushdown->clone(_state, &_common_vexpr_ctxs_pushdown));
+        RETURN_IF_ERROR((*common_vexpr_ctxs_pushdown)->clone(_state, &_common_vexpr_ctxs_pushdown));
     }
 
     // set limit to reduce end of rowset and segment mem use

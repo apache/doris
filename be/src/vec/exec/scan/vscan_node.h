@@ -261,7 +261,7 @@ protected:
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
-    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
+    std::unique_ptr<VExprContext*> _common_vexpr_ctxs_pushdown = nullptr;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;

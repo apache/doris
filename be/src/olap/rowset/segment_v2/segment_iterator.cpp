@@ -1286,6 +1286,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             std::set<ColumnId> non_pred_set(_non_predicate_columns.begin(),
                                             _non_predicate_columns.end());
 
+            DCHECK(_second_read_column_ids.empty());
             // _second_read_column_ids must be empty. Otherwise _lazy_materialization_read must not false.
             for (int i = 0; i < _schema.num_column_ids(); i++) {
                 auto cid = _schema.column_id(i);
@@ -1703,15 +1704,19 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                     }
 
                     // block->rows() takes the size of the first column by default. If the first column is no predicate column,
-                    // it has not been read yet. Specify the column that has been read to calculate rows().
-                    block->set_effective_col(_schema_block_id_map[*_common_expr_columns.begin()]);
+                    // it has not been read yet. add a const column that has been read to calculate rows().
+                    if (block->rows() == 0) {
+                        auto res_column = vectorized::ColumnString::create();
+                        res_column->insert_data("", 0);
+                        auto col_const = vectorized::ColumnConst::create(std::move(res_column),
+                                                                         selected_size);
+                        block->replace_by_position(0, std::move(col_const));
+                    }
                     DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
                     _output_index_result_column(sel_rowid_idx, selected_size, block);
 
                     block->shrink_char_type_column_suffix_zero(_char_type_idx);
                     RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
-
-                    block->set_effective_col(INT_MIN);
                 }
             } else if (_is_need_expr_eval) {
                 for (auto cid : _second_read_column_ids) {
@@ -1730,12 +1735,16 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 sel_rowid_idx[i] = i;
             }
 
-            block->set_effective_col(_schema_block_id_map[*_common_expr_columns.begin()]);
+            if (block->rows() == 0) {
+                auto res_column = vectorized::ColumnString::create();
+                res_column->insert_data("", 0);
+                auto col_const =
+                        vectorized::ColumnConst::create(std::move(res_column), selected_size);
+                block->replace_by_position(0, std::move(col_const));
+            }
             _output_index_result_column(nullptr, 0, block);
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
             RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
-
-            block->set_effective_col(INT_MIN);
         }
 
         if (UNLIKELY(_opts.record_rowids)) {
