@@ -96,7 +96,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
     }
 
     private boolean isProjectOnAggregate(LogicalProject<Plan> project) {
-        return project.child() instanceof GroupPlan && ((GroupPlan)project.child()).getGroup()
+        return project.child() instanceof GroupPlan && ((GroupPlan) project.child()).getGroup()
                 .getLogicalExpressions().get(0).getPlan() instanceof LogicalAggregate;
     }
 
