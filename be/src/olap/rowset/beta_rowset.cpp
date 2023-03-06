@@ -76,6 +76,7 @@ std::string BetaRowset::remote_tablet_path(int64_t tablet_id) {
 
 std::string BetaRowset::remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id) {
     // data/{tablet_id}/{replica_id}.meta
+    printf("remote_tablet_meta_path: %ld, %ld\n", tablet_id, replica_id);
     return fmt::format("{}/{}.meta", remote_tablet_path(tablet_id), replica_id);
 }
 

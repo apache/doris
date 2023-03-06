@@ -76,13 +76,18 @@ public:
 
     Status abort() override { return _local_file_writer->abort(); }
 
-    Status append(const Slice& data) override { return _local_file_writer->append(data); }
+    Status append(const Slice& data) override {
+        printf("append: %s\n", path.string().c_str());
+        return _local_file_writer->append(data);
+    }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
+        printf("appendv: %s\n", path.string().c_str());
         return _local_file_writer->appendv(data, data_cnt);
     }
 
     Status write_at(size_t offset, const Slice& data) override {
+        printf("write_at: %s\n", path.string().c_str());
         return _local_file_writer->write_at(offset, data);
     }
 
@@ -105,6 +110,7 @@ public:
     ~RemoteFileSystemMock() override = default;
 
     Status create_file(const Path& path, io::FileWriterPtr* writer) override {
+        printf("create_file: %s\n", path.string().c_str());
         Path fs_path = path;
         *writer = std::make_unique<FileWriterMock>(fs_path);
         return Status::OK();
