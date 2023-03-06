@@ -293,6 +293,20 @@ struct RowLocation {
     RowsetId rowset_id;
     uint32_t segment_id;
     uint32_t row_id;
+
+    bool operator==(const RowLocation& rhs) const {
+        return rowset_id == rhs.rowset_id && segment_id == rhs.segment_id && row_id == rhs.row_id;
+    }
+
+    bool operator<(const RowLocation& rhs) const {
+        if (rowset_id != rhs.rowset_id) {
+            return rowset_id < rhs.rowset_id;
+        } else if (segment_id != rhs.segment_id) {
+            return segment_id < rhs.segment_id;
+        } else {
+            return row_id < rhs.row_id;
+        }
+    }
 };
 
 } // namespace doris
