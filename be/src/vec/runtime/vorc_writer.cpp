@@ -163,7 +163,7 @@ void VOrcWriterWrapper::close() {
                     char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
                     memcpy(new_ptr, buffer.data, buffer.size);                                     \
                     free(const_cast<char*>(buffer.data));                                          \
-                    buffer.data = (uint8_t*)new_ptr;                                               \
+                    buffer.data = new_ptr;                                                         \
                     buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                  \
                 }                                                                                  \
                 cur_batch->length[row_id] = len;                                                   \
@@ -188,7 +188,7 @@ void VOrcWriterWrapper::close() {
                 char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
                 memcpy(new_ptr, buffer.data, buffer.size);                                         \
                 free(const_cast<char*>(buffer.data));                                              \
-                buffer.data = (uint8_t*)new_ptr;                                                   \
+                buffer.data = new_ptr;                                                             \
                 buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                      \
             }                                                                                      \
             cur_batch->length[row_id] = len;                                                       \
