@@ -48,9 +48,9 @@ namespace doris::vectorized {
     M(TypeIndex::Float64, Float64, orc::DoubleVectorBatch)
 
 void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
-    _statistics.read_calls++;
-    _statistics.read_bytes += length;
-    SCOPED_RAW_TIMER(&_statistics.read_time);
+    _statistics->fs_read_calls++;
+    _statistics->fs_read_bytes += length;
+    SCOPED_RAW_TIMER(&_statistics->fs_read_time);
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
     IOContext io_ctx;
@@ -113,21 +113,26 @@ OrcReader::~OrcReader() {
 
 void OrcReader::close() {
     if (!_closed) {
-        if (_profile != nullptr) {
-            if (_file_reader != nullptr) {
-                auto& fst = _file_reader->statistics();
-                COUNTER_UPDATE(_orc_profile.read_time, fst.read_time);
-                COUNTER_UPDATE(_orc_profile.read_calls, fst.read_calls);
-                COUNTER_UPDATE(_orc_profile.read_bytes, fst.read_bytes);
-            }
-            COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
-            COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
-            COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
-            COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
-            COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
-        }
+        _collect_profile_on_close();
         _closed = true;
     }
+}
+
+void OrcReader::_collect_profile_on_close() {
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_orc_profile.read_time, _statistics.fs_read_time);
+        COUNTER_UPDATE(_orc_profile.read_calls, _statistics.fs_read_calls);
+        COUNTER_UPDATE(_orc_profile.read_bytes, _statistics.fs_read_bytes);
+        COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
+        COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
+        COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
+        COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
+        COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
+    }
+}
+
+int64_t OrcReader::size() const {
+    return _file_input_stream->getLength();
 }
 
 void OrcReader::_init_profile() {
@@ -146,33 +151,33 @@ void OrcReader::_init_profile() {
     }
 }
 
-Status OrcReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    if (_file_reader == nullptr) {
+Status OrcReader::_create_file_reader() {
+    if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
                                                         _file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
-
-        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
+        _file_input_stream.reset(
+                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics));
     }
-    if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("init reader failed, empty orc file: " + _scan_range.path);
+    if (_file_input_stream->getLength() == 0) {
+        return Status::EndOfFile("empty orc file: " + _scan_range.path);
     }
-
     // create orc reader
     try {
         orc::ReaderOptions options;
-        _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
+        _reader = orc::createReader(
+                std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
-    if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("init reader failed, empty orc file with row num 0: " +
-                                 _scan_range.path);
-    }
+    return Status::OK();
+}
+
+Status OrcReader::init_reader(
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
+    RETURN_IF_ERROR(_create_file_reader());
     // _init_bloom_filter(colname_to_value_range);
 
     // create orc row reader
@@ -206,27 +211,7 @@ Status OrcReader::init_reader(
 
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<TypeDescriptor>* col_types) {
-    if (_file_reader == nullptr) {
-        io::FileReaderSPtr inner_reader;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, _io_ctx));
-
-        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
-    }
-    if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("get parsed schema fail, empty orc file: " + _scan_range.path);
-    }
-
-    // create orc reader
-    try {
-        orc::ReaderOptions options;
-        _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
-    } catch (std::exception& e) {
-        return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
-    }
-
+    RETURN_IF_ERROR(_create_file_reader());
     auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(_get_field_name_lower_case(&root_type, i));
