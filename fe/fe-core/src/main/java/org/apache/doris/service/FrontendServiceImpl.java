@@ -122,7 +122,8 @@ import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPrivilegeParams;
+import org.apache.doris.thrift.TPrivilegeCtrl;
+import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -1668,45 +1669,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         // check privilege
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
-        TPrivilegeParams privParams = request.getPrivParams();
-        String privLevel = privParams.getPrivLevel();
-        if ("glb".equalsIgnoreCase(privLevel)) {
+        TPrivilegeCtrl privCtrl = request.getPrivCtrl();
+        TPrivilegeHier privHier = privCtrl.getPrivHier();
+        if (privHier == TPrivilegeHier.GLOBAL) {
             if (!accessManager.checkGlobalPriv(currentUser.get(0), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Global permissions error");
             }
-        } else if ("ctl".equalsIgnoreCase(privLevel)) {
-            if (!accessManager.checkCtlPriv(currentUser.get(0), privParams.getCtl(), predicate)) {
+        } else if (privHier == TPrivilegeHier.CATALOG) {
+            if (!accessManager.checkCtlPriv(currentUser.get(0), privCtrl.getCtl(), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Catalog permissions error");
             }
-        } else if ("db".equalsIgnoreCase(privLevel)) {
-            String fullDbName = ClusterNamespace.getFullName(cluster, privParams.getDb());
+        } else if (privHier == TPrivilegeHier.DATABASE) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
             if (!accessManager.checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Database permissions error");
             }
-        } else if ("tbl".equalsIgnoreCase(privLevel)) {
-            String fullDbName = ClusterNamespace.getFullName(cluster, privParams.getDb());
-            if (!accessManager.checkTblPriv(currentUser.get(0), fullDbName, privParams.getTbl(), predicate)) {
+        } else if (privHier == TPrivilegeHier.TABLE) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
+            if (!accessManager.checkTblPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Table permissions error");
             }
-        } else if ("col".equalsIgnoreCase(privLevel)) {
-            String fullDbName = ClusterNamespace.getFullName(cluster, privParams.getDb());
-            if (!accessManager.checkColPriv(currentUser.get(0), fullDbName, privParams.getTbl(), privParams.getCol(),
+        } else if (privHier == TPrivilegeHier.COLUMNS) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
+            if (!accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
                     predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-                status.addToErrorMsgs("Column permissions error");
+                status.addToErrorMsgs("Columns permissions error");
             }
-        } else if ("res".equalsIgnoreCase(privLevel)) {
-            if (!accessManager.checkResourcePriv(currentUser.get(0), privParams.getRes(), predicate)) {
+        } else if (privHier == TPrivilegeHier.RESOURSE) {
+            if (!accessManager.checkResourcePriv(currentUser.get(0), privCtrl.getRes(), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
                 status.addToErrorMsgs("Resourse permissions error");
             }
         } else {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs("Privilege params error");
+            status.addToErrorMsgs("Privilege control error");
         }
         return result;
     }
