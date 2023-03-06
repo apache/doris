@@ -344,7 +344,7 @@ struct PercentileState {
     void insert_result_into(IColumn& to) const {
         auto& column_data = static_cast<ColumnVector<Float64>&>(to).get_data();
         for (int i = 0; i < vec_counts.size(); ++i) {
-            column_data.push_back(vec_counts[i].terminate(vec_quantile[i]).val);
+            column_data.push_back(vec_counts[i].terminate(vec_quantile[i]));
         }
     }
 };
