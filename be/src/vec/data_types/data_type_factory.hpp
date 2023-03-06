@@ -112,6 +112,8 @@ public:
             if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
                 return entity.second;
             }
+            // todo:
+            // judge array decimalv3
         }
         if (type_ptr->get_type_id() == TypeIndex::Struct ||
             type_ptr->get_type_id() == TypeIndex::Map) {
