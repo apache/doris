@@ -134,9 +134,6 @@ public:
 
     std::shared_ptr<QueryFragmentsCtx> get_fragments_ctx() { return _fragments_ctx; }
 
-    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
-    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
-
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
 private:
@@ -167,8 +164,6 @@ private:
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
-    // The pipe for data transfering, such as insert.
-    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     // If set the true, this plan fragment will be executed only after FE send execution start rpc.
     bool _need_wait_execution_trigger = false;
@@ -251,9 +246,14 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
             _executor.set_is_report_on_cancel(false);
         }
         _executor.cancel(reason, msg);
-        if (_pipe != nullptr) {
-            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+#ifndef BE_TEST
+        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+        // For stream load the fragment's query_id == load id, it is set in FE.
+        auto stream_load_ctx = _fragments_ctx->exec_env()->new_load_stream_mgr()->get(_query_id);
+        if (stream_load_ctx != nullptr) {
+            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
         }
+#endif
         _cancelled = true;
     }
     return Status::OK();
@@ -546,9 +546,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
                 _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
 
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
-        set_pipe(params.params.fragment_instance_id, pipe,
-                 params.txn_conf.__isset.enable_pipeline_txn_load &&
-                         params.txn_conf.enable_pipeline_txn_load);
         return Status::OK();
     } else {
         return exec_plan_fragment(params, empty_function);
@@ -574,40 +571,6 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     }
     search->second->set_ready_to_execute(false);
     return Status::OK();
-}
-
-void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
-                           std::shared_ptr<io::StreamLoadPipe> pipe, bool enable_pipeline_engine) {
-    if (enable_pipeline_engine) {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(fragment_instance_id);
-        if (iter != _pipeline_map.end()) {
-            _pipeline_map[fragment_instance_id]->set_pipe(std::move(pipe));
-        }
-    } else {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _fragment_map.find(fragment_instance_id);
-        if (iter != _fragment_map.end()) {
-            _fragment_map[fragment_instance_id]->set_pipe(std::move(pipe));
-        }
-    }
-}
-
-std::shared_ptr<io::StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto pipeline_iter = _pipeline_map.find(fragment_instance_id);
-        if (pipeline_iter != _pipeline_map.end()) {
-            return _pipeline_map[fragment_instance_id]->get_pipe();
-        } else {
-            auto fragment_iter = _fragment_map.find(fragment_instance_id);
-            if (fragment_iter != _fragment_map.end()) {
-                return _fragment_map[fragment_instance_id]->get_pipe();
-            } else {
-                return nullptr;
-            }
-        }
-    }
 }
 
 void FragmentMgr::remove_pipeline_context(

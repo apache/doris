@@ -125,8 +125,6 @@ static const uint64_t GB_EXCHANGE_BYTE = 1024 * 1024 * 1024;
 // bloom filter fpp
 static const double BLOOM_FILTER_DEFAULT_FPP = 0.05;
 
-#define OLAP_GOTO(label) goto label
-
 enum ColumnFamilyIndex {
     DEFAULT_COLUMN_FAMILY_INDEX = 0,
     DORIS_COLUMN_FAMILY_INDEX,
@@ -185,29 +183,6 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
     type_t& operator=(const type_t&);    \
     type_t(const type_t&);
 #endif
-
-// 没有使用的变量不报warning
-#define OLAP_UNUSED_ARG(a) (void)(a)
-
-// thread-safe(gcc only) method for obtaining singleton
-#define DECLARE_SINGLETON(classname)     \
-public:                                  \
-    static classname* instance() {       \
-        classname* p_instance = nullptr; \
-        try {                            \
-            static classname s_instance; \
-            p_instance = &s_instance;    \
-        } catch (...) {                  \
-            p_instance = nullptr;        \
-        }                                \
-        return p_instance;               \
-    }                                    \
-                                         \
-protected:                               \
-    classname();                         \
-                                         \
-private:                                 \
-    ~classname();
 
 #define SAFE_DELETE(ptr)      \
     do {                      \

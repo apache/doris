@@ -30,6 +30,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
     private static final int CHARACTER_SET = 33;
     // use default capability for all
     private static final MysqlCapability CAPABILITY = MysqlCapability.DEFAULT_CAPABILITY;
+    private static final MysqlCapability SSL_CAPABILITY = MysqlCapability.SSL_CAPABILITY;
     // status flags not supported in palo
     private static final int STATUS_FLAGS = 0;
     private static final String AUTH_PLUGIN_NAME = "mysql_native_password";
@@ -49,7 +50,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-        MysqlCapability capability = CAPABILITY;
+        MysqlCapability capability = MysqlProto.SERVER_USE_SSL ? SSL_CAPABILITY : CAPABILITY;
 
         serializer.writeInt1(PROTOCOL_VERSION);
         serializer.writeNulTerminateString(SERVER_VERSION);

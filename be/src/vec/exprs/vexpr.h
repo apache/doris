@@ -180,7 +180,6 @@ public:
     }
 
 protected:
-    static FunctionContext::TypeDesc column_type_to_type_desc(const TypeDescriptor& type);
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;

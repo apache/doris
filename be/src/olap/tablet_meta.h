@@ -362,6 +362,14 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Merges the given segment delete bitmap into *this
+     *
+     * @param bmk
+     * @param segment_delete_bitmap
+     */
+    void merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
+
+    /**
      * Merges the given delete bitmap into *this
      *
      * @param other

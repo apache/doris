@@ -14,37 +14,29 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf-debug.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.catalog.authorizer;
 
-#include <sstream>
-#include <string>
+import java.util.TimerTask;
 
-#include "udf/udf.h"
+public class RangerHiveAuditLogFlusher extends TimerTask {
 
-namespace doris_udf {
+    private RangerHiveAuditHandler auditHandler;
 
-template <typename T>
-std::string debug_string(const T& val) {
-    if (val.is_null) {
-        return "NULL";
+    public RangerHiveAuditLogFlusher(RangerHiveAuditHandler auditHandler) {
+        this.auditHandler = auditHandler;
     }
 
-    std::stringstream ss;
-    ss << val.val;
-    return ss.str();
-}
+    @Override
+    public void run() {
+        while (true) {
+            this.auditHandler.flushAudit();
 
-template <>
-std::string debug_string(const StringVal& val) {
-    if (val.is_null) {
-        return "NULL";
+            try {
+                Thread.sleep(20000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
     }
-
-    return std::string(reinterpret_cast<const char*>(val.ptr), val.len);
 }
-
-} // namespace doris_udf

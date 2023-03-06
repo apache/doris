@@ -62,7 +62,11 @@ BetaRowsetWriter::BetaRowsetWriter()
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
-    // OLAP_UNUSED_ARG(_wait_flying_segcompaction());
+    /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
+     * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
+     * is cancelled, the objects involved in the job should be preserved during segcompaction to
+     * avoid crashs for memory issues. */
+    _wait_flying_segcompaction();
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated

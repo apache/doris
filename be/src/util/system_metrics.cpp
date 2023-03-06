@@ -301,9 +301,9 @@ struct ProcMetrics {
     IntAtomicCounter* proc_procs_blocked;
 };
 
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(_max_disk_io_util_percent, MetricUnit::PERCENT);
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(_max_network_send_bytes_rate, MetricUnit::BYTES);
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(_max_network_receive_bytes_rate, MetricUnit::BYTES);
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_disk_io_util_percent, MetricUnit::PERCENT);
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_network_send_bytes_rate, MetricUnit::BYTES);
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(max_network_receive_bytes_rate, MetricUnit::BYTES);
 
 const char* SystemMetrics::_s_hook_name = "system_metrics";
 
@@ -323,9 +323,9 @@ SystemMetrics::SystemMetrics(MetricRegistry* registry, const std::set<std::strin
     _install_load_avg_metrics(_server_entity.get());
     _install_proc_metrics(_server_entity.get());
 
-    INT_GAUGE_METRIC_REGISTER(_server_entity.get(), _max_disk_io_util_percent);
-    INT_GAUGE_METRIC_REGISTER(_server_entity.get(), _max_network_send_bytes_rate);
-    INT_GAUGE_METRIC_REGISTER(_server_entity.get(), _max_network_receive_bytes_rate);
+    INT_GAUGE_METRIC_REGISTER(_server_entity.get(), max_disk_io_util_percent);
+    INT_GAUGE_METRIC_REGISTER(_server_entity.get(), max_network_send_bytes_rate);
+    INT_GAUGE_METRIC_REGISTER(_server_entity.get(), max_network_receive_bytes_rate);
 }
 
 SystemMetrics::~SystemMetrics() {
@@ -871,15 +871,15 @@ void SystemMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& ls
 
 void SystemMetrics::update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
                                                     int64_t interval_sec) {
-    _max_disk_io_util_percent->set_value(get_max_io_util(lst_value, interval_sec));
+    max_disk_io_util_percent->set_value(get_max_io_util(lst_value, interval_sec));
 }
 
 void SystemMetrics::update_max_network_send_bytes_rate(int64_t max_send_bytes_rate) {
-    _max_network_send_bytes_rate->set_value(max_send_bytes_rate);
+    max_network_send_bytes_rate->set_value(max_send_bytes_rate);
 }
 
 void SystemMetrics::update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate) {
-    _max_network_receive_bytes_rate->set_value(max_receive_bytes_rate);
+    max_network_receive_bytes_rate->set_value(max_receive_bytes_rate);
 }
 
 void SystemMetrics::_install_proc_metrics(MetricEntity* entity) {

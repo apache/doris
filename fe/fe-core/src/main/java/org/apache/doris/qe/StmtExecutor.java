@@ -497,7 +497,7 @@ public class StmtExecutor implements ProfileWriter {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new UserException("The statement has been forwarded to master FE("
-                                + Env.getCurrentEnv().getSelfNode().first + ") and failed to execute"
+                                + Env.getCurrentEnv().getSelfNode().getIp() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status");
                     }
                     forwardToMaster();
@@ -623,10 +623,8 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
-            LOG.warn("", e);
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(),
-                                    e.getMessage());
+            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
@@ -1358,8 +1356,7 @@ public class StmtExecutor implements ProfileWriter {
             if (context.getTxnEntry() == null) {
                 context.setTxnEntry(new TransactionEntry());
             }
-            TransactionEntry txnEntry = context.getTxnEntry();
-            txnEntry.setTxnConf(txnParams);
+            context.getTxnEntry().setTxnConf(txnParams);
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -1405,6 +1402,7 @@ public class StmtExecutor implements ProfileWriter {
                         .append(context.getTxnEntry().getTxnConf().getTxnId()).append("'").append("}");
                 context.getState().setOk(0, 0, sb.toString());
             } catch (Exception e) {
+                LOG.warn("Txn commit failed", e);
                 throw new AnalysisException(e.getMessage());
             } finally {
                 context.setTxnEntry(null);
