@@ -76,18 +76,13 @@ public:
 
     Status abort() override { return _local_file_writer->abort(); }
 
-    Status append(const Slice& data) override {
-        printf("append: %s\n", _path.string().c_str());
-        return _local_file_writer->append(data);
-    }
+    Status append(const Slice& data) override { return _local_file_writer->append(data); }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
-        printf("appendv: %s\n", _path.string().c_str());
         return _local_file_writer->appendv(data, data_cnt);
     }
 
     Status write_at(size_t offset, const Slice& data) override {
-        printf("write_at: %s\n", _path.string().c_str());
         return _local_file_writer->write_at(offset, data);
     }
 
@@ -110,7 +105,6 @@ public:
     ~RemoteFileSystemMock() override = default;
 
     Status create_file(const Path& path, io::FileWriterPtr* writer) override {
-        printf("create_file: %s\n", path.string().c_str());
         Path fs_path = path;
         *writer = std::make_unique<FileWriterMock>(fs_path);
         return Status::OK();
@@ -147,8 +141,8 @@ public:
     Status list(const Path& path, std::vector<Path>* files) override {
         std::vector<Path> local_paths;
         RETURN_IF_ERROR(_local_fs->list(get_remote_path(path), &local_paths));
-        for (Path local_path : local_paths) {
-            files->emplace_back(fmt::format("remote/{}/{}", path.string(), local_path.string()));
+        for (Path path : local_paths) {
+            files->emplace_back(path.string().substr(config::storage_root_path.size() + 1));
         }
         return Status::OK();
     }
@@ -382,29 +376,9 @@ TEST_F(TabletCooldownTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     ASSERT_EQ(segments.size(), 1);
 
-    std::vector<Path> files;
-    ASSERT_EQ(Status::OK(), io::global_local_filesystem()->list(get_remote_path("data"), &files));
-    printf("list: %s\n", get_remote_path("data").c_str());
-    for (auto file : files) {
-        printf("file: %s\n", file.string().c_str());
-    }
-    files.clear();
-    ASSERT_EQ(Status::OK(), io::global_local_filesystem()->list(get_remote_path(fmt::format("data/{}", kTabletId)), &files));
-    printf("list: %s\n", get_remote_path(fmt::format("data/{}", kTabletId)).c_str());
-    for (auto file : files) {
-        printf("file: %s\n", file.string().c_str());
-    }
-    files.clear();
-    ASSERT_EQ(Status::OK(), io::global_local_filesystem()->list(get_remote_path(fmt::format("data/{}", kTabletId2)), &files));
-    printf("list: %s\n", get_remote_path(fmt::format("data/{}", kTabletId2)).c_str());
-    for (auto file : files) {
-        printf("file: %s\n", file.string().c_str());
-    }
-    files.clear();
-
     st = io::global_local_filesystem()->link_file(
-            get_remote_path(fmt::format("data/{}/{}.meta", kTabletId, kReplicaId)),
-            get_remote_path(fmt::format("data/{}/{}.meta", kTabletId2, kReplicaId)));
+            get_remote_path(fmt::format("data/{}/{}.{}.meta", kTabletId, kReplicaId, 1)),
+            get_remote_path(fmt::format("data/{}/{}.{}.meta", kTabletId2, kReplicaId, 2)));
     ASSERT_EQ(Status::OK(), st);
     // follow cooldown
     tablet2->set_storage_policy_id(kStoragePolicyId);
