@@ -23,10 +23,9 @@
 
 namespace doris {
 
-LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
-                    doris::StringRef val)
-        : ColumnPredicate(column_id, opposite),
-          pattern(reinterpret_cast<char*>(val.data), val.size) {
+LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id,
+                                         doris::FunctionContext* fn_ctx, doris::StringRef val)
+        : ColumnPredicate(column_id, opposite), pattern(val) {
     _state = reinterpret_cast<StateType*>(
             fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
     _state->search_state.clone(_like_state);
