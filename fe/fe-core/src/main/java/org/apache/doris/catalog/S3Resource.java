@@ -201,6 +201,20 @@ public class S3Resource extends Resource {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
+
+        boolean needCheck = !this.properties.containsKey(S3_VALIDITY_CHECK)
+                || Boolean.parseBoolean(this.properties.get(S3_VALIDITY_CHECK));
+        if (properties.containsKey(S3_VALIDITY_CHECK)) {
+            needCheck = Boolean.parseBoolean(properties.get(S3_VALIDITY_CHECK));
+        }
+        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (needCheck) {
+            boolean available = pingS3();
+            if (!available) {
+                throw new DdlException("S3 can't use, please check your properties");
+            }
+        }
+
         // modify properties
         writeLock();
         for (Map.Entry<String, String> kv : properties.entrySet()) {
