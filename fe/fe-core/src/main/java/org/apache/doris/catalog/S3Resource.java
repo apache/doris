@@ -220,6 +220,8 @@ public class S3Resource extends Resource {
                     this.properties.getOrDefault(S3_ENDPOINT, ""));
             s3Properties.put(S3_REGION, properties.containsKey(S3_REGION) ? properties.get(S3_REGION) :
                     this.properties.getOrDefault(S3_REGION, ""));
+            s3Properties.put(S3_ROOT_PATH, properties.containsKey(S3_ROOT_PATH) ? properties.get(S3_ROOT_PATH) :
+                    this.properties.getOrDefault(S3_ROOT_PATH, ""));
             boolean available = pingS3(s3Properties);
             if (!available) {
                 throw new DdlException("S3 can't use, please check your properties");
