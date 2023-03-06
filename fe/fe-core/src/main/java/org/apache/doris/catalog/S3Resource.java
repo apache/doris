@@ -137,7 +137,7 @@ public class S3Resource extends Resource {
                 || Boolean.parseBoolean(properties.get(S3_VALIDITY_CHECK));
         LOG.debug("s3 info need check validity : {}", needCheck);
         if (needCheck) {
-            boolean available = pingS3();
+            boolean available = pingS3(this.properties);
             if (!available) {
                 throw new DdlException("S3 can't use, please check your properties");
             }
@@ -149,7 +149,7 @@ public class S3Resource extends Resource {
         checkOptionalProperty(S3_CONNECTION_TIMEOUT_MS, DEFAULT_S3_CONNECTION_TIMEOUT_MS);
     }
 
-    private boolean pingS3() {
+    private boolean pingS3(Map<String, String> properties) {
         String bucket = "s3://" + properties.getOrDefault(S3_BUCKET, "") + "/";
         Map<String, String> propertiesPing = new HashMap<>();
         propertiesPing.put("AWS_ACCESS_KEY", properties.getOrDefault(S3_ACCESS_KEY, ""));
@@ -209,7 +209,18 @@ public class S3Resource extends Resource {
         }
         LOG.debug("s3 info need check validity : {}", needCheck);
         if (needCheck) {
-            boolean available = pingS3();
+            Map<String, String> s3Properties = new HashMap<>();
+            s3Properties.put(S3_BUCKET, properties.containsKey(S3_BUCKET) ? properties.get(S3_BUCKET) :
+                    this.properties.getOrDefault(S3_BUCKET, ""));
+            s3Properties.put(S3_ACCESS_KEY, properties.containsKey(S3_ACCESS_KEY) ? properties.get(S3_ACCESS_KEY) :
+                    this.properties.getOrDefault(S3_ACCESS_KEY, ""));
+            s3Properties.put(S3_SECRET_KEY, properties.containsKey(S3_SECRET_KEY) ? properties.get(S3_SECRET_KEY) :
+                    this.properties.getOrDefault(S3_SECRET_KEY, ""));
+            s3Properties.put(S3_ENDPOINT, properties.containsKey(S3_ENDPOINT) ? properties.get(S3_ENDPOINT) :
+                    this.properties.getOrDefault(S3_ENDPOINT, ""));
+            s3Properties.put(S3_REGION, properties.containsKey(S3_REGION) ? properties.get(S3_REGION) :
+                    this.properties.getOrDefault(S3_REGION, ""));
+            boolean available = pingS3(s3Properties);
             if (!available) {
                 throw new DdlException("S3 can't use, please check your properties");
             }
