@@ -454,8 +454,8 @@ ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<true>(function_filter._opposite, index, function_filter._fn_ctx,
-                                         function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 } // namespace doris::vectorized

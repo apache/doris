@@ -41,7 +41,7 @@ struct TypeDescriptor;
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
 struct AnyVal;
-struct StringVal;
+struct StringRef;
 struct DateTimeVal;
 struct DecimalV2Val;
 
@@ -127,8 +127,8 @@ public:
     // Init() or Close() functions.
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
-    // Creates a StringVal, which memory is available when this function context is used next time
-    StringVal create_temp_string_val(int64_t len);
+    // Creates a StringRef, which memory is available when this function context is used next time
+    StringRef create_temp_string_val(int64_t len);
 
     ~FunctionContext() = default;
 
@@ -271,58 +271,6 @@ struct DateTimeV2Val : public AnyVal {
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
-// FIXME: for view using we should use StringRef. StringVal need to be rewrite to deep-copy type.
-// Note: there is a difference between a nullptr string (is_null == true) and an
-// empty string (len == 0).
-struct StringVal : public AnyVal {
-    static const int MAX_LENGTH = (1 << 30);
-
-    int64_t len;
-    uint8_t* ptr;
-
-    // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
-    // so the buffer must exist as long as this StringVal does.
-    StringVal() : len(0), ptr(nullptr) {}
-
-    // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
-    // so the buffer must exist as long as this StringVal does.
-    StringVal(uint8_t* ptr, int64_t len) : len(len), ptr(ptr) {}
-
-    // Construct a StringVal from nullptr-terminated c-string. Note: this does not make a
-    // copy of ptr so the underlying string must exist as long as this StringVal does.
-    StringVal(const char* ptr) : len(strlen(ptr)), ptr((uint8_t*)ptr) {}
-
-    StringVal(const char* ptr, int64_t len) : len(len), ptr((uint8_t*)ptr) {}
-
-    static StringVal null() {
-        StringVal sv;
-        sv.is_null = true;
-        return sv;
-    }
-
-    bool operator==(const StringVal& other) const {
-        if (is_null != other.is_null) {
-            return false;
-        }
-
-        if (is_null) {
-            return true;
-        }
-
-        if (len != other.len) {
-            return false;
-        }
-
-        return len == 0 || ptr == other.ptr || memcmp(ptr, other.ptr, len) == 0;
-    }
-
-    bool operator!=(const StringVal& other) const { return !(*this == other); }
-
-    std::string to_string() const { return std::string((char*)ptr, len); }
-};
-
-std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
-
 struct DecimalV2Val : public AnyVal {
     __int128 val;
 
@@ -362,7 +310,6 @@ struct DecimalV2Val : public AnyVal {
 
 using doris::BigIntVal;
 using doris::DoubleVal;
-using doris::StringVal;
 using doris::DecimalV2Val;
 using doris::DateTimeVal;
 using doris::FunctionContext;

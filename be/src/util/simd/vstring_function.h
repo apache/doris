@@ -56,7 +56,7 @@ public:
     static constexpr auto REGISTER_SIZE = sizeof(__m128i);
 #endif
 public:
-    static StringVal rtrim(const StringVal& str) {
+    static StringRef rtrim(const StringRef& str) {
         if (str.is_null || str.len == 0) {
             return str;
         }
@@ -73,7 +73,7 @@ public:
             int offset = __builtin_clz(~(mask << REGISTER_SIZE));
             /// means not found
             if (offset == 0) {
-                return StringVal(str.ptr + begin, end - begin + 1);
+                return StringRef(str.ptr + begin, end - begin + 1);
             } else {
                 end -= offset;
             }
@@ -83,12 +83,12 @@ public:
             --end;
         }
         if (end < 0) {
-            return StringVal("");
+            return StringRef("");
         }
-        return StringVal(str.ptr + begin, end - begin + 1);
+        return StringRef(str.ptr + begin, end - begin + 1);
     }
 
-    static StringVal ltrim(const StringVal& str) {
+    static StringRef ltrim(const StringRef& str) {
         if (str.is_null || str.len == 0) {
             return str;
         }
@@ -108,17 +108,17 @@ public:
             } else {
                 const auto offset = __builtin_ctz(mask);
                 begin += offset;
-                return StringVal(str.ptr + begin, end - begin + 1);
+                return StringRef(str.ptr + begin, end - begin + 1);
             }
         }
 #endif
         while (begin <= end && str.ptr[begin] == ' ') {
             ++begin;
         }
-        return StringVal(str.ptr + begin, end - begin + 1);
+        return StringRef(str.ptr + begin, end - begin + 1);
     }
 
-    static StringVal trim(const StringVal& str) {
+    static StringRef trim(const StringRef& str) {
         if (str.is_null || str.len == 0) {
             return str;
         }
@@ -126,7 +126,7 @@ public:
     }
 
     // Gcc will do auto simd in this function
-    static bool is_ascii(const StringVal& str) {
+    static bool is_ascii(const StringRef& str) {
         char or_code = 0;
         for (size_t i = 0; i < str.len; i++) {
             or_code |= str.ptr[i];
@@ -134,7 +134,7 @@ public:
         return !(or_code & 0x80);
     }
 
-    static void reverse(const StringVal& str, StringVal dst) {
+    static void reverse(const StringRef& str, StringRef dst) {
         if (is_ascii(str)) {
             int64_t begin = 0;
             int64_t end = str.len;

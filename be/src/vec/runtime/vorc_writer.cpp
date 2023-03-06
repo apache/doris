@@ -258,7 +258,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
 
     // Buffer used by date type
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-    StringVal buffer(ptr, BUFFER_UNIT_SIZE);
+    StringRef buffer(ptr, BUFFER_UNIT_SIZE);
 
     size_t sz = block.rows();
     auto row_batch = _create_row_batch(sz);

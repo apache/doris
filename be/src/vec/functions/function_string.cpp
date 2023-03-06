@@ -328,7 +328,7 @@ struct TrimImpl {
         for (size_t i = 0; i < offset_size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset size = offsets[i] - offsets[i - 1];
-            StringVal str(raw_str, size);
+            StringRef str(raw_str, size);
             if constexpr (is_ltrim) {
                 str = simd::VStringFunctions::ltrim(str);
             }

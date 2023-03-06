@@ -85,8 +85,7 @@ public:
                     HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
         } else {
             auto value = static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
-            StringVal sv = value.to_string_val();
-            uint64_t hash_value = HashUtil::murmur_hash64A(sv.ptr, sv.len, HashUtil::MURMUR_SEED);
+            uint64_t hash_value = HashUtil::murmur_hash64A(sv.data, sv.size, HashUtil::MURMUR_SEED);
             this->data(place).add(hash_value);
         }
     }
