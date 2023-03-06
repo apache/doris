@@ -17,9 +17,10 @@
 
 #include "service/backend_options.h"
 
-#include <algorithm>
-#include <ifaddrs.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
+
+#include <algorithm>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -45,7 +46,7 @@ bool BackendOptions::init() {
     if (!interfaceResult && !cidrResult) {
         return false;
     }
-    
+
     std::vector<InetAddress> hosts;
     Status status = get_hosts(&hosts);
 
@@ -135,8 +136,8 @@ bool BackendOptions::get_network_interfaces() {
     }
     LOG(INFO) << "network interfaces in conf: " << config::network_interfaces;
 
-    struct ifaddrs * if_addr_struct = nullptr;
-    void * tmp_addr_ptr = nullptr;
+    struct ifaddrs* if_addr_struct = nullptr;
+    void* tmp_addr_ptr = nullptr;
     getifaddrs(&if_addr_struct); 
 
     std::vector<std::string> nic_names =
@@ -144,9 +145,9 @@ bool BackendOptions::get_network_interfaces() {
     bool flag = false;
 
     for (auto& nic_name : nic_names) {
-        for (;if_addr_struct != nullptr; if_addr_struct = if_addr_struct->ifa_next) {
+        for (; if_addr_struct != nullptr; if_addr_struct = if_addr_struct->ifa_next) {
             if (nic_name == if_addr_struct->ifa_name) {
-                tmp_addr_ptr = &((struct sockaddr_in *)if_addr_struct->ifa_addr)->sin_addr;
+                tmp_addr_ptr = &((struct sockaddr_in*)if_addr_struct->ifa_addr)->sin_addr;
                 char address_buffer[INET_ADDRSTRLEN];
                 inet_ntop(AF_INET, tmp_addr_ptr, address_buffer, INET_ADDRSTRLEN);
                 _s_network_interfaces.push_back(address_buffer);
