@@ -30,17 +30,59 @@ namespace doris::vectorized {
         static constexpr auto name = #FUNCTION_NAME;                                               \
         using ResultDataType = DataTypeBitMap;                                                     \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
-                                    size_t input_rows_count, std::vector<BitmapValue>& res) {      \
-            auto& mid_data =                                                                       \
-                    assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();       \
+                                    size_t input_rows_count, std::vector<BitmapValue>& res,        \
+                                    IColumn* res_nulls) {                                          \
+            const ColumnUInt8::value_type* null_map_datas[col_size] = {nullptr};                   \
+            int nullable_cols_count = 0;                                                           \
+            ColumnUInt8::value_type* __restrict res_nulls_data = nullptr;                          \
+            if (res_nulls) {                                                                       \
+                res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();          \
+            }                                                                                      \
+            const ColumnBitmap::Container* data_ptr;                                               \
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {     \
+                const auto& nested_col_ptr = nullable->get_nested_column_ptr();                    \
+                null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();      \
+                data_ptr = &(assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data());  \
+            } else {                                                                               \
+                data_ptr = &(                                                                      \
+                        assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data());  \
+            }                                                                                      \
+            const auto& mid_data = *data_ptr;                                                      \
             for (size_t row = 0; row < input_rows_count; ++row) {                                  \
                 res[row] = mid_data[row];                                                          \
             }                                                                                      \
             for (size_t col = 1; col < col_size; ++col) {                                          \
-                auto& col_data =                                                                   \
-                        assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
+                if (auto* nullable =                                                               \
+                            check_and_get_column<ColumnNullable>(*argument_columns[col])) {        \
+                    const auto& nested_col_ptr = nullable->get_nested_column_ptr();                \
+                    null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();  \
+                    data_ptr =                                                                     \
+                            &(assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data()); \
+                } else {                                                                           \
+                    data_ptr = &(assert_cast<const ColumnBitmap*>(argument_columns[col].get())     \
+                                         ->get_data());                                            \
+                }                                                                                  \
+                const auto& col_data = *data_ptr;                                                  \
                 for (size_t row = 0; row < input_rows_count; ++row) {                              \
                     res[row] OP col_data[row];                                                     \
+                }                                                                                  \
+            }                                                                                      \
+            if (res_nulls_data) {                                                                  \
+                if (nullable_cols_count == col_size) {                                             \
+                    const auto* null_map_data = null_map_datas[0];                                 \
+                    for (size_t row = 0; row < input_rows_count; ++row) {                          \
+                        res_nulls_data[row] = null_map_data[row];                                  \
+                    }                                                                              \
+                    for (int i = 1; i < nullable_cols_count; ++i) {                                \
+                        const auto* null_map_data = null_map_datas[i];                             \
+                        for (size_t row = 0; row < input_rows_count; ++row) {                      \
+                            res_nulls_data[row] &= null_map_data[row];                             \
+                        }                                                                          \
+                    }                                                                              \
+                } else {                                                                           \
+                    for (size_t row = 0; row < input_rows_count; ++row) {                          \
+                        res_nulls_data[row] = 0;                                                   \
+                    }                                                                              \
                 }                                                                                  \
             }                                                                                      \
             return Status::OK();                                                                   \
@@ -54,11 +96,26 @@ namespace doris::vectorized {
         using TData = std::vector<BitmapValue>;                                                    \
         using ResTData = typename ColumnVector<Int64>::Container;                                  \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
-                                    size_t input_rows_count, ResTData& res) {                      \
-            TData vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();  \
+                                    size_t input_rows_count, ResTData& res, IColumn* res_nulls) {  \
+            TData vals;                                                                            \
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {     \
+                const auto& nested_col_ptr = nullable->get_nested_column_ptr();                    \
+                vals = assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data();         \
+            } else {                                                                               \
+                vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();    \
+            }                                                                                      \
             for (size_t col = 1; col < col_size; ++col) {                                          \
-                auto& col_data =                                                                   \
-                        assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
+                const ColumnBitmap::Container* col_data_ptr;                                       \
+                if (auto* nullable =                                                               \
+                            check_and_get_column<ColumnNullable>(*argument_columns[col])) {        \
+                    const auto& nested_col_ptr = nullable->get_nested_column_ptr();                \
+                    col_data_ptr =                                                                 \
+                            &(assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data()); \
+                } else {                                                                           \
+                    col_data_ptr = &(assert_cast<const ColumnBitmap*>(argument_columns[col].get()) \
+                                             ->get_data());                                        \
+                }                                                                                  \
+                const auto& col_data = *col_data_ptr;                                              \
                 for (size_t row = 0; row < input_rows_count; ++row) {                              \
                     vals[row] OP col_data[row];                                                    \
                 }                                                                                  \
@@ -92,10 +149,29 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         using ResultDataType = typename Impl::ResultDataType;
-        return std::make_shared<ResultDataType>();
+        if (std::is_same_v<Impl, BitmapOr>) {
+            bool has_nullable_arguments = false;
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i]->is_nullable()) {
+                    has_nullable_arguments = true;
+                    break;
+                }
+            }
+            auto result_type = std::make_shared<ResultDataType>();
+            return has_nullable_arguments ? make_nullable(result_type) : result_type;
+        } else {
+            return std::make_shared<ResultDataType>();
+        }
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
+    bool use_default_implementation_for_nulls() const override {
+        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+            return false;
+        } else {
+            return true;
+        }
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -113,13 +189,27 @@ public:
                 std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
                                    ColumnVector<ResultType>>;
         typename ColVecResult::MutablePtr col_res = nullptr;
+
+        typename ColumnUInt8::MutablePtr col_res_nulls;
+        auto& result_info = block.get_by_position(result);
+        // special case for bitmap_or
+        if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
+            col_res_nulls = ColumnUInt8::create(input_rows_count);
+        }
+
         col_res = ColVecResult::create();
 
         auto& vec_res = col_res->get_data();
         vec_res.resize(input_rows_count);
 
-        Impl::vector_vector(argument_columns, argument_size, input_rows_count, vec_res);
-        block.replace_by_position(result, std::move(col_res));
+        Impl::vector_vector(argument_columns, argument_size, input_rows_count, vec_res,
+                            col_res_nulls);
+        if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));
+        } else {
+            block.replace_by_position(result, std::move(col_res));
+        }
         return Status::OK();
     }
 };
