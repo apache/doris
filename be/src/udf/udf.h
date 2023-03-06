@@ -156,62 +156,6 @@ struct AnyVal {
     AnyVal(bool is_null) : is_null(is_null) {}
 };
 
-struct BigIntVal : public AnyVal {
-    int64_t val;
-
-    BigIntVal() : val(0) {}
-
-    BigIntVal(int64_t val) : val(val) {}
-
-    static BigIntVal null() {
-        BigIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const BigIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-
-    bool operator!=(const BigIntVal& other) const { return !(*this == other); }
-};
-
-struct DoubleVal : public AnyVal {
-    double val;
-
-    DoubleVal() : val(0.0) {}
-
-    DoubleVal(double val) : val(val) {}
-
-    static DoubleVal null() {
-        DoubleVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DoubleVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-
-    bool operator!=(const DoubleVal& other) const { return !(*this == other); }
-};
-
 // This object has a compatible storage format with boost::ptime.
 struct DateTimeVal : public AnyVal {
     // MySQL packet time
@@ -308,8 +252,6 @@ struct DecimalV2Val : public AnyVal {
     bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
 };
 
-using doris::BigIntVal;
-using doris::DoubleVal;
 using doris::DecimalV2Val;
 using doris::DateTimeVal;
 using doris::FunctionContext;
