@@ -62,6 +62,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -121,6 +122,7 @@ import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPrivilegeParams;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -1641,75 +1643,72 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TCheckAuthResult result = new TCheckAuthResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        try {
-            checkAuthImpl(request);
-        } catch (UserException e) {
-            LOG.warn("check auth failed.", e);
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
-            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        }
-        return result;
-    }
 
-    private void checkAuthImpl(TCheckAuthRequest request) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        // check username and password
+        // check account and password
         final String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
         List<UserIdentity> currentUser = Lists.newArrayList();
-        Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
-                currentUser);
+        try {
+            Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
+                    currentUser);
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
 
-        // check global/database/table/column/resourse permission
         Preconditions.checkState(currentUser.size() == 1);
         PrivPredicate predicate = getPrivPredicate(request.getPrivType());
         if (predicate == null) {
-            return;
+            return result;
         }
-        String glb = request.getGlb();
-        String db = request.getDb();
-        String tbl = request.getTbl();
-        String col = request.getCol();
-        String res = request.getRes();
-        if (Strings.isNullOrEmpty(glb) && Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl)
-                && Strings.isNullOrEmpty(col) && Strings.isNullOrEmpty(res)) {
-            return;
-        } else if (!Strings.isNullOrEmpty(glb)) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser.get(0), predicate)) {
-                throw new AuthenticationException("Access denied for this operation");
+        // check privilege
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        TPrivilegeParams privParams = request.getPrivParams();
+        String privLevel = privParams.getPrivLevel();
+        if ("glb".equalsIgnoreCase(privLevel)) {
+            if (!accessManager.checkGlobalPriv(currentUser.get(0), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Global permissions error");
             }
-        } else if (!Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl) && Strings.isNullOrEmpty(col)) {
-            String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
-                throw new AuthenticationException("Access denied for this operation");
+        } else if ("ctl".equalsIgnoreCase(privLevel)) {
+            if (!accessManager.checkCtlPriv(currentUser.get(0), privParams.getCtl(), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Catalog permissions error");
             }
-        } else if (!Strings.isNullOrEmpty(db) && !Strings.isNullOrEmpty(tbl) && Strings.isNullOrEmpty(col)) {
-            String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
-                throw new AuthenticationException("Access denied for this operation");
+        } else if ("db".equalsIgnoreCase(privLevel)) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privParams.getDb());
+            if (!accessManager.checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Database permissions error");
             }
-        } else if (!Strings.isNullOrEmpty(db) && !Strings.isNullOrEmpty(tbl) && !Strings.isNullOrEmpty(col)) {
-            String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-            if (!Env.getCurrentEnv().getAccessManager().checkColPriv(currentUser.get(0), fullDbName, tbl, col,
+        } else if ("tbl".equalsIgnoreCase(privLevel)) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privParams.getDb());
+            if (!accessManager.checkTblPriv(currentUser.get(0), fullDbName, privParams.getTbl(), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Table permissions error");
+            }
+        } else if ("col".equalsIgnoreCase(privLevel)) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privParams.getDb());
+            if (!accessManager.checkColPriv(currentUser.get(0), fullDbName, privParams.getTbl(), privParams.getCol(),
                     predicate)) {
-                throw new AuthenticationException("column-level authentication is not supported currently");
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Column permissions error");
             }
-        } else if (!Strings.isNullOrEmpty(res)) {
-            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(currentUser.get(0), res, predicate)) {
-                throw new AuthenticationException("Access denied for this operation");
+        } else if ("res".equalsIgnoreCase(privLevel)) {
+            if (!accessManager.checkResourcePriv(currentUser.get(0), privParams.getRes(), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Resourse permissions error");
             }
         } else {
-            throw new UserException("privilege level error in http auth request");
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("Privilege params error");
         }
+        return result;
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {

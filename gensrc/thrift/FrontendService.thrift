@@ -774,6 +774,15 @@ struct TConfirmUnusedRemoteFilesResult {
     1: optional list<Types.TTabletId> confirmed_tablets
 }
 
+struct TPrivilegeParams {
+    1: required string priv_level
+    2: optional string ctl
+    3: optional string db
+    4: optional string tbl
+    5: optional string col
+    6: optional string res
+}
+
 enum TPrivilegeType {
   SHOW = 0,
   SHOW_RESOURCES = 1,
@@ -793,13 +802,9 @@ struct TCheckAuthRequest {
     2: required string user
     3: required string passwd
     4: optional string user_ip
-    5: optional string glb
-    6: optional string db
-    7: optional string tbl
-    8: optional string col
-    9: optional string res
-    10: optional TPrivilegeType priv_type
-    11: optional i64 thrift_rpc_timeout_ms
+    5: optional TPrivilegeParams priv_params
+    6: optional TPrivilegeType priv_type
+    7: optional i64 thrift_rpc_timeout_ms
 }
 
 struct TCheckAuthResult {

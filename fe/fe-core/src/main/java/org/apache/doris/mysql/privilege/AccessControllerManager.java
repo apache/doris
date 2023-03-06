@@ -101,7 +101,7 @@ public class AccessControllerManager {
         return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
     }
 
-    private boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         return getAccessControllerOrDefault(ctl).checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
     }
