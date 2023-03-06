@@ -41,7 +41,7 @@ namespace doris {
 
 static StorageEngine* k_engine = nullptr;
 
-static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
+static const std::string kTestDir = "ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 static constexpr int64_t kTabletId = 10005;
