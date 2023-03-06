@@ -136,6 +136,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         transform(t_schema.name.begin(), t_schema.name.end(), lower_case_name.begin(), ::tolower);
         node_field->name = lower_case_name;
         node_field->type.type = TYPE_ARRAY;
+        node_field->type.add_sub_type(child->type);
         node_field->is_nullable = false;
         _next_schema_pos = curr_pos + 1;
     } else {
@@ -325,6 +326,7 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
 
         group_field->name = group_schema.name;
         group_field->type.type = TYPE_ARRAY;
+        group_field->type.add_sub_type(struct_field->type);
         group_field->is_nullable = false;
     } else {
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
@@ -392,7 +394,7 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
 
     list_field->name = first_level.name;
     list_field->type.type = TYPE_ARRAY;
-    list_field->type.children.push_back(list_field->children[0].type);
+    list_field->type.add_sub_type(list_field->children[0].type);
     list_field->is_nullable = is_optional;
 
     return Status::OK();
@@ -454,6 +456,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
 
     map_field->name = map_schema.name;
     map_field->type.type = TYPE_MAP;
+    map_field->type.add_sub_type(map_kv_field->type);
     map_field->is_nullable = is_optional;
 
     return Status::OK();
@@ -477,6 +480,9 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->name = struct_schema.name;
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
+    for (int i = 0; i < num_children; ++i) {
+        struct_field->type.add_sub_type(struct_field->children[i].type);
+    }
     return Status::OK();
 }
 

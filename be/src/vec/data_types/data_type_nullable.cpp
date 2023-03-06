@@ -68,7 +68,7 @@ void DataTypeNullable::to_string(const IColumn& column, size_t row_num,
     if (col_null.is_null_at(row_num)) {
         ostr.write("NULL", 4);
     } else {
-        get_nested_type()->to_string(col_null, row_num, ostr);
+        get_nested_type()->to_string(col_null.get_nested_column(), row_num, ostr);
     }
 }
 
