@@ -365,7 +365,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                         if (null_data[row_id] != 0) {
                             cur_batch->notNull[row_id] = 0;
                         } else {
-                            cur_batch->data[row_id] = buffer.data + offset;
+                            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;
                             offset += cur_batch->length[row_id];
                         }
                     }
