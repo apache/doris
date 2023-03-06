@@ -26,6 +26,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -39,7 +40,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.List;
 import java.util.Map;
 
 
@@ -84,7 +84,7 @@ public class JdbcResource extends Resource {
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CHECK_SUM = "checksum";
-    private static final List<String> ALL_PROPERTIES = Lists.newArrayList(
+    private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
             USER,
             PASSWORD,
@@ -93,11 +93,11 @@ public class JdbcResource extends Resource {
             TYPE,
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES
-    );
-    private static final List<String> OPTIONAL_PROPERTIES = Lists.newArrayList(
+    ).build();
+    private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES
-    );
+    ).build();
 
     // The default value of optional properties
     // if one optional property is not specified, will use default value
