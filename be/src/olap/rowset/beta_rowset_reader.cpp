@@ -250,7 +250,7 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (config::enable_storage_vectorization && _context->is_vec) {
+    if (config::enable_storage_vectorization) {
         do {
             auto s = _iterator->next_block_view(block_view);
             if (!s.ok()) {
