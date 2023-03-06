@@ -89,7 +89,7 @@ public:
     }
 
     static StringRef ltrim(const StringRef& str) {
-        if (str.is_null || str.size == 0) {
+        if (str.size == 0) {
             return str;
         }
         auto begin = 0;
@@ -119,7 +119,7 @@ public:
     }
 
     static StringRef trim(const StringRef& str) {
-        if (str.is_null || str.size == 0) {
+        if (str.size == 0) {
             return str;
         }
         return rtrim(ltrim(str));
@@ -141,7 +141,7 @@ public:
             int64_t result_end = dst.size - 1;
 
             // auto SIMD here
-            auto* __restrict l = dst.data;
+            auto* __restrict l = const_cast<char*>(dst.data);
             auto* __restrict r = str.data;
             for (; begin < end; ++begin, --result_end) {
                 l[result_end] = r[begin];
