@@ -24,14 +24,16 @@
 #include <vector>
 
 #include "common/config.h"
-#include "runtime/primitive_type.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/types.pb.h"
+#include "olap/olap_define.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris {
 
 extern const int HLL_COLUMN_DEFAULT_LEN;
 
 struct TPrimitiveType;
-class PTypeDesc;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
@@ -40,7 +42,7 @@ struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
-    static constexpr int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
+    static constexpr int MAX_VARCHAR_LENGTH = 65535;
     static constexpr int MAX_CHAR_LENGTH = 255;
     static constexpr int MAX_CHAR_INLINE_LENGTH = 128;
 
@@ -204,8 +206,6 @@ struct TypeDescriptor {
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
     bool is_variant_type() const { return type == TYPE_VARIANT; }
-
-    int get_slot_size() const { return ::doris::get_slot_size(type); }
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);

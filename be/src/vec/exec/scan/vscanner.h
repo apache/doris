@@ -57,6 +57,9 @@ protected:
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
+    // Not virtual, all child will call this method explictly
+    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+
 public:
     VScanNode* get_parent() { return _parent; }
 
@@ -117,7 +120,6 @@ public:
 protected:
     void _discard_conjuncts() {
         if (_vconjunct_ctx) {
-            _vconjunct_ctx->mark_as_stale();
             _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
             _vconjunct_ctx = nullptr;
         }

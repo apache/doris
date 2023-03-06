@@ -68,14 +68,13 @@ public:
         }
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
-        if (context->get_arg_type(0)->type == FunctionContext::Type::TYPE_CHAR ||
-            context->get_arg_type(0)->type == FunctionContext::Type::TYPE_VARCHAR ||
-            context->get_arg_type(0)->type == FunctionContext::Type::TYPE_STRING) {
+        if (context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_CHAR ||
+            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_VARCHAR ||
+            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(new StringValueSet());
         } else {
-            state->hybrid_set.reset(
-                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+            state->hybrid_set.reset(create_set(context->get_arg_type(0)->type));
         }
 
         DCHECK(context->get_num_args() >= 1);
@@ -197,7 +196,7 @@ public:
                 }
 
                 std::unique_ptr<HybridSetBase> hybrid_set(
-                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                        create_set(context->get_arg_type(0)->type));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {

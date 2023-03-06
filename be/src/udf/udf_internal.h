@@ -27,12 +27,14 @@
 #include <string>
 #include <vector>
 
+#include "runtime/types.h"
 #include "udf/udf.h"
 
 namespace doris {
 
 class RuntimeState;
 struct ColumnPtrWrapper;
+struct TypeDescriptor;
 
 // This class actually implements the interface of FunctionContext. This is split to
 // hide the details from the external header.
@@ -41,9 +43,9 @@ class FunctionContextImpl {
 public:
     /// Create a FunctionContext for a UDA. Identical to the UDF version except for the
     /// intermediate type. Caller is responsible for deleting it.
-    static doris_udf::FunctionContext* create_context(
-            RuntimeState* state, const doris_udf::FunctionContext::TypeDesc& return_type,
-            const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types);
+    static std::unique_ptr<doris::FunctionContext> create_context(
+            RuntimeState* state, const doris::TypeDescriptor& return_type,
+            const std::vector<doris::TypeDescriptor>& arg_types);
 
     ~FunctionContextImpl() {}
 
@@ -52,7 +54,7 @@ public:
     /// Returns a new FunctionContext with the same constant args, fragment-local state, and
     /// debug flag as this FunctionContext. The caller is responsible for calling delete on
     /// it.
-    doris_udf::FunctionContext* clone();
+    std::unique_ptr<doris::FunctionContext> clone();
 
     void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
 
@@ -60,7 +62,7 @@ public:
 
     std::string& string_result() { return _string_result; }
 
-    const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; }
+    const doris::TypeDescriptor& get_return_type() const;
 
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
@@ -69,13 +71,11 @@ public:
     }
 
 private:
-    friend class doris_udf::FunctionContext;
+    friend class doris::FunctionContext;
 
     // We use the query's runtime state to report errors and warnings. nullptr for test
     // contexts.
     RuntimeState* _state;
-
-    doris_udf::FunctionContext::DorisVersion _version;
 
     // Empty if there's no error
     std::string _error_msg;
@@ -88,10 +88,10 @@ private:
     std::shared_ptr<void> _fragment_local_fn_state;
 
     // Type descriptor for the return type of the function.
-    doris_udf::FunctionContext::TypeDesc _return_type;
+    doris::TypeDescriptor _return_type;
 
     // Type descriptors for each argument of the function.
-    std::vector<doris_udf::FunctionContext::TypeDesc> _arg_types;
+    std::vector<doris::TypeDescriptor> _arg_types;
 
     std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
 

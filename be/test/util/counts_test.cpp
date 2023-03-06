@@ -39,7 +39,7 @@ TEST_F(TCountsTest, TotalTest) {
     counts.increment(19, 1);
     counts.increment(7, 2);
 
-    doris_udf::DoubleVal result = counts.terminate(0.2);
+    doris::DoubleVal result = counts.terminate(0.2);
     EXPECT_EQ(1, result.val);
     uint8_t* writer = new uint8_t[counts.serialized_size()];
     uint8_t* type_reader = writer;
@@ -47,7 +47,7 @@ TEST_F(TCountsTest, TotalTest) {
 
     Counts other;
     other.unserialize(type_reader);
-    doris_udf::DoubleVal result1 = other.terminate(0.2);
+    doris::DoubleVal result1 = other.terminate(0.2);
     EXPECT_EQ(result.val, result1.val);
 
     Counts other1;

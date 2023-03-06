@@ -1451,14 +1451,14 @@ TEST_F(DateTimeValueTest, packed_time) {
     }
 
     {
-        doris_udf::DateTimeVal tv;
+        doris::DateTimeVal tv;
         tv.packed_time = 1830650338932162560L;
         tv.type = TIME_DATETIME;
         DateTimeValue v1 = DateTimeValue::from_datetime_val(tv);
         v1.to_string(buf);
         EXPECT_STREQ("2001-02-03 12:34:56", buf);
 
-        doris_udf::DateTimeVal tv2;
+        doris::DateTimeVal tv2;
         v1.to_datetime_val(&tv2);
 
         EXPECT_TRUE(tv == tv2);
