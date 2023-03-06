@@ -78,6 +78,25 @@ struct TDescribeTableResult {
   1: required list<TColumnDef> columns
 }
 
+// Arguments to DescribeTables, which returns a list of column descriptors for
+// given tables
+struct TDescribeTablesParams {
+  1: optional string db
+  2: required list<string> tables_name
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
+  6: optional bool show_hidden_columns = false
+  7: optional string catalog
+}
+
+// Results of a call to describeTable()
+struct TDescribeTablesResult {
+  // tables_offset means that the offset for each table in columns
+  1: required list<i32> tables_offset
+  2: required list<TColumnDef> columns
+}
+
 struct TShowVariableRequest {
     1: required i64 threadId
     2: required Types.TVarType varType
@@ -759,6 +778,7 @@ service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
     TDescribeTableResult describeTable(1: TDescribeTableParams params)
+    TDescribeTablesResult describeTables(1: TDescribeTablesParams params)
     TShowVariableResult showVariables(1: TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
 
