@@ -36,6 +36,7 @@ using std::upper_bound;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 RowBlock::RowBlock(TabletSchemaSPtr schema) : _capacity(0), _schema(schema) {
     _mem_pool.reset(new MemPool());
@@ -65,7 +66,7 @@ Status RowBlock::finalize(uint32_t row_num) {
         LOG(WARNING) << "Input row num is larger than internal row num."
                         "[row_num="
                      << row_num << "; _info.row_num=" << _info.row_num << "]";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<INVALID_ARGUMENT>();
     }
     _info.row_num = row_num;
     return Status::OK();

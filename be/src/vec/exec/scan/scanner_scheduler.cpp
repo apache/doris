@@ -252,13 +252,13 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         // Will remove this after file reader refactor.
         if (!status.ok() && (typeid(*scanner) != typeid(doris::vectorized::VFileScanner) ||
                              (typeid(*scanner) == typeid(doris::vectorized::VFileScanner) &&
-                              !status.is_not_found()))) {
+                              !status.is<ErrorCode::NOT_FOUND>()))) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             // Add block ptr in blocks, prevent mem leak in read failed
             blocks.push_back(block);
             break;
         }
-        if (status.is_not_found()) {
+        if (status.is<ErrorCode::NOT_FOUND>()) {
             // The only case in this if branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
             status = Status::OK();

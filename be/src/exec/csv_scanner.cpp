@@ -19,6 +19,8 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "common/logging.h"
+
 namespace doris {
 CsvScanner::CsvScanner(const std::vector<std::string>& csv_file_paths)
         : _is_open(false),

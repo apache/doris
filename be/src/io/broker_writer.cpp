@@ -85,7 +85,7 @@ Status BrokerWriter::open() {
                                        config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker writer client failed. "
-                         << "broker=" << broker_addr << ", status=" << status.get_error_msg();
+                         << "broker=" << broker_addr << ", status=" << status;
             return status;
         }
 
@@ -140,7 +140,7 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
                                        config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. "
-                         << "broker=" << broker_addr << ", status=" << status.get_error_msg();
+                         << "broker=" << broker_addr << ", status=" << status;
             return status;
         }
 
@@ -195,7 +195,7 @@ Status BrokerWriter::close() {
         BrokerServiceConnection client(client_cache(_env), broker_addr, 20000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. broker=" << broker_addr
-                         << ", status=" << status.get_error_msg();
+                         << ", status=" << status;
             return status;
         }
 
@@ -207,7 +207,7 @@ Status BrokerWriter::close() {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Reopen broker writer failed. broker=" << broker_addr
-                             << ", status=" << status.get_error_msg();
+                             << ", status=" << status;
                 return status;
             }
             client->closeWriter(response, request);

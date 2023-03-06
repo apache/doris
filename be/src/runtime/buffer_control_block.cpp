@@ -26,7 +26,7 @@
 namespace doris {
 
 void GetResultBatchCtx::on_failure(const Status& status) {
-    DCHECK(!status.ok()) << "status is ok, errmsg=" << status.get_error_msg();
+    DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
     status.to_protobuf(result->mutable_status());
     {
         // call by result sink
@@ -64,7 +64,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
             result->set_packet_seq(packet_seq);
             result->set_eos(eos);
         } else {
-            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
+            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st;
         }
     } else {
         result->set_empty_batch(true);

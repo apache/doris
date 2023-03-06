@@ -44,6 +44,7 @@
 #include "util/key_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 using std::string;
@@ -348,7 +349,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
                     RowBlockV2 block(schema, 100);
-                    EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+                    EXPECT_TRUE(iter->next_batch(&block).is<END_OF_FILE>());
                     EXPECT_EQ(0, block.num_rows());
                 }
                 // test seek, key (-2, -1)
@@ -379,7 +380,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     ASSERT_TRUE(segment->new_iterator(schema, read_opts, &iter).ok());
 
                     RowBlockV2 block(schema, 100);
-                    EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+                    EXPECT_TRUE(iter->next_batch(&block).is<END_OF_FILE>());
                     EXPECT_EQ(0, block.num_rows());
                 }
             }
@@ -831,7 +832,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
-            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_TRUE(st.is<END_OF_FILE>());
             EXPECT_EQ(0, block.num_rows());
         }
 
@@ -865,7 +866,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
-            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_TRUE(st.is<END_OF_FILE>());
             EXPECT_EQ(0, block.num_rows());
         }
     }
@@ -1076,7 +1077,7 @@ TEST_F(SegmentReaderWriterTest, TestLookupRowKey) {
             encode_key<RowCursor, true, true>(&encoded_key, row, tablet_schema->num_key_columns());
             RowLocation row_location;
             Status st = segment->lookup_row_key(encoded_key, &row_location);
-            EXPECT_EQ(st.is_not_found(), true);
+            EXPECT_EQ(st.is<NOT_FOUND>(), true);
         }
     }
 }
@@ -1139,7 +1140,7 @@ TEST_F(SegmentReaderWriterTest, TestLookupRowKeyWithSequenceCol) {
 
             RowLocation row_location;
             Status st = segment->lookup_row_key(encoded_key, &row_location);
-            EXPECT_EQ(st.is_not_found(), true);
+            EXPECT_EQ(st.is<NOT_FOUND>(), true);
         }
     }
 
@@ -1167,7 +1168,7 @@ TEST_F(SegmentReaderWriterTest, TestLookupRowKeyWithSequenceCol) {
 
         RowLocation row_location;
         Status st = segment->lookup_row_key(encoded_key, &row_location);
-        EXPECT_EQ(st.is_already_exist(), true);
+        EXPECT_EQ(st.is<ALREADY_EXIST>(), true);
     }
 }
 

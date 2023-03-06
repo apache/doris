@@ -20,6 +20,7 @@
 #include <sstream>
 
 namespace doris {
+using namespace ErrorCode;
 
 std::string StreamLoadContext::to_json() const {
     rapidjson::StringBuffer s;
@@ -41,13 +42,13 @@ std::string StreamLoadContext::to_json() const {
     // status
     writer.Key("Status");
     switch (status.code()) {
-    case TStatusCode::OK:
+    case OK:
         writer.String("Success");
         break;
-    case TStatusCode::PUBLISH_TIMEOUT:
+    case PUBLISH_TIMEOUT:
         writer.String("Publish Timeout");
         break;
-    case TStatusCode::LABEL_ALREADY_EXISTS:
+    case LABEL_ALREADY_EXISTS:
         writer.String("Label Already Exists");
         writer.Key("ExistingJobStatus");
         writer.String(existing_job_status.c_str());
@@ -61,7 +62,7 @@ std::string StreamLoadContext::to_json() const {
     if (status.ok()) {
         writer.String("OK");
     } else {
-        writer.String(status.get_error_msg().c_str());
+        writer.String(status.to_string().c_str());
     }
     // number_load_rows
     writer.Key("NumberTotalRows");
@@ -267,10 +268,10 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
     bool show_ok = true;
     writer.Key("status");
     switch (status.code()) {
-    case TStatusCode::OK:
+    case OK:
         writer.String("Success");
         break;
-    case TStatusCode::PUBLISH_TIMEOUT:
+    case PUBLISH_TIMEOUT:
         // treat PUBLISH_TIMEOUT as OK in mini load
         writer.String("Success");
         break;
@@ -284,7 +285,7 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
     if (status.ok() || show_ok) {
         writer.String("OK");
     } else {
-        writer.String(status.get_error_msg().c_str());
+        writer.String(status.to_string().c_str());
     }
     writer.EndObject();
     return s.GetString();

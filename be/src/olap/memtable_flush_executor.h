@@ -56,7 +56,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 class FlushToken {
 public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-            : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
+            : _flush_token(std::move(flush_pool_token)), _flush_status(ErrorCode::OK) {}
 
     Status submit(std::unique_ptr<MemTable> mem_table);
 
@@ -79,7 +79,7 @@ private:
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<ErrorCode> _flush_status;
+    std::atomic<int> _flush_status;
 
     FlushStatistic _stats;
 };

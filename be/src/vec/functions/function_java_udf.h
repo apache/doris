@@ -115,7 +115,7 @@ private:
             env->CallNonvirtualVoidMethodA(executor, parent->executor_cl_,
                                            parent->executor_close_id_, NULL);
             Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) LOG(WARNING) << s.get_error_msg();
+            if (!s.ok()) LOG(WARNING) << s;
             env->DeleteGlobalRef(executor);
         }
 

@@ -85,7 +85,7 @@ Status BrokerReader::open() {
                                        config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
-                         << ", status=" << status.get_error_msg();
+                         << ", status=" << status;
             return status;
         }
 
@@ -153,7 +153,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
                                        config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
-                         << ", status=" << status.get_error_msg();
+                         << ", status=" << status;
             return status;
         }
 
@@ -228,7 +228,7 @@ void BrokerReader::close() {
                                        config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
-                         << ", status=" << status.get_error_msg();
+                         << ", status=" << status;
             return;
         }
 
@@ -239,7 +239,7 @@ void BrokerReader::close() {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Close broker reader failed. broker=" << broker_addr
-                             << ", status=" << status.get_error_msg();
+                             << ", status=" << status;
                 return;
             }
             client->closeReader(response, request);

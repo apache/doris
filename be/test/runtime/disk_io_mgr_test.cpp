@@ -52,8 +52,8 @@ public:
     void write_validate_callback(int num_writes, DiskIoMgr::WriteRange** written_range,
                                  DiskIoMgr* io_mgr, DiskIoMgr::RequestContext* reader,
                                  int32_t* data, Status expected_status, const Status& status) {
-        if (expected_status.code() == TStatusCode::CANCELLED) {
-            EXPECT_TRUE(status.ok() || status.is_cancelled());
+        if (expected_status.code() == E_CANCELLED) {
+            EXPECT_TRUE(status.ok() || status.is<E_CANCELLED>());
         } else {
             EXPECT_TRUE(status.code() == expected_status.code());
         }

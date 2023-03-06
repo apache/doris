@@ -19,12 +19,14 @@
 
 #include <functional>
 
+#include "common/status.h"
 #include "olap/memtable.h"
 #include "runtime/thread_context.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class MemtableFlushTask final : public Runnable {
 public:
@@ -58,9 +60,9 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 }
 
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
-    ErrorCode s = _flush_status.load();
-    if (s != OLAP_SUCCESS) {
-        return Status::OLAPInternalError(s);
+    auto s = _flush_status.load();
+    if (s != OK) {
+        return Status::Error(s);
     }
     int64_t submit_task_time = MonotonicNanos();
     auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time);
@@ -74,14 +76,14 @@ void FlushToken::cancel() {
 
 Status FlushToken::wait() {
     _flush_token->wait();
-    ErrorCode s = _flush_status.load();
-    return s == OLAP_SUCCESS ? Status::OK() : Status::OLAPInternalError(s);
+    auto s = _flush_status.load();
+    return s == OK ? Status::OK() : Status::Error(s);
 }
 
 void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
     // If previous flush has failed, return directly
-    if (_flush_status.load() != OLAP_SUCCESS) {
+    if (_flush_status.load() != OK) {
         return;
     }
 
@@ -92,10 +94,10 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
         // If s is not ok, ignore the code, just use other code is ok
-        _flush_status.store(OLAP_ERR_OTHER_ERROR);
+        _flush_status.store(ErrorCode::INTERNAL_ERROR);
     }
 
-    if (_flush_status.load() != OLAP_SUCCESS) {
+    if (_flush_status.load() != OK) {
         return;
     }
 

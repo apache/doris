@@ -729,9 +729,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                            "push plan fragment to thread pool failed");
         return Status::InternalError(
-                strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
-                                    print_id(params.params.fragment_instance_id),
-                                    st.get_error_msg(), BackendOptions::get_localhost()));
+                "push plan fragment {} to thread pool failed. err = {}, BE: {}",
+                print_id(params.params.fragment_instance_id), st.to_string(),
+                BackendOptions::get_localhost());
     }
 
     return Status::OK();

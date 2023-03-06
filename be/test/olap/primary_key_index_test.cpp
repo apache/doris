@@ -28,6 +28,7 @@
 #include "util/key_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class PrimaryKeyIndexTest : public testing::Test {
 public:
@@ -127,7 +128,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         EXPECT_FALSE(exists);
         auto status = index_iterator->seek_at_or_after(&slice, &exact_match);
         EXPECT_FALSE(exact_match);
-        EXPECT_TRUE(status.is_not_found());
+        EXPECT_TRUE(status.is<NOT_FOUND>());
     }
 
     // read all key

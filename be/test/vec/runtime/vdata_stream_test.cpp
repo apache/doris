@@ -47,7 +47,7 @@ public:
         st.to_protobuf(response->mutable_status());
         st = stream_mgr->transmit_block(request, &done);
         if (!st.ok()) {
-            LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
+            LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
         }

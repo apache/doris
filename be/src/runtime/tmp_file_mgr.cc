@@ -88,7 +88,7 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
         Status status = FileSystemUtil::verify_is_directory(tmp_path.string());
         if (!status.ok()) {
             LOG(WARNING) << "Cannot use directory " << tmp_path.string()
-                         << " for scratch: " << status.get_error_msg();
+                         << " for scratch: " << status;
             continue;
         }
         // Find the disk id of tmp_path. Add the scratch directory if there isn't another
@@ -116,7 +116,7 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
             } else {
                 LOG(WARNING) << "Could not remove and recreate directory "
                              << scratch_subdir_path.string() << ": cannot use it for scratch. "
-                             << "Error was: " << status.get_error_msg();
+                             << "Error was: " << status;
             }
         }
     }
@@ -228,7 +228,7 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
         // First call to AllocateSpace. Create the file.
         status = FileSystemUtil::create_file(_path);
         if (!status.ok()) {
-            report_io_error(status.get_error_msg());
+            report_io_error(status.to_string());
             return status;
         }
         _disk_id = DiskInfo::disk_id(_path.c_str());
@@ -236,7 +236,7 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
     int64_t new_size = _current_size + write_size;
     status = FileSystemUtil::resize_file(_path, new_size);
     if (!status.ok()) {
-        report_io_error(status.get_error_msg());
+        report_io_error(status.to_string());
         return status;
     }
     *offset = _current_size;

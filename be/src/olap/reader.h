@@ -121,20 +121,20 @@ public:
     virtual Status init(const ReaderParams& read_params);
 
     // Read next row with aggregation.
-    // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
-    // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
+    // Return OK and set `*eof` to false when next row is read into `row_cursor`.
+    // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
                                              ObjectPool* agg_pool, bool* eof) = 0;
 
     // Read next block with aggregation.
-    // Return OLAP_SUCCESS and set `*eof` to false when next block is read
-    // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
+    // Return OK and set `*eof` to false when next block is read
+    // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     // TODO: Rethink here we still need mem_pool and agg_pool?
     virtual Status next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
                                                ObjectPool* agg_pool, bool* eof) {
-        return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
+        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
 
     virtual uint64_t merged_rows() const { return _merged_rows; }

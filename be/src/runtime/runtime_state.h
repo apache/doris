@@ -157,9 +157,6 @@ public:
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 
-    // If !status.ok(), appends the error to the _error_log
-    void log_error(const Status& status);
-
     // Returns true if the error log has not reached _max_errors.
     bool log_has_space() {
         std::lock_guard<std::mutex> l(_error_log_lock);

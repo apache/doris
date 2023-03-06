@@ -157,7 +157,7 @@ void BufferPool::DestroyPage(ClientHandle* client, PageHandle* handle) {
         // of cleaning up the page, freeing the buffer and updating reservations correctly.
         BufferHandle buffer;
         Status status = ExtractBuffer(client, handle, &buffer);
-        DCHECK(status.ok()) << status.get_error_msg();
+        DCHECK(status.ok()) << status;
         FreeBuffer(client, &buffer);
     } else {
         // In the unpinned case, no reservations are used so we just clean up the page.
@@ -597,9 +597,8 @@ string BufferPool::Client::DebugString() {
     std::lock_guard<std::mutex> lock(lock_);
     std::stringstream ss;
     ss << "<BufferPool::Client> " << this << " name: " << name_
-       << " write_status: " << write_status_.get_error_msg() << " buffers allocated "
-       << buffers_allocated_bytes_ << " num_pages: " << num_pages_
-       << " pinned_bytes: " << pinned_pages_.bytes()
+       << " write_status: " << write_status_ << " buffers allocated " << buffers_allocated_bytes_
+       << " num_pages: " << num_pages_ << " pinned_bytes: " << pinned_pages_.bytes()
        << " dirty_unpinned_bytes: " << dirty_unpinned_pages_.bytes()
        << " in_flight_write_bytes: " << in_flight_write_pages_.bytes();
     ss << "\n  " << pinned_pages_.size() << " pinned pages: ";

@@ -29,6 +29,7 @@
 #include "runtime/mem_pool.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 class PlainPageTest : public testing::Test {
@@ -160,7 +161,7 @@ public:
 
         if (bigger_than_biggest != nullptr) {
             status = page_decoder.seek_at_or_after_value(bigger_than_biggest, &exact_match);
-            EXPECT_EQ(status.code(), TStatusCode::NOT_FOUND);
+            EXPECT_EQ(status.code(), NOT_FOUND);
         }
     }
 };

@@ -45,6 +45,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 StorageEngine* k_engine = nullptr;
@@ -251,7 +252,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -293,7 +294,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(1, num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -335,7 +336,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
@@ -374,7 +375,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(100, num_rows_read);
             delete predicate;
