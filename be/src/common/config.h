@@ -265,8 +265,6 @@ CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 CONF_Bool(disable_storage_row_cache, "true");
 
-CONF_Bool(enable_storage_vectorization, "true");
-
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
