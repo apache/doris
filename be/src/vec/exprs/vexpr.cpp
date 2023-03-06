@@ -292,124 +292,6 @@ Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, Runtim
     return Status::OK();
 }
 
-FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& type) {
-    FunctionContext::TypeDesc out;
-    switch (type.type) {
-    case TYPE_BOOLEAN:
-        out.type = FunctionContext::TYPE_BOOLEAN;
-        break;
-    case TYPE_TINYINT:
-        out.type = FunctionContext::TYPE_TINYINT;
-        break;
-    case TYPE_SMALLINT:
-        out.type = FunctionContext::TYPE_SMALLINT;
-        break;
-    case TYPE_INT:
-        out.type = FunctionContext::TYPE_INT;
-        break;
-    case TYPE_BIGINT:
-        out.type = FunctionContext::TYPE_BIGINT;
-        break;
-    case TYPE_LARGEINT:
-        out.type = FunctionContext::TYPE_LARGEINT;
-        break;
-    case TYPE_FLOAT:
-        out.type = FunctionContext::TYPE_FLOAT;
-        break;
-    case TYPE_TIME:
-    case TYPE_TIMEV2:
-    case TYPE_DOUBLE:
-        out.type = FunctionContext::TYPE_DOUBLE;
-        break;
-    case TYPE_DATE:
-        out.type = FunctionContext::TYPE_DATE;
-        break;
-    case TYPE_DATETIME:
-        out.type = FunctionContext::TYPE_DATETIME;
-        break;
-    case TYPE_DATEV2:
-        out.type = FunctionContext::TYPE_DATEV2;
-        break;
-    case TYPE_DATETIMEV2:
-        out.type = FunctionContext::TYPE_DATETIMEV2;
-        break;
-    case TYPE_DECIMAL32:
-        out.type = FunctionContext::TYPE_DECIMAL32;
-        out.precision = type.precision;
-        out.scale = type.scale;
-        break;
-    case TYPE_DECIMAL64:
-        out.type = FunctionContext::TYPE_DECIMAL64;
-        out.precision = type.precision;
-        out.scale = type.scale;
-        break;
-    case TYPE_DECIMAL128I:
-        out.type = FunctionContext::TYPE_DECIMAL128I;
-        out.precision = type.precision;
-        out.scale = type.scale;
-        break;
-    case TYPE_VARCHAR:
-        out.type = FunctionContext::TYPE_VARCHAR;
-        out.len = type.len;
-        break;
-    case TYPE_HLL:
-        out.type = FunctionContext::TYPE_HLL;
-        out.len = type.len;
-        break;
-    case TYPE_OBJECT:
-        out.type = FunctionContext::TYPE_OBJECT;
-        break;
-    case TYPE_QUANTILE_STATE:
-        out.type = FunctionContext::TYPE_QUANTILE_STATE;
-        break;
-    case TYPE_CHAR:
-        out.type = FunctionContext::TYPE_CHAR;
-        out.len = type.len;
-        break;
-    case TYPE_DECIMALV2:
-        out.type = FunctionContext::TYPE_DECIMALV2;
-        // out.precision = type.precision;
-        // out.scale = type.scale;
-        break;
-    case TYPE_NULL:
-        out.type = FunctionContext::TYPE_NULL;
-        break;
-    case TYPE_ARRAY:
-        out.type = FunctionContext::TYPE_ARRAY;
-        for (const auto& t : type.children) {
-            out.children.push_back(VExpr::column_type_to_type_desc(t));
-        }
-        break;
-    case TYPE_MAP:
-        CHECK(type.children.size() == 2);
-        // only support map key is scalar
-        CHECK(!type.children[0].is_complex_type());
-        out.type = FunctionContext::TYPE_MAP;
-        for (const auto& t : type.children) {
-            out.children.push_back(VExpr::column_type_to_type_desc(t));
-        }
-        break;
-    case TYPE_STRUCT:
-        CHECK(type.children.size() >= 1);
-        out.type = FunctionContext::TYPE_STRUCT;
-        for (const auto& t : type.children) {
-            out.children.push_back(VExpr::column_type_to_type_desc(t));
-        }
-        break;
-    case TYPE_STRING:
-        out.type = FunctionContext::TYPE_STRING;
-        out.len = type.len;
-        break;
-    case TYPE_JSONB:
-        out.type = FunctionContext::TYPE_JSONB;
-        out.len = type.len;
-        break;
-    default:
-        DCHECK(false) << "Unknown type: " << type;
-    }
-    return out;
-}
-
 std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
@@ -479,13 +361,12 @@ Status VExpr::get_const_col(VExprContext* context,
 }
 
 void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* context) {
-    FunctionContext::TypeDesc return_type = VExpr::column_type_to_type_desc(_type);
-    std::vector<FunctionContext::TypeDesc> arg_types;
+    std::vector<TypeDescriptor> arg_types;
     for (int i = 0; i < _children.size(); ++i) {
-        arg_types.push_back(VExpr::column_type_to_type_desc(_children[i]->type()));
+        arg_types.push_back(_children[i]->type());
     }
 
-    _fn_context_index = context->register_func(state, return_type, arg_types);
+    _fn_context_index = context->register_function_context(state, _type, arg_types);
 }
 
 Status VExpr::init_function_context(VExprContext* context,
@@ -511,7 +392,7 @@ Status VExpr::init_function_context(VExprContext* context,
 
 void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                    const FunctionBasePtr& function) const {
-    if (_fn_context_index != -1 && !context->_stale) {
+    if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
         if (scope == FunctionContext::FRAGMENT_LOCAL) {

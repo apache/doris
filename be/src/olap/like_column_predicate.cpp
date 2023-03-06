@@ -25,21 +25,20 @@ namespace doris {
 
 template <>
 LikeColumnPredicate<true>::LikeColumnPredicate(bool opposite, uint32_t column_id,
-                                               doris_udf::FunctionContext* fn_ctx,
-                                               doris_udf::StringVal val)
+                                               doris::FunctionContext* fn_ctx, doris::StringVal val)
         : ColumnPredicate(column_id, opposite), pattern(reinterpret_cast<char*>(val.ptr), val.len) {
     _state = reinterpret_cast<StateType*>(
-            fn_ctx->get_function_state(doris_udf::FunctionContext::THREAD_LOCAL));
+            fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
     _state->search_state.clone(_like_state);
 }
 
 template <>
 LikeColumnPredicate<false>::LikeColumnPredicate(bool opposite, uint32_t column_id,
-                                                doris_udf::FunctionContext* fn_ctx,
-                                                doris_udf::StringVal val)
+                                                doris::FunctionContext* fn_ctx,
+                                                doris::StringVal val)
         : ColumnPredicate(column_id, opposite), pattern(val) {
     _state = reinterpret_cast<StateType*>(
-            fn_ctx->get_function_state(doris_udf::FunctionContext::THREAD_LOCAL));
+            fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
 }
 
 template <bool is_vectorized>

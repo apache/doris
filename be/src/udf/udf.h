@@ -27,11 +27,8 @@
 #include <iostream>
 #include <memory>
 #include <vector>
-
-// This is the only Doris header required to develop UDFs and UDAs. This header
-// contains the types that need to be used and the FunctionContext object. The context
-// object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
+
 class FunctionContextImpl;
 struct ColumnPtrWrapper;
 struct StringRef;
@@ -39,10 +36,7 @@ class BitmapValue;
 class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
-} // namespace doris
-
-namespace doris_udf {
-
+struct TypeDescriptor;
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
@@ -56,64 +50,6 @@ struct DecimalV2Val;
 // and manage memory.
 class FunctionContext {
 public:
-    enum DorisVersion {
-        V2_0,
-    };
-
-    enum Type {
-        INVALID_TYPE = 0,
-        TYPE_NULL,
-        TYPE_BOOLEAN,
-        TYPE_TINYINT,
-        TYPE_SMALLINT,
-        TYPE_INT,
-        TYPE_BIGINT,
-        TYPE_LARGEINT,
-        TYPE_FLOAT,
-        TYPE_DOUBLE,
-        TYPE_DECIMAL [[deprecated]],
-        TYPE_DATE,
-        TYPE_DATETIME,
-        TYPE_CHAR,
-        TYPE_VARCHAR,
-        TYPE_HLL,
-        TYPE_STRING,
-        TYPE_FIXED_BUFFER,
-        TYPE_DECIMALV2,
-        TYPE_OBJECT,
-        TYPE_ARRAY,
-        TYPE_MAP,
-        TYPE_STRUCT,
-        TYPE_QUANTILE_STATE,
-        TYPE_DATEV2,
-        TYPE_DATETIMEV2,
-        TYPE_TIMEV2,
-        TYPE_DECIMAL32,
-        TYPE_DECIMAL64,
-        TYPE_DECIMAL128I,
-        TYPE_JSONB,
-        TYPE_VARIANT
-    };
-
-    struct TypeDesc {
-        Type type;
-
-        /// Only valid if type == TYPE_DECIMAL
-        int precision;
-        int scale;
-
-        /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
-        int len;
-
-        // only valid if type == TYPE_ARRAY
-        std::vector<TypeDesc> children;
-    };
-
-    struct UniqueId {
-        int64_t hi;
-        int64_t lo;
-    };
-
     enum FunctionStateScope {
         /// Indicates that the function state for this FunctionContext's UDF is shared across
         /// the plan fragment (a query is divided into multiple plan fragments, each of which
@@ -135,12 +71,6 @@ public:
         /// thread-local.
         THREAD_LOCAL,
     };
-
-    // Returns the version of Doris that's currently running.
-    DorisVersion version() const;
-
-    // Returns the query_id for the current query.
-    UniqueId query_id() const;
 
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
@@ -177,7 +107,7 @@ public:
 
     // Returns the return type information of this function. For UDAs, this is the final
     // return type of the UDA (e.g., the type returned by the finalize function).
-    const TypeDesc& get_return_type() const;
+    const doris::TypeDescriptor& get_return_type() const;
 
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
@@ -185,7 +115,7 @@ public:
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
-    const TypeDesc* get_arg_type(int arg_idx) const;
+    const doris::TypeDescriptor* get_arg_type(int arg_idx) const;
 
     // Returns true if the arg_idx-th input argument (0 indexed, not including the
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
@@ -430,10 +360,10 @@ struct DecimalV2Val : public AnyVal {
     bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
 };
 
-using doris_udf::BigIntVal;
-using doris_udf::DoubleVal;
-using doris_udf::StringVal;
-using doris_udf::DecimalV2Val;
-using doris_udf::DateTimeVal;
-using doris_udf::FunctionContext;
-} // namespace doris_udf
+using doris::BigIntVal;
+using doris::DoubleVal;
+using doris::StringVal;
+using doris::DecimalV2Val;
+using doris::DateTimeVal;
+using doris::FunctionContext;
+} // namespace doris
