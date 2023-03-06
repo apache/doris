@@ -18,6 +18,7 @@
 #include "io/fs/remote_file_system.h"
 
 #include "gutil/strings/stringpiece.h"
+#include "io/buffered_reader.h"
 #include "io/cache/block/cached_remote_file_reader.h"
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_reader_options.h"
@@ -71,7 +72,7 @@ Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOption
     RETURN_IF_ERROR(open_file_internal(path, reader_options.file_size, &raw_reader));
     switch (reader_options.cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
-        *reader = raw_reader;
+        *reader = std::make_shared<BufferedReader>(raw_reader);
         break;
     }
     case io::FileCachePolicy::SUB_FILE_CACHE:
