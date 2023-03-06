@@ -2108,10 +2108,10 @@ struct MoneyFormatDecimalImpl {
                         size_t input_rows_count) {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                DecimalV2Val value = DecimalV2Val(decimalv2_column->get_element(i));
+                DecimalV2Value value = DecimalV2Value(decimalv2_column->get_element(i));
 
                 DecimalV2Value rounded(0);
-                DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
+                value.round(&rounded, 2, HALF_UP);
 
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
