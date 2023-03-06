@@ -183,8 +183,6 @@ ERRORS:
 
 25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
-26. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
-
 ### Example
 
 1. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', and use Label for deduplication. Specify a timeout of 100 seconds

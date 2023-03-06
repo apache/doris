@@ -172,8 +172,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
-    private String comment = "";
-
     private LoadTask.MergeType mergeType;
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
@@ -186,8 +184,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
-                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
-                                 String comment) {
+                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType) {
         this.labelName = labelName;
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
@@ -195,9 +192,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = new RoutineLoadDataSourceProperties(this.typeName, dataSourceProperties, false);
         this.mergeType = mergeType;
-        if (comment != null) {
-            this.comment = comment;
-        }
     }
 
     public String getName() {
@@ -306,10 +300,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public boolean isOffsetsForTimes() {
         return this.dataSourceProperties.isOffsetsForTimes();
-    }
-
-    public String getComment() {
-        return comment;
     }
 
     @Override

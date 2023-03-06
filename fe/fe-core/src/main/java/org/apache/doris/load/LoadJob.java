@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -126,10 +125,6 @@ public class LoadJob implements Writable {
     private TPriority priority;
 
     private long execMemLimit;
-
-    private String user = "";
-
-    private String comment = "";
 
     // save table names for auth check
     private Set<String> tableNames = Sets.newHashSet();
@@ -344,22 +339,6 @@ public class LoadJob implements Writable {
                     break;
             }
         }
-    }
-
-    public String getUser() {
-        return user;
-    }
-
-    public void setUser(String user) {
-        this.user = user;
-    }
-
-    public String getComment() {
-        return comment;
-    }
-
-    public void setComment(String comment) {
-        this.comment = comment;
     }
 
     public long getLoadStartTimeMs() {
@@ -854,8 +833,6 @@ public class LoadJob implements Writable {
         for (String tableName : tableNames) {
             Text.writeString(out, tableName);
         }
-        Text.writeString(out, user);
-        Text.writeString(out, comment);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -937,6 +914,15 @@ public class LoadJob implements Writable {
             resourceInfo = new TResourceInfo(user, group);
         }
 
+        if (version >= 3 && version < 7) {
+            // CHECKSTYLE OFF
+            // bos 3 parameters
+            String bosEndpoint = Text.readString(in);
+            String bosAccessKey = Text.readString(in);
+            String bosSecretAccessKey = Text.readString(in);
+            // CHECKSTYLE ON
+        }
+
         this.priority = TPriority.valueOf(Text.readString(in));
 
         // Broker description
@@ -981,13 +967,6 @@ public class LoadJob implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             tableNames.add(Text.readString(in));
-        }
-        if (version >= FeMetaVersion.VERSION_117) {
-            this.user = Text.readString(in);
-            this.comment = Text.readString(in);
-        } else {
-            this.user = "";
-            this.comment = "";
         }
     }
 
