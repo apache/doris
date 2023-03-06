@@ -35,6 +35,7 @@ import org.apache.doris.metric.AutoMappedMetric;
 import org.apache.doris.metric.GaugeMetricImpl;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -438,6 +439,15 @@ public class GlobalTransactionMgr implements Writable {
             } catch (AnalysisException e) {
                 LOG.warn("replay batch remove transactions failed. db " + dbId, e);
             }
+        }
+    }
+
+    public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation) {
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(operation.getDbId());
+            dbTransactionMgr.replayBatchRemoveTransaction(operation);
+        } catch (AnalysisException e) {
+            LOG.warn("replay batch remove transactions failed. db " + operation.getDbId(), e);
         }
     }
 
