@@ -80,7 +80,7 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
 
 inline size_t get_char_len(const StringRef& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+    for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
         char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         str_index->push_back(i);
         ++char_len;
@@ -2232,7 +2232,7 @@ private:
                 return 0;
             } else if (start_pos == 1) {
                 return 1;
-            } else if (start_pos > str.len) {
+            } else if (start_pos > str.size) {
                 return 0;
             } else {
                 return start_pos;
@@ -2243,7 +2243,7 @@ private:
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
         size_t char_len = get_char_len(str, &index);
-        if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
+        if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
             return 0;
         }
         StringRef substr_sv = StringRef(substr);

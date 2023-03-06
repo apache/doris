@@ -281,7 +281,7 @@ public:
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
                 const auto& pattern = pattern_col->get_data_at(0);
-                if (pattern.is_null) {
+                if (pattern.size == 0) {
                     return Status::OK();
                 }
 
