@@ -147,6 +147,7 @@ public:
                 l[result_end] = r[begin];
             }
         } else {
+            char* dst_data = const_cast<char*>(dst.data);
             for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
                 char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
                 // there exists occasion where the last character is an illegal UTF-8 one which returns
@@ -157,7 +158,7 @@ public:
                 if (offset > str.size) {
                     offset = str.size;
                 }
-                std::copy(str.data + i, str.data + offset, dst.data + str.size - offset);
+                std::copy(str.data + i, str.data + offset, dst_data + str.size - offset);
             }
         }
     }
