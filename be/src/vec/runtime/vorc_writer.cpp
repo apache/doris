@@ -162,7 +162,7 @@ void VOrcWriterWrapper::close() {
                 while (buffer.size < offset + len) {                                               \
                     char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
                     memcpy(new_ptr, buffer.data, buffer.size);                                     \
-                    free(buffer.data);                                                             \
+                    free(const_cast<char*>(buffer.data));                                          \
                     buffer.data = (uint8_t*)new_ptr;                                               \
                     buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                  \
                 }                                                                                  \
@@ -187,7 +187,7 @@ void VOrcWriterWrapper::close() {
             while (buffer.size < offset + len) {                                                   \
                 char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
                 memcpy(new_ptr, buffer.data, buffer.size);                                         \
-                free(buffer.data);                                                                 \
+                free(const_cast<char*>(buffer.data));                                              \
                 buffer.data = (uint8_t*)new_ptr;                                                   \
                 buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                      \
             }                                                                                      \
@@ -352,7 +352,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                             while (buffer.size < offset + len) {
                                 char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);
                                 memcpy(new_ptr, buffer.data, buffer.size);
-                                free(buffer.data);
+                                free(const_cast<char*>(buffer.data));
                                 buffer.data = new_ptr;
                                 buffer.size = buffer.size + BUFFER_UNIT_SIZE;
                             }
@@ -379,7 +379,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                         while (buffer.size < offset + len) {
                             char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);
                             memcpy(new_ptr, buffer.data, buffer.size);
-                            free(buffer.data);
+                            free(const_cast<char*>(buffer.data));
                             buffer.data = new_ptr;
                             buffer.size = buffer.size + BUFFER_UNIT_SIZE;
                         }
@@ -509,7 +509,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
     _writer->add(*row_batch);
     _cur_written_rows += sz;
 
-    free(buffer.data);
+    free(const_cast<char*>(buffer.data));
     return Status::OK();
 }
 
