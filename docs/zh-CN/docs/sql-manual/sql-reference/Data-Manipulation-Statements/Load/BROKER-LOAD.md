@@ -41,8 +41,7 @@ data_desc1[, data_desc2, ...]
 )
 WITH BROKER broker_name
 [broker_properties]
-[load_properties]
-[COMMENT "comments"];
+[load_properties];
 ```
 
 - `load_label`
@@ -186,8 +185,6 @@ WITH BROKER broker_name
       
       布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
--  <version since="1.2.3" type="inline"> comment </version>
-  - 指定导入任务的备注信息。可选参数。
 ### Example
 
 1. 从 HDFS 导入一批数据

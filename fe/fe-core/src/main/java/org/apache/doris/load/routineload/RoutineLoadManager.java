@@ -154,7 +154,6 @@ public class RoutineLoadManager implements Writable {
         }
 
         routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
-        routineLoadJob.setComment(createRoutineLoadStmt.getComment());
         addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
     }
 

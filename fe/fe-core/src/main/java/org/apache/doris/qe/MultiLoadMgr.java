@@ -346,15 +346,7 @@ public class MultiLoadMgr {
             Map<String, String> brokerProperties = Maps.newHashMap();
             brokerProperties.put(BrokerDesc.MULTI_LOAD_BROKER_BACKEND_KEY, backendId.toString());
             BrokerDesc brokerDesc = new BrokerDesc(BrokerDesc.MULTI_LOAD_BROKER, brokerProperties);
-
-            String comment = "multi load";
-            if (properties.containsKey(LoadStmt.KEY_COMMENT)) {
-                comment = properties.get(LoadStmt.KEY_COMMENT);
-                properties.remove(LoadStmt.KEY_COMMENT);
-            }
-
-            properties.remove(LoadStmt.KEY_COMMENT);
-            LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties, comment);
+            LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties);
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
             loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());

@@ -287,14 +287,13 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     }
                     StreamLoadRecord streamLoadRecord =
                             new StreamLoadRecord(streamLoadItem.getLabel(), streamLoadItem.getDb(),
-                                    streamLoadItem.getTbl(), streamLoadItem.getUserIp(),
+                                    streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
                                     streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
                                     String.valueOf(streamLoadItem.getTotalRows()),
                                     String.valueOf(streamLoadItem.getLoadedRows()),
                                     String.valueOf(streamLoadItem.getFilteredRows()),
                                     String.valueOf(streamLoadItem.getUnselectedRows()),
-                                    String.valueOf(streamLoadItem.getLoadBytes()),
-                                    startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment());
+                                    String.valueOf(streamLoadItem.getLoadBytes()), startTime, finishTime);
 
                     String cluster = streamLoadItem.getCluster();
                     if (Strings.isNullOrEmpty(cluster)) {
