@@ -86,24 +86,20 @@ suite("test_add_drop_index", "inverted_index"){
     }
     assertEquals(create_dup_index_result, "fail")
     // case1.3 create duplicate different index for one colume with same name
-    /*
     sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result[1][2], "age_idx_diff")
-    */
     
     // case1.4 drop index
     def drop_result = sql "drop index age_idx on ${indexTbName1}"
     logger.info("drop index age_idx on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
-    /*
     drop_result = sql "drop index age_idx_diff on ${indexTbName1}"
     logger.info("drop index age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    */
 
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
