@@ -22,11 +22,6 @@ namespace doris::vectorized {
 // auto spread at nullable condition, null value do not participate aggregate
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {
     // add a suffix to the function name here to distinguish special functions of agg reader
-    auto register_function = [&](const std::string& name, const AggregateFunctionCreator& creator,
-                                 bool is_nullable) {
-        factory.register_function(name + AGG_READER_SUFFIX, creator, is_nullable);
-        factory.register_function(name + AGG_LOAD_SUFFIX, creator, is_nullable);
-    };
     auto register_function_both = [&](const std::string& name,
                                       const AggregateFunctionCreator& creator) {
         factory.register_function_both(name + AGG_READER_SUFFIX, creator);
@@ -37,8 +32,8 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     register_function_both("max", create_aggregate_function_max);
     register_function_both("min", create_aggregate_function_min);
     register_function_both("bitmap_union", create_aggregate_function_bitmap_union);
-    register_function("hll_union", create_aggregate_function_HLL_union<false>, false);
-    register_function("hll_union", create_aggregate_function_HLL_union<true>, true);
+    register_function_both("hll_union",
+                           create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);
 }
 
 // only replace function in load/reader do different agg operation.
