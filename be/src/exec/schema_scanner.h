@@ -94,7 +94,8 @@ public:
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 
 protected:
-    Status fill_dest_column(vectorized::Block* block, void* data, const ColumnDesc& slot_desc);
+    Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+                                      const std::vector<void*>& datas);
     Status create_tuple_desc(ObjectPool* pool);
 
     bool _is_init;
