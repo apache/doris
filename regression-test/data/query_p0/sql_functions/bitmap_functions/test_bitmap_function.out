@@ -90,13 +90,85 @@ false
 1	2
 2	2
 3	1
-4	0
+4	1
+
+-- !sql_bitmap_or_count6 --
+1	2
+2	2
+3	1
+4	1
 
 -- !sql_bitmap_or9 --
-1	1,11
-2	2,22
-3	3
-4	
+1	2
+2	2
+
+-- !sql_bitmap_or_count7 --
+1	2
+2	2
+
+-- !sql_bitmap_or10 --
+1	11,111
+2	22,222
+3	33
+4	44
+
+-- !sql_bitmap_or11 --
+1	11,111
+2	22,222
+
+-- !sql_bitmap_or12 --
+1	2
+2	2
+3	1
+4	1
+
+-- !sql_bitmap_or_count8 --
+1	2
+2	2
+3	1
+4	1
+
+-- !sql_bitmap_or13 --
+1	2
+2	2
+
+-- !sql_bitmap_or_count9 --
+1	2
+2	2
+
+-- !sql_bitmap_or14 --
+1	11,111
+2	22,222
+3	33
+4	44
+
+-- !sql_bitmap_or15 --
+1	11,111
+2	22,222
+
+-- !sql_bitmap_or16_0 --
+false
+
+-- !sql_bitmap_or16_1 --
+true
+
+-- !sql_bitmap_or16 --
+true
+
+-- !sql_bitmap_or17 --
+0
+
+-- !sql_bitmap_or_count10 --
+\N
+
+-- !sql_bitmap_or18 --
+\N
+
+-- !sql_bitmap_or19 --
+true
+
+-- !sql_bitmap_or21 --
+\N
 
 -- !sql --
 0
@@ -130,12 +202,6 @@ false
 
 -- !sql_bitmap_or_count5 --
 6
-
--- !sql_bitmap_or_count6 --
-1	2
-2	2
-3	1
-4	0
 
 -- !sql --
 2

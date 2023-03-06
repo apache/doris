@@ -2109,6 +2109,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             return false;
         }
+        if (fn.functionName().equalsIgnoreCase("bitmap_or")
+                || fn.functionName().equalsIgnoreCase("bitmap_or_count")) {
+            for (Expr expr : children) {
+                if (!expr.isNullable()) {
+                    return false;
+                }
+            }
+            return true;
+        }
         return true;
     }
 
