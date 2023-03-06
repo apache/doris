@@ -141,8 +141,8 @@ public:
     Status list(const Path& path, std::vector<Path>* files) override {
         std::vector<Path> local_paths;
         RETURN_IF_ERROR(_local_fs->list(get_remote_path(path), &local_paths));
-        for (Path path : local_paths) {
-            files->emplace_back(path.string().substr(config::storage_root_path.size() + 1));
+        for (Path local_path : local_paths) {
+            files->emplace_back(fmt::format("remote/{}/{}", path, local_path.string()));
         }
         return Status::OK();
     }
@@ -375,6 +375,26 @@ TEST_F(TabletCooldownTest, normal) {
     st = std::static_pointer_cast<BetaRowset>(rs)->load_segments(&segments);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_EQ(segments.size(), 1);
+
+    std::vector<Path> files;
+    ASSERT_EQ(Status::OK(), io::global_local_filesystem()->list(get_remote_path("data"), &files));
+    printf("list: %s\n", get_remote_path("data").c_str());
+    for (auto file : files) {
+        printf("file: %s\n", file.string().c_str());
+    }
+    files.clear();
+    ASSERT_EQ(Status::OK(), io::global_local_filesystem()->list(get_remote_path(fmt::format("data/{}", kTabletId)), &files));
+    printf("list: %s\n", get_remote_path(fmt::format("data/{}", kTabletId)).c_str());
+    for (auto file : files) {
+        printf("file: %s\n", file.string().c_str());
+    }
+    files.clear();
+    ASSERT_EQ(Status::OK(), io::global_local_filesystem()->list(get_remote_path(fmt::format("data/{}", kTabletId2)), &files));
+    printf("list: %s\n", get_remote_path(fmt::format("data/{}", kTabletId2)).c_str());
+    for (auto file : files) {
+        printf("file: %s\n", file.string().c_str());
+    }
+    files.clear();
 
     st = io::global_local_filesystem()->link_file(
             get_remote_path(fmt::format("data/{}/{}.meta", kTabletId, kReplicaId)),
