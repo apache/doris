@@ -138,7 +138,7 @@ bool BackendOptions::get_network_interfaces() {
 
     struct ifaddrs* if_addr_struct = nullptr;
     void* tmp_addr_ptr = nullptr;
-    getifaddrs(&if_addr_struct); 
+    getifaddrs(&if_addr_struct);
 
     std::vector<std::string> nic_names =
             strings::Split(config::network_interfaces, PRIORITY_CIDR_SEPARATOR);
