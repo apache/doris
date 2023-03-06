@@ -243,8 +243,7 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
     if (start + length > src_concrete.size()) {
         LOG(FATAL) << "Parameter out of bound in ColumnMap::insert_range_from method. [start("
                    << std::to_string(start) << ") + length(" << std::to_string(length)
-                   << ") > offsets.size(" << std::to_string(src_concrete.size())
-                   << ")]";
+                   << ") > offsets.size(" << std::to_string(src_concrete.size()) << ")]";
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
