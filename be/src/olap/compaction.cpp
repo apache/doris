@@ -434,11 +434,13 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
             if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-                std::string err_msg =
-                        "The merged rows is not equal to missed rows in rowid conversion";
-                DCHECK(stats != nullptr || stats->merged_rows == missed_rows) << err_msg;
+                std::string err_msg = fmt::format(
+                        "cumulative compaction: the merged rows({}) is not equal to missed "
+                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        stats->merged_rows, missed_rows, _tablet->tablet_id(), _tablet->table_id());
+                DCHECK(stats == nullptr || stats->merged_rows == missed_rows) << err_msg;
                 if (stats != nullptr && stats->merged_rows != missed_rows) {
-                    return Status::InternalError(err_msg);
+                    LOG(WARNING) << err_msg;
                 }
             }
 
