@@ -38,8 +38,6 @@ protected:
     Status _init_scanners(std::list<VScanner*>* scanners) override;
 
 private:
-    VScanner* _create_scanner(const TFileScanRange& scan_range);
-
     std::vector<TScanRangeParams> _scan_ranges;
     KVCache<std::string> _kv_cache;
 };
