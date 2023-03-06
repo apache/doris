@@ -253,6 +253,40 @@ suite("test_bitmap_function") {
     // qt_sql_bitmap_or20 """ select bitmap_count(bitmap_or(null, null))"""
     qt_sql_bitmap_or21 """ select bitmap_to_string(bitmap_or(null, null))"""
 
+    sql """ drop view if exists v1 """
+    sql """ drop view if exists v2 """
+    sql """
+        create view v1 as
+        (select
+          l.dt ldt,
+          l.id lid,
+          r.dt rdt,
+          r.id rid
+        from
+          test_bitmap_or1 l
+          left join test_bitmap_or2 r on l.dt = r.dt
+        where r.id is null);
+    """
+    sql """
+        create view v2 as
+        (select
+          l.dt ldt,
+          l.id lid,
+          r.dt rdt,
+          r.id rid
+        from
+          test_bitmap_or1 l
+          right join test_bitmap_or2 r on l.dt = r.dt
+        where l.id is null);
+    """
+
+    // test bitmap_or of all non-const null column values
+    qt_sql_bitmap_or22_0 """ select ldt, bitmap_count(lid), bitmap_count(rid) from v1 where rid is null order by ldt; """
+    qt_sql_bitmap_or22_1 """ select rdt, bitmap_count(lid), bitmap_count(rid) from v2 where lid is null order by rdt; """
+    qt_sql_bitmap_or22 """ select v1.ldt, v1.rdt, v2.ldt, v2.rdt, bitmap_or(v1.rid, v2.lid) is null from v1, v2 order by v1.ldt, v2.rdt; """
+    qt_sql_bitmap_or_count11 """ select v1.ldt, v1.rdt, v2.ldt, v2.rdt, bitmap_or_count(v1.rid, v2.lid) from v1, v2 order by v1.ldt, v2.rdt; """
+    qt_sql_bitmap_or23 """ select v1.ldt, v1.rdt, v2.ldt, v2.rdt, bitmap_to_string(bitmap_or(v1.rid, v2.lid)) from v1, v2 order by v1.ldt, v2.rdt; """
+
     // bitmap_and_count
     qt_sql """ select bitmap_and_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
     qt_sql """ select bitmap_and_count(bitmap_from_string('1,2,3'),bitmap_from_string('1,2,3')) """

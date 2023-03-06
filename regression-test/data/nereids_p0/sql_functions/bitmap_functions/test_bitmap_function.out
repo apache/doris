@@ -170,6 +170,25 @@ true
 -- !sql_bitmap_or21 --
 \N
 
+-- !sql_bitmap_or22_0 --
+3	1	0
+4	1	0
+
+-- !sql_bitmap_or22_1 --
+5	0	1
+
+-- !sql_bitmap_or22 --
+3	\N	\N	5	true
+4	\N	\N	5	true
+
+-- !sql_bitmap_or_count11 --
+3	\N	\N	5	\N
+4	\N	\N	5	\N
+
+-- !sql_bitmap_or23 --
+3	\N	\N	5	\N
+4	\N	\N	5	\N
+
 -- !sql --
 0
 
