@@ -31,7 +31,6 @@ void DumpStackTraceToString(std::string* stacktrace);
 namespace doris {
 bvar::LatencyRecorder g_util_stack_trace_latency("doris_util", "stack_trace");
 
-
 // `boost::stacktrace::stacktrace()` has memory leak, so use the glog internal func to print stacktrace.
 // The reason for the boost::stacktrace memory leak is that a state is saved in the thread local of each
 // thread but is not actively released. Refer to:
