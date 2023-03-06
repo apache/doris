@@ -814,8 +814,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     // make first offset
     auto offsets_col = ColumnArray::ColumnOffsets::create();
 
+    // Now map column offsets data layout in memory is [3, 6, 9], and in disk should be [0, 3, 6, 9]
     _offsets.reserve(offsets.size() + 1);
-    _offsets.push_back(_row_pos);
+    _offsets.push_back(_row_pos); // _offsets start with current map offsets
     _offsets.insert_assume_reserved(offsets.begin(), offsets.end());
 
     int64_t start_index = _row_pos - 1;
@@ -832,6 +833,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _value_convertor->set_source_column(value_typed_column, start, size);
     _value_convertor->convert_to_olap();
 
+    // todo (Amory). put this value into MapValue
     _results[0] = (void*)size;
     _results[1] = _offsets.data();
     _results[2] = _key_convertor->get_data();

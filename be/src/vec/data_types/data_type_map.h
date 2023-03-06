@@ -40,7 +40,7 @@ private:
 public:
     static constexpr bool is_parametric = true;
 
-    DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_);
+    DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Map; }
     std::string do_get_name() const override {

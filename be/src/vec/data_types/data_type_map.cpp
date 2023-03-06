@@ -21,9 +21,9 @@
 
 namespace doris::vectorized {
 
-DataTypeMap::DataTypeMap(const DataTypePtr& key, const DataTypePtr& value) {
-    key_type = key;
-    value_type = value;
+DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_) {
+    key_type = key_type_;
+    value_type = value_type_;
 }
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
@@ -177,14 +177,18 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
             StringRef key_element(rb.position(), rb.count());
             bool has_quota = false;
             if (!next_slot_from_string(rb, key_element, has_quota)) {
-                map_column->pop_back(element_num);
+                // pop this current row which already put element_num item into this row.
+                map_column->get_keys().pop_back(element_num);
+                map_column->get_values().pop_back(element_num);
                 return Status::InvalidArgument("Cannot read map key from text '{}'",
                                                key_element.to_string());
             }
             if (!is_empty_null_element(key_element, &nested_key_column, has_quota)) {
                 ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
                 if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
-                    map_column->pop_back(element_num);
+                    // pop this current row which already put element_num item into this row.
+                    map_column->get_keys().pop_back(element_num);
+                    map_column->get_values().pop_back(element_num);
                     return st;
                 }
             }
@@ -192,14 +196,17 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
             has_quota = false;
             StringRef value_element(rb.position(), rb.count());
             if (!next_slot_from_string(rb, value_element, has_quota)) {
-                map_column->pop_back(element_num);
+                // +1 just because key column already put succeed , but element_num not refresh here
+                map_column->get_keys().pop_back(element_num + 1);
+                map_column->get_values().pop_back(element_num);
                 return Status::InvalidArgument("Cannot read map value from text '{}'",
                                                value_element.to_string());
             }
             if (!is_empty_null_element(value_element, &nested_val_column, has_quota)) {
                 ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
                 if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
-                    map_column->pop_back(element_num);
+                    map_column->get_keys().pop_back(element_num + 1);
+                    map_column->get_values().pop_back(element_num);
                     return st;
                 }
             }

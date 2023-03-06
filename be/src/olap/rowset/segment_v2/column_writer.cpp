@@ -990,6 +990,8 @@ Status MapColumnWriter::init() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->init());
     }
+    // here register_flush_page_callback to call this.put_extra_info_in_page()
+    // when finish cur data page
     _offsets_writer->register_flush_page_callback(this);
     for (auto& sub_writer : _kv_writers) {
         RETURN_IF_ERROR(sub_writer->init());
@@ -1031,10 +1033,13 @@ Status MapColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t**
 
 // write key value data with offsets
 Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    auto kv_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+    // data_ptr contains
+    // [size, offset_ptr, key_data_ptr, val_data_ptr, k_nullmap_ptr, v_nullmap_pr]
+    // which converted results from olap_map_convertor and later will use a structure to replace it
+    auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
     // total number length
-    size_t element_cnt = size_t((unsigned long)(*kv_ptr));
-    auto offset_data = *(kv_ptr + 1);
+    size_t element_cnt = size_t((unsigned long)(*data_ptr));
+    auto offset_data = *(data_ptr + 1);
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
     RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
 
@@ -1042,8 +1047,8 @@ Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         return Status::OK();
     }
     for (size_t i = 0; i < 2; ++i) {
-        auto data = *(kv_ptr + 2 + i);
-        auto nested_null_map = *(kv_ptr + 2 + 2 + i);
+        auto data = *(data_ptr + 2 + i);
+        auto nested_null_map = *(data_ptr + 2 + 2 + i);
         RETURN_IF_ERROR(_kv_writers[i]->append(reinterpret_cast<const uint8_t*>(nested_null_map),
                                                reinterpret_cast<const void*>(data), element_cnt));
     }

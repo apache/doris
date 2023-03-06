@@ -109,25 +109,7 @@ Field ColumnMap::operator[](size_t n) const {
 
 // here to compare to below
 void ColumnMap::get(size_t n, Field& res) const {
-    Map map(2);
-    size_t start_offset = offset_at(n);
-    size_t element_size = size_at(n);
-
-    if (element_size > max_array_size_as_field) {
-        LOG(FATAL) << "element size " << start_offset
-                   << " is too large to be manipulated as single map field,"
-                   << "maximum size " << max_array_size_as_field;
-    }
-
-    Array k(element_size), v(element_size);
-
-    for (size_t i = 0; i < element_size; ++i) {
-        keys_column->get(i, k[i]);
-        values_column->get(i, v[i]);
-    }
-    map.push_back(k);
-    map.push_back(v);
-    res = map;
+    res = operator[](n);
 }
 
 StringRef ColumnMap::get_data_at(size_t n) const {
@@ -163,11 +145,7 @@ void ColumnMap::pop_back(size_t n) {
     DCHECK(n <= offsets_data.size());
     size_t elems_size = offsets_data.back() - offset_at(offsets_data.size() - n);
 
-    if (keys_column->size() > values_column->size()) {
-        keys_column->pop_back(keys_column->size() - values_column->size());
-    } else if (keys_column->size() < values_column->size()) {
-        values_column->pop_back(values_column->size() - keys_column->size());
-    }
+    DCHECK_EQ(keys_column->size(), values_column->size());
     if (elems_size) {
         keys_column->pop_back(elems_size);
         values_column->pop_back(elems_size);
@@ -188,10 +166,8 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
                (get_values().is_nullable() && !src.get_values().is_nullable())) {
         DCHECK(false);
     } else {
-        keys_column->insert_range_from(assert_cast<const ColumnMap&>(src_).get_keys(), offset,
-                                       size);
-        values_column->insert_range_from(assert_cast<const ColumnMap&>(src_).get_values(), offset,
-                                         size);
+        keys_column->insert_range_from(src.get_keys(), offset, size);
+        values_column->insert_range_from(src.get_values(), offset, size);
     }
 
     get_offsets().push_back(get_offsets().back() + size);
@@ -212,9 +188,9 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);
 
-    char* pos = arena.alloc_continue(2 * sizeof(array_size), begin);
-    memcpy(pos, &array_size, 2 * sizeof(array_size));
-    StringRef res(pos, 2 * sizeof(array_size));
+    char* pos = arena.alloc_continue(sizeof(array_size), begin);
+    memcpy(pos, &array_size, sizeof(array_size));
+    StringRef res(pos, sizeof(array_size));
 
     for (size_t i = 0; i < array_size; ++i) {
         auto value_ref = get_keys().serialize_value_into_arena(offset + i, arena, begin);
@@ -264,10 +240,10 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
 
     const ColumnMap& src_concrete = assert_cast<const ColumnMap&>(src);
 
-    if (start + length > src_concrete.get_offsets().size()) {
+    if (start + length > src_concrete.size()) {
         LOG(FATAL) << "Parameter out of bound in ColumnMap::insert_range_from method. [start("
                    << std::to_string(start) << ") + length(" << std::to_string(length)
-                   << ") > offsets.size(" << std::to_string(src_concrete.get_offsets().size())
+                   << ") > offsets.size(" << std::to_string(src_concrete.size())
                    << ")]";
     }
 
@@ -379,8 +355,7 @@ void ColumnMap::reserve(size_t n) {
 }
 
 size_t ColumnMap::byte_size() const {
-    return keys_column->byte_size() + values_column->byte_size() +
-           get_offsets().size() * sizeof(get_offsets()[0]);
+    return keys_column->byte_size() + values_column->byte_size() + offsets_column->byte_size();
     ;
 }
 

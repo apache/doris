@@ -121,10 +121,10 @@ public:
         LOG(FATAL) << "replace_column_data_default not implemented";
     }
 
-    ColumnArray::Offsets64& get_offsets() {
+    ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
         return assert_cast<COffsets&>(*offsets_column).get_data();
     }
-    const ColumnArray::Offsets64& get_offsets() const {
+    const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
         return assert_cast<const COffsets&>(*offsets_column).get_data();
     }
     IColumn& get_offsets_column() { return *offsets_column; }
