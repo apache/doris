@@ -2227,7 +2227,7 @@ public:
 
 private:
     int locate_pos(StringRef substr, StringRef str, int start_pos) {
-        if (substr.len == 0) {
+        if (substr.size == 0) {
             if (start_pos <= 0) {
                 return 0;
             } else if (start_pos == 1) {
