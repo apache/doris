@@ -54,7 +54,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         extends LogicalUnary<CHILD_TYPE>
         implements Aggregate<CHILD_TYPE>, OutputSavePoint {
 
-    private final boolean normalized;
     private final List<Expression> groupByExpressions;
     private final List<NamedExpression> outputExpressions;
 
@@ -70,35 +69,21 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions,
-                false, Optional.empty(), child);
+        this(groupByExpressions, outputExpressions, Optional.empty(), child);
     }
 
     public LogicalAggregate(List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions, boolean ordinalIsResolved, CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, false, ordinalIsResolved, Optional.empty(),
+        this(groupByExpressions, outputExpressions, ordinalIsResolved, Optional.empty(),
                 Optional.empty(), Optional.empty(), child);
     }
 
-    /**
-     * Desc: Constructor for LogicalAggregate.
-     * Generated from LogicalRepeat.
-     */
     public LogicalAggregate(
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             Optional<LogicalRepeat> sourceRepeat,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, false, sourceRepeat, child);
-    }
-
-    public LogicalAggregate(
-            List<Expression> groupByExpressions,
-            List<NamedExpression> outputExpressions,
-            boolean normalized,
-            Optional<LogicalRepeat> sourceRepeat,
-            CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, normalized, false, sourceRepeat,
+        this(groupByExpressions, outputExpressions, false, sourceRepeat,
                 Optional.empty(), Optional.empty(), child);
     }
 
@@ -108,7 +93,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     public LogicalAggregate(
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
-            boolean normalized,
             boolean ordinalIsResolved,
             Optional<LogicalRepeat> sourceRepeat,
             Optional<GroupExpression> groupExpression,
@@ -117,7 +101,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         super(PlanType.LOGICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
         this.outputExpressions = ImmutableList.copyOf(outputExpressions);
-        this.normalized = normalized;
         this.ordinalIsResolved = ordinalIsResolved;
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
     }
@@ -167,10 +150,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 .build();
     }
 
-    public boolean isNormalized() {
-        return normalized;
-    }
-
     public boolean isOrdinalIsResolved() {
         return ordinalIsResolved;
     }
@@ -188,53 +167,50 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         LogicalAggregate that = (LogicalAggregate) o;
         return Objects.equals(groupByExpressions, that.groupByExpressions)
                 && Objects.equals(outputExpressions, that.outputExpressions)
-                && normalized == that.normalized
                 && ordinalIsResolved == that.ordinalIsResolved
                 && Objects.equals(sourceRepeat, that.sourceRepeat);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, sourceRepeat);
+        return Objects.hash(groupByExpressions, outputExpressions, ordinalIsResolved, sourceRepeat);
     }
 
     @Override
     public LogicalAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                normalized, ordinalIsResolved, sourceRepeat, Optional.empty(), Optional.empty(), children.get(0));
+                ordinalIsResolved, sourceRepeat, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                normalized, ordinalIsResolved, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()),
-                children.get(0));
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions, ordinalIsResolved, sourceRepeat,
+                groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                normalized, ordinalIsResolved, sourceRepeat,
+                ordinalIsResolved, sourceRepeat,
                 Optional.empty(), logicalProperties, children.get(0));
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList) {
-        return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved,
+        return new LogicalAggregate<>(groupByExprList, outputExpressionList, ordinalIsResolved,
                 sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     @Override
     public LogicalAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return new LogicalAggregate<>(groupByExpressions, newOutput, normalized, ordinalIsResolved,
+        return new LogicalAggregate<>(groupByExpressions, newOutput, ordinalIsResolved,
                 sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
-    public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
-            List<NamedExpression> normalizedOutput, Plan normalizedChild) {
-        return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved,
-                sourceRepeat, Optional.empty(),
-                Optional.empty(), normalizedChild);
+    public LogicalAggregate<Plan> withGroupByOutputChild(List<Expression> newGroupBy, List<NamedExpression> newOutput,
+            Plan newChild) {
+        return new LogicalAggregate<>(newGroupBy, newOutput, ordinalIsResolved, sourceRepeat, Optional.empty(),
+                Optional.empty(), newChild);
     }
 }

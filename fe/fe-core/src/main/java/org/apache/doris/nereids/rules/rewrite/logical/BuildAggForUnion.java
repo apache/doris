@@ -34,8 +34,8 @@ public class BuildAggForUnion extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalUnion().whenNot(LogicalUnion::hasBuildAgg).then(union -> {
             if (union.getQualifier() == Qualifier.DISTINCT) {
-                return new LogicalAggregate(union.getOutputs(), union.getOutputs(),
-                        true, Optional.empty(), union.withHasBuildAgg());
+                return new LogicalAggregate(union.getOutputs(), union.getOutputs(), Optional.empty(),
+                        union.withHasBuildAgg());
             }
             return union;
         }).toRule(RuleType.BUILD_AGG_FOR_UNION);

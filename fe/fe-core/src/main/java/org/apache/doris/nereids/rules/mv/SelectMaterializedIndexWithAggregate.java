@@ -104,7 +104,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         return new LogicalAggregate<>(
                                 agg.getGroupByExpressions(),
                                 replaceAggOutput(agg, Optional.empty(), Optional.empty(), result.exprRewriteMap),
-                                agg.isNormalized(),
                                 agg.getSourceRepeat(),
                                 scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId)
                         );
@@ -139,7 +138,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.empty(), Optional.empty(),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         // Note that no need to replace slots in the filter, because the slots to
                                         // replace are value columns, which shouldn't appear in filters.
@@ -181,7 +179,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         newProject
                                 );
@@ -222,7 +219,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         newProject
                                 );
@@ -259,7 +255,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         filter.withChildren(newProject)
                                 );
@@ -286,7 +281,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         return new LogicalAggregate<>(
                                 agg.getGroupByExpressions(),
                                 replaceAggOutput(agg, Optional.empty(), Optional.empty(), result.exprRewriteMap),
-                                agg.isNormalized(),
                                 agg.getSourceRepeat(),
                                 repeat.withChildren(
                                         scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId))
@@ -326,7 +320,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.empty(), Optional.empty(),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         // Not that no need to replace slots in the filter, because the slots to replace
                                         // are value columns, which shouldn't appear in filters.
@@ -372,7 +365,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         repeat.withChildren(newProject)
                                 );
@@ -414,7 +406,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         repeat.withChildren(newProject)
                                 );
@@ -452,7 +443,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         agg.getGroupByExpressions(),
                                         replaceAggOutput(agg, Optional.of(project), Optional.of(newProject),
                                                 result.exprRewriteMap),
-                                        agg.isNormalized(),
                                         agg.getSourceRepeat(),
                                         repeat.withChildren(filter.withChildren(newProject))
                                 );

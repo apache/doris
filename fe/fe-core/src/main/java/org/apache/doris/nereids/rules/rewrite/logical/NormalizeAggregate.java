@@ -90,7 +90,7 @@ import java.util.stream.Stream;
 public class NormalizeAggregate extends OneRewriteRuleFactory implements NormalizeToSlot {
     @Override
     public Rule build() {
-        return logicalAggregate().whenNot(LogicalAggregate::isNormalized).then(aggregate -> {
+        return logicalAggregate().then(aggregate -> {
             // push expression to bottom project
             Set<Alias> existsAliases = ExpressionUtils.mutableCollect(
                     aggregate.getOutputExpressions(), Alias.class::isInstance);
@@ -178,8 +178,12 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     .addAll(normalizedAggregateFunctionsWithAlias)
                     .build();
 
-            LogicalAggregate<Plan> normalizedAggregate = aggregate.withNormalized(
+            LogicalAggregate<Plan> normalizedAggregate = aggregate.withGroupByOutputChild(
                     (List) normalizedGroupBy, normalizedAggregateOutput, normalizedChild);
+
+            if (normalizedAggregate.equals(aggregate)) {
+                return null;
+            }
 
             normalizeOutputPhase1.removeAll(aliasOfAggFunInWindowUsedAsAggOutput);
             // exclude same-name functions in WindowExpression

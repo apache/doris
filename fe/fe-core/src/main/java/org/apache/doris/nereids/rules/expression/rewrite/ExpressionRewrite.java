@@ -167,8 +167,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (outputExpressions.equals(newOutputExpressions)) {
                     return agg;
                 }
-                return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
-                        agg.isNormalized(), agg.getSourceRepeat(), agg.child());
+                return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions, agg.getSourceRepeat(),
+                        agg.child());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
         }
     }

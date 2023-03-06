@@ -96,7 +96,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAggregate(
                     logicalOlapScan()
                 )
-                .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                .when(agg -> enablePushDownNoGroupAgg())
                 .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
@@ -105,7 +105,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         logicalOlapScan()
                     )
                 )
-                .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                .when(agg -> enablePushDownNoGroupAgg())
                 .thenApply(ctx -> {
                     LogicalAggregate<LogicalProject<LogicalOlapScan>> agg = ctx.root;
                     LogicalProject<LogicalOlapScan> project = agg.child();

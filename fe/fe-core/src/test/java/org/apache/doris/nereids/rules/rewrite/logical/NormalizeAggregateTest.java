@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
-import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -62,9 +61,10 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
      * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
      *
      * after rewrite:
-     * LogicalProject (name#2, sum(id)#5 AS `sum`#4)
-     * +--LogicalAggregate (phase: [GLOBAL], output: [name#2, sum(id#0) AS `sum(id)`#5], groupBy: [name#2])
-     *    +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
+     * LogicalProject ( distinct=false, projects=[name#2, sum#2 AS `sum`#2], excepts=[], canEliminate=true )
+     * +--LogicalAggregate ( groupByExpr=[name#2], outputExpr=[name#2, sum(id#0) AS `sum`#2], hasRepeat=false )
+     *    +--LogicalProject ( distinct=false, projects=[name#2, id#0], excepts=[], canEliminate=true )
+     *       +--LogicalOlapScan ( qualified=student, indexName=<index_not_selected>, selectedIndexId=-1, preAgg=ON )
      */
     @Test
     public void testSimpleKeyWithSimpleAggregateFunction() {
@@ -86,7 +86,6 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
                                     .when(aggregate -> aggregate.getOutputExpressions().get(0).equals(key))
                                     .when(aggregate -> aggregate.getOutputExpressions().get(1).child(0)
                                             .equals(aggregateFunction.child(0)))
-                                    .when(FieldChecker.check("normalized", true))
                         ).when(project -> project.getProjects().get(0).equals(key))
                         .when(project -> project.getProjects().get(1) instanceof Alias)
                         .when(project -> (project.getProjects().get(1)).getExprId()
