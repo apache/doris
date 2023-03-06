@@ -197,7 +197,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.varchar(k1, 4) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS varchar(4))"));
 
         // cast any type to char with fixed length
         createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as " +
@@ -224,6 +224,6 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.char(k1, 4) from db1.tbl1;";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS char(4))"));
     }
 }

@@ -194,7 +194,12 @@ public class CastExpr extends Expr {
         }
         if (isAnalyzed) {
             if (type.isStringType()) {
-                return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
+                String typeString = type.toSql();
+                ScalarType scalarType = ((ScalarType) type);
+                if (scalarType.isWildcardChar() || scalarType.isWildcardVarchar()) {
+                    typeString = typeString.replace("(-1)", "");
+                }
+                return "CAST(" + getChild(0).toSql() + " AS " + typeString + ")";
             } else {
                 return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
             }
