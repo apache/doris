@@ -136,6 +136,7 @@ public:
     int32_t timeout_second = -1;
     AuthInfo auth;
     bool two_phase_commit = false;
+    std::string load_comment;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.

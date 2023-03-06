@@ -1565,7 +1565,7 @@ public class StmtExecutor implements ProfileWriter {
                 context.getEnv().getLoadManager()
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
-                                coord.getTrackingUrl());
+                                coord.getTrackingUrl(), insertStmt.getUserInfo());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();

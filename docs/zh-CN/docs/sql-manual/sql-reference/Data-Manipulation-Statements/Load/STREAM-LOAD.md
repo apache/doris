@@ -180,6 +180,8 @@ ERRORS:
 
 25. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
 
+26. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
+
 ### Example
 
 1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒
