@@ -1188,7 +1188,10 @@ public enum ErrorCode {
      + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
 
     ERR_NONSUPPORT_TIME_TRAVEL_TABLE(5090, new byte[]{'4', '2', '0', '0', '0'}, "Only iceberg external"
-     + " table supports time travel in current version");
+     + " table supports time travel in current version"),
+
+    ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
+            "SSL mode on but received non-ssl handshake response from client.");
 
     // This is error code
     private final int code;

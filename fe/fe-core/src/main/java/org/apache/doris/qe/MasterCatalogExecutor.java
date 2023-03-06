@@ -44,7 +44,7 @@ public class MasterCatalogExecutor {
             // The method may be called by FrontendServiceImpl from BE, which does not have ConnectContext.
             waitTimeoutMs = 300 * 1000;
         } else {
-            waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+            waitTimeoutMs = ctx.getExecTimeout() * 1000;
         }
     }
 

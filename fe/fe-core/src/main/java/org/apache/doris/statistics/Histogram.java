@@ -98,7 +98,6 @@ public class Histogram {
 
             return histogramBuilder.build();
         } catch (Exception e) {
-            e.printStackTrace();
             LOG.warn("Failed to deserialize histogram statistics.", e);
             return Histogram.DEFAULT;
         }

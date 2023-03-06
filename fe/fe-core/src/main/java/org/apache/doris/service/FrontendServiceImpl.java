@@ -48,6 +48,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.ThriftServerContext;
@@ -220,9 +221,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return;
             }
             // check cooldownReplicaId
-            long cooldownReplicaId = tablet.getCooldownConf().first;
-            if (cooldownReplicaId != info.cooldown_replica_id) {
-                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownReplicaId,
+            Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+            if (cooldownConf.first != info.cooldown_replica_id) {
+                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownConf.first,
                         info.cooldown_replica_id, info.tablet_id);
                 return;
             }
@@ -237,6 +238,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (Replica replica : replicas) {
                 if (!replica.isAlive()) {
                     LOG.info("replica is not alive, tablet={}, replica={}", info.tablet_id, replica.getId());
+                    return;
+                }
+                if (replica.getCooldownTerm() != cooldownConf.second) {
+                    LOG.info("replica's cooldown term not match({} vs {}), tablet={}", cooldownConf.second,
+                            replica.getCooldownTerm(), info.tablet_id);
                     return;
                 }
                 if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {

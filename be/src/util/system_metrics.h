@@ -106,9 +106,9 @@ private:
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity = nullptr;
 
-    IntGauge* _max_disk_io_util_percent;
-    IntGauge* _max_network_send_bytes_rate;
-    IntGauge* _max_network_receive_bytes_rate;
+    IntGauge* max_disk_io_util_percent;
+    IntGauge* max_network_send_bytes_rate;
+    IntGauge* max_network_receive_bytes_rate;
 };
 
 } // namespace doris

@@ -2005,6 +2005,25 @@ public class Config extends ConfigBase {
     public static int max_error_tablet_of_broker_load = 3;
 
     /**
+     * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static boolean enable_ssl = false;
+
+    /**
+     * Default certificate file location for mysql ssl connection.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
+            + "/mysql_ssl_default_certificate/certificate.p12";
+
+    /**
+     * Password for default certificate file.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_ssl_default_certificate_password = "doris";
+
+    /**
      * Used to set session variables randomly to check more issues in github workflow
      */
     @ConfField(mutable = true)

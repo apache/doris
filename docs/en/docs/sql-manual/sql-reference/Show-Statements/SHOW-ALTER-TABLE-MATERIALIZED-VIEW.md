@@ -32,7 +32,7 @@ SHOW ALTER TABLE MATERIALIZED VIEW
 
 ### Description
 
-This command is used to view the execution of the Create Materialized View job submitted through the [CREATE-MATERIALIZED-VIEW](../../sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW) statement.
+This command is used to view the execution of the Create Materialized View job submitted through the [CREATE-MATERIALIZED-VIEW](../../sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) statement.
 
 > This statement is equivalent to `SHOW ALTER TABLE ROLLUP`;
 
