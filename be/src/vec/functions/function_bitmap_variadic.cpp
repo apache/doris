@@ -193,7 +193,7 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override {
-            // result is null only when all columns is null for bitmap_or and bitmap_or_count
+        // result is null only when all columns is null for bitmap_or and bitmap_or_count
         if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
             return false;
         } else {
