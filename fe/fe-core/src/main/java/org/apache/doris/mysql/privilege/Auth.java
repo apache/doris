@@ -599,7 +599,7 @@ public class Auth implements Writable {
                     throw new DdlException("role:" + roleName + " does not exist");
                 }
             }
-            userRoleManager.addUserRole(userIdent, roles);
+            userRoleManager.addUserRoles(userIdent, roles);
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, roles);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
@@ -714,7 +714,7 @@ public class Auth implements Writable {
                     throw new DdlException("role:" + roleName + " does not exist");
                 }
             }
-            userRoleManager.reduceUserRole(userIdent, roles);
+            userRoleManager.removeUserRoles(userIdent, roles);
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, roles);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);

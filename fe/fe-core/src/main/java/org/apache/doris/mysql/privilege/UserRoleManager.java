@@ -61,19 +61,19 @@ public class UserRoleManager implements Writable, GsonPostProcessable {
         roleToUsers.put(roleName, userIdentities);
     }
 
-    public void addUserRole(UserIdentity userIdentity, List<String> roles) {
+    public void addUserRoles(UserIdentity userIdentity, List<String> roles) {
         for (String roleName : roles) {
             addUserRole(userIdentity, roleName);
         }
     }
 
-    public void reduceUserRole(UserIdentity userIdentity, List<String> roles) {
+    public void removeUserRoles(UserIdentity userIdentity, List<String> roles) {
         for (String roleName : roles) {
-            reduceUserRole(userIdentity, roleName);
+            removeUserRole(userIdentity, roleName);
         }
     }
 
-    public void reduceUserRole(UserIdentity userIdentity, String roleName) {
+    public void removeUserRole(UserIdentity userIdentity, String roleName) {
         Set<String> roles = userToRoles.get(userIdentity);
         if (!CollectionUtils.isEmpty(roles)) {
             roles.remove(roleName);
