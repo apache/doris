@@ -55,7 +55,7 @@ std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
                                                 bool is_persistent) const {
     auto key_str = key.to_string();
     std::string suffix = is_persistent ? "_persistent" : "";
-    if constexpr (USE_FIE_VERSION2) {
+    if constexpr (USE_CACHE_VERSION2) {
         return fs::path(_cache_base_path) / key_str.substr(0, KEY_PREFIX_LENGTH) / key_str /
                (std::to_string(offset) + suffix);
     } else {
@@ -65,7 +65,7 @@ std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
 
 std::string IFileCache::get_path_in_local_cache(const Key& key) const {
     auto key_str = key.to_string();
-    if constexpr (USE_FIE_VERSION2) {
+    if constexpr (USE_CACHE_VERSION2) {
         return fs::path(_cache_base_path) / key_str.substr(0, KEY_PREFIX_LENGTH) / key_str;
     } else {
         return fs::path(_cache_base_path) / key_str;

@@ -639,7 +639,7 @@ void LRUFileCache::remove(const Key& key, bool is_persistent, size_t offset,
 void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock) {
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
-    if (USE_FIE_VERSION2 && read_file_cache_version() != "2.0") {
+    if (USE_CACHE_VERSION2 && read_file_cache_version() != "2.0") {
         // move directories format as version 2.0
         fs::directory_iterator key_it {_cache_base_path};
         for (; key_it != fs::directory_iterator(); ++key_it) {
@@ -734,7 +734,7 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
         }
     };
 
-    if constexpr (USE_FIE_VERSION2) {
+    if constexpr (USE_CACHE_VERSION2) {
         fs::directory_iterator key_prefix_it {_cache_base_path};
         for (; key_prefix_it != fs::directory_iterator(); ++key_prefix_it) {
             if (!key_prefix_it->is_directory()) {
@@ -766,7 +766,7 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
 }
 
 Status LRUFileCache::write_file_cache_version() const {
-    if constexpr (USE_FIE_VERSION2) {
+    if constexpr (USE_CACHE_VERSION2) {
         std::string version_path = get_version_path();
         Slice version("2.0");
         FileWriterPtr version_writer;
