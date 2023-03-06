@@ -34,7 +34,19 @@ under the License.
 
 通常的做法，一种是确保自己能够访问内网IP地址，或者是给所有BE上层架设一个负载均衡，然后直接将 stream load 请求发送到负载均衡器上，由负载均衡将请求透传到BE节点。
 
-### Q2. Unique Key模型的表是否支持创建物化视图？
+### Q2. Doris 是否支持修改列名？
+
+在 1.2.0 版本之后, 开启 `"light_schema_change"="true"` 选项时，可以支持修改列名。
+
+在 1.2.0 版本之前或未开启 `"light_schema_change"="true"` 选项时，不支持修改列名, 原因如下：
+
+Doris支持修改数据库名、表名、分区名、物化视图（Rollup）名称，以及列的类型、注释、默认值等等。但遗憾的是，目前不支持修改列名。
+
+因为一些历史原因，目前列名称是直接写入到数据文件中的。Doris在查询时，也是通过列名查找到对应的列的。所以修改列名不仅是简单的元数据修改，还会涉及到数据的重写，是一个非常重的操作。
+
+我们不排除后续通过一些兼容手段来支持轻量化的列名修改操作。
+
+### Q3. Unique Key模型的表是否支持创建物化视图？
 
 不支持。
 
@@ -42,7 +54,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 但遗憾的是，Unique Key模型的表是无法建立物化视图的。原因在于，物化视图的本质，是通过预计算来将数据“预先算好”，这样在查询时直接返回已经计算好的数据，来加速查询。在物化视图中，“预计算”的数据通常是一些聚合指标，比如求和、求count。这时，如果数据发生变更，如update或delete，因为预计算的数据已经丢失了明细信息，因此无法同步的进行更新。比如一个求和值5，可能是 1+4，也可能是2+3。因为明细信息的丢失，我们无法区分这个求和值是如何计算出来的，因此也就无法满足更新的需求。
 
-### Q3. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -238
+### Q4. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -238
 
 这个错误通常发生在数据导入操作中。错误码为 -235。这个错误的含义是，对应tablet的数据版本超过了最大限制（默认500，由 BE 参数 `max_tablet_version_num` 控制），后续写入将被拒绝。比如问题中这个错误，即表示 27306172 这个tablet的数据版本超过了限制。
 
@@ -50,7 +62,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 -238 错误通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多（默认是 200，由 BE 参数 `max_segment_num_per_rowset` 控制）。此时建议减少一批次导入的数据量，或者适当提高 BE 配置参数值来解决。
 
-### Q4. tablet 110309738 has few replicas: 1, alive backends: [10003]
+### Q5. tablet 110309738 has few replicas: 1, alive backends: [10003]
 
 这个错误可能发生在查询或者导入操作中。通常意味着对应tablet的副本出现了异常。
 
@@ -58,13 +70,13 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 如果没有BE节点宕机，则需要通过show tablet 110309738 语句，然后执行结果中的 show proc 语句，查看tablet各个副本的情况，进一步排查。
 
-### Q5. disk xxxxx on backend xxx exceed limit usage
+### Q6. disk xxxxx on backend xxx exceed limit usage
 
 通常出现在导入、Alter等操作中。这个错误意味着对应BE的对应磁盘的使用量超过了阈值（默认95%）此时可以先通过 show backends 命令，其中MaxDiskUsedPct展示的是对应BE上，使用率最高的那块磁盘的使用率，如果超过95%，则会报这个错误。
 
 此时需要前往对应BE节点，查看数据目录下的使用量情况。其中trash目录和snapshot目录可以手动清理以释放空间。如果是data目录占用较大，则需要考虑删除部分数据以释放空间了。具体可以参阅[磁盘空间管理](../admin-manual/maint-monitor/disk-capacity.md)。
 
-### Q6. 通过 Java 程序调用 stream load 导入数据，在一批次数据量较大时，可能会报错 Broken Pipe
+### Q7. 通过 Java 程序调用 stream load 导入数据，在一批次数据量较大时，可能会报错 Broken Pipe
 
 除了 Broken Pipe 外，还可能出现一些其他的奇怪的错误。
 
@@ -80,7 +92,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
    可以升级到 Doris 0.15 及之后的版本，已修复这个问题。
 
-### Q7. 执行导入、查询时报错-214 
+### Q8. 执行导入、查询时报错-214 
 
 在执行导入、查询等操作时，可能会遇到如下错误：
 
@@ -106,7 +118,7 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 
 如果依然无法修复，那么在多副本的情况下，我们使用 `admin set replica status` 命令强制将有问题的副本下线。具体可参阅 `help admin set replica status` 中将副本状态置为 bad 的示例。（置为 bad 后，副本将不会再被访问。并且会后续自动修复。但在操作前，应先确保其他副本是正常的）
 
-### Q8. Not connected to 192.168.100.1:8060 yet, server_id=384
+### Q9. Not connected to 192.168.100.1:8060 yet, server_id=384
 
 在导入或者查询时，我们可能遇到这个错误。如果你去对应的 BE 日志中查看，也可能会找到类似错误。
 
@@ -125,7 +137,7 @@ failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0
 brpc_max_body_size：默认 3GB.
 ```
 
-### Q9. [ Broker load ] org.apache.thrift.transport.TTransportException: java.net.SocketException: Broken pipe
+### Q10. [ Broker load ] org.apache.thrift.transport.TTransportException: java.net.SocketException: Broken pipe
 
 出现这个问题的原因可能是到从外部存储（例如HDFS）导入数据的时候，因为目录下文件太多，列出文件目录的时间太长，这里Broker RPC Timeout 默认是10秒，这里需要适当调整超时时间。
 
@@ -138,7 +150,7 @@ broker_timeout_ms = 10000
 
 这里添加参数，需要重启 FE 服务。
 
-### Q10.[ Routine load ] ReasonOfStateChanged: ErrorReason{code=errCode = 104, msg='be 10004 abort task with reason: fetch failed due to requested offset not available on the broker: Broker: Offset out of range'} 
+### Q11.[ Routine load ] ReasonOfStateChanged: ErrorReason{code=errCode = 104, msg='be 10004 abort task with reason: fetch failed due to requested offset not available on the broker: Broker: Offset out of range'} 
 
 出现这个问题的原因是因为kafka的清理策略默认为7天，当某个routine load任务因为某种原因导致任务暂停，长时间没有恢复，当重新恢复任务的时候routine load记录了消费的offset,而kafka的清理策略已经清理了对应的offset,就会出现这个问题
 
