@@ -153,6 +153,7 @@ protected:
     // Cloned from _vconjunct_ctx of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContext* _vconjunct_ctx = nullptr;
+    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
     // Late arriving runtime filters will update _vconjunct_ctx.
     // The old _vconjunct_ctx will be temporarily placed in _stale_vexpr_ctxs
     // and will be destroyed at the end.
@@ -180,6 +181,8 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+
+    bool _enable_common_expr_pushdown = false;
 };
 
 } // namespace doris::vectorized

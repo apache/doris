@@ -51,8 +51,12 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                VExprContext** vconjunct_ctx_ptr,
                                const std::vector<TCondition>& filters,
                                const FilterPredicates& filter_predicates,
-                               const std::vector<FunctionFilter>& function_filters) {
-    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
+                               const std::vector<FunctionFilter>& function_filters,
+                               VExprContext* common_vexpr_ctxs_pushdown) {
+    if (common_vexpr_ctxs_pushdown != nullptr) {
+        // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
+        RETURN_IF_ERROR(common_vexpr_ctxs_pushdown->clone(_state, &_common_vexpr_ctxs_pushdown));
+    }
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -209,8 +213,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
-    _tablet_reader_params.remaining_vconjunct_root =
-            (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
+    _tablet_reader_params.common_vexpr_ctxs_pushdown = _common_vexpr_ctxs_pushdown;
+
+    if (_tablet->keys_type() == KeysType::DUP_KEYS ||
+        (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+         _tablet->enable_unique_key_merge_on_write())) {
+        _tablet_reader_params.enable_common_expr_pushdown = _state->enable_common_expr_pushdown();
+        _enable_common_expr_pushdown = _state->enable_common_expr_pushdown();
+    }
     _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
@@ -340,7 +350,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
             _tablet_reader_params.read_orderby_key_limit = _limit;
-            _tablet_reader_params.filter_block_vconjunct_ctx_ptr = &_vconjunct_ctx;
         }
 
         // runtime predicate push down optimization for topn
@@ -471,12 +480,14 @@ void NewOlapScanner::_update_counters_before_close() {
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;
     COUNTER_UPDATE(olap_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(olap_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(olap_parent->_expr_filter_timer, stats.expr_filter_ns);
     COUNTER_UPDATE(olap_parent->_block_init_timer, stats.block_init_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(olap_parent->_block_conditions_filtered_timer,
                    stats.block_conditions_filtered_ns);
     COUNTER_UPDATE(olap_parent->_first_read_timer, stats.first_read_ns);
+    COUNTER_UPDATE(olap_parent->_second_read_timer, stats.second_read_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_counter, stats.block_first_read_seek_num);
     COUNTER_UPDATE(olap_parent->_lazy_read_timer, stats.lazy_read_ns);
