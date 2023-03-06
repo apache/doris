@@ -92,7 +92,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
         // If s is not ok, ignore the code, just use other code is ok
-        _flush_status.store(OLAP_ERR_OTHER_ERROR);
+        _flush_status.store(s.ok() ? OLAP_SUCCESS : (ErrorCode)s.precise_code());
     }
 
     if (_flush_status.load() != OLAP_SUCCESS) {
