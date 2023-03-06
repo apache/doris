@@ -95,8 +95,9 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
     }
 
-    private boolean isProjectOnAggregate(LogicalProject<GroupPlan> project) {
-        return project.child().getGroup().getLogicalExpressions().get(0).getPlan() instanceof LogicalAggregate;
+    private boolean isProjectOnAggregate(LogicalProject<Plan> project) {
+        return project.child() instanceof GroupPlan && ((GroupPlan)project.child()).getGroup()
+                .getLogicalExpressions().get(0).getPlan() instanceof LogicalAggregate;
     }
 
     private Set<Expression> collectExpressionsToBePushedDown(List<NamedExpression> expressions) {
