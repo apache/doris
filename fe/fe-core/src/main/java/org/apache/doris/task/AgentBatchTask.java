@@ -24,6 +24,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
+import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
@@ -158,7 +159,7 @@ public class AgentBatchTask implements Runnable {
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                 // create AgentClient
-                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
+                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getIp();
                 address = new TNetworkAddress(host, backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
@@ -336,6 +337,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setAlterTabletReqV2(request);
+                return tAgentTaskRequest;
+            }
+            case ALTER_INVERTED_INDEX: {
+                AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
+                TAlterInvertedIndexReq request = alterInvertedIndexTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setAlterInvertedIndexReq(request);
                 return tAgentTaskRequest;
             }
             case COMPACTION: {

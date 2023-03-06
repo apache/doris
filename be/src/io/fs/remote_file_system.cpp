@@ -21,12 +21,24 @@
 #include "io/cache/block/cached_remote_file_reader.h"
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_reader_options.h"
+#include "util/async_io.h"
 
 namespace doris {
 namespace io {
 
 Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& reader_options,
                                    FileReaderSPtr* reader, IOContext* io_ctx) {
+    if (bthread_self() == 0) {
+        return open_file_impl(path, reader_options, reader, io_ctx);
+    }
+    Status s;
+    auto task = [&] { s = open_file_impl(path, reader_options, reader, io_ctx); };
+    AsyncIO::run_task(task, io::FileSystemType::S3);
+    return s;
+}
+
+Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOptions& reader_options,
+                                        FileReaderSPtr* reader, IOContext* io_ctx) {
     FileReaderSPtr raw_reader;
     RETURN_IF_ERROR(open_file(path, &raw_reader, io_ctx));
     switch (reader_options.cache_type) {

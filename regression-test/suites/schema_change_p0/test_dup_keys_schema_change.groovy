@@ -19,6 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_keys_schema_change") {
     def tableName = "schema_change_dup_keys_regression_test"
+    def getJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
 
     try {
         String[][] backends = sql """ show backends; """
@@ -122,16 +126,17 @@ suite ("test_dup_keys_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN sex
             """
-        result = "null"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")) {
-                log.info("rollup job is cancelled, result: ${result}".toString())
-                return
+        int max_try_time = 3000
+        while (max_try_time--){
+            String result = getJobState(tableName)
+            if (result == "FINISHED") {
+                break
+            } else {
+                sleep(100)
+                if (max_try_time < 1){
+                    assertEquals(1,2)
+                }
             }
-            Thread.sleep(100)
         }
         Thread.sleep(1000)
         qt_sc """ select * from ${tableName} where user_id = 3 order by new_column """

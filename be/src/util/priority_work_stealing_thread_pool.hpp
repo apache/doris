@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/lock.h"
 #include "util/thread_group.h"
 
 namespace doris {
@@ -97,7 +98,7 @@ public:
     // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
     void drain_and_shutdown() override {
         {
-            std::unique_lock<std::mutex> l(_lock);
+            std::unique_lock l(_lock);
             while (get_queue_size() != 0) {
                 _empty_cv.wait(l);
             }

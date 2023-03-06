@@ -33,14 +33,14 @@ public:
 
     OperatorPtr build_operator() override;
 
-    bool is_sink() const override { return true; };
+    bool is_sink() const override { return true; }
 };
 
 class AnalyticSinkOperator final : public StreamingOperator<AnalyticSinkOperatorBuilder> {
 public:
     AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
-    bool can_write() override { return _node->can_write(); };
+    bool can_write() override { return _node->can_write(); }
 };
 
 } // namespace pipeline

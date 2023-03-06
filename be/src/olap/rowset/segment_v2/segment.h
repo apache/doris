@@ -77,12 +77,12 @@ public:
     uint32_t num_rows() const { return _footer.num_rows(); }
 
     Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
-    Status new_row_column_iterator(ColumnIterator** iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                       const TabletIndex* index_meta, InvertedIndexIterator** iter);
+                                       const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                                       InvertedIndexIterator** iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -96,6 +96,8 @@ public:
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);
 
+    Status read_key_by_rowid(uint32_t row_id, std::string* key);
+
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
@@ -106,13 +108,15 @@ public:
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().min_key();
-    };
+    }
     std::string max_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().max_key();
-    };
+    }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
+
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

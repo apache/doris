@@ -69,7 +69,7 @@ Linux交换分区会给Doris带来很严重的性能问题，需要在安装之�
 
 ##### Liunx文件系统
 
-这里我们推荐使用ext4文件系统，在安装操作系统的时候，请选择ext4文件系统。
+ext4和xfs文件系统均支持。
 
 #### 开发测试环境
 
@@ -216,12 +216,12 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
   **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
 
-  `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
+  `storage_root_path=/home/disk1/doris,medium:HDD;/home/disk2/doris,medium:SSD`
 
   **说明**
 
-    - /home/disk1/doris,medium:hdd： 表示存储介质是HDD;
-    - /home/disk2/doris,medium:ssd： 表示存储介质是SSD;
+    - /home/disk1/doris,medium:HDD： 表示存储介质是HDD;
+    - /home/disk2/doris,medium:SSD： 表示存储介质是SSD;
 
 * BE webserver_port端口配置
 

@@ -31,12 +31,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -52,11 +54,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -64,8 +68,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -79,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 
 /**
  * Base class for the processing of logical and physical plan.
@@ -178,6 +183,14 @@ public abstract class PlanVisitor<R, C> {
         return visitLogicalRelation(tvfRelation, context);
     }
 
+    public R visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, C context) {
+        return visitLogicalRelation(jdbcScan, context);
+    }
+
+    public R visitLogicalEsScan(LogicalEsScan esScan, C context) {
+        return visitLogicalRelation(esScan, context);
+    }
+
     public R visitLogicalProject(LogicalProject<? extends Plan> project, C context) {
         return visit(project, context);
     }
@@ -235,6 +248,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(generate, context);
     }
 
+    public R visitLogicalWindow(LogicalWindow<? extends Plan> window, C context) {
+        return visit(window, context);
+    }
+
     // *******************************
     // Physical plans
     // *******************************
@@ -271,6 +288,14 @@ public abstract class PlanVisitor<R, C> {
         return visitPhysicalScan(fileScan, context);
     }
 
+    public R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {
+        return visitPhysicalScan(jdbcScan, context);
+    }
+
+    public R visitPhysicalEsScan(PhysicalEsScan esScan, C context) {
+        return visitPhysicalScan(esScan, context);
+    }
+
     public R visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
         return storageLayerAggregate.getRelation().accept(this, context);
     }
@@ -285,6 +310,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, C context) {
         return visitAbstractPhysicalSort(sort, context);
+    }
+
+    public R visitPhysicalWindow(PhysicalWindow<? extends Plan> window, C context) {
+        return visit(window, context);
     }
 
     public R visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, C context) {
@@ -342,10 +371,6 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute, C context) {
         return visit(distribute, context);
-    }
-
-    public R visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, C context) {
-        return visitAbstractPhysicalSort(sort, context);
     }
 
     public R visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, C context) {

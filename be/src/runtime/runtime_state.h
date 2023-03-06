@@ -58,6 +58,10 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
+    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env);
+
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
@@ -74,12 +78,8 @@ public:
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
-    Status create_load_dir();
-
     const TQueryOptions& query_options() const { return _query_options; }
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
-
-    std::shared_ptr<ObjectPool> obj_pool_ptr() const { return _obj_pool; }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
@@ -90,6 +90,8 @@ public:
     }
     int max_errors() const { return _query_options.max_errors; }
     int query_timeout() const { return _query_options.query_timeout; }
+    int insert_timeout() const { return _query_options.insert_timeout; }
+    int execution_timeout() const { return _query_options.execution_timeout; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -103,20 +105,8 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
 
-    void set_fragment_root_id(PlanNodeId id) {
-        DCHECK(_root_node_id == -1) << "Should not set this twice.";
-        _root_node_id = id;
-    }
-
-    // The seed value to use when hashing tuples.
-    // See comment on _root_node_id. We add one to prevent having a hash seed of 0.
-    uint32_t fragment_hash_seed() const { return _root_node_id + 1; }
-
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
-
-    // Returns true if codegen is enabled for this query.
-    bool codegen_enabled() const { return !_query_options.disable_codegen; }
 
     bool enable_function_pushdown() const {
         return _query_options.__isset.enable_function_pushdown &&
@@ -128,16 +118,10 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    // Create a codegen object in _codegen. No-op if it has already been called.
-    // If codegen is enabled for the query, this is created when the runtime
-    // state is created. If codegen is disabled for the query, this is created
-    // on first use.
-    Status create_codegen();
-
     Status query_status() {
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
-    };
+    }
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -197,8 +181,6 @@ public:
 
     void set_import_label(const std::string& import_label) { _import_label = import_label; }
 
-    const std::string& import_label() { return _import_label; }
-
     const std::vector<std::string>& export_output_files() const { return _export_output_files; }
 
     void add_export_output_file(const std::string& file) { _export_output_files.push_back(file); }
@@ -211,15 +193,7 @@ public:
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
 
-    const int64_t load_job_id() const { return _load_job_id; }
-
-    const int64_t get_normal_row_number() const { return _normal_row_number; }
-
-    const void set_normal_row_number(int64_t number) { _normal_row_number = number; }
-
-    const int64_t get_error_row_number() const { return _error_row_number; }
-
-    const void set_error_row_number(int64_t number) { _error_row_number = number; }
+    int64_t load_job_id() const { return _load_job_id; }
 
     const std::string get_error_log_file_path() const { return _error_log_file_path; }
 
@@ -319,6 +293,10 @@ public:
 
     bool skip_delete_predicate() const {
         return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
+    }
+
+    bool skip_delete_bitmap() const {
+        return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
     int partitioned_hash_join_rows_threshold() const {
@@ -456,15 +434,6 @@ private:
     std::mutex _process_status_lock;
     Status _process_status;
 
-    // This is the node id of the root node for this plan fragment. This is used as the
-    // hash seed and has two useful properties:
-    // 1) It is the same for all exec nodes in a fragment, so the resulting hash values
-    // can be shared (i.e. for _slot_bitmap_filters).
-    // 2) It is different between different fragments, so we do not run into hash
-    // collisions after data partitioning (across fragments). See IMPALA-219 for more
-    // details.
-    PlanNodeId _root_node_id;
-
     // put here to collect files??
     std::vector<std::string> _output_files;
     std::atomic<int64_t> _num_rows_load_total;      // total rows read from source
@@ -475,7 +444,6 @@ private:
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
 
     std::vector<std::string> _export_output_files;
-
     std::string _import_label;
     std::string _db_name;
     std::string _load_dir;

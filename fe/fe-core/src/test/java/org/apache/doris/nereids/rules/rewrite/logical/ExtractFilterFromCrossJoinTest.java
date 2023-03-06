@@ -22,21 +22,21 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
-class ExtractFilterFromCrossJoinTest implements PatternMatchSupported {
+class ExtractFilterFromCrossJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
     @Test
     void testExtract() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.CROSS_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.CROSS_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

@@ -39,7 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.FieldChecker;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
@@ -49,7 +49,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.stream.Collectors;
 
-public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements PatternMatchSupported {
+public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements MemoPatternMatchSupported {
 
     @Override
     public void runBeforeAll() throws Exception {
@@ -314,7 +314,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
                 "Aggregate functions in having clause can't be nested:"
-                        + " sum(cast((cast(a1 as DOUBLE) + avg(a2)) as SMALLINT)).",
+                        + " sum((cast(a1 as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + AVG(a2)) > 0"
                 ));
@@ -322,7 +322,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
                 "Aggregate functions in having clause can't be nested:"
-                        + " sum(cast((cast((a1 + a2) as DOUBLE) + avg(a2)) as INT)).",
+                        + " sum((cast((a1 + a2) as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + AVG(a2)) > 0"
                 ));

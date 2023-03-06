@@ -57,10 +57,10 @@ public class PatternGeneratorAnalyzer {
     }
 
     /** generate pattern methods. */
-    public String generatePatterns() {
+    public String generatePatterns(String className, String parentClassName, boolean isMemoPattern) {
         analyzeImport();
         analyzeParentClass();
-        return doGenerate();
+        return doGenerate(className, parentClassName, isMemoPattern);
     }
 
     Optional<TypeDeclaration> getType(TypeDeclaration typeDeclaration, TypeType type) {
@@ -73,7 +73,7 @@ public class PatternGeneratorAnalyzer {
         return Optional.empty();
     }
 
-    private String doGenerate() {
+    private String doGenerate(String className, String parentClassName, boolean isMemoPattern) {
         Map<ClassDeclaration, Set<String>> planClassMap = parentClassMap.entrySet().stream()
                 .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.trees.plans.Plan"))
                 .filter(kv -> !kv.getKey().name.equals("GroupPlan"))
@@ -83,7 +83,7 @@ public class PatternGeneratorAnalyzer {
 
         List<PatternGenerator> generators = planClassMap.entrySet()
                 .stream()
-                .map(kv -> PatternGenerator.create(this, kv.getKey(), kv.getValue()))
+                .map(kv -> PatternGenerator.create(this, kv.getKey(), kv.getValue(), isMemoPattern))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .sorted((g1, g2) -> {
@@ -100,7 +100,7 @@ public class PatternGeneratorAnalyzer {
                 })
                 .collect(Collectors.toList());
 
-        return PatternGenerator.generateCode(generators, this);
+        return PatternGenerator.generateCode(className, parentClassName, generators, this, isMemoPattern);
     }
 
     private void analyzeImport() {

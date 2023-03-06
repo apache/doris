@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -169,8 +170,26 @@ public class StreamLoadPlanner {
             }
         }
 
+        // Plan scan tuple of dynamic table
+        if (destTable.isDynamicSchema()) {
+            if (!Config.enable_vectorized_load) {
+                throw new UserException("Only support vectorized load for dyanmic table: " + destTable.getName());
+            }
+            descTable.addReferencedTable(destTable);
+            scanTupleDesc.setTable(destTable);
+            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
+        }
+
         // create scan node
-        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
+        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc, false);
         // 1. create file group
         DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
@@ -187,8 +206,9 @@ public class StreamLoadPlanner {
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
         }
+        // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns());
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);

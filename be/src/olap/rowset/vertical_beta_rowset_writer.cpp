@@ -66,6 +66,10 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
         if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment) {
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], true));
+
+            _segment_num_rows.resize(_cur_writer_idx + 1);
+            _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
+
             std::unique_ptr<segment_v2::SegmentWriter> writer;
             RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
             _segment_writers.emplace_back(std::move(writer));
@@ -161,9 +165,6 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);
         return s;
-    }
-    if (_context.tablet_schema->store_row_column()) {
-        (*writer)->append_row_column_writer();
     }
     return Status::OK();
 }

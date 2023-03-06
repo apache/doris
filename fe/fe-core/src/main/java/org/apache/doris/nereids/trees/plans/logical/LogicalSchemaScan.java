@@ -21,16 +21,12 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -57,14 +53,6 @@ public class LogicalSchemaScan extends LogicalRelation implements Scan {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalSchemaScan(this, context);
-    }
-
-    @Override
-    public List<Slot> computeNonUserVisibleOutput() {
-        SchemaTable schemaTable = getTable();
-        return schemaTable.getBaseSchema().stream()
-                .map(col -> SlotReference.fromColumn(col, qualified()))
-                .collect(ImmutableList.toImmutableList());
     }
 
     @Override

@@ -54,7 +54,7 @@ Optimize the import and query performance of JSONB type. [#15219](https://github
 
 ### Stream load supports quoted csv data
 
-Search trim_double_quotes in Document:[https://doris.apache.org/en/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD](https://doris.apache.org/en/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD)
+Search trim_double_quotes in Document:[https://doris.apache.org/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD](https://doris.apache.org/docs/dev/sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD)
 
 ### Broker supports Tencent Cloud CHDFS and Baidu Cloud BOS, AFS
 

@@ -54,6 +54,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pinyin.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -420,8 +421,8 @@ public:
         int n = -1;
 
         auto res = ColumnString::create();
-        const ColumnString& source_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
             auto& col = *block.get_by_position(arguments[1]).column;
@@ -435,7 +436,7 @@ public:
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else if (n > 0) {
+        } else if (n >= 0) {
             vector(source_column, n, *res);
         }
 
@@ -2024,7 +2025,7 @@ static StringVal do_money_format(FunctionContext* context, const T int_value,
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;
-    StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+    StringVal result = context->create_temp_string_val(string_val_len);
     memcpy(result.ptr, p, string_val_len - 3);
     *(result.ptr + string_val_len - 3) = '.';
     *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
@@ -2036,7 +2037,7 @@ static StringVal do_money_format(FunctionContext* context, const T int_value,
 static StringVal do_money_format(FunctionContext* context, const string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
-    StringVal result = StringVal::create_temp_string_val(context, result_len);
+    StringVal result = context->create_temp_string_val(result_len);
     if (!is_positive) {
         *result.ptr = '-';
     }
@@ -2489,7 +2490,7 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
@@ -2498,14 +2499,7 @@ public:
                     "character argument to convert function must be constant.");
         }
         const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
-        if (doris::iequal(character_data.to_string(), "gbk")) {
-            iconv_t cd = iconv_open("gb2312", "utf-8");
-            if (cd == nullptr) {
-                return Status::RuntimeError("function {} is convert to gbk failed in iconv_open",
-                                            get_name());
-            }
-            context->set_function_state(scope, cd);
-        } else {
+        if (!doris::iequal(character_data.to_string(), "gbk")) {
             return Status::RuntimeError(
                     "Illegal second argument column of function convert. now only support "
                     "convert to character set of gbk");
@@ -2525,37 +2519,61 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        iconv_t cd = reinterpret_cast<iconv_t>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
-        DCHECK(cd != nullptr);
+        // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
+        res_chars.resize(str_chars.size() * 2 + input_rows_count);
 
         size_t in_len = 0, out_len = 0;
         for (int i = 0; i < input_rows_count; ++i) {
             in_len = str_offset[i] - str_offset[i - 1];
-            const char* value_data = reinterpret_cast<const char*>(&str_chars[str_offset[i - 1]]);
-            res_chars.resize(res_offset[i - 1] + in_len);
+            const char* in = reinterpret_cast<const char*>(&str_chars[str_offset[i - 1]]);
             char* out = reinterpret_cast<char*>(&res_chars[res_offset[i - 1]]);
-            char* in = const_cast<char*>(value_data);
-            out_len = in_len;
-            if (iconv(cd, &in, &in_len, &out, &out_len) == -1) {
-                return Status::RuntimeError("function {} is convert to gbk failed in iconv",
-                                            get_name());
-            } else {
-                res_offset[i] = res_chars.size();
-            }
+            _utf8_to_pinyin(in, in_len, out, &out_len);
+            res_offset[i] = res_offset[i - 1] + out_len;
         }
+        res_chars.resize(res_offset[input_rows_count - 1]);
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            iconv_t cd = reinterpret_cast<iconv_t>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
-            iconv_close(cd);
-            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
+    void _utf8_to_pinyin(const char* in, size_t in_len, char* out, size_t* out_len) {
+        auto do_memcpy = [](char*& dest, const char*& from, size_t size) {
+            memcpy(dest, from, size);
+            dest += size;
+            from += size;
+        };
+        auto from = in;
+        auto dest = out;
+
+        while (from - in < in_len) {
+            auto length = get_utf8_byte_length(*from);
+            if (length != 3) {
+                do_memcpy(dest, from, length);
+            } else {
+                // convert utf8 to unicode code to get pinyin offset
+                if (auto tmp = (((int)(*from & 0x0F)) << 12) | (((int)(*(from + 1) & 0x3F)) << 6) |
+                               (*(from + 2) & 0x3F);
+                    tmp >= START_UNICODE_OFFSET and tmp < END_UNICODE_OFFSET) {
+                    const char* buf = nullptr;
+                    if (tmp >= START_UNICODE_OFFSET && tmp < MID_UNICODE_OFFSET) {
+                        buf = PINYIN_DICT1 + (tmp - START_UNICODE_OFFSET) * MAX_PINYIN_LEN;
+                    } else if (tmp >= MID_UNICODE_OFFSET && tmp < END_UNICODE_OFFSET) {
+                        buf = PINYIN_DICT2 + (tmp - MID_UNICODE_OFFSET) * MAX_PINYIN_LEN;
+                    }
+
+                    auto end = strchr(buf, ' ');
+                    auto len = end != nullptr ? end - buf : MAX_PINYIN_LEN;
+                    // set first char '~' just make sure all english word lower than chinese word
+                    *dest = 126;
+                    memcpy(dest + 1, buf, len);
+                    dest += (len + 1);
+                    from += 3;
+                } else {
+                    do_memcpy(dest, from, 3);
+                }
+            }
         }
-        return Status::OK();
+
+        *out_len = dest - out;
     }
 };
 } // namespace doris::vectorized

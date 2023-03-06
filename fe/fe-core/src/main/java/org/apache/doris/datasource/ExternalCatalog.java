@@ -21,9 +21,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -36,8 +39,10 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
@@ -45,6 +50,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -136,6 +142,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected final void initLocalObjects() {
         if (!objectCreated) {
             initLocalObjectsImpl();
+            initAccessController();
             objectCreated = true;
         }
     }
@@ -143,6 +150,41 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // init some local objects such as:
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
+
+    // check if all required properties are set when creating catalog
+    public void checkProperties() throws DdlException {
+    }
+
+    /**
+     * eg:
+     * (
+     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+     * "access_controller.properties.prop1" = "xxx",
+     * "access_controller.properties.prop2" = "yyy",
+     * )
+     */
+    private void initAccessController() {
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        // 1. get access controller class name
+        String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (Strings.isNullOrEmpty(className)) {
+            // not set access controller, use internal access controller
+            return;
+        }
+
+        // 2. get access controller properties
+        Map<String, String> acProperties = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP)) {
+                acProperties.put(
+                        StringUtils.removeStart(entry.getKey(), CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP),
+                        entry.getValue());
+            }
+        }
+
+        // 3. create access controller
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+    }
 
     // init schema related objects
     protected abstract void init();
@@ -164,7 +206,19 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         return idToDb.get(dbId);
     }
 
-    public abstract List<Column> getSchema(String dbName, String tblName);
+    public final List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        Optional<ExternalDatabase> db = getDb(dbName);
+        if (db.isPresent()) {
+            Optional table = db.get().getTable(tblName);
+            if (table.isPresent()) {
+                return ((ExternalTable) table.get()).initSchema();
+            }
+        }
+        // return one column with unsupported type.
+        // not return empty to avoid some unexpected issue.
+        return Lists.newArrayList(Column.UNSUPPORTED_COLUMN);
+    }
 
     @Override
     public long getId() {
@@ -246,6 +300,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Override
+    public void onClose() {
+        removeAccessController();
+        CatalogIf.super.onClose();
+    }
+
+    private void removeAccessController() {
+        Env.getCurrentEnv().getAccessManager().removeAccessController(name);
+    }
+
     public void replayInitCatalog(InitCatalogLog log) {
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
@@ -275,6 +339,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             case JDBC:
                 for (int i = 0; i < log.getCreateCount(); i++) {
                     JdbcExternalDatabase db = new JdbcExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
+            case ICEBERG:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    IcebergExternalDatabase db = new IcebergExternalDatabase(
                             this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
                     tmpDbNameToId.put(db.getFullName(), db.getId());
                     tmpIdToDb.put(db.getId(), db);

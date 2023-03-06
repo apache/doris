@@ -39,6 +39,7 @@ struct OlapTableIndexSchema {
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
+    std::vector<TabletIndex*> indexes;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -69,6 +70,8 @@ public:
         return _proto_schema;
     }
 
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
+
     std::string debug_string() const;
 
 private:
@@ -80,6 +83,7 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
+    bool _is_dynamic_schema = false;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -89,6 +93,7 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 // }
 
 using BlockRow = std::pair<vectorized::Block*, int32_t>;
+using VecBlock = vectorized::Block;
 
 struct VOlapTablePartition {
     int64_t id = 0;
@@ -97,9 +102,10 @@ struct VOlapTablePartition {
     std::vector<BlockRow> in_keys;
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
+    bool is_mutable;
 
     VOlapTablePartition(vectorized::Block* partition_block)
-            : start_key {partition_block, -1}, end_key {partition_block, -1} {};
+            : start_key {partition_block, -1}, end_key {partition_block, -1} {}
 };
 
 class VOlapTablePartKeyComparator {
@@ -183,6 +189,8 @@ private:
 
     bool _is_in_partition = false;
     uint32_t _mem_usage = 0;
+    // only works when using list partition, the resource is owned by _partitions
+    VOlapTablePartition* _default_partition = nullptr;
 };
 
 using TabletLocation = TTabletLocation;

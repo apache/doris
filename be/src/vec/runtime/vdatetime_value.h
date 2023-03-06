@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <chrono>
+#include <climits>
 #include <cstddef>
 #include <iostream>
 
@@ -36,6 +37,7 @@ class DateTimeValue;
 namespace vectorized {
 
 enum TimeUnit {
+    MICROSECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -111,6 +113,9 @@ struct TimeInterval {
         case SECOND_MICROSECOND:
             microsecond = count;
             break;
+        case MICROSECOND:
+            microsecond = count;
+            break;
         default:
             break;
         }
@@ -137,6 +142,10 @@ const int TIME_MAX_MINUTE = 59;
 const int TIME_MAX_SECOND = 59;
 const int TIME_MAX_VALUE = 10000 * TIME_MAX_HOUR + 100 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 const int TIME_MAX_VALUE_SECONDS = 3600 * TIME_MAX_HOUR + 60 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
+
+constexpr int HOUR_PER_DAY = 24;
+constexpr int64_t SECOND_PER_HOUR = 3600;
+constexpr int64_t SECOND_PER_MINUTE = 60;
 
 constexpr size_t const_length(const char* str) {
     return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
@@ -340,7 +349,7 @@ public:
     // Return true if convert success. Otherwise return false.
     bool from_date_int64(int64_t value);
 
-    bool from_date(int64_t value) { return from_date_int64(value); };
+    bool from_date(int64_t value) { return from_date_int64(value); }
 
     // Construct time type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -378,9 +387,9 @@ public:
         }
         set_time(year, month, day, hour, minute, second);
         return true;
-    };
+    }
 
-    uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
+    int32_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     int year() const { return _year; }
     int month() const { return _month; }
@@ -391,6 +400,9 @@ public:
     int minute() const { return _minute; }
     int second() const { return _second; }
     int neg() const { return _neg; }
+    int64_t time_part_to_seconds() const {
+        return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
+    }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0;
@@ -505,7 +517,7 @@ public:
     template <typename T>
     bool operator!=(const DateV2Value<T>& other) const {
         return !(*this == other);
-    };
+    }
 
     template <typename T>
     bool operator<=(const DateV2Value<T>& other) const;
@@ -563,14 +575,14 @@ public:
     uint32_t to_date_v2() const {
         CHECK(_type == TIME_DATE);
         return (year() << 9 | month() << 5 | day());
-    };
+    }
 
     uint64_t to_datetime_v2() const {
         CHECK(_type == TIME_DATETIME);
         return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
                           ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
-    };
+    }
 
     static VecDateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
         VecDateTimeValue value;
@@ -604,20 +616,14 @@ public:
         return _s_max_datetime_value;
     }
 
-    int64_t second_diff(const VecDateTimeValue& rhs) const {
-        int day_diff = daynr() - rhs.daynr();
-        int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                        (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-        return day_diff * 3600 * 24 + time_diff;
+    template <typename T>
+    int64_t time_part_diff(const T& rhs) const {
+        return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
     template <typename T>
-    int64_t second_diff(const DateV2Value<T>& rhs) const;
-
-    int64_t time_part_diff(const VecDateTimeValue& rhs) const {
-        int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                        (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-        return time_diff;
+    int64_t second_diff(const T& rhs) const {
+        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
     void set_type(int type);
@@ -724,8 +730,7 @@ template <typename T>
 class DateV2Value {
 public:
     static constexpr bool is_datetime = std::is_same_v<T, DateTimeV2ValueType>;
-    using underlying_value =
-            std::conditional_t<std::is_same_v<T, DateTimeV2ValueType>, uint64_t, uint32_t>;
+    using underlying_value = std::conditional_t<is_datetime, uint64_t, uint32_t>;
 
     // Constructor
     DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
@@ -832,9 +837,9 @@ public:
             set_time(year, month, day, hour, minute, second, microsecond);
         }
         return true;
-    };
+    }
 
-    uint32_t daynr() const {
+    int32_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 
@@ -868,6 +873,10 @@ public:
         } else {
             return 0;
         }
+    }
+
+    int64_t time_part_to_seconds() const {
+        return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
     }
 
     uint16_t year() const { return date_v2_value_.year_; }
@@ -1059,23 +1068,15 @@ public:
         }
     }
 
+    //only calculate the diff of dd:mm:ss
     template <typename RHS>
-    int64_t second_diff(const DateV2Value<RHS>& rhs) const {
-        int day_diff = daynr() - rhs.daynr();
-        return day_diff * 3600 * 24 + (hour() * 3600 + minute() * 60 + second()) -
-               (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
+    int64_t time_part_diff(const RHS& rhs) const {
+        return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
-    int64_t second_diff(const VecDateTimeValue& rhs) const {
-        int day_diff = daynr() - rhs.daynr();
-        return day_diff * 3600 * 24 + (hour() * 3600 + minute() * 60 + second()) -
-               (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-    };
-
-    int64_t time_part_diff(const VecDateTimeValue& rhs) const {
-        int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                        (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-        return time_diff;
+    template <typename RHS>
+    int64_t second_diff(const RHS& rhs) const {
+        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
     bool can_cast_to_date_without_loss_accuracy() {
@@ -1140,7 +1141,7 @@ public:
         } else {
             return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
         }
-    };
+    }
 
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);

@@ -136,7 +136,7 @@ public class SystemInfoServiceTest {
             }
         };
 
-        analyzer = new Analyzer(env, new ConnectContext(null));
+        analyzer = new Analyzer(env, new ConnectContext());
     }
 
     public void mkdir(String dirString) {

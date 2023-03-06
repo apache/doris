@@ -918,6 +918,7 @@ public class FunctionSet<T> {
 
     public static final String TO_BITMAP = "to_bitmap";
     public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";
+    public static final String BITMAP_HASH = "bitmap_hash";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
@@ -927,6 +928,8 @@ public class FunctionSet<T> {
     public static final String ORTHOGONAL_BITMAP_INTERSECT = "orthogonal_bitmap_intersect";
     public static final String ORTHOGONAL_BITMAP_INTERSECT_COUNT = "orthogonal_bitmap_intersect_count";
     public static final String ORTHOGONAL_BITMAP_UNION_COUNT = "orthogonal_bitmap_union_count";
+    public static final String APPROX_COUNT_DISTINCT = "approx_count_distinct";
+    public static final String NDV = "ndv";
 
     public static final String QUANTILE_UNION = "quantile_union";
     //TODO(weixiang): is quantile_percent can be replaced by approx_percentile?
@@ -1272,10 +1275,9 @@ public class FunctionSet<T> {
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
-            if (candicateArgTypes[0] instanceof ArrayType) {
+            if (candicateArgTypes[0] instanceof ArrayType || candicateArgTypes[0] instanceof MapType) {
                 return descArgTypes[0].matchesType(candicateArgTypes[0]);
             }
-
             return false;
         }
         final ScalarType descArgType = (ScalarType) descArgTypes[0];
@@ -1343,8 +1345,8 @@ public class FunctionSet<T> {
     }
 
     public void addScalarAndVectorizedBuiltin(String fnName, boolean userVisible,
-                                              Function.NullableMode nullableMode, Type retType,
-                                              boolean varArgs, Type ... args) {
+            Function.NullableMode nullableMode, Type retType,
+            boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
             argsType.add(type);
@@ -1402,6 +1404,10 @@ public class FunctionSet<T> {
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";
+
+    public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
+
+    public static final String GROUP_ARRAY = "group_array";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -2585,6 +2591,10 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(COLLECT_LIST, Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
             addBuiltin(
                     AggregateFunction.createBuiltin("topn_array", Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
                             "", "", "", "", "", true, false, true, true));
@@ -2609,8 +2619,20 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HIST, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
                                     "", "", "", "", "", true, false, true, true));
-            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
+            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT),
+                    Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
+                            t, "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
+                            t, "", "", "", "", "", true, false, true, true));
         }
 
         // Avg
@@ -2726,9 +2748,29 @@ public class FunctionSet<T> {
         // Group_concat(string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
                 Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.CHAR), Type.CHAR,
+                Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.CHAR), Type.CHAR,
+                Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.STRING), Type.STRING,
+                Type.STRING, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.STRING), Type.STRING,
+                Type.STRING, initNullString, "", "", "", "", false, true, false, true));
         // Group_concat(string, string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 Type.VARCHAR, Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                Type.VARCHAR, Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.CHAR, Type.CHAR),
+                Type.CHAR, Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.CHAR, Type.CHAR),
+                Type.CHAR, Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.STRING, Type.STRING),
+                Type.STRING, Type.STRING, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.STRING, Type.STRING),
+                Type.STRING, Type.STRING, initNullString, "", "", "", "", false, true, false, true));
 
         // analytic functions
         // Rank

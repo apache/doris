@@ -40,7 +40,12 @@ public class MasterCatalogExecutor {
 
     public MasterCatalogExecutor() {
         ctx = ConnectContext.get();
-        waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+        if (ctx == null) {
+            // The method may be called by FrontendServiceImpl from BE, which does not have ConnectContext.
+            waitTimeoutMs = 300 * 1000;
+        } else {
+            waitTimeoutMs = ctx.getExecTimeout() * 1000;
+        }
     }
 
     public void forward(long catalogId, long dbId) throws Exception {

@@ -108,7 +108,7 @@ download_func() {
             rm -f "${DESC_DIR}/${FILENAME}"
         else
             echo "Downloading ${FILENAME} from ${DOWNLOAD_URL} to ${DESC_DIR}"
-            if wget --no-check-certificate -q "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
+            if wget --no-check-certificate -q --show-progress "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
                 if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
                     STATUS=0
                     echo "Success to download ${FILENAME}"
@@ -345,15 +345,15 @@ fi
 echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 
 # patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
-if [[ "${JEMALLOC_SOURCE}" = "jemalloc-5.2.1" ]]; then
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
 fi
-echo "Finished patching ${JEMALLOC_SOURCE}"
+echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
@@ -377,7 +377,7 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
     if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.211" ]]; then
-        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
+        if wget --no-check-certificate -q --show-progress https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
             tar xzf aws-crt-cpp-1.9.211.tar.gz
         else
             bash ./prefetch_crt_dependency.sh

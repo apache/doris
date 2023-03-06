@@ -53,6 +53,7 @@ java_registry_preamble = '\
 package org.apache.doris.builtins;\n\
 \n\
 import org.apache.doris.catalog.ArrayType;\n\
+import org.apache.doris.catalog.MapType;\n\
 import org.apache.doris.catalog.Type;\n\
 import org.apache.doris.catalog.Function;\n\
 import org.apache.doris.catalog.FunctionSet;\n\
@@ -100,12 +101,17 @@ for example:
     in[TINYINT]     --> out[Type.TINYINT]
     in[INT]         --> out[Type.INT]
     in[ARRAY_INT]   --> out[new ArrayType(Type.INT)]
+    in[MAP_STRING_INT]   --> out[new MapType(Type.STRING,Type.INT)]
 """
 def generate_fe_datatype(str_type):
     if str_type.startswith("ARRAY_"):
         vec_type = str_type.split('_', 1);
         if len(vec_type) > 1 and vec_type[0] == "ARRAY":
             return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
+    if str_type.startswith("MAP_"):
+        vec_type = str_type.split('_', 2)
+        if len(vec_type) > 2 and vec_type[0] == "MAP": 
+            return "new MapType(" + generate_fe_datatype(vec_type[1]) + "," + generate_fe_datatype(vec_type[2])+")"
     if str_type == "DECIMALV2":
         return "Type.MAX_DECIMALV2_TYPE"
     if str_type == "DECIMAL32":

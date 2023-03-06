@@ -114,7 +114,24 @@ public:
     void insert(const Field& x) override { LOG(FATAL) << "insert not supported"; }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        LOG(FATAL) << "insert_range_from not supported";
+        const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        CHECK_EQ(src_col._item_size, _item_size);
+
+        if (length == 0) {
+            return;
+        }
+
+        if (start + length > src_col._item_count) {
+            LOG(FATAL) << fmt::format(
+                    "Parameters start = {}, length = {} are out of bound in "
+                    "ColumnFixedLengthObject::insert_range_from method (data.size() = {})",
+                    start, length, src_col._item_count);
+        }
+
+        size_t old_size = size();
+        resize(old_size + length);
+        memcpy(&_data[old_size * _item_size], &src_col._data[start * _item_size],
+               length * _item_size);
     }
 
     void insert_data(const char* pos, size_t length) override {
@@ -143,6 +160,10 @@ public:
         LOG(FATAL) << "filter not supported";
     }
 
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported";
+    }
+
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported";
     }
@@ -155,6 +176,17 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported";
+    }
+
+    TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported";
+    }
+
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
     }
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& offsets) const override {

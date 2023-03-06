@@ -26,6 +26,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains(NULL, 1)"
     qt_sql "select array_contains(NULL, NULL)"
     qt_sql "select array_contains([true], false)"
+    qt_sql "select array_contains(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))), cast ('2023-02-04 22:07:34.999' as datetimev2(3)))"
+    qt_sql "select array_contains(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)), cast ('2023-02-05' as datev2))"
 
     // array_position function
     qt_sql "select array_position([1,2,3], 1)"
@@ -42,6 +44,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_position([null, '1'], '')"
     qt_sql "select array_position([''], null)"
     qt_sql "select array_position([false, NULL, true], true)"
+    qt_sql "select array_position(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))), cast ('2023-02-04 22:07:34.999' as datetimev2(3)))"
+    qt_sql "select array_position(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)), cast ('2023-02-05' as datev2))"
 
     // element_at function
     qt_sql "select element_at([1,2,3], 1)"
@@ -53,6 +57,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select element_at([1,2,NULL], 2)"
     qt_sql "select element_at([], -1)"
     qt_sql "select element_at([true, NULL, false], 2)"
+    qt_sql "select element_at(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))), 1)"
+    qt_sql "select element_at(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)), 2)"
 
     // array subscript function
     qt_sql "select [1,2,3][1]"
@@ -64,6 +70,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,NULL][2]"
     qt_sql "select [][-1]"
     qt_sql "select [true, false]"
+    qt_sql "select (array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))[2]"
+    qt_sql "select (array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)))[2]"
 
     // array_aggregation function
     qt_sql "select array_avg([1,2,3])"
@@ -88,6 +96,10 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_product([null])"
     qt_sql "select array_product([1.12, 3.45, 4.23])"
     qt_sql "select array_product([1.12, 3.45, -4.23])"
+    qt_sql "select array_min(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_max(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_min(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_max(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)))"
 
     // array_distinct function
     qt_sql "select array_distinct([1,1,2,2,3,3])"
@@ -99,6 +111,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_distinct([])"
     qt_sql "select array_distinct([null,null])"
     qt_sql "select array_distinct([1, 0, 0, null])"
+    qt_sql "select array_distinct(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_distinct(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2),cast ('2023-02-05' as datev2)))"
 
 
     // array_remove function
@@ -107,6 +121,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_remove(['a','b','c'], 'a')"
     qt_sql "select array_remove(['a','b','c',null], 'a')"
     qt_sql "select array_remove([true, false, false], false)"
+    qt_sql "select array_remove(array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))), cast ('2023-02-04 22:07:34.999' as datetimev2(3)))"
+    qt_sql "select array_remove(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)), cast ('2023-02-05' as datev2))"
  
     // array_sort function
     qt_sql "select array_sort([1,2,3])"
@@ -117,6 +133,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_sort(['c','b','a'])"
     qt_sql "select array_sort([true, false, true])"
     qt_sql "select array_sort([])"
+    qt_sql "select array_sort(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_sort(array(cast ('2023-02-06' as datev2),cast ('2023-02-05' as datev2)))"
 
     // array_overlap function
     qt_sql "select arrays_overlap([1,2,3], [4,5,6])"
@@ -124,6 +142,10 @@ suite("test_array_functions_by_literal") {
     qt_sql "select arrays_overlap([1,2,3,null], [3,4,5])"
     qt_sql "select arrays_overlap([true], [false])"
     qt_sql "select arrays_overlap([], [])"
+    qt_sql "select arrays_overlap(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))),array(cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select arrays_overlap(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))),array(cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-08 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select arrays_overlap(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
+    qt_sql "select arrays_overlap(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-08' as datev2)))"
 
     // array_binary function
     qt_sql "select array_union([1,2,3], [2,3,4])"
@@ -147,8 +169,14 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_union([1], [100000000])"
     qt_sql "select array_except([1], [100000000])"
     qt_sql "select array_intersect([1], [100000000])"
+    qt_sql "select array_union(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))),array(cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_except(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))),array(cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_intersect(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))),array(cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_union(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_except(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
+    qt_sql "select array_intersect(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
 
-    // arrat_slice function
+    // array_slice function
     qt_sql "select [1,2,3][1:1]"
     qt_sql "select [1,2,3][1:3]"
     qt_sql "select [1,2,3][1:5]"
@@ -158,6 +186,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,3][0:]"
     qt_sql "select [1,2,3][-5:]"
     qt_sql "select [true, false, false][2:]"
+    qt_sql "select (array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))[1:2]"
+    qt_sql "select (array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)))[1:2]"
 
     // array_join function 
     qt_sql "select array_join([1, 2, 3], '_')"
@@ -183,6 +213,15 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_compact(['a','b','c','c','d'])"
     qt_sql "select array_compact(['aaa','aaa','bbb','ccc','ccccc',null, null,'dddd'])"
     qt_sql "select array_compact(['2015-03-13','2015-03-13'])"
+    qt_sql "select array_compact(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3)), cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_compact(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2), cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
+
+    // array_apply
+    qt_sql """select array_apply([1000000, 1000001, 1000002], '=', 1000002)"""
+    qt_sql """select array_apply([1.111, 2.222, 3.333], '>=', 2)"""
+    qt_sql """select array_apply(cast(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17") as array<datetimev2>), ">", '2020-01-02')"""
+    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), ">", '25')"""
+    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25.99')"""
 
     qt_sql "select array(8, null)"
     qt_sql "select array('a', 1, 2)"

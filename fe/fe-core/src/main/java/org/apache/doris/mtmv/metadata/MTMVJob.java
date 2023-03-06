@@ -259,8 +259,8 @@ public class MTMVJob implements Writable, Comparable {
         }
 
         public String toString() {
-            return " (START " + LocalDateTime.ofInstant(Instant.ofEpochSecond(startTime), ZoneId.systemDefault())
-                    + " EVERY(" + period + " " + timeUnit + "))";
+            return "START " + LocalDateTime.ofInstant(Instant.ofEpochSecond(startTime), ZoneId.systemDefault())
+                    + " EVERY(" + period + " " + timeUnit + ")";
         }
     }
 

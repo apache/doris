@@ -49,6 +49,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
@@ -90,10 +91,13 @@ public class Tablet extends MetaObject implements Writable {
     private long checkedVersionHash;
     @SerializedName(value = "isConsistent")
     private boolean isConsistent;
+
+    // cooldown conf
     @SerializedName(value = "cooldownReplicaId")
-    private long cooldownReplicaId;
+    private long cooldownReplicaId = -1;
     @SerializedName(value = "cooldownTerm")
-    private long cooldownTerm;
+    private long cooldownTerm = -1;
+    private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -143,20 +147,20 @@ public class Tablet extends MetaObject implements Writable {
         return isConsistent;
     }
 
-    public long getCooldownReplicaId() {
-        return cooldownReplicaId;
-    }
-
-    public void setCooldownReplicaId(long cooldownReplicaId) {
+    public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
+        cooldownConfLock.writeLock().lock();
         this.cooldownReplicaId = cooldownReplicaId;
-    }
-
-    public long getCooldownTerm() {
-        return cooldownTerm;
-    }
-
-    public void setCooldownTerm(long cooldownTerm) {
         this.cooldownTerm = cooldownTerm;
+        cooldownConfLock.writeLock().unlock();
+    }
+
+    public Pair<Long, Long> getCooldownConf() {
+        cooldownConfLock.readLock().lock();
+        try {
+            return Pair.of(cooldownReplicaId, cooldownTerm);
+        } finally {
+            cooldownConfLock.readLock().unlock();
+        }
     }
 
     private boolean deleteRedundantReplica(long backendId, long version) {
@@ -583,7 +587,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     private boolean checkHost(Set<String> hosts, Backend backend) {
-        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
+        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getIp());
     }
 
     /**

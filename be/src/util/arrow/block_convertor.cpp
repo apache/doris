@@ -38,6 +38,7 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"
@@ -69,12 +70,12 @@ public:
 #define PRIMITIVE_VISIT(TYPE) \
     arrow::Status Visit(const arrow::TYPE& type) override { return _visit(type); }
 
-    PRIMITIVE_VISIT(Int8Type);
-    PRIMITIVE_VISIT(Int16Type);
-    PRIMITIVE_VISIT(Int32Type);
-    PRIMITIVE_VISIT(Int64Type);
-    PRIMITIVE_VISIT(FloatType);
-    PRIMITIVE_VISIT(DoubleType);
+    PRIMITIVE_VISIT(Int8Type)
+    PRIMITIVE_VISIT(Int16Type)
+    PRIMITIVE_VISIT(Int32Type)
+    PRIMITIVE_VISIT(Int64Type)
+    PRIMITIVE_VISIT(FloatType)
+    PRIMITIVE_VISIT(DoubleType)
 
 #undef PRIMITIVE_VISIT
 
@@ -107,7 +108,8 @@ public:
             case vectorized::TypeIndex::Date:
             case vectorized::TypeIndex::DateTime: {
                 char buf[64];
-                const DateTimeValue* time_val = (const DateTimeValue*)(data_ref.data);
+                const vectorized::VecDateTimeValue* time_val =
+                        (const vectorized::VecDateTimeValue*)(data_ref.data);
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
@@ -136,9 +138,15 @@ public:
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
+            case vectorized::TypeIndex::JSONB: {
+                std::string string_temp =
+                        JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+                ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
+                break;
+            }
             default: {
                 LOG(WARNING) << "can't convert this type = " << vectorized::getTypeName(type_idx)
-                             << "to arrow type";
+                             << " to arrow type";
                 return arrow::Status::TypeError("unsupported column type");
             }
             }

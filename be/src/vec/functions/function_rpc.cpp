@@ -28,9 +28,9 @@
 namespace doris::vectorized {
 
 RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
-    _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
     _function_name = _fn.scalar_fn.symbol;
     _server_addr = _fn.hdfs_location;
+    _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
     _signature = fmt::format("{}: [{}/{}]", _fn.name.function_name, _fn.hdfs_location,
                              _fn.scalar_fn.symbol);
 }
@@ -527,7 +527,7 @@ FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
                          const DataTypePtr& return_type)
         : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
 
-Status FunctionRPC::prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     _fn = std::make_unique<RPCFnImpl>(_tfn);
 
     if (!_fn->available()) {

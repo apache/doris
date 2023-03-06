@@ -40,7 +40,7 @@ class SortSinkOperator final : public StreamingOperator<SortSinkOperatorBuilder>
 public:
     SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
 
-    bool can_write() override { return true; };
+    bool can_write() override { return true; }
 };
 
 } // namespace pipeline

@@ -35,6 +35,7 @@ header:
     - "**/*.log"
     - "**/*.sql"
     - "**/*.lock"
+    - "**/*.out"
     - "tsan_suppressions"
     - "docs/.markdownlintignore"
     - "fe/fe-core/src/test/resources/data/net_snmp_normal"

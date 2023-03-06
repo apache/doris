@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-推荐使用 [JDBC Catalog](../multi-catalog/jdbc) 访问 JDBC 外表。
+推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表。
 
 </version>
 
@@ -168,7 +168,7 @@ PROPERTIES (
 
 目前只测试了这一个版本其他版本测试后补充
 
-#### 4.ClickHouse测试
+#### 5.ClickHouse测试
 | ClickHouse版本 | ClickHouse JDBC驱动版本 |
 |----------| ------------------- |
 | 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |
@@ -266,4 +266,4 @@ PROPERTIES (
 
 ## Q&A
 
-请参考 [JDBC Catalog](../multi-catalog/jdbc) 中的 常见问题一节。
+请参考 [JDBC Catalog](../multi-catalog/jdbc.md) 中的 常见问题一节。

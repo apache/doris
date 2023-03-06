@@ -603,6 +603,7 @@ public class ScalarType extends Type {
             case DATEV2:
             case HLL:
             case BITMAP:
+            case VARIANT:
             case QUANTILE_STATE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;

@@ -45,10 +45,10 @@ private:
     virtual Status _finish_clone(Tablet* tablet, const std::string& clone_dir,
                                  int64_t committed_version, bool is_incremental_clone);
 
-    Status _finish_incremental_clone(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
+    Status _finish_incremental_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta,
                                      int64_t committed_version);
 
-    Status _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
+    Status _finish_full_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta);
 
     Status _make_and_download_snapshots(DataDir& data_dir, const std::string& local_data_path,
                                         TBackend* src_host, string* src_file_path,

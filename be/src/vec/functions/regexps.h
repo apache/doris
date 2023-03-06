@@ -32,8 +32,6 @@
 #include <vector>
 
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 
@@ -230,7 +228,7 @@ inline DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patt
     /// option to reference the corresponding string patterns / edit distance key in the cache table bucket because the cache entry may
     /// already be evicted at the time the compilation starts.
 
-    if (bucket.regexps == nullptr) [[unlikely]] {
+    if (bucket.regexps == nullptr) {
         /// insert new entry
         auto deferred_constructed_regexps =
                 std::make_shared<DeferredConstructedRegexps>([str_patterns, edit_distance]() {

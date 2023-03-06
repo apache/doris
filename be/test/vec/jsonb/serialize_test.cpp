@@ -14,28 +14,26 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include "vec/jsonb/serialize.h"
+
 #include <gtest/gtest.h>
 
 #include "gen_cpp/descriptors.pb.h"
-#include "vec/core/block.h"
-#include "vec/core/types.h"
-#define private public
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -111,6 +109,7 @@ TEST(BlockSerializeTest, Array) {
     tslot1.__set_colName("k1");
     TypeDescriptor type_desc(TYPE_ARRAY);
     type_desc.children.push_back(TypeDescriptor(TYPE_INT));
+    type_desc.contains_nulls.push_back(true);
     tslot1.__set_slotType(type_desc.to_thrift());
     tslot1.__set_col_unique_id(1);
     SlotDescriptor* slot = new SlotDescriptor(tslot1);
@@ -121,6 +120,7 @@ TEST(BlockSerializeTest, Array) {
     tslot2.__set_colName("k2");
     TypeDescriptor type_desc2(TYPE_ARRAY);
     type_desc2.children.push_back(TypeDescriptor(TYPE_STRING));
+    type_desc2.contains_nulls.push_back(true);
     tslot2.__set_slotType(type_desc2.to_thrift());
     tslot2.__set_col_unique_id(2);
     SlotDescriptor* slot2 = new SlotDescriptor(tslot2);

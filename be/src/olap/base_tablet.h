@@ -45,7 +45,7 @@ public:
     Status set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
-    const TabletMetaSharedPtr tablet_meta();
+    const TabletMetaSharedPtr& tablet_meta();
 
     bool is_memory() const;
     TabletUid tablet_uid() const;
@@ -73,7 +73,7 @@ protected:
 
 protected:
     TabletState _state;
-    TabletMetaSharedPtr _tablet_meta;
+    const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _schema;
 
     DataDir* _data_dir;
@@ -101,7 +101,7 @@ inline const std::string& BaseTablet::tablet_path() const {
     return _tablet_path;
 }
 
-inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {
+inline const TabletMetaSharedPtr& BaseTablet::tablet_meta() {
     return _tablet_meta;
 }
 

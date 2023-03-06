@@ -22,14 +22,14 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
-class InnerJoinLeftAssociateTest implements PatternMatchSupported {
+class InnerJoinLeftAssociateTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -44,9 +44,9 @@ class InnerJoinLeftAssociateTest implements PatternMatchSupported {
          *    +--LogicalOlapScan ( qualified=db.t3, output=[id#2, name#3], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
          */
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(
+                .join(
                         new LogicalPlanBuilder(scan2)
-                                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
+                                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
                                 .build(),
                         JoinType.INNER_JOIN, Pair.of(0, 0)
                 )

@@ -23,9 +23,9 @@
 
 namespace doris {
 
-Rowset::Rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-               RowsetMetaSharedPtr rowset_meta)
-        : _tablet_path(tablet_path), _rowset_meta(std::move(rowset_meta)), _refs_by_reader(0) {
+Rowset::Rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+               const RowsetMetaSharedPtr& rowset_meta)
+        : _tablet_path(tablet_path), _rowset_meta(rowset_meta), _refs_by_reader(0) {
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
         _is_cumulative = false;
@@ -45,7 +45,7 @@ Status Rowset::load(bool use_cache) {
     }
     {
         // before lock, if rowset state is ROWSET_UNLOADING, maybe it is doing do_close in release
-        std::lock_guard<std::mutex> load_lock(_lock);
+        std::lock_guard load_lock(_lock);
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
             // first do load, then change the state
@@ -77,7 +77,7 @@ void Rowset::make_visible(Version version) {
 }
 
 bool Rowset::check_rowset_segment() {
-    std::lock_guard<std::mutex> load_lock(_lock);
+    std::lock_guard load_lock(_lock);
     return check_current_rowset_segment();
 }
 

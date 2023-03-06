@@ -28,6 +28,8 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_settings.h"
+#include "io/fs/local_file_system.h"
+#include "olap/iterators.h"
 #include "util/time.h"
 #include "vec/common/hex.h"
 #include "vec/common/sip_hash.h"
@@ -53,6 +55,7 @@ Status LRUFileCache::initialize() {
                 return Status::IOError("cannot create {}: {}", _cache_base_path,
                                        std::strerror(ec.value()));
             }
+            RETURN_IF_ERROR(write_file_cache_version());
         }
     }
     _is_initialized = true;
@@ -438,7 +441,7 @@ bool LRUFileCache::try_reserve(const Key& key, const TUniqueId& query_id, bool i
     return true;
 }
 
-bool LRUFileCache::try_reserve_for_main_list(const Key& key, QueryContextPtr query_context,
+bool LRUFileCache::try_reserve_for_main_list(const Key& key, QueryFileCacheContextPtr query_context,
                                              bool is_persistent, size_t offset, size_t size,
                                              std::lock_guard<std::mutex>& cache_lock) {
     LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
@@ -576,7 +579,6 @@ void LRUFileCache::remove_if_releasable(bool is_persistent) {
 
     std::lock_guard cache_lock(_mutex);
     LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
-    std::vector<FileBlock*> to_remove;
     for (auto it = queue->begin(); it != queue->end();) {
         const auto& [key, offset, size, _] = *it++;
         auto* cell = get_cell(key, is_persistent, offset, cache_lock);
@@ -635,63 +637,113 @@ void LRUFileCache::remove(const Key& key, bool is_persistent, size_t offset,
 }
 
 void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock) {
+    /// version 1.0: cache_base_path / key / offset
+    /// version 2.0: cache_base_path / key_prefix / key / offset
+    if (read_file_cache_version() != FILE_CACHE_VERSION) {
+        // move directories format as version 2.0
+        fs::directory_iterator key_it {_cache_base_path};
+        for (; key_it != fs::directory_iterator(); ++key_it) {
+            if (key_it->is_directory()) {
+                std::string cache_key = key_it->path().filename().native();
+                if (cache_key.size() > KEY_PREFIX_LENGTH) {
+                    std::string key_prefix =
+                            fs::path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
+                    if (!fs::exists(key_prefix)) {
+                        std::error_code ec;
+                        fs::create_directories(key_prefix, ec);
+                        if (ec) {
+                            LOG(WARNING) << "Failed to create new version cached directory: "
+                                         << ec.message();
+                            continue;
+                        }
+                    }
+                    std::error_code ec;
+                    std::filesystem::rename(key_it->path(), key_prefix / cache_key, ec);
+                    if (ec) {
+                        LOG(WARNING)
+                                << "Failed to move old version cached directory: " << ec.message();
+                    }
+                }
+            }
+        }
+        if (!write_file_cache_version().ok()) {
+            LOG(WARNING) << "Failed to write version hints for file cache";
+        }
+    }
+
     Key key;
     uint64_t offset = 0;
     size_t size = 0;
     std::vector<std::pair<LRUQueue::Iterator, bool>> queue_entries;
 
-    /// cache_base_path / key / offset
-    fs::directory_iterator key_it {_cache_base_path};
-    for (; key_it != fs::directory_iterator(); ++key_it) {
-        key = Key(vectorized::unhex_uint<uint128_t>(key_it->path().filename().native().c_str()));
+    /// version 2.0: cache_base_path / key_prefix / key / offset
+    fs::directory_iterator key_prefix_it {_cache_base_path};
+    for (; key_prefix_it != fs::directory_iterator(); ++key_prefix_it) {
+        if (!key_prefix_it->is_directory()) {
+            // maybe version hits file
+            continue;
+        }
+        if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
+            LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
+                         << ", try to remove it";
+            std::filesystem::remove(key_prefix_it->path());
+            continue;
+        }
 
-        fs::directory_iterator offset_it {key_it->path()};
-        for (; offset_it != fs::directory_iterator(); ++offset_it) {
-            auto offset_with_suffix = offset_it->path().filename().native();
-            auto delim_pos = offset_with_suffix.find('_');
-            bool is_persistent = false;
-            bool parsed = true;
-            try {
-                if (delim_pos == std::string::npos) {
-                    offset = stoull(offset_with_suffix);
+        fs::directory_iterator key_it {key_prefix_it->path()};
+        for (; key_it != fs::directory_iterator(); ++key_it) {
+            key = Key(
+                    vectorized::unhex_uint<uint128_t>(key_it->path().filename().native().c_str()));
+
+            fs::directory_iterator offset_it {key_it->path()};
+            for (; offset_it != fs::directory_iterator(); ++offset_it) {
+                auto offset_with_suffix = offset_it->path().filename().native();
+                auto delim_pos = offset_with_suffix.find('_');
+                bool is_persistent = false;
+                bool parsed = true;
+                try {
+                    if (delim_pos == std::string::npos) {
+                        offset = stoull(offset_with_suffix);
+                    } else {
+                        offset = stoull(offset_with_suffix.substr(0, delim_pos));
+                        is_persistent = offset_with_suffix.substr(delim_pos + 1) == "persistent";
+                    }
+                } catch (...) {
+                    parsed = false;
+                }
+
+                if (!parsed) {
+                    LOG(WARNING) << "Unexpected file: " << offset_it->path().native();
+                    continue; /// Or just remove? Some unexpected file.
+                }
+
+                size = offset_it->file_size();
+                if (size == 0) {
+                    std::error_code ec;
+                    fs::remove(offset_it->path(), ec);
+                    if (ec) {
+                        LOG(WARNING) << ec.message();
+                    }
+                    continue;
+                }
+
+                if (try_reserve(key, TUniqueId(), is_persistent, offset, size, cache_lock)) {
+                    auto* cell = add_cell(key, is_persistent, offset, size,
+                                          FileBlock::State::DOWNLOADED, cache_lock);
+                    if (cell) {
+                        queue_entries.emplace_back(*cell->queue_iterator, is_persistent);
+                    }
                 } else {
-                    offset = stoull(offset_with_suffix.substr(0, delim_pos));
-                    is_persistent = offset_with_suffix.substr(delim_pos + 1) == "persistent";
-                }
-            } catch (...) {
-                parsed = false;
-            }
-
-            if (!parsed) {
-                LOG(WARNING) << "Unexpected file: " << offset_it->path().native();
-                continue; /// Or just remove? Some unexpected file.
-            }
-
-            size = offset_it->file_size();
-            if (size == 0) {
-                std::error_code ec;
-                fs::remove(offset_it->path(), ec);
-                if (ec) {
-                    LOG(WARNING) << ec.message();
-                }
-                continue;
-            }
-
-            if (try_reserve(key, TUniqueId(), is_persistent, offset, size, cache_lock)) {
-                auto* cell = add_cell(key, is_persistent, offset, size,
-                                      FileBlock::State::DOWNLOADED, cache_lock);
-                if (cell) {
-                    queue_entries.emplace_back(*cell->queue_iterator, is_persistent);
-                }
-            } else {
-                LOG(WARNING) << "Cache capacity changed (max size: " << _max_size << ", available: "
-                             << get_available_cache_size_unlocked(is_persistent, cache_lock)
-                             << "), cached file " << key_it->path().string()
-                             << " does not fit in cache anymore (size: " << size << ")";
-                std::error_code ec;
-                fs::remove(offset_it->path(), ec);
-                if (ec) {
-                    LOG(WARNING) << ec.message();
+                    LOG(WARNING) << "Cache capacity changed (max size: " << _max_size
+                                 << ", available: "
+                                 << get_available_cache_size_unlocked(is_persistent, cache_lock)
+                                 << "), cached file " << key_it->path().string()
+                                 << " does not fit in cache anymore (size: " << size << ")";
+                    std::error_code ec;
+                    fs::remove(offset_it->path(), ec);
+                    if (ec) {
+                        LOG(WARNING) << ec.message();
+                    }
                 }
             }
         }
@@ -705,6 +757,35 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
         LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
         queue->move_to_end(it, cache_lock);
     }
+}
+
+Status LRUFileCache::write_file_cache_version() const {
+    std::string version_path = get_version_path();
+    Slice version(FILE_CACHE_VERSION);
+    FileWriterPtr version_writer;
+    RETURN_IF_ERROR(global_local_filesystem()->create_file(version_path, &version_writer));
+    RETURN_IF_ERROR(version_writer->append(version));
+    return version_writer->close();
+}
+
+std::string LRUFileCache::read_file_cache_version() const {
+    std::string version_path = get_version_path();
+    const FileSystemSPtr& fs = global_local_filesystem();
+    bool exists = false;
+    fs->exists(version_path, &exists);
+    if (!exists) {
+        return "1.0";
+    }
+    FileReaderSPtr version_reader;
+    size_t file_size = 0;
+    fs->file_size(version_path, &file_size);
+    char version[file_size];
+
+    IOContext io_ctx;
+    fs->open_file(version_path, &version_reader, &io_ctx);
+    version_reader->read_at(0, Slice(version, file_size), io_ctx, &file_size);
+    version_reader->close();
+    return std::string(version, file_size);
 }
 
 std::vector<std::string> LRUFileCache::try_get_cache_paths(const Key& key, bool is_persistent) {

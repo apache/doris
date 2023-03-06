@@ -110,7 +110,22 @@ Status NewOlapScanNode::_init_profile() {
 
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
-    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTimer");
+    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
+    _inverted_index_query_cache_hit_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT);
+    _inverted_index_query_cache_miss_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
+    _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+    _inverted_index_query_bitmap_copy_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
+    _inverted_index_query_bitmap_op_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapOpTime");
+    _inverted_index_searcher_open_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
+    _inverted_index_searcher_search_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+    _inverted_index_searcher_bitmap_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherGenBitmapTime");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
@@ -302,7 +317,7 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
             return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -338,8 +353,6 @@ void NewOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         COUNTER_UPDATE(_tablet_counter, 1);
     }
     // telemetry::set_current_span_attribute(_tablet_counter);
-
-    return;
 }
 
 std::string NewOlapScanNode::get_name() {
@@ -357,6 +370,15 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
         _runtime_profile->add_info_string("RemainedDownPredicates",
                                           (*_vconjunct_ctx_ptr)->root()->debug_string());
+    }
+
+    if (!_olap_scan_node.output_column_unique_ids.empty()) {
+        for (auto uid : _olap_scan_node.output_column_unique_ids) {
+            if (uid < 0) {
+                continue;
+            }
+            _maybe_read_column_ids.emplace(uid);
+        }
     }
 
     // ranges constructed from scan keys
@@ -405,7 +427,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
-                    _need_agg_finalize, *scan_range, _scanner_profile.get());
+                    _need_agg_finalize, _scanner_profile.get());
 
             scanner->set_compound_filters(_compound_filters);
             // add scanner to pool before doing prepare.

@@ -111,12 +111,12 @@ public:
     void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
-    void to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     uint32_t mem_size() const;
 
     TabletTypePB tablet_type() const { return _tablet_type; }
     TabletUid tablet_uid() const;
+    void set_tablet_uid(TabletUid uid) { _tablet_uid = uid; }
     int64_t table_id() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
@@ -145,7 +145,7 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    TabletSchemaSPtr tablet_schema() const;
+    const TabletSchemaSPtr& tablet_schema() const;
 
     const TabletSchemaSPtr tablet_schema(Version version) const;
 
@@ -194,17 +194,8 @@ public:
         _storage_policy_id = id;
     }
 
-    const int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
-
-    void set_cooldown_replica_id_and_term(int64_t cooldown_replica_id, int64_t cooldown_term) {
-        VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_replica_id from "
-                    << _cooldown_replica_id << " to " << cooldown_replica_id
-                    << ", cooldown_term from " << _cooldown_term << " to " << cooldown_term;
-        _cooldown_replica_id = cooldown_replica_id;
-        _cooldown_term = cooldown_term;
-    }
-
-    const int64_t cooldown_term() const { return _cooldown_term; }
+    UniqueId cooldown_meta_id() const { return _cooldown_meta_id; }
+    void set_cooldown_meta_id(UniqueId uid) { _cooldown_meta_id = uid; }
 
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
@@ -212,9 +203,6 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-
-    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
-                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -248,9 +236,9 @@ private:
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
-    int64_t _cooldown_replica_id = -1;
-    int64_t _cooldown_term = -1;
+    // meta for cooldown
     int64_t _storage_policy_id = 0; // <= 0 means no storage policy
+    UniqueId _cooldown_meta_id;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
@@ -379,6 +367,8 @@ public:
      * @param other
      */
     void merge(const DeleteBitmap& other);
+
+    uint64_t cardinality();
 
     /**
      * Checks if the given row is marked deleted in bitmap with the condition:
@@ -533,7 +523,7 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+inline const TabletSchemaSPtr& TabletMeta::tablet_schema() const {
     return _schema;
 }
 

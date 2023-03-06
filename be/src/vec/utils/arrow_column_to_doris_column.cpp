@@ -69,7 +69,7 @@
 
 namespace doris::vectorized {
 
-const PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type) {
+PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type) {
     switch (type) {
         // TODO: convert arrow date type to datev2/datetimev2
 #define DISPATCH(ARROW_TYPE, CPP_TYPE) \

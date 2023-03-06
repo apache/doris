@@ -149,9 +149,9 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    Status get_const_col(VExprContext* context, ColumnPtrWrapper** output);
+    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
-    int fn_context_index() const { return _fn_context_index; };
+    int fn_context_index() const { return _fn_context_index; }
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
         if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {

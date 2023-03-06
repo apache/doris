@@ -81,7 +81,7 @@ public class MTMVTaskExecutorPool {
 
             ChangeMTMVTask changeTask = new ChangeMTMVTask(taskExecutor.getJob().getId(), task, TaskState.RUNNING,
                     task.getState());
-            Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+            Env.getCurrentEnv().getEditLog().logChangeMTMVTask(changeTask);
         });
         taskExecutor.setFuture(future);
     }

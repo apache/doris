@@ -51,13 +51,14 @@ struct RegexpReplaceImpl {
             if (re == nullptr) {
                 std::string error_str;
                 const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                re = StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
-                if (re == nullptr) {
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
+                                                         scoped_re);
+                if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
                     continue;
                 }
-                scoped_re.reset(re);
+                re = scoped_re.get();
             }
 
             re2::StringPiece replace_str =
@@ -94,13 +95,14 @@ struct RegexpReplaceOneImpl {
             if (re == nullptr) {
                 std::string error_str;
                 const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                re = StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
-                if (re == nullptr) {
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
+                                                         scoped_re);
+                if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
                     continue;
                 }
-                scoped_re.reset(re);
+                re = scoped_re.get();
             }
 
             re2::StringPiece replace_str =
@@ -142,13 +144,14 @@ struct RegexpExtractImpl {
             if (re == nullptr) {
                 std::string error_str;
                 const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                re = StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
-                if (re == nullptr) {
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
+                                                         scoped_re);
+                if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
                     continue;
                 }
-                scoped_re.reset(re);
+                re = scoped_re.get();
             }
             const auto& str = str_col->get_data_at(i);
             re2::StringPiece str_sp = re2::StringPiece(str.data, str.size);
@@ -196,13 +199,18 @@ struct RegexpExtractAllImpl {
             if (re == nullptr) {
                 std::string error_str;
                 const auto& pattern = pattern_col->get_data_at(i).to_string_val();
-                re = StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
-                if (re == nullptr) {
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
+                                                         scoped_re);
+                if (!st) {
                     context->add_warning(error_str.c_str());
                     StringOP::push_null_string(i, result_data, result_offset, null_map);
                     continue;
                 }
-                scoped_re.reset(re);
+                re = scoped_re.get();
+            }
+            if (re->NumberOfCapturingGroups() == 0) {
+                StringOP::push_empty_string(i, result_data, result_offset);
+                continue;
             }
             const auto& str = str_col->get_data_at(i);
             int max_matches = 1 + re->NumberOfCapturingGroups();
@@ -267,7 +275,7 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
@@ -278,12 +286,14 @@ public:
                 }
 
                 std::string error_str;
-                re2::RE2* re =
-                        StringFunctions::compile_regex(pattern, &error_str, StringVal::null());
-                if (re == nullptr) {
+                std::unique_ptr<re2::RE2> scoped_re;
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringVal::null(),
+                                                         scoped_re);
+                if (!st) {
                     context->set_error(error_str.c_str());
                     return Status::InvalidArgument(error_str);
                 }
+                std::shared_ptr<re2::RE2> re(scoped_re.release());
                 context->set_function_state(scope, re);
             }
         }
@@ -320,14 +330,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            if (context->is_col_constant(1)) {
-                re2::RE2* re = reinterpret_cast<re2::RE2*>(context->get_function_state(scope));
-                DCHECK(re);
-                delete re;
-                context->set_function_state(scope, nullptr);
-            }
-        }
         return Status::OK();
     }
 };

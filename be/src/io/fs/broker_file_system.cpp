@@ -94,8 +94,7 @@ Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader,
     request.__set_clientId(client_id(_broker_addr));
     request.__set_properties(_broker_prop);
 
-    TBrokerOpenReaderResponse* response = new TBrokerOpenReaderResponse();
-    Defer del_reponse {[&] { delete response; }};
+    std::unique_ptr<TBrokerOpenReaderResponse> response(new TBrokerOpenReaderResponse());
     try {
         Status status;
         try {

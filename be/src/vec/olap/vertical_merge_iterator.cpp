@@ -17,6 +17,8 @@
 
 #include "vec/olap/vertical_merge_iterator.h"
 
+#include "olap/olap_common.h"
+
 namespace doris {
 using namespace ErrorCode;
 
@@ -98,6 +100,21 @@ void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
     _buffer->get_data()[index] = ori.data();
 }
 
+size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
+    size_t result = 1;
+    int start = index + 1;
+    int end = _buffer->size();
+    while (index < end) {
+        RowSource next(_buffer->get_element(start++));
+        if (next.agg_flag()) {
+            ++result;
+        } else {
+            break;
+        }
+    }
+    return result;
+}
+
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
     int result = 1;
     int start = _buf_idx + 1;
@@ -120,8 +137,11 @@ Status RowSourcesBuffer::_create_buffer_file() {
     file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
     if (_reader_type == READER_BASE_COMPACTION) {
         file_path_ss << "_base";
-    } else if (_reader_type == READER_CUMULATIVE_COMPACTION) {
+    } else if (_reader_type == READER_CUMULATIVE_COMPACTION ||
+               _reader_type == READER_SEGMENT_COMPACTION) {
         file_path_ss << "_cumu";
+    } else if (_reader_type == READER_COLD_DATA_COMPACTION) {
+        file_path_ss << "_cold";
     } else {
         DCHECK(false);
         return Status::InternalError("unknown reader type");
@@ -444,9 +464,9 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
     // will not be pushed into heap, we should init next one util we find a valid iter
     // so this rowset can work in heap
     bool pre_iter_invalid = false;
-    for (auto iter : _origin_iters) {
+    for (auto& iter : _origin_iters) {
         VerticalMergeIteratorContext* ctx = new VerticalMergeIteratorContext(
-                iter, _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx);
+                std::move(iter), _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx);
         _ori_iter_ctx.push_back(ctx);
         if (_iterator_init_flags[seg_order] || pre_iter_invalid) {
             RETURN_IF_ERROR(ctx->init(opts));
@@ -581,9 +601,9 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
     _opts = opts;
 
     RowsetId rs_id;
-    for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VerticalMergeIteratorContext>(iter, rs_id, _ori_return_cols, -1,
-                                                                  -1);
+    for (auto& iter : _origin_iters) {
+        auto ctx = std::make_unique<VerticalMergeIteratorContext>(std::move(iter), rs_id,
+                                                                  _ori_return_cols, -1, -1);
         _origin_iter_ctx.emplace_back(ctx.release());
     }
     _origin_iters.clear();
@@ -594,7 +614,7 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
 
 // interfaces to create vertical merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
-        std::vector<RowwiseIterator*> inputs, const std::vector<bool>& iterator_init_flag,
+        std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
         const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
         uint32_t seq_col_idx, RowSourcesBuffer* row_sources) {
     return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), iterator_init_flag,
@@ -603,9 +623,10 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
-        const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols,
+        std::vector<RowwiseIteratorUPtr>&& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources) {
-    return std::make_shared<VerticalMaskMergeIterator>(inputs, ori_return_cols, row_sources);
+    return std::make_shared<VerticalMaskMergeIterator>(std::move(inputs), ori_return_cols,
+                                                       row_sources);
 }
 
 } // namespace vectorized

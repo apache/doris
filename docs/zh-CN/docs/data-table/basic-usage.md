@@ -42,7 +42,7 @@ Doris 内置 root，密码默认为空。
 >
 >root 用户默认拥有集群所有权限。同时拥有 Grant_priv 和 Node_priv 的用户，可以将该权限赋予其他用户，拥有节点变更权限，包括 FE、BE、BROKER 节点的添加、删除、下线等操作。
 >
->关于权限这块的具体说明可以参照[权限管理](../../admin-manual/privilege-ldap/user-privilege)
+>关于权限这块的具体说明可以参照[权限管理](../admin-manual/privilege-ldap/user-privilege.md)
 
 启动完 Doris 程序之后，可以通过 root 或 admin 用户连接到 Doris 集群。 使用下面命令即可登录 Doris，登录后进入到Doris对应的Mysql命令行操作界面：
 
@@ -130,7 +130,7 @@ CREATE DATABASE example_db;
 >    SHOW CREATE ROUTINE LOAD
 > ```
 
-数据库创建完成之后，可以通过 [SHOW DATABASES](../../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES) 查看数据库信息。
+数据库创建完成之后，可以通过 [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.md) 查看数据库信息。
 
 ```sql
 mysql> SHOW DATABASES;
@@ -165,7 +165,7 @@ mysql> USE example_db;
 Database changed
 ```
 
-Doris支持[复合分区和单分区](./data-partition)两种建表方式。下面以聚合模型为例，分别演示如何创建两种分区的数据表。
+Doris支持[复合分区和单分区](./data-partition.md)两种建表方式。下面以聚合模型为例，分别演示如何创建两种分区的数据表。
 
 #### 单分区
 
@@ -328,7 +328,7 @@ curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separ
 > 注意事项：
 >
 > 1. 采用流式导入建议文件大小限制在 10GB 以内，过大的文件会导致失败重试代价变大。
-> 2. label：Label 的主要作用是唯一标识一个导入任务，并且能够保证相同的 Label 仅会被成功导入一次，具体可以查看 [数据导入事务及原子性 ](../../data-operate/import/import-scenes/load-atomicity)。
+> 2. label：Label 的主要作用是唯一标识一个导入任务，并且能够保证相同的 Label 仅会被成功导入一次，具体可以查看 [数据导入事务及原子性 ](../data-operate/import/import-scenes/load-atomicity.md)。
 > 3. 流式导入是同步命令。命令返回成功则表示数据已经导入，返回失败表示这批数据没有导入。
 
 #### Broker 导入
@@ -453,7 +453,7 @@ mysql> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHE
 
 ## 表结构变更
 
-使用 [ALTER TABLE COLUMN](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN) 命令可以修改表的 Schema，包括如下修改：
+使用 [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) 命令可以修改表的 Schema，包括如下修改：
 
 - 增加列
 - 删除列
@@ -517,7 +517,7 @@ CANCEL ALTER TABLE COLUMN FROM table1;
 
 Rollup 可以理解为 Table 的一个物化索引结构。**物化** 是因为其数据在物理上独立存储，而 **索引** 的意思是，Rollup可以调整列顺序以增加前缀索引的命中率，也可以减少key列以增加数据的聚合度。
 
-使用[ALTER TABLE ROLLUP](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP)可以进行Rollup的各种变更操作。
+使用[ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md)可以进行Rollup的各种变更操作。
 
 以下举例说明
 
@@ -584,7 +584,7 @@ Rollup 建立之后，查询不需要指定 Rollup 进行查询。还是指定�
 
 同时，Doris 能够自动保证物化视图和基础表的数据一致性，并且在查询时自动匹配合适的物化视图，极大降低用户的数据维护成本，为用户提供一个一致且透明的查询加速体验。
 
-关于物化视图的具体介绍，可参阅 [物化视图](../../advanced/materialized-view)
+关于物化视图的具体介绍，可参阅 [物化视图](../advanced/materialized-view.md)
 
 ## 数据表的查询
 
@@ -701,7 +701,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 当部署多个 FE 节点时，用户可以在多个 FE 之上部署负载均衡层来实现 Doris 的高可用。
 
-具体安装部署及使用方式请参照 [负载均衡](../admin-manual/cluster-management/load-balancing)
+具体安装部署及使用方式请参照 [负载均衡](../admin-manual/cluster-management/load-balancing.md)
 
 ## 数据更新和删除
 
@@ -709,4 +709,4 @@ Doris 支持通过两种方式对已导入的数据进行删除。一种是通�
 
 另一种删除方式仅针对 Unique 主键唯一模型，通过导入数据的方式将需要删除的主键行数据进行导入。Doris 内部会通过删除标记位对数据进行最终的物理删除。这种删除方式适合以实时的方式对数据进行删除。
 
-关于删除和更新操作的具体说明，可参阅 [数据更新](../../data-operate/update-delete/update) 相关文档。
+关于删除和更新操作的具体说明，可参阅 [数据更新](../data-operate/update-delete/update.md) 相关文档。

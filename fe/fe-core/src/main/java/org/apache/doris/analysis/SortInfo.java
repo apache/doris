@@ -51,6 +51,7 @@ public class SortInfo {
     private static final float SORT_MATERIALIZATION_COST_THRESHOLD = Expr.FUNCTION_CALL_COST;
 
     private List<Expr> orderingExprs;
+    private List<Expr> origOrderingExprs;
     private final List<Boolean> isAscOrder;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
@@ -120,6 +121,10 @@ public class SortInfo {
 
     public List<Expr> getOrderingExprs() {
         return orderingExprs;
+    }
+
+    public List<Expr> getOrigOrderingExprs() {
+        return origOrderingExprs;
     }
 
     public List<Boolean> getIsAscOrder() {
@@ -261,6 +266,9 @@ public class SortInfo {
             }
         }
 
+        // backup before substitute orderingExprs
+        origOrderingExprs = orderingExprs;
+
         // The ordering exprs are evaluated against the sort tuple, so they must reflect the
         // materialization decision above.
         substituteOrderingExprs(substOrderBy, analyzer);
@@ -298,7 +306,9 @@ public class SortInfo {
             SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
             LOG.debug("origOrderingExpr {}", origOrderingExpr);
             if (origSlotRef != null) {
-                materializedDesc.setColumn(origSlotRef.getColumn());
+                // need do this for two phase read of topn query optimization
+                // check https://github.com/apache/doris/pull/15642 for detail
+                materializedDesc.setSrcColumn(origSlotRef.getColumn());
             }
             SlotRef materializedRef = new SlotRef(materializedDesc);
             substOrderBy.put(origOrderingExpr, materializedRef);

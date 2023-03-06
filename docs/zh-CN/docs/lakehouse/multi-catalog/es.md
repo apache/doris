@@ -50,16 +50,17 @@ CREATE CATALOG es PROPERTIES (
 
 ### 参数说明
 
-参数 | 是否必须 | 默认值 | 说明 
---- | --- | --- | --- 
-`hosts` | 是 | | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址 |
-`user` | 否 |  空 | ES 用户名 |
-`password` | 否 | 空 | 对应用户的密码信息 |
-`doc_value_scan` | 否 | true | 是否开启通过 ES/Lucene 列式存储获取查询字段的值 |
+参数 | 是否必须 | 默认值 | 说明                                                                     
+--- | --- | --- |------------------------------------------------------------------------
+`hosts` | 是 | | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址                                         |
+`user` | 否 |  空 | ES 用户名                                                                 |
+`password` | 否 | 空 | 对应用户的密码信息                                                              |
+`doc_value_scan` | 否 | true | 是否开启通过 ES/Lucene 列式存储获取查询字段的值                                          |
 `keyword_sniff` | 否 | true | 是否对 ES 中字符串分词类型 text.fields 进行探测，通过 keyword 进行查询。设置为 false 会按照分词后的内容匹配 |
-`nodes_discovery` | 否 | true | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点 |
-`ssl` | 否 | false | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有 |
-`mapping_es_id` | 否 | false | 是否映射 ES 索引中的 `_id` 字段 |
+`nodes_discovery` | 否 | true | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点                        |
+`ssl` | 否 | false | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有                                 |
+`mapping_es_id` | 否 | false | 是否映射 ES 索引中的 `_id` 字段                                                  |
+`like_push_down` | 否 | true  | 是否将 like 转化为 wildchard 下推到 ES，会增加 ES cpu 消耗                            |
 
 > 1. 认证方式目前仅支持 Http Basic 认证，并且需要确保该用户有访问: `/_cluster/state/、_nodes/http` 等路径和 index 的读权限; 集群未开启安全认证，用户名和密码不需要设置。
 > 
@@ -67,27 +68,88 @@ CREATE CATALOG es PROPERTIES (
 
 ## 列类型映射
 
-| ES Type | Doris Type | Comment |
-|---|---|---|
+| ES Type | Doris Type | Comment                                                    |
+|---|---|------------------------------------------------------------|
 |null| null||
-| boolean | boolean | |
-| byte| tinyint| |
-| short| smallint| |
-| integer| int| |
-| long| bigint| |
-| unsigned_long| largeint | |
-| float| float| |
-| half_float| float| |
-| double | double | |
-| scaled_float| double | |
-| date | date | |
-| keyword | string | |
-| text |string | |
-| ip |string | |
-| nested |string | |
-| object |string | |
+| boolean | boolean |                                                            |
+| byte| tinyint|                                                            |
+| short| smallint|                                                            |
+| integer| int|                                                            |
+| long| bigint|                                                            |
+| unsigned_long| largeint |                                                            |
+| float| float|                                                            |
+| half_float| float|                                                            |
+| double | double |                                                            |
+| scaled_float| double |                                                            |
+| date | date | 仅支持 default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis 格式 |
+| keyword | string |                                                            |
+| text |string |                                                            |
+| ip |string |                                                            |
+| nested |string |                                                            |
+| object |string |                                                            |
 |other| unsupported ||
 
+<version since="dev">
+### Array 类型
+
+Elasticsearch 没有明确的数组类型，但是它的某个字段可以含有[0个或多个值](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html)。
+为了表示一个字段是数组类型，可以在索引映射的[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-meta-field.html)部分添加特定的`doris`结构注释。
+对于 Elasticsearch 6.x 及之前版本，请参考[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/6.8/mapping-meta-field.html)。
+
+举例说明，假设有一个索引`doc`包含以下的数据结构：
+
+```json
+{
+  "array_int_field": [1, 2, 3, 4],
+  "array_string_field": ["doris", "is", "the", "best"],
+  "id_field": "id-xxx-xxx",
+  "timestamp_field": "2022-11-12T12:08:56Z",
+  "array_object_field": [
+    {
+      "name": "xxx",
+      "age": 18
+    }
+  ]
+}
+```
+
+该结构的数组字段可以通过使用以下命令将字段属性定义添加到目标索引映射的`_meta.doris`属性来定义。
+
+```bash
+# ES 7.x and above
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type:application/json' -d '
+{
+    "_meta": {
+        "doris":{
+            "array_fields":[
+                "array_int_field",
+                "array_string_field",
+                "array_object_field"
+            ]
+        }
+    }
+}'
+
+# ES 6.x and before
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/json' -d '
+{
+    "_doc": {
+        "_meta": {
+            "doris":{
+                "array_fields":[
+                    "array_int_field",
+                    "array_string_field",
+                    "array_object_field"
+                ]
+            }
+    }
+    }
+}
+```
+
+`array_fields`：用来表示是数组类型的字段。
+
+</version>
 ## 最佳实践
 
 ### 过滤条件下推

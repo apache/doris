@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/bitmap_value.h"
+
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <string>
 
 #include "util/coding.h"
-#define private public
-#include "util/bitmap_value.h"
 
 namespace doris {
 using roaring::Roaring;
@@ -167,7 +167,7 @@ TEST(BitmapValueTest, bitmap_intersect) {
 std::string convert_bitmap_to_string(BitmapValue& bitmap) {
     std::string buf;
     buf.resize(bitmap.getSizeInBytes());
-    bitmap.write((char*)buf.c_str());
+    bitmap.write_to((char*)buf.c_str());
     return buf;
 }
 

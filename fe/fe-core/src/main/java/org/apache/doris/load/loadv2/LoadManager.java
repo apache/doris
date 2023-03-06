@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -30,8 +31,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
@@ -42,9 +43,8 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.persist.CleanLabelOperationLog;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -61,6 +61,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
@@ -90,10 +92,12 @@ public class LoadManager implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private MysqlLoadManager mysqlLoadManager;
+    private TokenManager tokenManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
-        this.mysqlLoadManager = new MysqlLoadManager();
+        this.tokenManager = new TokenManager();
+        this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
     }
 
     /**
@@ -156,9 +160,12 @@ public class LoadManager implements Writable {
         }
     }
 
-    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
-            throws IOException, LoadException {
-        return mysqlLoadManager.executeMySqlLoadJobFromStmt(context, stmt);
+    public MysqlLoadManager getMysqlLoadManager() {
+        return mysqlLoadManager;
+    }
+
+    public TokenManager getTokenManager() {
+        return tokenManager;
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
@@ -198,7 +205,8 @@ public class LoadManager implements Writable {
      * Record finished load job by editLog.
      **/
     public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
+            long createTimestamp, String failMsg, String trackingUrl,
+            UserIdentity userInfo) throws MetaNotFoundException {
 
         // get db id
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
@@ -207,7 +215,7 @@ public class LoadManager implements Writable {
         switch (jobType) {
             case INSERT:
                 loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
-                        trackingUrl);
+                        trackingUrl, userInfo);
                 break;
             default:
                 return;
@@ -419,6 +427,39 @@ public class LoadManager implements Writable {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
                     }
                 });
+    }
+
+    public List<Pair<Long, String>> getCreateLoadStmt(long dbId, String label) throws DdlException {
+        List<Pair<Long, String>> result = new ArrayList<>();
+        readLock();
+        try {
+            if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+                if (labelToLoadJobs.containsKey(label)) {
+                    List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
+                    for (LoadJob job : labelLoadJobs) {
+                        try {
+                            Method getOriginStmt = job.getClass().getMethod("getOriginStmt");
+                            if (getOriginStmt != null) {
+                                result.add(
+                                        Pair.of(job.getId(), ((OriginStatement) getOriginStmt.invoke(job)).originStmt));
+                            } else {
+                                throw new DdlException("Not support load job type: " + job.getClass().getName());
+                            }
+                        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                            throw new DdlException("Not support load job type: " + job.getClass().getName());
+                        }
+                    }
+                } else {
+                    throw new DdlException("Label does not exist: " + label);
+                }
+            } else {
+                throw new DdlException("Database does not exist");
+            }
+            return result;
+        } finally {
+            readUnlock();
+        }
     }
 
     /**

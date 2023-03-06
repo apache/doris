@@ -525,9 +525,9 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
         DCHECK((*_vjoin_conjunct_ptr) != nullptr);
         int result_column_id = -1;
         RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->execute(block, &result_column_id));
-        ColumnPtr filter_column = block->get_by_position(result_column_id).column;
+        const auto& filter_column = block->get_by_position(result_column_id).column;
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-            ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+            const auto& nested_column = nullable_column->get_nested_column_ptr();
 
             MutableColumnPtr mutable_holder =
                     nested_column->use_count() == 1
@@ -639,7 +639,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
         *eos = _left_side_eos;
         _need_more_input_data = !_left_side_eos;
     } else {
-        *eos = _match_all_build
+        *eos = (_match_all_build || _is_right_semi_anti)
                        ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
                        : _matched_rows_done;
 

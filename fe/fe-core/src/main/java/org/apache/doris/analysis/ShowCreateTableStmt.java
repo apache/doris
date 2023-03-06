@@ -93,7 +93,7 @@ public class ShowCreateTableStmt extends ShowStmt {
         }
         tbl.analyze(analyzer);
 
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
                                                                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
                                                 ConnectContext.get().getQualifiedUser(),

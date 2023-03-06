@@ -27,6 +27,7 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/field.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -88,7 +89,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // In such table, non-key column's aggregation type is NONE, so we need to construct
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                    "replace_load", {block->get_data_type(cid)}, {},
+                    "replace_load", {block->get_data_type(cid)},
                     block->get_data_type(cid)->is_nullable());
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(
@@ -148,7 +149,13 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 
 void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
-    auto target_block = input_block->copy_block(_column_offset);
+    vectorized::Block target_block = *input_block;
+    if (!_tablet_schema->is_dynamic_schema()) {
+        // This insert may belong to a rollup tablet, rollup columns is a subset of base table
+        // but for dynamic table, it's need full columns, so input_block should ignore _column_offset
+        // of each column and avoid copy_block
+        target_block = input_block->copy_block(_column_offset);
+    }
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto cloneBlock = target_block.clone_without_columns();
@@ -157,6 +164,13 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         if (_keys_type != KeysType::DUP_KEYS) {
             _init_agg_functions(&target_block);
+        }
+        if (_tablet_schema->is_dynamic_schema()) {
+            // Set _input_mutable_block to dynamic since
+            // input blocks may be structure-variable(dyanmic)
+            // this will align _input_mutable_block with
+            // input_block and auto extends columns
+            _input_mutable_block.set_block_type(vectorized::BlockType::DYNAMIC);
         }
     }
 
@@ -205,8 +219,9 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
 void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist) {
     if (_tablet_schema->has_sequence_col()) {
         auto sequence_idx = _tablet_schema->sequence_col_idx();
-        auto res = _input_mutable_block.compare_at(row_in_skiplist->_row_pos, new_row->_row_pos,
-                                                   sequence_idx, _input_mutable_block, -1);
+        DCHECK_LT(sequence_idx, _input_mutable_block.columns());
+        auto col_ptr = _input_mutable_block.mutable_columns()[sequence_idx].get();
+        auto res = col_ptr->compare_at(row_in_skiplist->_row_pos, new_row->_row_pos, *col_ptr, -1);
         // dst sequence column larger than src, don't need to update
         if (res > 0) {
             return;
@@ -355,12 +370,43 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
+    if (_tablet_schema->store_row_column()) {
+        // convert block to row store format
+        serialize_block_to_row_column(block);
+    }
     RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 
 Status MemTable::close() {
     return flush();
+}
+
+void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
+    if (block.rows() == 0) {
+        return;
+    }
+    MonotonicStopWatch watch;
+    watch.start();
+    // find row column id
+    int row_column_id = 0;
+    for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
+        if (_tablet_schema->column(i).is_row_store_column()) {
+            row_column_id = i;
+            break;
+        }
+    }
+    vectorized::ColumnString* row_store_column =
+            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
+                                                           .column->assume_mutable_ref()
+                                                           .assume_mutable()
+                                                           .get());
+    row_store_column->clear();
+    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
+                                                   _tablet_schema->num_columns());
+    VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
+               << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
+               << watch.elapsed_time() / 1000;
 }
 
 } // namespace doris

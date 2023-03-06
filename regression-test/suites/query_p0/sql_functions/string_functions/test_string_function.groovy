@@ -97,6 +97,7 @@ suite("test_string_function") {
     qt_sql "select money_format(17014116);"
     qt_sql "select money_format(1123.456);"
     qt_sql "select money_format(1123.4);"
+    qt_sql "select money_format(truncate(1000,10))"
 
     qt_sql "select null_or_empty(null);"
     qt_sql "select null_or_empty(\"\");"

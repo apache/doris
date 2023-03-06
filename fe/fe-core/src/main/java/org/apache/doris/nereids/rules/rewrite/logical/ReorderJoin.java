@@ -18,12 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -67,16 +68,23 @@ import java.util.stream.Collectors;
  * <li> MultiJoin to {Join cluster}</li>
  * </ul>
  */
+@DependsRules({
+    MergeFilters.class
+})
 public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
+            if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()) {
+                return null;
+            }
             LogicalFilter<Plan> filter = ctx.root;
 
             Map<Plan, JoinHintType> planToHintType = Maps.newHashMap();
             Plan plan = joinToMultiJoin(filter, planToHintType);
             Preconditions.checkState(plan instanceof MultiJoin);
             MultiJoin multiJoin = (MultiJoin) plan;
+            ctx.statementContext.setMaxNArayInnerJoin(multiJoin.children().size());
             Plan after = multiJoinToJoin(multiJoin, planToHintType);
             return after;
         }).toRule(RuleType.REORDER_JOIN);
@@ -89,8 +97,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      */
     public Plan joinToMultiJoin(Plan plan, Map<Plan, JoinHintType> planToHintType) {
         // subtree can't specify the end of Pattern. so end can be GroupPlan or Filter
-        if (plan instanceof GroupPlan
-                || (plan instanceof LogicalFilter && plan.child(0) instanceof GroupPlan)) {
+        if (nonJoinAndNonFilter(plan)
+                || (plan instanceof LogicalFilter && nonJoinAndNonFilter(plan.child(0)))) {
             return plan;
         }
 
@@ -230,7 +238,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 Set<ExprId> rightOutputExprIdSet = right.getOutputExprIdSet();
                 Map<Boolean, List<Expression>> split = multiJoin.getJoinFilter().stream()
                         .collect(Collectors.partitioningBy(expr ->
-                                ExpressionUtils.isIntersecting(rightOutputExprIdSet, expr.getInputSlotExprIds())
+                                Utils.isIntersecting(rightOutputExprIdSet, expr.getInputSlotExprIds())
                         ));
                 remainingFilter = split.get(true);
                 List<Expression> pushedFilter = split.get(false);
@@ -244,7 +252,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
                 Map<Boolean, List<Expression>> split = multiJoin.getJoinFilter().stream()
                         .collect(Collectors.partitioningBy(expr ->
-                                ExpressionUtils.isIntersecting(leftOutputExprIdSet, expr.getInputSlotExprIds())
+                                Utils.isIntersecting(leftOutputExprIdSet, expr.getInputSlotExprIds())
                         ));
                 remainingFilter = split.get(true);
                 List<Expression> pushedFilter = split.get(false);
@@ -362,5 +370,9 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
 
         throw new RuntimeException("findInnerJoin: can't reach here");
+    }
+
+    private boolean nonJoinAndNonFilter(Plan plan) {
+        return !(plan instanceof LogicalJoin) && !(plan instanceof LogicalFilter);
     }
 }

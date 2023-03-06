@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -30,14 +29,15 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.planner.PlannerContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,7 +45,7 @@ import java.util.Optional;
 /**
  * Use the visitor to iterate sub expression.
  */
-public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
+class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
     private final Scope scope;
     private final CascadesContext cascadesContext;
@@ -56,7 +56,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitNot(Not not, PlannerContext context) {
+    public Expression visitNot(Not not, CascadesContext context) {
         Expression child = not.child();
         if (child instanceof Exists) {
             return visitExistsSubquery(
@@ -69,7 +69,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitExistsSubquery(Exists exists, PlannerContext context) {
+    public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
 
         return new Exists(analyzedResult.getLogicalPlan(),
@@ -77,11 +77,12 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery expr, PlannerContext context) {
+    public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasGroupBy(analyzedResult);
+        checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
                 expr.getCompareExpr().accept(this, context),
@@ -90,11 +91,11 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitScalarSubquery(ScalarSubquery scalar, PlannerContext context) {
+    public Expression visitScalarSubquery(ScalarSubquery scalar, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkRootIsAgg(analyzedResult);
+        checkHasAgg(analyzedResult);
         checkHasGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
@@ -107,11 +108,11 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
         }
     }
 
-    private void checkRootIsAgg(AnalyzedResult analyzedResult) {
+    private void checkHasAgg(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
         }
-        if (!analyzedResult.rootIsAgg()) {
+        if (!analyzedResult.hasAgg()) {
             throw new AnalysisException("The select item in correlated subquery of binary predicate "
                     + "should only be sum, min, max, avg and count. Current subquery: "
                     + analyzedResult.getLogicalPlan());
@@ -128,14 +129,23 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
         }
     }
 
+    private void checkRootIsLimit(AnalyzedResult analyzedResult) {
+        if (!analyzedResult.isCorrelated()) {
+            return;
+        }
+        if (analyzedResult.rootIsLimit()) {
+            throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause "
+                    + analyzedResult.getLogicalPlan());
+        }
+    }
+
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
-        CascadesContext subqueryContext = new Memo(expr.getQueryPlan())
-                .newCascadesContext((cascadesContext.getStatementContext()), cascadesContext.getCteContext());
+        CascadesContext subqueryContext = CascadesContext.newRewriteContext(
+                cascadesContext.getStatementContext(), expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);
-        subqueryContext
-                .newAnalyzer(Optional.of(subqueryScope))
-                .analyze();
-        return new AnalyzedResult((LogicalPlan) subqueryContext.getMemo().copyOut(false),
+        subqueryContext.setOuterScope(subqueryScope);
+        subqueryContext.newAnalyzer().analyze();
+        return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());
     }
 
@@ -157,7 +167,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
         private final LogicalPlan logicalPlan;
         private final List<Slot> correlatedSlots;
 
-        public AnalyzedResult(LogicalPlan logicalPlan, List<Slot> correlatedSlots) {
+        public AnalyzedResult(LogicalPlan logicalPlan, Collection<Slot> correlatedSlots) {
             this.logicalPlan = Objects.requireNonNull(logicalPlan, "logicalPlan can not be null");
             this.correlatedSlots = correlatedSlots == null ? new ArrayList<>() : ImmutableList.copyOf(correlatedSlots);
         }
@@ -174,15 +184,21 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
             return !correlatedSlots.isEmpty();
         }
 
-        public boolean rootIsAgg() {
-            return logicalPlan instanceof LogicalAggregate;
+        public boolean hasAgg() {
+            return logicalPlan.anyMatch(LogicalAggregate.class::isInstance);
         }
 
         public boolean hasGroupBy() {
-            if (rootIsAgg()) {
-                return !((LogicalAggregate<? extends Plan>) logicalPlan).getGroupByExpressions().isEmpty();
+            if (hasAgg()) {
+                return !((LogicalAggregate)
+                        ((ImmutableSet) logicalPlan.collect(LogicalAggregate.class::isInstance)).asList().get(0))
+                        .getGroupByExpressions().isEmpty();
             }
             return false;
+        }
+
+        public boolean rootIsLimit() {
+            return logicalPlan instanceof LogicalLimit;
         }
     }
 }

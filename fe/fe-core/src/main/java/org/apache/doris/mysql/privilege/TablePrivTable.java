@@ -17,14 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.qe.ConnectContext;
-
 import com.google.common.base.Preconditions;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * TablePrivTable saves all table level privs
@@ -35,14 +28,10 @@ public class TablePrivTable extends PrivTable {
      * Return first priv which match the user@host on ctl.db.tbl The returned priv will
      * be saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String ctl, String db, String tbl, PrivBitSet savedPrivs) {
+    public void getPrivs(String ctl, String db, String tbl, PrivBitSet savedPrivs) {
         TablePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
-            if (!tblPrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
             // check catalog
             if (!tblPrivEntry.isAnyCtl() && !tblPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
@@ -69,14 +58,9 @@ public class TablePrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
-    public boolean hasPrivsOfCatalog(UserIdentity currentUser, String ctl) {
+    public boolean hasPrivsOfCatalog(String ctl) {
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
-
-            if (!tblPrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
             // check catalog
             Preconditions.checkState(!tblPrivEntry.isAnyCtl());
             if (tblPrivEntry.getCtlPattern().match(ctl)) {
@@ -86,13 +70,10 @@ public class TablePrivTable extends PrivTable {
         return false;
     }
 
-    public boolean hasPrivsOfDb(UserIdentity currentUser, String ctl, String db) {
+    public boolean hasPrivsOfDb(String ctl, String db) {
         for (PrivEntry entry : entries) {
-            TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
-
-            if (!tblPrivEntry.match(currentUser, true)) {
-                continue;
-            }
+            TablePrivEntry
+                    tblPrivEntry = (TablePrivEntry) entry;
 
             // check catalog
             Preconditions.checkState(!tblPrivEntry.isAnyCtl());
@@ -111,18 +92,7 @@ public class TablePrivTable extends PrivTable {
         return false;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = TablePrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
-    }
-
-    public boolean hasClusterPriv(ConnectContext ctx, String clusterName) {
+    public boolean hasClusterPriv(String clusterName) {
         for (PrivEntry entry : entries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
             if (tblPrivEntry.getOrigDb().startsWith(clusterName)) {

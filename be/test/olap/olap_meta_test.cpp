@@ -26,10 +26,6 @@
 #include "olap/olap_define.h"
 #include "util/file_utils.h"
 
-#ifndef BE_TEST
-#define BE_TEST
-#endif
-
 using std::string;
 
 namespace doris {

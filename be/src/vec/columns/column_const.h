@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
@@ -66,6 +68,8 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
+    TypeIndex get_data_type() const override { return data->get_data_type(); }
+
     UInt64 get64(size_t) const override { return data->get64(0); }
 
     UInt64 get_uint(size_t) const override { return data->get_uint(0); }
@@ -98,6 +102,11 @@ public:
     void insert_default() override { ++s; }
 
     void pop_back(size_t n) override { s -= n; }
+
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override;
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     StringRef serialize_value_into_arena(size_t, Arena& arena, char const*& begin) const override {
         return data->serialize_value_into_arena(0, arena, begin);
@@ -137,6 +146,8 @@ public:
                                   const uint8_t* __restrict null_data) const override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
+
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
                    int count_sz = -1) const override;
@@ -217,4 +228,10 @@ public:
     }
 };
 
+/*
+ * @return first : pointer to column itself if it's not ColumnConst, else to column's data column.
+ *         second : zero if column is ColumnConst, else itself.
+*/
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                const size_t row_num) noexcept;
 } // namespace doris::vectorized

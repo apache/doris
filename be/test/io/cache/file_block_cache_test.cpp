@@ -54,7 +54,7 @@ std::vector<io::FileBlockSPtr> fromHolder(const io::FileBlocksHolder& holder) {
 std::string getFileBlockPath(const std::string& base_path, const io::IFileCache::Key& key,
                              size_t offset) {
     auto key_str = key.to_string();
-    return fs::path(base_path) / key_str / std::to_string(offset);
+    return fs::path(base_path) / key_str.substr(0, 3) / key_str / std::to_string(offset);
 }
 
 void download(io::FileBlockSPtr file_segment) {
@@ -62,7 +62,7 @@ void download(io::FileBlockSPtr file_segment) {
     size_t size = file_segment->range().size();
 
     auto key_str = key.to_string();
-    auto subdir = fs::path(cache_base_path) / key_str;
+    auto subdir = fs::path(cache_base_path) / key_str.substr(0, 3) / key_str;
     ASSERT_TRUE(fs::exists(subdir));
 
     std::string data(size, '0');

@@ -135,7 +135,7 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                             table.getName(),
                             PrivPredicate.SHOW)) {
                         continue;
@@ -212,11 +212,17 @@ public class ShowDataStmt extends ShowStmt {
                         + leftPair.second;
                 List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft));
                 totalRows.add(leftRow);
+
+                // txn quota
+                long txnQuota = db.getTransactionQuotaSize();
+                List<String> transactionQuotaList = Arrays.asList("Transaction Quota",
+                        String.valueOf(txnQuota), String.valueOf(txnQuota));
+                totalRows.add(transactionQuotaList);
             } finally {
                 db.readUnlock();
             }
         } else {
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName,
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName,
                     PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
                         ConnectContext.get().getQualifiedUser(),

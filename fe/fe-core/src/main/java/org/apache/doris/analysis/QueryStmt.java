@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -98,6 +99,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      * in "order by" or "group by" clauses with their corresponding result expr.
      */
     protected final ExprSubstitutionMap aliasSMap;
+
+    protected final ExprSubstitutionMap mvSMap;
 
     /**
      * Select list item alias does not have to be unique.
@@ -173,6 +176,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
         this.aliasSMap = new ExprSubstitutionMap();
+        this.mvSMap = new ExprSubstitutionMap();
         this.ambiguousAliasList = Lists.newArrayList();
         this.sortInfo = null;
     }
@@ -267,16 +271,25 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         this.needToSql = needToSql;
     }
 
+    public boolean isDisableTuplesMVRewriter(Expr expr) {
+        return expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+    }
+
     protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (forbiddenMVRewrite) {
-            return expr;
-        }
-        if (expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()))) {
+        if (analyzer == null || analyzer.getMVExprRewriter() == null || forbiddenMVRewrite) {
             return expr;
         }
         ExprRewriter rewriter = analyzer.getMVExprRewriter();
         rewriter.reset();
-        return rewriter.rewrite(expr, analyzer);
+        rewriter.setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+        rewriter.setUpBottom();
+
+        Expr result = rewriter.rewrite(expr, analyzer);
+        if (result != expr) {
+            expr.analyze(analyzer);
+            mvSMap.put(result, expr);
+        }
+        return result;
     }
 
     /**
@@ -505,11 +518,11 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
         Map<String, Expr> exprMap = new HashMap<>();
         collectExprs(exprMap);
-        rewriter.rewriteConstant(exprMap, analyzer);
+        rewriter.rewriteConstant(exprMap, analyzer, tQueryOptions);
         if (rewriter.changed()) {
             putBackExprs(exprMap);
         }
@@ -546,6 +559,13 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             return true;
         }
         return false;
+    }
+
+    public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
+        if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
+            return expr;
+        }
+        return expr.trySubstitute(aliasSMap, analyzer, false);
     }
 
     // get tables used by this query.
@@ -761,6 +781,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         resultExprs = Expr.cloneList(other.resultExprs);
         baseTblResultExprs = Expr.cloneList(other.baseTblResultExprs);
         aliasSMap = other.aliasSMap.clone();
+        mvSMap = other.mvSMap.clone();
         ambiguousAliasList = Expr.cloneList(other.ambiguousAliasList);
         sortInfo = (other.sortInfo != null) ? other.sortInfo.clone() : null;
         analyzer = other.analyzer;

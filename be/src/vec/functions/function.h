@@ -29,6 +29,17 @@
 
 namespace doris::vectorized {
 
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
+    bool is_nullable = false;                                                            \
+    bool is_datev2 = false;                                                              \
+    for (auto it : arguments) {                                                          \
+        is_nullable = is_nullable || it.type->is_nullable();                             \
+        is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() || \
+                    WhichDataType(remove_nullable(it.type)).is_date_time_v2();           \
+    }                                                                                    \
+    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
+                                     : std::make_shared<TYPE>();
+
 class Field;
 
 // Only use dispose the variadic argument
@@ -125,7 +136,7 @@ public:
 
     /// Override this when function need to store state in the `FunctionContext`, or do some
     /// preparation work according to information from `FunctionContext`.
-    virtual Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    virtual Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 
@@ -430,7 +441,7 @@ public:
         __builtin_unreachable();
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 
@@ -507,8 +518,8 @@ public:
         return std::make_shared<DefaultExecutable>(function);
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return function->prepare(context, scope);
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        return function->open(context, scope);
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -530,16 +541,9 @@ public:
     bool is_deterministic() const override { return function->is_deterministic(); }
 
     bool can_fast_execute() const override {
-        return function->get_name() == "eq" || function->get_name() == "ne" ||
-               function->get_name() == "lt" || function->get_name() == "gt" ||
-               function->get_name() == "le" || function->get_name() == "ge" ||
-               function->get_name() == "match_any" || function->get_name() == "match_all" ||
-               function->get_name() == "match_phrase" ||
-               function->get_name() == "match_element_eq" ||
-               function->get_name() == "match_element_lt" ||
-               function->get_name() == "match_element_gt" ||
-               function->get_name() == "match_element_le" ||
-               function->get_name() == "match_element_ge";
+        auto function_name = function->get_name();
+        return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
+               function_name == "gt" || function_name == "le" || function_name == "ge";
     }
 
     bool is_deterministic_in_scope_of_query() const override {

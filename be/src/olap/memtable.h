@@ -75,7 +75,7 @@ private:
         char* _agg_mem;
         size_t* _agg_state_offset;
 
-        RowInBlock(size_t row) : _row_pos(row) {};
+        RowInBlock(size_t row) : _row_pos(row) {}
 
         void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
             _agg_mem = agg_mem;
@@ -87,7 +87,7 @@ private:
 
     class RowInBlockComparator {
     public:
-        RowInBlockComparator(const Schema* schema) : _schema(schema) {};
+        RowInBlockComparator(const Schema* schema) : _schema(schema) {}
         // call set_block before operator().
         // only first time insert block to create _input_mutable_block,
         // so can not Comparator of construct to set pblock
@@ -109,6 +109,10 @@ private:
 
     Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
                                    int64_t atomic_num_segments_after_flush);
+
+    // serialize block to row store format and append serialized data into row store column
+    // in block
+    void serialize_block_to_row_column(vectorized::Block& block);
 
 private:
     TabletSharedPtr _tablet;

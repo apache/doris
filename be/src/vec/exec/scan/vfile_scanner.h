@@ -21,6 +21,7 @@
 #include "exec/text_converter.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
+#include "vec/common/schema_util.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -43,17 +44,13 @@ public:
     Status prepare(VExprContext** vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    doris::TabletStorageType get_storage_type() override {
-        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
-    }
-
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.
-    Status _cast_src_block(Block* block) { return Status::OK(); };
+    Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;
@@ -117,6 +114,9 @@ protected:
     Block _src_block;
 
     VExprContext* _push_down_expr = nullptr;
+    bool _is_dynamic_schema = false;
+    // for tracing dynamic schema
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
     std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<IOContext> _io_ctx;
@@ -138,6 +138,7 @@ private:
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
+    Status _handle_dynamic_block(Block* block);
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;

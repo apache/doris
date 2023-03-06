@@ -61,8 +61,9 @@ suite("test_javaudf_case") {
         qt_select """ SELECT starttime,java_udf_dateCase_test(starttime,start,end) as sum FROM ${tableName} order by starttime; """
         
 
-        sql """ DROP FUNCTION java_udf_dateCase_test(date,int,int); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_dateCase_test(date,int,int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

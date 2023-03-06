@@ -101,7 +101,7 @@ public class BDBHA implements HAProtocol {
                 try {
                     Thread.sleep(2000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             }
         }
@@ -216,6 +216,23 @@ public class BDBHA implements HAProtocol {
             return false;
         } catch (MasterStateException e) {
             LOG.error("the deleting electable node is master {}", nodeName, e);
+            return false;
+        }
+        return true;
+    }
+
+    public boolean updateNodeAddress(String nodeName, String newHostName, int port) {
+        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
+        if (replicationGroupAdmin == null) {
+            return false;
+        }
+        try {
+            replicationGroupAdmin.updateAddress(nodeName, newHostName, port);
+        } catch (MemberNotFoundException e) {
+            LOG.error("the updating electable node is not found {}", nodeName, e);
+            return false;
+        } catch (MasterStateException e) {
+            LOG.error("the updating electable node is master {}", nodeName, e);
             return false;
         }
         return true;

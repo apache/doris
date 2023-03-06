@@ -83,7 +83,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 3. 使用API手动迁移数据
 
-   Doris提供了[HTTP API](../admin-manual/http-actions/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
+   Doris提供了[HTTP API](../admin-manual/http-actions/be/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
 
 ### Q5. 如何正确阅读 FE/BE 日志?
 
@@ -285,7 +285,7 @@ cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.d
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../ecosystem/external-table/odbc-of-doris.md)。
+解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。或者使用低版本的ODBC Connector，比如[Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html)。具体使用方式见 [ODBC外表使用文档](../lakehouse/external-table/odbc.md)。
 
 可以通过如下方式验证 MySQL ODBC Driver 使用的openssl 版本
 

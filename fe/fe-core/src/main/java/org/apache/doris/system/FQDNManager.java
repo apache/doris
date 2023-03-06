@@ -19,10 +19,12 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -32,8 +34,6 @@ import java.net.UnknownHostException;
 public class FQDNManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(FQDNManager.class);
 
-    public static final String  UNKNOWN_HOST_IP = "unknown";
-
     private SystemInfoService nodeMgr;
 
     public FQDNManager(SystemInfoService nodeMgr) {
@@ -42,33 +42,49 @@ public class FQDNManager extends MasterDaemon {
     }
 
     /**
-     * At each round: check if ip of be has already been changed
+     * At each round: check if ip of be or fe has already been changed
      */
     @Override
     protected void runAfterCatalogReady() {
+        updateBeIp();
+        updateFeIp();
+    }
+
+    private void updateFeIp() {
+        for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
+            if (!Strings.isNullOrEmpty(fe.getHostName())) {
+                try {
+                    InetAddress inetAddress = InetAddress.getByName(fe.getHostName());
+                    if (!fe.getIp().equalsIgnoreCase(inetAddress.getHostAddress())) {
+                        String oldIp = fe.getIp();
+                        String newIp = inetAddress.getHostAddress();
+                        Env.getCurrentEnv().modifyFrontendIp(fe.getNodeName(), newIp);
+                        LOG.warn("ip for {} of fe has been changed from {} to {}",
+                                fe.getHostName(), oldIp, fe.getIp());
+                    }
+                } catch (UnknownHostException e) {
+                    LOG.warn("unknown host name for fe, {}", fe.getHostName(), e);
+                } catch (DdlException e) {
+                    LOG.warn("fail to update ip for fe, {}", fe.getHostName(), e);
+                }
+            }
+        }
+    }
+
+    private void updateBeIp() {
         for (Backend be : nodeMgr.getIdToBackend().values()) {
             if (be.getHostName() != null) {
                 try {
                     InetAddress inetAddress = InetAddress.getByName(be.getHostName());
-                    if (!be.getHost().equalsIgnoreCase(inetAddress.getHostAddress())) {
-                        String ip = be.getHost();
-                        if (!ip.equalsIgnoreCase(UNKNOWN_HOST_IP)) {
-                            ClientPool.backendPool.clearPool(new TNetworkAddress(ip, be.getBePort()));
-                        }
-                        be.setHost(inetAddress.getHostAddress());
+                    if (!be.getIp().equalsIgnoreCase(inetAddress.getHostAddress())) {
+                        String ip = be.getIp();
+                        ClientPool.backendPool.clearPool(new TNetworkAddress(ip, be.getBePort()));
+                        be.setIp(inetAddress.getHostAddress());
                         Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
-                        LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, be.getHost());
+                        LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, be.getIp());
                     }
                 } catch (UnknownHostException e) {
                     LOG.warn("unknown host name for be, {}", be.getHostName(), e);
-                    // add be alive check to make ip work when be is still alive and dns has some problem.
-                    if (!be.isAlive() && !be.getHost().equalsIgnoreCase(UNKNOWN_HOST_IP)) {
-                        String ip = be.getHost();
-                        ClientPool.backendPool.clearPool(new TNetworkAddress(ip, be.getBePort()));
-                        be.setHost(UNKNOWN_HOST_IP);
-                        Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
-                        LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, "unknown");
-                    }
                 }
             }
         }

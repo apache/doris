@@ -32,6 +32,7 @@ public:
                  ::google::protobuf::Closure* done) override {
         brpc::ClosureGuard closure_guard(done);
         std::string fun_name = request->function_name();
+        std::cout << request->DebugString() << std::endl;
         auto* result = response->add_result();
         if (fun_name == "int32_add") {
             result->mutable_type()->set_id(PGenericType::INT32);
@@ -75,6 +76,9 @@ public:
                 result->add_string_value(request->args(0).string_value(i) + " + " +
                                          request->args(1).string_value(i));
             }
+        } else {
+            std::cout << fun_name << " function not supported." << std::endl;
+            response->mutable_result()->Clear();
         }
         response->mutable_status()->set_status_code(0);
         std::cout << response->DebugString();

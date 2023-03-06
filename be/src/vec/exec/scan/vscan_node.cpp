@@ -49,6 +49,17 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
+    if (slot->type().is_array_type()) {
+        if (slot->type().children[0].type == expr->type().type) {
+            return true;
+        }
+        if (slot->type().children[0].is_date_type() && expr->type().is_date_type()) {
+            return true;
+        }
+        if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -136,8 +147,14 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
-        _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
-        return _scanner_ctx->status();
+        // ISSUE: https://github.com/apache/doris/issues/16360
+        // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
+        if (_scanner_ctx) {
+            _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
+            return _scanner_ctx->status();
+        } else {
+            return Status::Cancelled("query cancelled");
+        }
     }
 
     if (_eos) {
@@ -145,7 +162,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
-    vectorized::Block* scan_block = nullptr;
+    vectorized::BlockUPtr scan_block = nullptr;
     RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(&scan_block, eos));
     if (*eos) {
         DCHECK(scan_block == nullptr);
@@ -154,7 +171,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     // get scanner's block memory
     block->swap(*scan_block);
-    _scanner_ctx->return_free_block(scan_block);
+    _scanner_ctx->return_free_block(std::move(scan_block));
 
     reached_limit(block, eos);
     if (*eos) {
@@ -391,12 +408,19 @@ Status VScanNode::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        switch (slots[slot_idx]->type().type) {
+        auto type = slots[slot_idx]->type().type;
+        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
+            type = slots[slot_idx]->type().children[0].type;
+            if (type == TYPE_ARRAY) {
+                continue;
+            }
+        }
+        switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \
-                                            slots[slot_idx]->type().precision,               \
-                                            slots[slot_idx]->type().scale);                  \
+        ColumnValueRange<TYPE_##NAME> range(                                                 \
+                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
+                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
         _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
         break;                                                                               \
     }
@@ -487,6 +511,8 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
+            bool is_runtimer_filter_predicate =
+                    _rf_vexpr_set.find(conjunct_expr_root) != _rf_vexpr_set.end();
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -499,6 +525,10 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 std::visit(
                         [&](auto& value_range) {
+                            Defer mark_runtime_filter_flag {[&]() {
+                                value_range.mark_runtime_filter_predicate(
+                                        is_runtimer_filter_predicate);
+                            }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                     cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
                                     &pdt));
@@ -531,7 +561,8 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
                 _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), &pdt,
-                                              in_predicate_checker, eq_predicate_checker);
+                                              is_runtimer_filter_predicate, in_predicate_checker,
+                                              eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -660,7 +691,7 @@ bool VScanNode::_is_predicate_acting_on_slot(
 Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -704,8 +735,8 @@ template <PrimitiveType T>
 Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                  PushDownType* pdt) {
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
-                                                                           slot->type().scale);
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+            slot->is_nullable(), slot->type().precision, slot->type().scale);
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -793,7 +824,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                                                          PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
-            range.column_name(), slot->type().precision, slot->type().scale);
+            range.column_name(), slot->is_nullable(), slot->type().precision, slot->type().scale);
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
@@ -894,14 +925,14 @@ Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_c
     if (TExprNodeType::FUNCTION_CALL == expr->node_type()) {
         if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name == "is_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
             *pdt = temp_pdt;
         } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
             *pdt = temp_pdt;
@@ -953,6 +984,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
 
 Status VScanNode::_normalize_compound_predicate(
         vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
+        bool is_runtimer_filter_predicate,
         const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
                 in_predicate_checker,
         const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
@@ -973,6 +1005,10 @@ Status VScanNode::_normalize_compound_predicate(
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
                     std::visit(
                             [&](auto& value_range) {
+                                Defer mark_runtime_filter_flag {[&]() {
+                                    value_range.mark_runtime_filter_predicate(
+                                            is_runtimer_filter_predicate);
+                                }};
                                 _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                         value_range, pdt);
                             },
@@ -991,6 +1027,10 @@ Status VScanNode::_normalize_compound_predicate(
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
                     std::visit(
                             [&](auto& value_range) {
+                                Defer mark_runtime_filter_flag {[&]() {
+                                    value_range.mark_runtime_filter_predicate(
+                                            is_runtimer_filter_predicate);
+                                }};
                                 _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                        value_range, pdt);
                             },
@@ -999,7 +1039,8 @@ Status VScanNode::_normalize_compound_predicate(
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt, in_predicate_checker,
+                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
+                                              is_runtimer_filter_predicate, in_predicate_checker,
                                               eq_predicate_checker);
             }
         }
@@ -1089,7 +1130,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
 
         // create empty range as temp range, temp range should do intersection on range
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                slot->type().precision, slot->type().scale);
+                slot->is_nullable(), slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
         auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
@@ -1187,7 +1228,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
 
     // This method will be called in scanner thread.
     // So need to add lock
-    std::unique_lock<std::mutex> l(_rf_locks);
+    std::unique_lock l(_rf_locks);
     if (_is_all_rf_applied) {
         *arrived_rf_num = _runtime_filter_descs.size();
         return Status::OK();
@@ -1220,7 +1261,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
 
 Status VScanNode::clone_vconjunct_ctx(VExprContext** _vconjunct_ctx) {
     if (_vconjunct_ctx_ptr) {
-        std::unique_lock<std::mutex> l(_rf_locks);
+        std::unique_lock l(_rf_locks);
         return (*_vconjunct_ctx_ptr)->clone(_state, _vconjunct_ctx);
     }
     return Status::OK();
@@ -1247,7 +1288,7 @@ Status VScanNode::_should_push_down_binary_predicate(
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {

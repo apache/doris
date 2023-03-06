@@ -22,16 +22,12 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
 set(IO_FILES
-    broker_reader.cpp
     broker_writer.cpp
     buffered_reader.cpp
     file_factory.cpp
     hdfs_builder.cpp
-    hdfs_file_reader.cpp
     hdfs_writer.cpp
-    local_file_reader.cpp
     local_file_writer.cpp
-    s3_reader.cpp
     s3_writer.cpp
     fs/file_reader_options.cpp
     fs/local_file_reader.cpp

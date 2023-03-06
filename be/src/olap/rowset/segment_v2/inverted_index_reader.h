@@ -65,17 +65,17 @@ class InvertedIndexReader {
 public:
     explicit InvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const uint32_t index_id)
-            : _fs(std::move(fs)), _path(path), _index_id(index_id) {};
+            : _fs(std::move(fs)), _path(path), _index_id(index_id) {}
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(const TabletIndex* index_meta,
+    virtual Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                                 InvertedIndexIterator** iterator) = 0;
-    virtual Status query(const std::string& column_name, const void* query_value,
-                         InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                         roaring::Roaring* bit_map) = 0;
-    virtual Status try_query(const std::string& column_name, const void* query_value,
-                             InvertedIndexQueryType query_type,
+    virtual Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                         const void* query_value, InvertedIndexQueryType query_type,
+                         InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) = 0;
+    virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                             const void* query_value, InvertedIndexQueryType query_type,
                              InvertedIndexParserType analyser_type, uint32_t* count) = 0;
 
     virtual InvertedIndexReaderType type() = 0;
@@ -95,16 +95,17 @@ class FullTextIndexReader : public InvertedIndexReader {
 public:
     explicit FullTextIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const int64_t uniq_id)
-            : InvertedIndexReader(std::move(fs), path, uniq_id) {};
+            : InvertedIndexReader(std::move(fs), path, uniq_id) {}
     ~FullTextIndexReader() override = default;
 
-    Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
-    Status query(const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                 roaring::Roaring* bit_map) override;
-    Status try_query(const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override {
+    Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                        InvertedIndexIterator** iterator) override;
+    Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) override;
+    Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     InvertedIndexParserType analyser_type, uint32_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
@@ -119,16 +120,17 @@ class StringTypeInvertedIndexReader : public InvertedIndexReader {
 public:
     explicit StringTypeInvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                            const int64_t uniq_id)
-            : InvertedIndexReader(std::move(fs), path, uniq_id) {};
+            : InvertedIndexReader(std::move(fs), path, uniq_id) {}
     ~StringTypeInvertedIndexReader() override = default;
 
-    Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
-    Status query(const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                 roaring::Roaring* bit_map) override;
-    Status try_query(const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override {
+    Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                        InvertedIndexIterator** iterator) override;
+    Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) override;
+    Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     InvertedIndexParserType analyser_type, uint32_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
     InvertedIndexReaderType type() override;
@@ -151,8 +153,8 @@ public:
                          bool only_count = false);
     virtual ~InvertedIndexVisitor() = default;
 
-    void set_reader(lucene::util::bkd::bkd_reader* r) { reader = r; };
-    lucene::util::bkd::bkd_reader* get_reader() { return reader; };
+    void set_reader(lucene::util::bkd::bkd_reader* r) { reader = r; }
+    lucene::util::bkd::bkd_reader* get_reader() { return reader; }
 
     void visit(int rowID) override;
     void visit(roaring::Roaring& r) override;
@@ -179,21 +181,22 @@ public:
         }
     }
 
-    Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
+    Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                        InvertedIndexIterator** iterator) override;
 
-    Status query(const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                 roaring::Roaring* bit_map) override;
-    Status try_query(const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override;
-    Status bkd_query(const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type,
-                     std::shared_ptr<lucene::util::bkd::bkd_reader>&& r,
+    Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) override;
+    Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     InvertedIndexParserType analyser_type, uint32_t* count) override;
+    Status bkd_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
                      InvertedIndexVisitor* visitor);
 
     InvertedIndexReaderType type() override;
-    Status get_bkd_reader(lucene::util::bkd::bkd_reader*& reader);
+    Status get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>& reader);
 
 private:
     const TypeInfo* _type_info {};
@@ -203,8 +206,10 @@ private:
 
 class InvertedIndexIterator {
 public:
-    InvertedIndexIterator(const TabletIndex* index_meta, InvertedIndexReader* reader)
-            : _index_meta(index_meta), _reader(reader) {
+    InvertedIndexIterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                          InvertedIndexReader* reader)
+            : _index_meta(index_meta), _stats(stats), _reader(reader) {
+        // TODO xk maybe change interface to use index
         _analyser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
     }
@@ -221,6 +226,7 @@ public:
 
 private:
     const TabletIndex* _index_meta;
+    OlapReaderStatistics* _stats;
     InvertedIndexReader* _reader;
     InvertedIndexParserType _analyser_type;
 };

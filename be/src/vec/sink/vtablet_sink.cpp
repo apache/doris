@@ -37,6 +37,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_struct.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -182,6 +183,9 @@ VNodeChannel::~VNodeChannel() {
         delete _add_block_closure;
         _add_block_closure = nullptr;
     }
+    if (_open_closure != nullptr) {
+        delete _open_closure;
+    }
     _cur_add_block_request.release_id();
 }
 
@@ -222,10 +226,8 @@ Status VNodeChannel::init(RuntimeState* state) {
         return Status::InternalError("get rpc stub failed");
     }
 
-    _rpc_timeout_ms = state->query_options().query_timeout * 1000;
+    _rpc_timeout_ms = state->execution_timeout() * 1000;
     _timeout_watch.start();
-
-    _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
 
     // Initialize _cur_add_block_request
     _cur_add_block_request.set_allocated_id(&_parent->_load_id);
@@ -428,7 +430,16 @@ Status VNodeChannel::add_block(vectorized::Block* block,
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), *(payload.first));
+    if (UNLIKELY(!_cur_mutable_block)) {
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+    }
+
+    if (_parent->_schema->is_dynamic_schema()) {
+        // Set _cur_mutable_block to dynamic since input blocks may be structure-variable(dyanmic)
+        // this will align _cur_mutable_block with block and auto extends columns
+        _cur_mutable_block->set_block_type(vectorized::BlockType::DYNAMIC);
+    }
+    block->append_block_by_selector(_cur_mutable_block.get(), *(payload.first));
     for (auto tablet_id : payload.second) {
         _cur_add_block_request.add_tablet_ids(tablet_id);
     }
@@ -447,8 +458,7 @@ Status VNodeChannel::add_block(vectorized::Block* block,
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-
-        _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -610,7 +620,9 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
             _add_block_closure->clear_in_flight();
             return;
         }
-        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
+
+        //format an ipv6 address
+        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
@@ -688,8 +700,9 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    while (!_add_batches_finished && !_cancelled) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
+        // std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        bthread_usleep(1000);
     }
     _close_time_ms = UnixMillis() - _close_time_ms;
 
@@ -731,6 +744,10 @@ void VNodeChannel::mark_close() {
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
         std::lock_guard<std::mutex> l(_pending_batches_lock);
+        if (!_cur_mutable_block) {
+            // add a dummy block
+            _cur_mutable_block.reset(new vectorized::MutableBlock());
+        }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;
         DCHECK(_pending_blocks.back().second.eos());
@@ -811,8 +828,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
-    _is_high_priority = (state->query_options().query_timeout <=
-                         config::load_task_high_priority_threshold_second);
+    _is_high_priority =
+            (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
@@ -829,36 +846,6 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
-
-    _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
-    _min_decimalv2_val.resize(_output_tuple_desc->slots().size());
-    // check if need validate batch
-    for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
-        auto slot = _output_tuple_desc->slots()[i];
-        switch (slot->type().type) {
-        // For DECIMAL32,DECIMAL64,DECIMAL128, we have done precision and scale conversion so just
-        // skip data validation here.
-        case TYPE_DECIMALV2:
-            _max_decimalv2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
-            _min_decimalv2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
-            _need_validate_data = true;
-            break;
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-        case TYPE_DATEV2:
-        case TYPE_DATETIMEV2:
-        case TYPE_HLL:
-        case TYPE_OBJECT:
-        case TYPE_STRING:
-        case TYPE_ARRAY:
-            _need_validate_data = true;
-            break;
-        default:
-            break;
-        }
-    }
 
     // add all counter
     _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
@@ -1001,6 +988,11 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         if (stop_processing) {
             return Status::EndOfFile("Encountered unqualified data, stop processing");
         }
+        is_continue = true;
+        return status;
+    }
+    if (!(*partition)->is_mutable) {
+        _number_immutable_partition_filtered_rows++;
         is_continue = true;
         return status;
     }
@@ -1211,6 +1203,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                       state->num_rows_load_unselected();
         state->set_num_rows_load_total(num_rows_load_total);
         state->update_num_rows_load_filtered(_number_filtered_rows);
+        state->update_num_rows_load_unselected(_number_immutable_partition_filtered_rows);
 
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
@@ -1248,6 +1241,32 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     _close_status = status;
     DataSink::close(state, exec_status);
     return status;
+}
+
+template <bool is_min>
+DecimalV2Value VOlapTableSink::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
+    std::map<std::pair<int, int>, DecimalV2Value>* pmap = nullptr;
+    if constexpr (is_min) {
+        pmap = &_min_decimalv2_val;
+    } else {
+        pmap = &_max_decimalv2_val;
+    }
+
+    // found
+    auto iter = pmap->find({type.precision, type.scale});
+    if (iter != pmap->end()) {
+        return iter->second;
+    }
+
+    // save min or max DecimalV2Value for next time
+    DecimalV2Value value;
+    if constexpr (is_min) {
+        value.to_min_decimal(type.precision, type.scale);
+    } else {
+        value.to_max_decimal(type.precision, type.scale);
+    }
+    pmap->emplace(std::pair<int, int> {type.precision, type.scale}, value);
+    return value;
 }
 
 Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescriptor& type,
@@ -1365,12 +1384,15 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         invalid = true;
                     }
                 }
-                if (dec_val > _max_decimalv2_val[slot_index] ||
-                    dec_val < _min_decimalv2_val[slot_index]) {
+                const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
+                const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
+                if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                    fmt::format_to(error_msg, ", precision={}, scale={}; ", type.precision,
+                    fmt::format_to(error_msg, ", precision={}, scale={}", type.precision,
                                    type.scale);
+                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimalv2.to_string(),
+                                   max_decimalv2.to_string());
                     invalid = true;
                 }
 
@@ -1398,8 +1420,19 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             }
             fmt::format_to(error_prefix, "ARRAY type failed: ");
             RETURN_IF_ERROR(_validate_column(
-                    state, nested_type, nested_type.contains_null, column_array->get_data_ptr(),
+                    state, nested_type, type.contains_nulls[0], column_array->get_data_ptr(),
                     slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
+        }
+        break;
+    }
+    case TYPE_STRUCT: {
+        const auto column_struct =
+                assert_cast<const vectorized::ColumnStruct*>(real_column_ptr.get());
+        DCHECK(type.children.size() == column_struct->tuple_size());
+        for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
+            RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
+                                             column_struct->get_column_ptr(sc), slot_index,
+                                             filter_bitmap, stop_processing, error_prefix));
         }
         break;
     }
@@ -1452,7 +1485,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
 }
 
 void VOlapTableSink::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
-    for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
+    for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
             if (desc->is_nullable()) {

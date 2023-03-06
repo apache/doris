@@ -77,6 +77,7 @@ Status VFileScanner::prepare(
     _io_ctx.reset(new IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
+    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -109,6 +110,30 @@ Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
+    return Status::OK();
+}
+
+Status VFileScanner::_handle_dynamic_block(Block* block) {
+    // finalize object column
+    auto obj = assert_cast<const ColumnObject*>(block->get_columns().back().get());
+    const_cast<ColumnObject*>(obj)->finalize();
+
+    // flatten object columns for the purpose of extracting static columns and
+    // fill default values missing in static columns
+    RETURN_IF_ERROR(schema_util::flatten_object(*block, true /*replace static columns*/));
+
+    bool need_issue_rpc = false;
+    for (const auto& name : block->get_names()) {
+        // missing column in base schema
+        if (!_full_base_schema_view->column_name_to_column.contains(name)) {
+            need_issue_rpc = true;
+        }
+    }
+    if (need_issue_rpc) {
+        // duplicated columns in _full_base_schema_view will be idempotent
+        RETURN_IF_ERROR(vectorized::schema_util::send_add_columns_rpc(
+                block->get_columns_with_type_and_name(), _full_base_schema_view.get()));
+    }
     return Status::OK();
 }
 
@@ -152,6 +177,10 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+        }
+
+        if (_is_dynamic_schema) {
+            RETURN_IF_ERROR(_handle_dynamic_block(_src_block_ptr));
         }
 
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
@@ -206,7 +235,7 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end()) {
+        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
             // not exist in file, using type from _input_tuple_desc
             data_type =
                     DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
@@ -231,6 +260,11 @@ Status VFileScanner::_init_src_block(Block* block) {
 
 Status VFileScanner::_cast_to_input_block(Block* block) {
     if (!_is_load) {
+        return Status::OK();
+    }
+    if (_is_dynamic_schema) {
+        // Dynamic schema do not need cast from string,
+        // since it's already casted in ColumnObject
         return Status::OK();
     }
     SCOPED_TIMER(_cast_to_input_block_timer);
@@ -375,21 +409,44 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     auto& filter_map = filter_column->get_data();
     auto origin_column_num = _src_block.columns();
 
+    // Set block dynamic, block maybe merge or add_rows
+    // in in later process.
+    if (_is_dynamic_schema) {
+        block->set_block_type(BlockType::DYNAMIC);
+    }
+
     for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
         int dest_index = ctx_idx++;
 
-        auto* ctx = _dest_vexpr_ctx[dest_index];
-        int result_column_id = -1;
-        // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        bool is_origin_column = result_column_id < origin_column_num;
-        auto column_ptr =
-                is_origin_column && _src_block_mem_reuse
-                        ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
-                        : _src_block.get_by_position(result_column_id).column;
+        vectorized::ColumnPtr column_ptr;
+        if (_is_dynamic_schema) {
+            if (slot_desc->type().is_variant_type()) {
+                continue;
+            }
+            // cast column
+            auto& column_type_name = _src_block.get_by_position(dest_index);
+            auto dest_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    slot_desc->type(), slot_desc->is_nullable());
+            if (!column_type_name.type->equals(*dest_type)) {
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name, dest_type,
+                                                                     &column_ptr));
+            } else {
+                column_ptr = std::move(column_type_name.column);
+            }
+        } else {
+            auto* ctx = _dest_vexpr_ctx[dest_index];
+            int result_column_id = -1;
+            // PT1 => dest primitive type
+            RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
+            bool is_origin_column = result_column_id < origin_column_num;
+            column_ptr = is_origin_column && _src_block_mem_reuse
+                                 ? _src_block.get_by_position(result_column_id)
+                                           .column->clone_resized(rows)
+                                 : _src_block.get_by_position(result_column_id).column;
+        }
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
 
@@ -453,6 +510,32 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                                     slot_desc->col_name()));
     }
 
+    // handle dynamic generated columns
+    if (_full_base_schema_view && !_full_base_schema_view->empty()) {
+        CHECK(_is_dynamic_schema);
+        for (size_t i = block->columns(); i < _src_block.columns(); ++i) {
+            auto& column_type_name = _src_block.get_by_position(i);
+            // Column from schema change response
+            const TColumn& tcolumn =
+                    _full_base_schema_view->column_name_to_column[column_type_name.name];
+            auto original_type = vectorized::DataTypeFactory::instance().create_data_type(tcolumn);
+            // Detect type conflict, there may exist another load procedure, whitch has already added some columns
+            // but, this load detects different type, we go type conflict free path, always cast to original type
+            // TODO need to add type conflict abort feature
+            if (!column_type_name.type->equals(*original_type)) {
+                vectorized::ColumnPtr column_ptr;
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name,
+                                                                     original_type, &column_ptr));
+                column_type_name.column = column_ptr;
+                column_type_name.type = original_type;
+            }
+            DCHECK(column_type_name.column != nullptr);
+            block->insert(vectorized::ColumnWithTypeAndName(std::move(column_type_name.column),
+                                                            std::move(column_type_name.type),
+                                                            column_type_name.name));
+        }
+    }
+
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     if (_src_block_mem_reuse) {
         _src_block.clear_column_data(origin_column_num);
@@ -466,6 +549,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                     std::make_shared<vectorized::DataTypeUInt8>(),
                                                     "filter column"));
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
+
     _counter.num_rows_filtered += rows - block->rows();
     return Status::OK();
 }
@@ -499,8 +583,8 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
-                iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
-                                            _colname_to_value_range, _push_down_expr);
+                init_status = iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
+                                                          _colname_to_value_range, _push_down_expr);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
@@ -532,7 +616,8 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_JSON: {
             _cur_reader.reset(new NewJsonReader(_state, _profile, &_counter, _params, range,
-                                                _file_slot_descs, &_scanner_eof, _io_ctx.get()));
+                                                _file_slot_descs, &_scanner_eof, _io_ctx.get(),
+                                                _is_dynamic_schema));
             init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
             break;
         }
@@ -723,6 +808,17 @@ Status VFileScanner::_init_expr_ctxes() {
                 }
             }
         }
+    }
+    // If last slot is_variant from stream plan which indicate table is dynamic schema
+    _is_dynamic_schema =
+            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
+    if (_is_dynamic_schema) {
+        // should not resuse Block since Block is variable
+        _src_block_mem_reuse = false;
+        _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
+        _full_base_schema_view->db_name = _output_tuple_desc->table_desc()->database();
+        _full_base_schema_view->table_name = _output_tuple_desc->table_desc()->name();
+        _full_base_schema_view->table_id = _output_tuple_desc->table_desc()->table_id();
     }
     return Status::OK();
 }

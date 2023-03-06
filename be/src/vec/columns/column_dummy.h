@@ -87,6 +87,12 @@ public:
         return clone_dummy(count_bytes_in_filter(filt));
     }
 
+    size_t filter(const Filter& filter) override {
+        const auto result_size = count_bytes_in_filter(filter);
+        s = result_size;
+        return result_size;
+    }
+
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {
         if (s != perm.size()) {
             LOG(FATAL) << "Size of permutation doesn't match size of column.";
@@ -143,12 +149,27 @@ public:
 
     bool is_dummy() const override { return true; }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "IColumnDummy get_data_type not implemeted";
+    }
+
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
+    }
+
+    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
+        LOG(FATAL) << "should not call the method in column dummy";
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        if (indexes.size() < limit) {
+            LOG(FATAL) << "Size of indexes is less than required.";
+        }
+        return clone_dummy(limit ? limit : s);
     }
 
 protected:

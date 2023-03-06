@@ -29,10 +29,12 @@ class CIDR;
 class BackendOptions {
 public:
     static bool init();
-    static std::string get_localhost();
+    static const std::string& get_localhost();
+    static bool is_bind_ipv6();
+    static const char* get_service_bind_address();
 
 private:
-    static bool analyze_network_interfaces();
+    static bool get_network_interfaces();
     static bool analyze_priority_cidrs();
     static bool is_in_prior_network(const std::string& ip);
     static bool is_in_network_interface(const std::string& ip);
@@ -40,6 +42,7 @@ private:
     static std::vector<std::string> _s_network_interfaces;
     static std::string _s_localhost;
     static std::vector<CIDR> _s_priority_cidrs;
+    static bool _bind_ipv6;
 
     DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };

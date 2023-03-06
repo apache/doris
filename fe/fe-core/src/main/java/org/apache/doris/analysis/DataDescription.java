@@ -151,6 +151,7 @@ public class DataDescription {
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
+    private int skipLines = 0;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -195,6 +196,8 @@ public class DataDescription {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
     }
 
     // data from table external_hive_table
@@ -232,6 +235,7 @@ public class DataDescription {
                            List<String> columns,
                            Separator columnSeparator,
                            Separator lineDelimiter,
+                           int skipLines,
                            List<Expr> columnMappingList,
                            Map<String, String> properties) {
         this.tableName = tableName.getTbl();
@@ -242,6 +246,7 @@ public class DataDescription {
         this.fileFieldNames = columns;
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
+        this.skipLines = skipLines;
         this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = false;
@@ -253,6 +258,7 @@ public class DataDescription {
         this.deleteCondition = null;
         this.properties = properties;
         this.isMysqlLoad = true;
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     // For stream load using external file scan node.
@@ -288,6 +294,8 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.skipLines = taskInfo.getSkipLines();
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -482,7 +490,7 @@ public class DataDescription {
     private static void validateHllHash(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
         for (int i = 0; i < args.size(); ++i) {
             String argColumn = args.get(i);
-            if (!columnNameMap.containsKey(argColumn)) {
+            if (argColumn == null || !columnNameMap.containsKey(argColumn)) {
                 throw new AnalysisException("Column is not in sources, column: " + argColumn);
             }
             args.set(i, columnNameMap.get(argColumn));
@@ -700,6 +708,10 @@ public class DataDescription {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
     }
 
     /*
@@ -926,6 +938,13 @@ public class DataDescription {
         if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
             numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
         }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
+            trimDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES));
+        }
+        if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
+            skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
+        }
     }
 
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
@@ -934,7 +953,7 @@ public class DataDescription {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -943,7 +962,7 @@ public class DataDescription {
 
         // check hive table auth
         if (isLoadFromTable()) {
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
                     PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
@@ -952,17 +971,27 @@ public class DataDescription {
         }
     }
 
+    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void columnsNameToLowerCase(List<String> columns) {
+        if (columns == null || columns.isEmpty() || "json".equals(this.fileFormat)) {
+            return;
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            String column = columns.remove(i);
+            columns.add(i, column.toLowerCase());
+        }
+    }
+
     public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(labelDbName)) {
             String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
-            this.dbName = dbName;
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            return ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            return this.dbName;
         } else {
-            // Get dbName from label.
-            this.dbName = ClusterNamespace.getNameFromFullName(labelDbName);
+            this.dbName = labelDbName;
             return labelDbName;
         }
     }
@@ -1052,7 +1081,11 @@ public class DataDescription {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
-            fileFieldNames.add(column.getName());
+            if ("json".equals(this.fileFormat)) {
+                fileFieldNames.add(column.getName());
+            } else {
+                fileFieldNames.add(column.getName().toLowerCase());
+            }
         }
 
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);
@@ -1079,7 +1112,8 @@ public class DataDescription {
         if (isNegative) {
             sb.append(" NEGATIVE");
         }
-        sb.append(" INTO TABLE ").append(isMysqlLoad ? dbName + "." + tableName : tableName);
+        sb.append(" INTO TABLE ");
+        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
         if (partitionNames != null) {
             sb.append(" ");
             sb.append(partitionNames.toSql());

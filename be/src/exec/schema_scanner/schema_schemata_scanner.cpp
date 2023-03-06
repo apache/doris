@@ -38,6 +38,7 @@ SchemaSchemataScanner::SchemaSchemataScanner()
 SchemaSchemataScanner::~SchemaSchemataScanner() = default;
 
 Status SchemaSchemataScanner::start(RuntimeState* state) {
+    SCOPED_TIMER(_get_db_timer);
     if (!_is_init) {
         return Status::InternalError("used before initial.");
     }
@@ -85,6 +86,7 @@ Status SchemaSchemataScanner::get_next_block(vectorized::Block* block, bool* eos
 }
 
 Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto dbs_num = _db_result.dbs.size();
 
     // catalog

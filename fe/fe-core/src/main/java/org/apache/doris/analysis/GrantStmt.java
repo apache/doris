@@ -25,10 +25,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
@@ -44,7 +44,7 @@ public class GrantStmt extends DdlStmt {
     private String role;
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
-    private List<PaloPrivilege> privileges;
+    private List<Privilege> privileges;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
@@ -91,7 +91,7 @@ public class GrantStmt extends DdlStmt {
         return role;
     }
 
-    public List<PaloPrivilege> getPrivileges() {
+    public List<Privilege> getPrivileges() {
         return privileges;
     }
 
@@ -138,44 +138,45 @@ public class GrantStmt extends DdlStmt {
      * @param tblPattern
      * @throws AnalysisException
      */
-    public static void checkTablePrivileges(List<PaloPrivilege> privileges, String role, TablePattern tblPattern)
+    public static void checkTablePrivileges(List<Privilege> privileges, String role, TablePattern tblPattern)
             throws AnalysisException {
         // Rule 1
-        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(PaloPrivilege.ADMIN_PRIV)
-                || privileges.contains(PaloPrivilege.NODE_PRIV))) {
+        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(Privilege.ADMIN_PRIV)
+                || privileges.contains(Privilege.NODE_PRIV))) {
             throw new AnalysisException("ADMIN_PRIV and NODE_PRIV can only be granted/revoke on/from *.*.*");
         }
 
         // Rule 2
-        if (privileges.contains(PaloPrivilege.NODE_PRIV) && !Env.getCurrentEnv().getAuth()
+        if (privileges.contains(Privilege.NODE_PRIV) && !Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             throw new AnalysisException("Only user with NODE_PRIV can grant/revoke NODE_PRIV to other user");
         }
 
         if (role != null) {
             // Rule 3 and 4
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
             }
         } else {
             // Rule 5.1 and 5.2
             if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else if (tblPattern.getPrivLevel() == PrivLevel.CATALOG) {
-                if (!Env.getCurrentEnv().getAuth().checkCtlPriv(ConnectContext.get(),
+                if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(ConnectContext.get(),
                         tblPattern.getQualifiedCtl(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
-                if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                         tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else {
                 // table level
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(),
                                 tblPattern.getTbl(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
@@ -184,36 +185,37 @@ public class GrantStmt extends DdlStmt {
         }
 
         // Rule 6
-        if (privileges.contains(PaloPrivilege.USAGE_PRIV)) {
+        if (privileges.contains(Privilege.USAGE_PRIV)) {
             throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
         }
     }
 
-    public static void checkResourcePrivileges(List<PaloPrivilege> privileges, String role,
+    public static void checkResourcePrivileges(List<Privilege> privileges, String role,
             ResourcePattern resourcePattern) throws AnalysisException {
         // Rule 1
-        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
+        if (privileges.contains(Privilege.NODE_PRIV)) {
             throw new AnalysisException("Can not grant/revoke NODE_PRIV to/from any other users or roles");
         }
 
         // Rule 2
-        if (resourcePattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
+        if (resourcePattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(Privilege.ADMIN_PRIV)) {
             throw new AnalysisException("ADMIN_PRIV privilege can only be granted/revoked on/from resource *");
         }
 
         if (role != null) {
             // Rule 3 and 4
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
             }
         } else {
             // Rule 5.1 and 5.3
             if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else {
-                if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
+                if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                         resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }

@@ -235,6 +235,7 @@ suite("test_date_function") {
     qt_sql """ select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME)) """
     qt_sql """ select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME)) """
     qt_sql """ select datediff('2010-10-31', '2010-10-15') """
+    qt_sql """ select datediff('10000-10-31', '2010-10-15') from ${tableName}; """
 
     // DAY
     qt_sql """ select day('1987-01-31') """
@@ -547,6 +548,8 @@ suite("test_date_function") {
     qt_sql """ select minutes_sub(test_time2,1) result from ${tableName}; """
     //seconds_sub
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
+    //datediff
+    qt_sql """ select datediff(test_time2, STR_TO_DATE('2022-08-01 00:00:00','%Y-%m-%d')) from ${tableName}; """
 
     // test last_day for vec
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -618,4 +621,32 @@ suite("test_date_function") {
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    // test date_sub(datetime,dayofmonth)
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth1 datetime,
+                birth2 datetimev2)
+            UNIQUE KEY(birth1,birth2)
+            DISTRIBUTED BY HASH (birth1,birth2) BUCKETS 1
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values
+        ('2022-01-20 00:00:00', '2023-01-20 00:00:00.123');"""
+    qt_sql """
+        select *  from
+          ${tableName}
+        where
+          birth1 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
+    """
+        qt_sql """
+            select *  from
+              ${tableName}
+            where
+              birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
+        """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
 }

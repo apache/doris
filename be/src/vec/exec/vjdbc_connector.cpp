@@ -17,6 +17,8 @@
 
 #include "vec/exec/vjdbc_connector.h"
 
+#include <cstring>
+
 #include "common/status.h"
 #include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
@@ -28,6 +30,7 @@
 #include "util/runtime_profile.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/scan/new_jdbc_scanner.h"
@@ -47,6 +50,7 @@ const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;Z)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;Z)J";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
+const char* JDBC_EXECUTOR_COPY_BATCH_SIGNATURE = "(Ljava/lang/Object;ZIJJ)V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
         : TableConnector(param.tuple_desc, param.query_string),
@@ -246,8 +250,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
             type_str, slot_desc->type().debug_string(), slot_desc->col_name());
     switch (slot_desc->type().type) {
     case TYPE_BOOLEAN: {
-        if (type_str != "java.lang.Boolean" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.lang.Byte") {
+        if (type_str != "java.lang.Boolean" && type_str != "java.lang.Byte") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -367,18 +370,12 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        const std::string& column_name = slot_desc->col_name();
         jobject column_data =
                 env->CallObjectMethod(block_obj, _executor_get_list_id, materialized_column_index);
         jint num_rows = env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz,
                                                      _executor_block_rows_id);
-        for (int row = 0; row < num_rows; ++row) {
-            jobject cur_data = env->CallObjectMethod(column_data, _executor_get_list_id, row);
-            RETURN_IF_ERROR(_convert_column_data(env, cur_data, slot_desc,
-                                                 columns[column_index].get(), column_index,
-                                                 column_name));
-            env->DeleteLocalRef(cur_data);
-        }
+        RETURN_IF_ERROR(_convert_batch_result_set(
+                env, column_data, slot_desc, columns[column_index].get(), num_rows, column_index));
         env->DeleteLocalRef(column_data);
         //here need to cast string to array type
         if (_need_cast_array_type && slot_desc->type().is_array_type()) {
@@ -388,6 +385,181 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
     }
     // All Java objects returned by JNI functions are local references.
     env->DeleteLocalRef(block_obj);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+
+Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_data,
+                                                const SlotDescriptor* slot_desc,
+                                                vectorized::IColumn* column_ptr, int num_rows,
+                                                int column_index) {
+    vectorized::IColumn* col_ptr = column_ptr;
+    col_ptr->resize(num_rows);
+    int64_t address[2] = {0, 0};
+    bool column_is_nullable = slot_desc->is_nullable();
+    if (column_is_nullable) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+        auto& null_map = nullable_column->get_null_map_data();
+        memset(null_map.data(), 0, num_rows);
+        address[0] = reinterpret_cast<int64_t>(null_map.data());
+        col_ptr = &nullable_column->get_nested_column();
+    }
+    switch (slot_desc->type().type) {
+    case TYPE_BOOLEAN: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_boolean_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_TINYINT: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_tinyint_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_SMALLINT: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_smallint_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_INT: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_int_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_BIGINT: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_bigint_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_LARGEINT: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_largeint_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_FLOAT: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_float_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_DOUBLE: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_double_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_CHAR: {
+        bool need_trim_spaces = false;
+        if ((_conn_param.table_type == TOdbcTableType::POSTGRESQL) ||
+            (_conn_param.table_type == TOdbcTableType::ORACLE)) {
+            need_trim_spaces = true;
+        }
+        auto column_string = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        address[1] = reinterpret_cast<int64_t>(column_string->get_offsets().data());
+        auto chars_addres = reinterpret_cast<int64_t>(&column_string->get_chars());
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_char_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1], chars_addres, need_trim_spaces);
+        break;
+    }
+    case TYPE_STRING:
+    case TYPE_VARCHAR: {
+        auto column_string = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        address[1] = reinterpret_cast<int64_t>(column_string->get_offsets().data());
+        auto chars_addres = reinterpret_cast<int64_t>(&column_string->get_chars());
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_string_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1], chars_addres);
+        break;
+    }
+    case TYPE_DATE: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_date_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_DATEV2: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_datev2_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_DATETIME: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_datetime_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1]);
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz,
+                                      _executor_get_datetimev2_result, jcolumn_data,
+                                      column_is_nullable, num_rows, address[0], address[1]);
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz,
+                                      _executor_get_decimalv2_result, jcolumn_data,
+                                      column_is_nullable, num_rows, address[0], address[1]);
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(
+                _executor_obj, _executor_clazz, _executor_get_decimal32_result, jcolumn_data,
+                column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(
+                _executor_obj, _executor_clazz, _executor_get_decimal64_result, jcolumn_data,
+                column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        env->CallNonvirtualVoidMethod(
+                _executor_obj, _executor_clazz, _executor_get_decimal128_result, jcolumn_data,
+                column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);
+        break;
+    }
+    //todo: now array type maybe should same as before, not need to change deal with batch
+    //if need copy by batch, should use string cast to array on all database
+    case TYPE_ARRAY: {
+        const std::string& column_name = slot_desc->col_name();
+        for (int row = 0; row < num_rows; ++row) {
+            jobject cur_data = env->CallNonvirtualObjectMethod(
+                    _executor_obj, _executor_clazz, _executor_convert_array_id, jcolumn_data, row);
+            RETURN_IF_ERROR(_convert_column_data(env, cur_data, slot_desc, column_ptr, column_index,
+                                                 column_name));
+            env->DeleteLocalRef(cur_data);
+        }
+        break;
+    }
+    default: {
+        const std::string& error_msg =
+                fmt::format("Fail to convert jdbc value to {} on column: {}",
+                            slot_desc->type().debug_string(), slot_desc->col_name());
+        return Status::InternalError(std::string(error_msg));
+    }
+    }
     return JniUtil::GetJniExceptionMsg(env);
 }
 
@@ -414,6 +586,47 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_has_next_id));
     RETURN_IF_ERROR(
             register_id(_executor_clazz, "getCurBlockRows", "()I", _executor_block_rows_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBooleanResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_boolean_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchTinyIntResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_tinyint_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchSmallIntResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_smallint_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchIntResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_int_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBigIntResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_bigint_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchLargeIntResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_largeint_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchFloatResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_float_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDoubleResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_double_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchStringResult",
+                                "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
+                                "(Ljava/lang/Object;ZIJJJZ)V", _executor_get_char_result));
+
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_date_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateV2Result",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_datev2_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateTimeResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_datetime_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateTimeV2Result",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE,
+                                _executor_get_datetimev2_result));
+
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimalV2Result",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE,
+                                _executor_get_decimalv2_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimal32Result",
+                                "(Ljava/lang/Object;ZIJJI)V", _executor_get_decimal32_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimal64Result",
+                                "(Ljava/lang/Object;ZIJJI)V", _executor_get_decimal64_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimal128Result",
+                                "(Ljava/lang/Object;ZIJJI)V", _executor_get_decimal128_result));
+
     RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_SIGNATURE,
                                 _executor_get_blocks_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "convertDateToLong",
@@ -421,6 +634,9 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     RETURN_IF_ERROR(register_id(_executor_clazz, "convertDateTimeToLong",
                                 JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE,
                                 _executor_convert_datetime_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "convertArrayToObject",
+                                "(Ljava/lang/Object;I)Ljava/lang/Object;",
+                                _executor_convert_array_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
                                 _executor_get_list_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "size", "()I", _executor_get_list_size_id));
@@ -453,7 +669,8 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     if (true == slot_desc->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
         if (jobj == nullptr) {
-            nullable_column->insert_data(nullptr, 0);
+            //nullable column of null map have memset 0 before
+            nullable_column->get_nested_column_ptr()->insert_default();
             if (_need_cast_array_type && slot_desc->type().type == TYPE_ARRAY) {
                 reinterpret_cast<vectorized::ColumnNullable*>(
                         str_array_cols[_map_column_idx_to_cast_idx[column_index]].get())
@@ -461,7 +678,6 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
             }
             return Status::OK();
         } else {
-            nullable_column->get_null_map_data().push_back(0);
             col_ptr = &nullable_column->get_nested_column();
         }
     }

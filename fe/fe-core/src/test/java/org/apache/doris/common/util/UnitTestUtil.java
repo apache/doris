@@ -78,7 +78,7 @@ public class UnitTestUtil {
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD, -1, -1);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -112,6 +112,7 @@ public class UnitTestUtil {
         partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         partitionInfo.setIsInMemory(partitionId, false);
+        partitionInfo.setIsMutable(partitionId, true);
         partitionInfo.setTabletType(partitionId, TTabletType.TABLET_TYPE_DISK);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
                                         KeysType.AGG_KEYS, partitionInfo, distributionInfo);

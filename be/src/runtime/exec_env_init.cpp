@@ -42,10 +42,10 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/small_file_mgr.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/tmp_file_mgr.h"
+#include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
@@ -102,6 +102,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     init_download_cache_required_components();
 
+    // min num equal to fragment pool's min num
+    // max num is useless because it will start as many as requested in the past
+    // queue size is useless because the max thread num is very large
+    ThreadPoolBuilder("SendReportThreadPool")
+            .set_min_threads(config::fragment_pool_thread_num_min)
+            .set_max_threads(std::numeric_limits<int>::max())
+            .set_max_queue_size(config::fragment_pool_queue_size)
+            .build(&_send_report_thread_pool);
+
+    ThreadPoolBuilder("JoinNodeThreadPool")
+            .set_min_threads(config::fragment_pool_thread_num_min)
+            .set_max_threads(std::numeric_limits<int>::max())
+            .set_max_queue_size(config::fragment_pool_queue_size)
+            .build(&_join_node_thread_pool);
+
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
@@ -115,7 +130,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
-    _load_stream_mgr = new LoadStreamMgr();
     _new_load_stream_mgr = new NewLoadStreamMgr();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
@@ -192,6 +206,19 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Init row cache
+    int64_t row_cache_mem_limit =
+            ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && row_cache_mem_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        row_cache_mem_limit = row_cache_mem_limit / 2;
+    }
+    RowCache::create_global_cache(row_cache_mem_limit);
+    LOG(INFO) << "Row cache memory limit: "
+              << PrettyPrinter::print(row_cache_mem_limit, TUnit::BYTES)
+              << ", origin config value: " << config::row_cache_mem_limit;
+
     uint64_t fd_number = config::min_file_descriptor_number;
     struct rlimit l;
     int ret = getrlimit(RLIMIT_NOFILE, &l);
@@ -220,6 +247,19 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
+
+    // use memory limit
+    int64_t inverted_index_query_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_query_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_query_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
+    }
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    LOG(INFO) << "Inverted index query match cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());
@@ -299,7 +339,6 @@ void ExecEnv::_destroy() {
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
-    SAFE_DELETE(_load_stream_mgr);
     SAFE_DELETE(_load_channel_mgr);
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);

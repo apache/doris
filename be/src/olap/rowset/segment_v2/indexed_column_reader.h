@@ -47,7 +47,7 @@ class IndexedColumnIterator;
 class IndexedColumnReader {
 public:
     explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
-            : _file_reader(std::move(file_reader)), _meta(meta) {};
+            : _file_reader(std::move(file_reader)), _meta(meta) {}
 
     Status load(bool use_page_cache, bool kept_in_memory);
 

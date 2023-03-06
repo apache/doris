@@ -29,7 +29,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
 
@@ -45,6 +45,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
             BetweenToCompoundRule.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
+            // TODO(morrySnow): remove type coercion from here after we could process subquery type coercion when bind
             CharacterLiteralTypeCoercion.INSTANCE,
             SimplifyArithmeticRule.INSTANCE,
             TypeCoercion.INSTANCE,
@@ -55,12 +56,13 @@ public class ExpressionNormalization extends ExpressionRewrite {
             SupportJavaDateFormatter.INSTANCE
     );
 
-    public ExpressionNormalization(ConnectContext context) {
-        super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES, context));
+    public ExpressionNormalization() {
+        super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
     }
 
-    public ExpressionNormalization(ConnectContext context, List<ExpressionRewriteRule> rules) {
-        super(new ExpressionRuleExecutor(rules, context));
+    @Override
+    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+        return super.rewrite(expression, context);
     }
 }
 

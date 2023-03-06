@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <future>
+
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
@@ -25,6 +27,7 @@
 namespace doris {
 class ExecNode;
 class DataSink;
+struct ReportStatusRequest;
 
 namespace vectorized {
 template <bool is_intersect>
@@ -37,16 +40,24 @@ class PipelineTask;
 
 class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
 public:
+    // Callback to report execution status of plan fragment.
+    // 'profile' is the cumulative profile, 'done' indicates whether the execution
+    // is done or still continuing.
+    // Note: this does not take a const RuntimeProfile&, because it might need to call
+    // functions like PrettyPrint() or to_thrift(), neither of which is const
+    // because they take locks.
+    using report_status_callback = std::function<void(const ReportStatusRequest)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
-                            int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx,
-                            ExecEnv* exec_env,
-                            std::function<void(RuntimeState*, Status*)> call_back);
+                            const int fragment_id, int backend_num,
+                            std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+                            const std::function<void(RuntimeState*, Status*)>& call_back,
+                            const report_status_callback& report_status_cb);
 
     ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
-    TUniqueId get_fragment_id() { return _fragment_id; }
+    TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
@@ -56,6 +67,8 @@ public:
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
     Status prepare(const doris::TExecPlanFragmentParams& request);
+
+    Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
     Status submit();
 
@@ -87,13 +100,31 @@ public:
 
     void send_report(bool);
 
-    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
-    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
+    void report_profile();
+
+    Status update_status(Status status) {
+        std::lock_guard<std::mutex> l(_status_lock);
+        if (!status.ok() && _exec_status.ok()) {
+            _exec_status = status;
+        }
+        return _exec_status;
+    }
 
 private:
+    Status _create_sink(const TDataSink& t_data_sink);
+    Status _build_pipelines(ExecNode*, PipelinePtr);
+    Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
+    template <bool is_intersect>
+    Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
+    void _close_action();
+    void _stop_report_thread();
+    void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
+
     // Id of this query
     TUniqueId _query_id;
-    TUniqueId _fragment_id;
+    TUniqueId _fragment_instance_id;
+    int _fragment_id;
 
     int _backend_num;
 
@@ -137,17 +168,24 @@ private:
     RuntimeProfile::Counter* _start_timer;
     RuntimeProfile::Counter* _prepare_timer;
 
-    std::shared_ptr<io::StreamLoadPipe> _pipe;
-
-    Status _create_sink(const TDataSink& t_data_sink);
-    Status _build_pipelines(ExecNode*, PipelinePtr);
-    Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
-
-    template <bool is_intersect>
-    Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     std::function<void(RuntimeState*, Status*)> _call_back;
-    void _close_action();
     std::once_flag _close_once_flag;
+
+    std::condition_variable _report_thread_started_cv;
+    // true if we started the thread
+    bool _report_thread_active;
+    // profile reporting-related
+    report_status_callback _report_status_cb;
+    std::promise<bool> _report_thread_promise;
+    std::future<bool> _report_thread_future;
+    std::mutex _report_thread_lock;
+
+    // Indicates that profile reporting thread should stop.
+    // Tied to _report_thread_lock.
+    std::condition_variable _stop_report_thread_cv;
+    // If this is set to false, and '_is_report_success' is false as well,
+    // This executor will not report status to FE on being cancelled.
+    bool _is_report_on_cancel;
 };
 } // namespace pipeline
 } // namespace doris

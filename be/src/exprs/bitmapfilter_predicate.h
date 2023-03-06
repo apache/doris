@@ -33,7 +33,7 @@ public:
     virtual void insert_many(const std::vector<const BitmapValue*> bitmaps) = 0;
     virtual bool empty() = 0;
     virtual Status assign(BitmapValue* bitmap_value) = 0;
-    virtual void light_copy(BitmapFilterFuncBase* other) { _not_in = other->_not_in; };
+    virtual void light_copy(BitmapFilterFuncBase* other) { _not_in = other->_not_in; }
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
                                                 uint16_t* offsets, int number) = 0;
     virtual void find_batch(const char* data, const uint8* nullmap, int number,

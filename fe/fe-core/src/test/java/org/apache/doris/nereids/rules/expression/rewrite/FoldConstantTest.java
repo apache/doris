@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -133,7 +134,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         // cast '1' as tinyint
         Cast c = new Cast(Literal.of("1"), TinyIntType.INSTANCE);
-        Expression rewritten = executor.rewrite(c);
+        Expression rewritten = executor.rewrite(c, context);
         Literal expected = Literal.of((byte) 1);
         Assertions.assertEquals(rewritten, expected);
     }
@@ -211,7 +212,7 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         interval = "date '1991-05-01' + interval 10 / 2 + 1 day";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
-        e8 = new DateTimeLiteral(1991, 5, 7, 0, 0, 0);
+        e8 = new DateLiteral(1991, 5, 7);
         assertRewrite(e7, e8);
 
         interval = "interval '1' day + '1991-05-01'";

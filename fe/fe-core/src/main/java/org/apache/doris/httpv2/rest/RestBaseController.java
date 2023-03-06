@@ -56,7 +56,7 @@ public class RestBaseController extends BaseController {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
         UserIdentity currentUser = checkPassword(authInfo);
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
@@ -138,14 +138,14 @@ public class RestBaseController extends BaseController {
                     try {
                         bis.close();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                     }
                 }
                 if (fis != null) {
                     try {
                         fis.close();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                     }
                 }
             }

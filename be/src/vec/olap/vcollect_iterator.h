@@ -71,7 +71,29 @@ public:
         return false;
     }
 
+    inline bool use_topn_next() const { return _topn_limit > 0; }
+
 private:
+    // next for topn query
+    Status _topn_next(Block* block);
+
+    class BlockRowPosComparator {
+    public:
+        BlockRowPosComparator(MutableBlock* mutable_block,
+                              const std::vector<uint32_t>* compare_columns, bool is_reverse)
+                : _mutable_block(mutable_block),
+                  _compare_columns(compare_columns),
+                  _is_reverse(is_reverse) {}
+
+        bool operator()(const size_t& lpos, const size_t& rpos) const;
+
+    private:
+        const MutableBlock* _mutable_block = nullptr;
+        const std::vector<uint32_t>* _compare_columns;
+        // reverse the compare order
+        const bool _is_reverse = false;
+    };
+
     // This interface is the actual implementation of the new version of iterator.
     // It currently contains two implementations, one is Level0Iterator,
     // which only reads data from the rowset reader, and the other is Level1Iterator,
@@ -82,12 +104,12 @@ private:
     public:
         LevelIterator(TabletReader* reader)
                 : _schema(reader->tablet_schema()),
-                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
+                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
         virtual Status init_for_union(bool is_first_child, bool get_data_by_ref = false) {
             return Status::OK();
-        };
+        }
 
         virtual int64_t version() const = 0;
 
@@ -103,9 +125,9 @@ private:
 
         virtual ~LevelIterator() = default;
 
-        const TabletSchema& tablet_schema() const { return _schema; };
+        const TabletSchema& tablet_schema() const { return _schema; }
 
-        const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; };
+        const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; }
 
         virtual RowLocation current_row_location() = 0;
 
@@ -276,9 +298,6 @@ private:
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
 
-        // batch size, get from TabletReader
-        int _batch_size;
-
         std::vector<RowLocation> _block_row_locations;
     };
 
@@ -291,6 +310,11 @@ private:
     bool _merge = true;
     // reverse the compare order
     bool _is_reverse = false;
+    // for topn next
+    size_t _topn_limit = 0;
+    bool _topn_eof = false;
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
+
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;
 

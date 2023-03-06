@@ -46,6 +46,7 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
@@ -74,6 +75,7 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaViewsScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
     if (nullptr != _param->wild) {
@@ -118,6 +120,7 @@ Status SchemaViewsScanner::get_next_block(vectorized::Block* block, bool* eos) {
 }
 
 Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto tables_num = _table_result.tables.size();
 
     // catalog

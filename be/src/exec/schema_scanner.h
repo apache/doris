@@ -24,6 +24,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -49,6 +50,7 @@ struct SchemaScannerParam {
     int64_t thread_id;
     const std::vector<TSchemaTableStructure>* table_structure;
     const std::string* catalog;
+    std::unique_ptr<RuntimeProfile> profile;
 
     SchemaScannerParam()
             : db(nullptr),
@@ -87,7 +89,7 @@ public:
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
     const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
-    const TSchemaTableType::type type() const { return _schema_table_type; }
+    TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 
@@ -105,6 +107,11 @@ protected:
     static DorisServer* _s_doris_server;
 
     TSchemaTableType::type _schema_table_type;
+
+    RuntimeProfile::Counter* _get_db_timer = nullptr;
+    RuntimeProfile::Counter* _get_table_timer = nullptr;
+    RuntimeProfile::Counter* _get_describe_timer = nullptr;
+    RuntimeProfile::Counter* _fill_block_timer = nullptr;
 };
 
 } // namespace doris

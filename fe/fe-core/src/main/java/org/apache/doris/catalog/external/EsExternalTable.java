@@ -20,6 +20,8 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.external.elasticsearch.EsRestClient;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -76,6 +78,12 @@ public class EsExternalTable extends ExternalTable {
         return tTableDescriptor;
     }
 
+    @Override
+    public List<Column> initSchema() {
+        EsRestClient restClient = ((EsExternalCatalog) catalog).getEsRestClient();
+        return EsUtil.genColumnsFromEs(restClient, name, null, ((EsExternalCatalog) catalog).enableMappingEsId());
+    }
+
     private EsTable toEsTable() {
         List<Column> schema = getFullSchema();
         EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
@@ -88,6 +96,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setEnableKeywordSniff(esCatalog.enableKeywordSniff());
         esTable.setNodesDiscovery(esCatalog.enableNodesDiscovery());
         esTable.setHttpSslEnabled(esCatalog.enableSsl());
+        esTable.setLikePushDown(esCatalog.enableLikePushDown());
         esTable.setSeeds(esCatalog.getNodes());
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();

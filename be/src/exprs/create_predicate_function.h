@@ -33,7 +33,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
-    };
+    }
 };
 
 class HybridSetTraits {
@@ -45,7 +45,7 @@ public:
         using Set =
                 std::conditional_t<std::is_same_v<CppType, StringRef>, StringSet, HybridSet<type>>;
         return new Set();
-    };
+    }
 };
 
 class BloomFilterTraits {
@@ -54,7 +54,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BloomFilterFunc<type>();
-    };
+    }
 };
 
 class BitmapFilterTraits {
@@ -63,7 +63,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BitmapFilterFunc<type>();
-    };
+    }
 };
 
 template <class Traits>

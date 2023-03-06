@@ -52,6 +52,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
@@ -108,6 +109,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
+import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -197,11 +199,16 @@ public class StmtExecutor implements ProfileWriter {
     private String stmtName;
     private PrepareStmt prepareStmt;
 
+    // The result schema if "dry_run_query" is true.
+    // Only one column to indicate the real return row numbers.
+    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
+            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
+
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
         this.originStmt = originStmt;
-        this.serializer = context.getSerializer();
+        this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
@@ -217,7 +224,7 @@ public class StmtExecutor implements ProfileWriter {
         this.context = ctx;
         this.parsedStmt = parsedStmt;
         this.originStmt = parsedStmt.getOrigStmt();
-        this.serializer = context.getSerializer();
+        this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = false;
         if (parsedStmt instanceof LogicalPlanAdapter) {
             this.statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
@@ -393,6 +400,10 @@ public class StmtExecutor implements ProfileWriter {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
     }
 
+    public boolean isInsertStmt() {
+        return parsedStmt != null && parsedStmt instanceof InsertStmt;
+    }
+
     /**
      * Used for audit in ConnectProcessor.
      * <p>
@@ -486,7 +497,7 @@ public class StmtExecutor implements ProfileWriter {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new UserException("The statement has been forwarded to master FE("
-                                + Env.getCurrentEnv().getSelfNode().first + ") and failed to execute"
+                                + Env.getCurrentEnv().getSelfNode().getIp() + ") and failed to execute"
                                 + " because Master FE is not ready. You may need to check FE's status");
                     }
                     forwardToMaster();
@@ -613,8 +624,7 @@ public class StmtExecutor implements ProfileWriter {
             throw e;
         } catch (UserException e) {
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(),
-                                    e.getMessage());
+            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
@@ -888,7 +898,7 @@ public class StmtExecutor implements ProfileWriter {
             rewriter.reset();
             if (context.getSessionVariable().isEnableFoldConstantByBe()) {
                 // fold constant expr
-                parsedStmt.foldConstant(rewriter);
+                parsedStmt.foldConstant(rewriter, tQueryOptions);
 
             }
             // Apply expr and subquery rewrites.
@@ -1013,7 +1023,7 @@ public class StmtExecutor implements ProfileWriter {
             // Check auth
             // Only user itself and user with admin priv can kill connection
             if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                     PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
@@ -1030,6 +1040,7 @@ public class StmtExecutor implements ProfileWriter {
             SetExecutor executor = new SetExecutor(context, setStmt);
             executor.execute();
         } catch (DdlException e) {
+            LOG.warn("", e);
             // Return error message to client.
             context.getState().setError(ErrorCode.ERR_LOCAL_VARIABLE, e.getMessage());
             return;
@@ -1277,7 +1288,17 @@ public class StmtExecutor implements ProfileWriter {
             }
             if (!isSendFields) {
                 if (!isOutfileQuery) {
-                    sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                        // Return a one row one column result set, with the real result number
+                        List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
+                                : batch.getQueryStatistics().getReturnedRows() + "");
+                        ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
+                                Collections.singletonList(data));
+                        sendResultSet(resultSet);
+                        return;
+                    } else {
+                        sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    }
                 } else {
                     sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                 }
@@ -1335,8 +1356,7 @@ public class StmtExecutor implements ProfileWriter {
             if (context.getTxnEntry() == null) {
                 context.setTxnEntry(new TransactionEntry());
             }
-            TransactionEntry txnEntry = context.getTxnEntry();
-            txnEntry.setTxnConf(txnParams);
+            context.getTxnEntry().setTxnConf(txnParams);
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
                     .append(TransactionStatus.PREPARE.name());
@@ -1382,6 +1402,7 @@ public class StmtExecutor implements ProfileWriter {
                         .append(context.getTxnEntry().getTxnConf().getTxnId()).append("'").append("}");
                 context.getState().setOk(0, 0, sb.toString());
             } catch (Exception e) {
+                LOG.warn("Txn commit failed", e);
                 throw new AnalysisException(e.getMessage());
             } finally {
                 context.setTxnEntry(null);
@@ -1461,7 +1482,7 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        long timeoutSecond = ConnectContext.get().getExecTimeout();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
@@ -1477,18 +1498,17 @@ public class StmtExecutor implements ProfileWriter {
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                    txnConf.getDbId(), txnConf.getTxnId()).getAuthCode();
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            txnConf.setToken(token);
         } else {
-            String authCodeUuid = UUID.randomUUID().toString();
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
-            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setAuthCodeUuid(authCodeUuid)
+            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
                     .setCluster(dbObj.getClusterName()).setLabel(label).setUser("").setUserIp("").setPasswd("");
             TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
             txnConf.setTxnId(result.getTxnId());
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            txnConf.setToken(token);
         }
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
@@ -1523,6 +1543,8 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         analyzeVariablesInStmt(insertStmt.getQueryStmt());
+        // reset the executionTimeout since query hint maybe change the insert_timeout again
+        context.resetExecTimeoutByInsert();
 
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
@@ -1555,8 +1577,9 @@ public class StmtExecutor implements ProfileWriter {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
                 coord.exec();
-
-                boolean notTimeout = coord.join(context.getSessionVariable().getQueryTimeoutS());
+                int execTimeout = context.getExecTimeout();
+                LOG.debug("Insert execution timeout:{}", execTimeout);
+                boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
                     coord.cancel();
                     if (notTimeout) {
@@ -1652,7 +1675,7 @@ public class StmtExecutor implements ProfileWriter {
                 context.getEnv().getLoadManager()
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
-                                coord.getTrackingUrl());
+                                coord.getTrackingUrl(), insertStmt.getUserInfo());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();
@@ -1694,6 +1717,7 @@ public class StmtExecutor implements ProfileWriter {
         try {
             context.getEnv().changeCatalog(context, switchStmt.getCatalogName());
         } catch (DdlException e) {
+            LOG.warn("", e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
@@ -1727,6 +1751,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             context.getEnv().changeDb(context, useStmt.getDatabase());
         } catch (DdlException e) {
+            LOG.warn("", e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
@@ -1871,7 +1896,8 @@ public class StmtExecutor implements ProfileWriter {
                             + " to load client local file.");
                     return;
                 }
-                LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
+                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
+                        .executeMySqlLoadJobFromStmt(context, loadStmt);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());
             } else {
@@ -1894,10 +1920,11 @@ public class StmtExecutor implements ProfileWriter {
             DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
             context.getState().setOk();
         } catch (QueryStateException e) {
+            LOG.warn("", e);
             context.setState(e.getQueryState());
         } catch (UserException e) {
             // Return message to info client what happened.
-            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
+            LOG.warn("DDL statement({}) process failed.", originStmt.originStmt, e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         } catch (Exception e) {
             // Maybe our bug
@@ -1913,6 +1940,7 @@ public class StmtExecutor implements ProfileWriter {
             context.getEnv().changeCluster(context, enterStmt.getClusterName());
             context.setDatabase("");
         } catch (DdlException e) {
+            LOG.warn("", e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
@@ -1940,17 +1968,26 @@ public class StmtExecutor implements ProfileWriter {
             try {
                 parsedStmt = ctasStmt.getInsertStmt();
                 execute();
+                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                    LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
+                    handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
+                }
             } catch (Exception e) {
                 LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
-                // insert error drop table
-                DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
-                try {
-                    DdlExecutor.execute(context.getEnv(), dropTableStmt);
-                } catch (Exception ex) {
-                    LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
-                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                            "Unexpected exception: " + ex.getMessage());
-                }
+                handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
+            }
+        }
+    }
+
+    private void handleCtasRollback(TableName table) {
+        if (context.getSessionVariable().isDropTableIfCtasFailed()) {
+            // insert error drop table
+            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            try {
+                DdlExecutor.execute(context.getEnv(), dropTableStmt);
+            } catch (Exception ex) {
+                LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
             }
         }
     }

@@ -57,14 +57,18 @@ public class MTMVJobFactory {
 
     public static List<MTMVJob> buildJob(MaterializedView materializedView, String dbName) {
         List<MTMVJob> jobs = new ArrayList<>();
-        if (materializedView.getBuildMode() == BuildMode.IMMEDIATE) {
-            jobs.add(genOnceJob(materializedView, dbName));
-        }
         MVRefreshTriggerInfo triggerInfo = materializedView.getRefreshInfo().getTriggerInfo();
+        boolean isRunPeriodJobImmediate = false;
         if (triggerInfo != null && triggerInfo.getRefreshTrigger() == RefreshTrigger.INTERVAL) {
-            jobs.add(genPeriodicalJob(materializedView, dbName));
+            MTMVJob job = genPeriodicalJob(materializedView, dbName);
+            isRunPeriodJobImmediate = MTMVUtils.getDelaySeconds(job) == 0;
+            jobs.add(job);
         }
 
+        // if the PeriodicalJob run immediate since an early start time, don't run the immediate build.
+        if (!isRunPeriodJobImmediate && materializedView.getBuildMode() == BuildMode.IMMEDIATE) {
+            jobs.add(genOnceJob(materializedView, dbName));
+        }
         return jobs;
     }
 

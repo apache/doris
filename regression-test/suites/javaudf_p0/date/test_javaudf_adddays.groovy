@@ -51,8 +51,9 @@ suite("test_javaudf_adddays") {
 
         qt_select """ SELECT add_days(col_1, 1) as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION add_days(string, int); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS add_days(string, int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

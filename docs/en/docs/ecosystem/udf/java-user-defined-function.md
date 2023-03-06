@@ -56,10 +56,11 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 |Double|Double|
 |Date|LocalDate|
 |Datetime|LocalDateTime|
-|Char|String|
-|Varchar|String|
+|String|String|
 |Decimal|BigDecimal|
+|```array<Type>```|```ArrayList<Type>```|
 
+* Array types can nested basic types, Eg: In Doris: ```array<int>``` corresponds to JAVA UDF Argument Type: ```ArrayList<Integer>```, Others is also.
 ## Write UDF functions
 
 This section mainly introduces how to develop a Java UDF. Samples for the Java version are provided under `samples/doris-demo/java-udf-demo/` for your reference, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)

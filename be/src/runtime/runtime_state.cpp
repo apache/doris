@@ -53,7 +53,6 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _unreported_error_idx(0),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
-          _root_node_id(-1),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
@@ -79,7 +78,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _query_id(fragment_exec_params.query_id),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
-          _root_node_id(-1),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
@@ -94,6 +92,33 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     }
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
+    DCHECK(status.ok());
+}
+
+RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
+                           const TUniqueId& query_id, const TQueryOptions& query_options,
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+        : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+          _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
+          _data_stream_recvrs_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _query_id(query_id),
+          _is_cancelled(false),
+          _per_fragment_instance_idx(0),
+          _num_rows_load_total(0),
+          _num_rows_load_filtered(0),
+          _num_rows_load_unselected(0),
+          _num_print_error_rows(0),
+          _num_bytes_load_total(0),
+          _normal_row_number(0),
+          _error_row_number(0),
+          _error_log_file(nullptr) {
+    if (pipeline_params.__isset.runtime_filter_params) {
+        _runtime_filter_mgr->set_runtime_filter_params(pipeline_params.runtime_filter_params);
+    }
+    Status status =
+            init(pipeline_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
 }
 
@@ -257,19 +282,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const std::string ERROR_FILE_NAME = "error_log";
 const int64_t MAX_ERROR_NUM = 50;
 
-Status RuntimeState::create_load_dir() {
-    if (!_load_dir.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(_db_name, _import_label, &_load_dir));
-    _load_dir += "/output";
-    return FileUtils::create_dir(_load_dir);
-}
-
 Status RuntimeState::create_error_log_file() {
-    // Make sure that load dir exists.
-    // create_load_dir();
-
     _exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
     // std::stringstream ss;

@@ -678,7 +678,12 @@ void DataDir::perform_path_scan() {
                              << " error[" << ret.to_string() << "]";
                 continue;
             }
+
             for (const auto& schema_hash : schema_hashes) {
+                int32_t interval_ms = config::path_scan_step_interval_ms;
+                if (interval_ms > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+                }
                 auto tablet_schema_hash_path = fmt::format("{}/{}", tablet_id_path, schema_hash);
                 _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
 
@@ -837,23 +842,29 @@ void DataDir::perform_remote_rowset_gc() {
     for (auto& [key, val] : gc_kvs) {
         auto rowset_id = key.substr(REMOTE_ROWSET_GC_PREFIX.size());
         RemoteRowsetGcPB gc_pb;
-        gc_pb.ParseFromString(val);
+        if (!gc_pb.ParseFromString(val)) {
+            LOG(WARNING) << "malformed RemoteRowsetGcPB. rowset_id=" << rowset_id;
+            deleted_keys.push_back(std::move(key));
+            continue;
+        }
         auto fs = get_filesystem(gc_pb.resource_id());
         if (!fs) {
             LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
             continue;
         }
         DCHECK(fs->type() != io::FileSystemType::LOCAL);
-        Status st;
+        std::vector<io::Path> seg_paths;
+        seg_paths.reserve(gc_pb.num_segments());
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
-            auto seg_path = BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i);
-            st = fs->delete_file(seg_path);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to perform remote rowset gc, err=" << st;
-            }
+            seg_paths.push_back(BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
         }
+        LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
+                  << ", rowset_id=" << rowset_id;
+        auto st = std::static_pointer_cast<io::RemoteFileSystem>(fs)->batch_delete(seg_paths);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
+        } else {
+            LOG(WARNING) << "failed to delete remote rowset. err=" << st;
         }
     }
     for (const auto& key : deleted_keys) {
@@ -870,20 +881,32 @@ void DataDir::perform_remote_tablet_gc() {
     };
     _meta->iterate(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX, traverse_remote_tablet_func);
     std::vector<std::string> deleted_keys;
-    for (auto& [key, resource] : tablet_gc_kvs) {
+    for (auto& [key, val] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
-        auto fs = get_filesystem(resource);
-        if (!fs) {
-            LOG(WARNING) << "could not get file system. resource_id=" << resource;
+        RemoteTabletGcPB gc_pb;
+        if (!gc_pb.ParseFromString(val)) {
+            LOG(WARNING) << "malformed RemoteTabletGcPB. tablet_id=" << tablet_id;
+            deleted_keys.push_back(std::move(key));
             continue;
         }
-        auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
-        LOG(INFO) << "perform remote tablet gc. tablet_id=" << tablet_id;
-        if (st.ok()) {
+        bool success = true;
+        for (auto& resource_id : gc_pb.resource_ids()) {
+            auto fs = get_filesystem(resource_id);
+            if (!fs) {
+                LOG(WARNING) << "could not get file system. resource_id=" << resource_id;
+                success = false;
+                continue;
+            }
+            LOG(INFO) << "delete remote rowsets of tablet. root_path=" << fs->root_path()
+                      << ", tablet_id=" << tablet_id;
+            auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to delete all remote rowset in tablet. err=" << st;
+                success = false;
+            }
+        }
+        if (success) {
             deleted_keys.push_back(std::move(key));
-        } else {
-            LOG(WARNING) << "failed to perform remote tablet gc. tablet_id=" << tablet_id
-                         << ", reason: " << st;
         }
     }
     for (const auto& key : deleted_keys) {

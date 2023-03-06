@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class OuterJoinLAsscomTest implements PatternMatchSupported {
+public class OuterJoinLAsscomTest implements MemoPatternMatchSupported {
 
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -46,8 +46,8 @@ public class OuterJoinLAsscomTest implements PatternMatchSupported {
     @Test
     public void testLAsscom() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -75,8 +75,8 @@ public class OuterJoinLAsscomTest implements PatternMatchSupported {
                 new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -99,8 +99,8 @@ public class OuterJoinLAsscomTest implements PatternMatchSupported {
     @Test
     public void testTopHashContainsB() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0)))
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(2, 0)))
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(2, 0)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -121,8 +121,8 @@ public class OuterJoinLAsscomTest implements PatternMatchSupported {
                 new GreaterThan(scan2.getOutput().get(1), scan3.getOutput().get(1)));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0)))
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

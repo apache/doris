@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 
@@ -47,8 +48,8 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
             .add("LstConsistencyCheckTime").add("CheckVersion")
-            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
-            .build();
+            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
+            .add("CooldownMetaId").build();
 
     private Table table;
     private MaterializedIndex index;
@@ -94,6 +95,8 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // path hash
                     tabletInfo.add(FeConstants.null_string); // meta url
                     tabletInfo.add(FeConstants.null_string); // compaction status
+                    tabletInfo.add(-1); // cooldown replica id
+                    tabletInfo.add(""); // cooldown meta id
 
                     tabletInfos.add(tabletInfo);
                 } else {
@@ -122,23 +125,25 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tablet.getCheckedVersion());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
-
                         Backend be = backendMap.get(replica.getBackendId());
-                        String host = (be == null ? Backend.DUMMY_IP : be.getHost());
+                        String host = (be == null ? Backend.DUMMY_IP : be.getIp());
                         int port = (be == null ? 0 : be.getHttpPort());
-                        String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
-                                host,
-                                port,
+                        String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
+                        String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d",
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(metaUrl);
                         String compactionUrl = String.format(
-                                "http://%s:%d/api/compaction/show?tablet_id=%d",
-                                host,
-                                port,
+                                "http://" + hostPort + "/api/compaction/show?tablet_id=%d",
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(compactionUrl);
+                        tabletInfo.add(tablet.getCooldownConf().first);
+                        if (replica.getCooldownMetaId() == null) {
+                            tabletInfo.add("");
+                        } else {
+                            tabletInfo.add(replica.getCooldownMetaId().toString());
+                        }
                         tabletInfos.add(tabletInfo);
                     }
                 }

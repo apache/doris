@@ -17,15 +17,17 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.stats.StatsCalculator;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
@@ -38,27 +40,32 @@ import java.util.Stack;
 import javax.annotation.Nullable;
 
 /**
- * GraphSimplifier is used to simplify HyperGraph {@link HyperGraph}
+ * GraphSimplifier is used to simplify HyperGraph {@link HyperGraph}.
+ * <p>
+ * Related paper:
+ * - [Neu09] Neumann: “Query Simplification: Graceful Degradation for Join-Order Optimization”.
+ * - [Rad19] Radke and Neumann: “LinDP++: Generalizing Linearized DP to Crossproducts and Non-Inner Joins”.
  */
 public class GraphSimplifier {
     // Note that each index in the graph simplifier is the half of the actual index
     private final int edgeSize;
     // Detect the circle when order join
-    private CircleDetector circleDetector;
+    private final CircleDetector circleDetector;
     // This is used for cache the intermediate results when calculate the benefit
     // Note that we store it for the after. Because if we put B after A (t1 Join_A t2 Join_B t3),
     // B is changed. Therefore, Any step that involves B need to be recalculated.
-    private List<BestSimplification> simplifications = new ArrayList<>();
-    private PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
+    private final List<BestSimplification> simplifications = new ArrayList<>();
+    private final PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
     // The graph we are simplifying
-    private HyperGraph graph;
-    // It cached the plan in simplification. we don't store it in hyper graph,
+    private final HyperGraph graph;
+    // It cached the plan stats in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
-    private HashMap<Long, Plan> cachePlan = new HashMap<>();
+    private final HashMap<Long, StatsDeriveResult> cacheStats = new HashMap<>();
+    private final HashMap<Long, Double> cacheCost = new HashMap<>();
 
-    private Stack<SimplificationStep> appliedSteps = new Stack<SimplificationStep>();
-    private Stack<SimplificationStep> unAppliedSteps = new Stack<SimplificationStep>();
+    private final Stack<SimplificationStep> appliedSteps = new Stack<>();
+    private final Stack<SimplificationStep> unAppliedSteps = new Stack<>();
 
     /**
      * Create a graph simplifier
@@ -73,15 +80,16 @@ public class GraphSimplifier {
             simplifications.add(bestSimplification);
         }
         for (Node node : graph.getNodes()) {
-            cachePlan.put(node.getNodeMap(), node.getPlan());
+            cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
+            cacheCost.put(node.getNodeMap(), node.getGroup().getStatistics().getRowCount());
         }
         circleDetector = new CircleDetector(edgeSize);
+
+        // init first simplification step
+        initFirstStep();
     }
 
-    /**
-     * This function init the first simplification step
-     */
-    public void initFirstStep() {
+    private void initFirstStep() {
         extractJoinDependencies();
         for (int i = 0; i < edgeSize; i += 1) {
             processNeighbors(i, i + 1, edgeSize);
@@ -122,7 +130,6 @@ public class GraphSimplifier {
      */
     public boolean simplifyGraph(int limit) {
         Preconditions.checkArgument(limit >= 1);
-        initFirstStep();
         int lowerBound = 0;
         int upperBound = 1;
 
@@ -176,7 +183,7 @@ public class GraphSimplifier {
         }
         appliedSteps.push(bestStep);
         Preconditions.checkArgument(
-                cachePlan.containsKey(bestStep.newLeft) && cachePlan.containsKey(bestStep.newRight),
+                cacheStats.containsKey(bestStep.newLeft) && cacheStats.containsKey(bestStep.newRight),
                 String.format("%s - %s", bestStep.newLeft, bestStep.newRight));
         graph.modifyEdge(bestStep.afterIndex, bestStep.newLeft, bestStep.newRight);
         if (needProcessNeighbor) {
@@ -265,7 +272,7 @@ public class GraphSimplifier {
 
     private boolean trySetSimplificationStep(SimplificationStep step, BestSimplification bestSimplification,
             int index, int neighborIndex) {
-        if (bestSimplification.bestNeighbor == -1 || bestSimplification.isInQueue == false
+        if (bestSimplification.bestNeighbor == -1 || !bestSimplification.isInQueue
                 || bestSimplification.getBenefit() <= step.getBenefit()) {
             bestSimplification.bestNeighbor = neighborIndex;
             bestSimplification.setStep(step);
@@ -303,8 +310,8 @@ public class GraphSimplifier {
         long right1 = edge1.getRight();
         long left2 = edge2.getLeft();
         long right2 = edge2.getRight();
-        Edge edge1Before2;
-        Edge edge2Before1;
+        Pair<StatsDeriveResult, Edge> edge1Before2;
+        Pair<StatsDeriveResult, Edge> edge2Before1;
         List<Long> superBitset = new ArrayList<>();
         if (tryGetSuperset(left1, left2, superBitset)) {
             // (common Join1 right1) Join2 right2
@@ -334,53 +341,53 @@ public class GraphSimplifier {
         return Optional.of(simplificationStep);
     }
 
-    Edge threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
+    Pair<StatsDeriveResult, Edge> threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         // (plan1 edge1 plan2) edge2 plan3
         // The join may have redundant table, e.g., t1,t2 join t3 join t2,t4
         // Therefore, the cost is not accurate
         Preconditions.checkArgument(
-                cachePlan.containsKey(bitmap1) && cachePlan.containsKey(bitmap2) && cachePlan.containsKey(bitmap3));
-        LogicalJoin leftPlan = simulateJoin(cachePlan.get(bitmap1), edge1.getJoin(), cachePlan.get(bitmap2));
-        LogicalJoin join = simulateJoin(leftPlan, edge2.getJoin(), cachePlan.get(bitmap3));
-        Edge edge = new Edge(join, -1);
+                cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
+        StatsDeriveResult leftStats = JoinEstimation.estimate(cacheStats.get(bitmap1), cacheStats.get(bitmap2),
+                edge1.getJoin());
+        StatsDeriveResult joinStats = JoinEstimation.estimate(leftStats, cacheStats.get(bitmap3), edge2.getJoin());
+        Edge edge = new Edge(edge2.getJoin(), -1);
         long newLeft = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
         // To avoid overlapping the left and the right, the newLeft is calculated, Note the
         // newLeft is not totally include the bitset1 and bitset2, we use circle detector to trace the dependency
         newLeft = LongBitmap.andNot(newLeft, bitmap3);
         edge.addLeftNodes(newLeft);
         edge.addRightNode(edge2.getRight());
-        cachePlan.put(newLeft, leftPlan);
-        return edge;
+        cacheStats.put(newLeft, leftStats);
+        cacheCost.put(newLeft, calCost(edge2, leftStats, cacheStats.get(bitmap1), cacheStats.get(bitmap2)));
+        return Pair.of(joinStats, edge);
     }
 
-    Edge threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
+    Pair<StatsDeriveResult, Edge> threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         Preconditions.checkArgument(
-                cachePlan.containsKey(bitmap1) && cachePlan.containsKey(bitmap2) && cachePlan.containsKey(bitmap3));
+                cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
-        LogicalJoin rightPlan = simulateJoin(cachePlan.get(bitmap2), edge2.getJoin(), cachePlan.get(bitmap3));
-        LogicalJoin join = simulateJoin(cachePlan.get(bitmap1), edge1.getJoin(), rightPlan);
-        Edge edge = new Edge(join, -1);
+        StatsDeriveResult rightStats = JoinEstimation.estimate(cacheStats.get(bitmap2), cacheStats.get(bitmap3),
+                edge2.getJoin());
+        StatsDeriveResult joinStats = JoinEstimation.estimate(cacheStats.get(bitmap1), rightStats, edge1.getJoin());
+        Edge edge = new Edge(edge1.getJoin(), -1);
 
         long newRight = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
         newRight = LongBitmap.andNot(newRight, bitmap1);
         edge.addLeftNode(edge1.getLeft());
         edge.addRightNode(newRight);
-        cachePlan.put(newRight, rightPlan);
-        return edge;
+        cacheStats.put(newRight, rightStats);
+        cacheCost.put(newRight, calCost(edge2, rightStats, cacheStats.get(bitmap2), cacheStats.get(bitmap3)));
+        return Pair.of(joinStats, edge);
     }
 
-    private Group getGroup(Plan plan) {
-        if (plan instanceof GroupPlan) {
-            return ((GroupPlan) plan).getGroup();
-        }
-        Preconditions.checkArgument(plan.getGroupExpression().isPresent(),
-                "All plan in GraphSimplifier must have a group");
-        return plan.getGroupExpression().get().getOwnerGroup();
-    }
-
-    private SimplificationStep orderJoin(Edge edge1Before2, Edge edge2Before1, int edgeIndex1, int edgeIndex2) {
-        double cost1Before2 = getSimpleCost(edge1Before2.getJoin());
-        double cost2Before1 = getSimpleCost(edge2Before1.getJoin());
+    private SimplificationStep orderJoin(Pair<StatsDeriveResult, Edge> edge1Before2,
+            Pair<StatsDeriveResult, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
+        double cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
+                cacheStats.get(edge1Before2.second.getLeft()),
+                cacheStats.get(edge1Before2.second.getRight()));
+        double cost2Before1 = calCost(edge2Before1.second, edge1Before2.first,
+                cacheStats.get(edge1Before2.second.getLeft()),
+                cacheStats.get(edge1Before2.second.getRight()));
         double benefit = Double.MAX_VALUE;
         SimplificationStep step;
         // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
@@ -389,15 +396,17 @@ public class GraphSimplifier {
                 benefit = cost2Before1 / cost1Before2;
             }
             // choose edge1Before2
-            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, edge1Before2.getLeft(),
-                    edge1Before2.getRight(), graph.getEdge(edgeIndex2).getLeft(), graph.getEdge(edgeIndex2).getRight());
+            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, edge1Before2.second.getLeft(),
+                    edge1Before2.second.getRight(), graph.getEdge(edgeIndex2).getLeft(),
+                    graph.getEdge(edgeIndex2).getRight());
         } else {
             if (cost2Before1 != 0) {
                 benefit = cost1Before2 / cost2Before1;
             }
             // choose edge2Before1
-            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.getLeft(),
-                    edge2Before1.getRight(), graph.getEdge(edgeIndex1).getLeft(), graph.getEdge(edgeIndex1).getRight());
+            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.second.getLeft(),
+                    edge2Before1.second.getRight(), graph.getEdge(edgeIndex1).getLeft(),
+                    graph.getEdge(edgeIndex1).getRight());
         }
         return step;
     }
@@ -413,41 +422,41 @@ public class GraphSimplifier {
         return false;
     }
 
-    private double getSimpleCost(Plan plan) {
-        if (!(plan instanceof LogicalJoin)) {
-            return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+    private double calCost(Edge edge, StatsDeriveResult stats,
+            StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
+        LogicalJoin join = edge.getJoin();
+        PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
+        double cost = 0;
+        if (JoinUtils.shouldNestedLoopJoin(join)) {
+            PhysicalNestedLoopJoin nestedLoopJoin = new PhysicalNestedLoopJoin<>(
+                    join.getJoinType(),
+                    join.getHashJoinConjuncts(),
+                    join.getOtherJoinConjuncts(),
+                    join.getLogicalProperties(),
+                    join.left(),
+                    join.right());
+            cost = CostCalculator.calculateCost(nestedLoopJoin, planContext);
+        } else {
+            PhysicalHashJoin hashJoin = new PhysicalHashJoin<>(
+                    join.getJoinType(),
+                    join.getHashJoinConjuncts(),
+                    join.getOtherJoinConjuncts(),
+                    join.getHint(),
+                    join.getLogicalProperties(),
+                    join.left(),
+                    join.right());
+            cost = CostCalculator.calculateCost(hashJoin, planContext);
         }
-        return plan.getGroupExpression().get().getCostByProperties(PhysicalProperties.ANY);
+        return cost + cacheCost.get(edge.getLeft()) + cacheCost.get(edge.getRight());
     }
 
-    private LogicalJoin simulateJoin(Plan plan1, LogicalJoin join, Plan plan2) {
-        // In Graph Simplifier, we use the simple cost model, that is
-        //      Plan.cost = Plan.rowCount + Plan.children1.cost + Plan.children2.cost
-        // The reason is that this cost model has ASI (adjacent sequence interchange) property.
-        // TODO: consider network, data distribution cost
-        LogicalJoin newJoin = new LogicalJoin<>(join.getJoinType(), plan1, plan2);
-        List<Group> children = new ArrayList<>();
-        children.add(getGroup(plan1));
-        children.add(getGroup(plan2));
-        double cost = getSimpleCost(plan1) + getSimpleCost(plan2);
-        GroupExpression groupExpression = new GroupExpression(newJoin, children);
-        // FIXME: use wrong constructor
-        Group group = new Group(null, groupExpression, null);
-        StatsCalculator.estimate(groupExpression);
-        cost += group.getStatistics().getRowCount();
-
-        List<PhysicalProperties> inputs = new ArrayList<>();
-        inputs.add(PhysicalProperties.ANY);
-        inputs.add(PhysicalProperties.ANY);
-        groupExpression.updateLowestCostTable(PhysicalProperties.ANY, inputs, cost);
-
-        return (LogicalJoin) newJoin.withGroupExpression(Optional.of(groupExpression));
-    }
-
+    /**
+     * Put join dependencies into circle detector.
+     */
     private void extractJoinDependencies() {
         for (int i = 0; i < edgeSize; i++) {
+            Edge edge1 = graph.getEdge(i);
             for (int j = i + 1; j < edgeSize; j++) {
-                Edge edge1 = graph.getEdge(i);
                 Edge edge2 = graph.getEdge(j);
                 if (edge1.isSub(edge2)) {
                     Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(i, j),
@@ -460,7 +469,7 @@ public class GraphSimplifier {
         }
     }
 
-    class SimplificationStep {
+    static class SimplificationStep {
         double benefit;
         int beforeIndex;
         int afterIndex;
@@ -496,7 +505,7 @@ public class GraphSimplifier {
         }
     }
 
-    class BestSimplification implements Comparable<BestSimplification> {
+    static class BestSimplification implements Comparable<BestSimplification> {
         int bestNeighbor = -1;
         Optional<SimplificationStep> step = Optional.empty();
         // This data whether to be added to the queue

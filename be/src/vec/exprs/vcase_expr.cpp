@@ -42,9 +42,7 @@ Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor
     DataTypes arguments;
     for (int i = 0; i < _children.size(); i++) {
         auto child = _children[i];
-        const auto& child_name = child->expr_name();
-        auto child_column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(child_column), child->data_type(), child_name);
+        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         arguments.emplace_back(child->data_type());
     }
 

@@ -62,7 +62,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         notFromChildren = notFromChildren.stream()
                 .filter(s -> !childrenOutput.contains(s.getExprId()))
                 .collect(Collectors.toSet());
-        notFromChildren = removeValidVirtualSlots(notFromChildren, childrenOutput);
+        notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
             throw new AnalysisException(String.format("Input slot(s) not in child's output: %s",
                     StringUtils.join(notFromChildren.stream()
@@ -71,7 +71,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         }
     }
 
-    private Set<Slot> removeValidVirtualSlots(Set<Slot> virtualSlots, Set<ExprId> childrenOutput) {
+    private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> virtualSlots, Set<ExprId> childrenOutput) {
         return virtualSlots.stream()
                 .filter(expr -> {
                     if (expr instanceof VirtualSlotReference) {

@@ -486,11 +486,31 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isDateLikeType() {
-        return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2Type();
+        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
+    }
+
+    public boolean isDateV2LikeType() {
+        return isDateV2Type() || isDateTimeV2Type();
+    }
+
+    public boolean isTimeType() {
+        return this instanceof TimeType;
+    }
+
+    public boolean isTimeV2Type() {
+        return this instanceof TimeV2Type;
+    }
+
+    public boolean isTimeLikeType() {
+        return isTimeType() || isTimeV2Type();
     }
 
     public boolean isNullType() {
         return this instanceof NullType;
+    }
+
+    public boolean isIntegralType() {
+        return this instanceof IntegralType;
     }
 
     public boolean isNumericType() {
@@ -513,7 +533,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof PrimitiveType;
     }
 
-    public boolean isDateV2() {
+    public boolean isDateV2Type() {
         return this instanceof DateV2Type;
     }
 

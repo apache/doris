@@ -202,7 +202,7 @@ PROPERTIES ("key"="value", ...);
 
 6. 创建 HMS resource
 
-   HMS resource 用于 [hms catalog](../../../../ecosystem/external-table/multi-catalog.md)
+   HMS resource 用于 [hms catalog](../../../../lakehouse/multi-catalog/multi-catalog.md)
    ```sql
    CREATE RESOURCE hms_resource PROPERTIES (
       'type'='hms',

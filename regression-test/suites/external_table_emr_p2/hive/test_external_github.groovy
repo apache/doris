@@ -431,7 +431,7 @@ suite("test_external_github", "p2") {
             WHERE (event_type = 'WatchEvent') AND (repo_name IN ('ClickHouse/ClickHouse', 'yandex/ClickHouse'))
         )) AND (repo_name NOT IN ('ClickHouse/ClickHouse', 'yandex/ClickHouse'))
         GROUP BY repo_name
-        ORDER BY stars DESC
+        ORDER BY stars DESC, repo_name asc
         LIMIT 50"""
     def starsFromHeavyGithubUsers1 = """SELECT /*+SET_VAR(exec_mem_limit=21474836480, query_timeout=600) */
             repo_name,

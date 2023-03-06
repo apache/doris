@@ -22,6 +22,7 @@
 
 #include <condition_variable>
 #include <functional>
+#include <future>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -135,7 +136,8 @@ private:
 
     // profile reporting-related
     report_status_callback _report_status_cb;
-    std::thread _report_thread;
+    std::promise<bool> _report_thread_promise;
+    std::future<bool> _report_thread_future;
     std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.
@@ -209,11 +211,6 @@ private:
     // status isn't CANCELLED. Sets 'done' to true in the callback invocation if
     // done == true or we have an error status.
     void send_report(bool done);
-
-    // If _status.ok(), sets _status to status.
-    // If we're transitioning to an error status, stops report thread and
-    // sends a final report.
-    void update_status(const Status& status);
 
     // Executes open() logic and returns resulting status. Does not set _status.
     // If this plan fragment has no sink, open_internal() does nothing.

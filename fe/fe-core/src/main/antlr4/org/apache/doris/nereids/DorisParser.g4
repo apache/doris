@@ -127,8 +127,13 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 joinHint
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketStyleHint
-    | HINT_START identifier HINT_END                                  #commentStyleHint
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketJoinHint
+    | HINT_START identifier HINT_END                                  #commentJoinHint
+    ;
+
+relationHint
+    : LEFT_BRACKET identifier (COMMA identifier)* RIGHT_BRACKET       #bracketRelationHint
+    | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
     ;
 
 aggClause
@@ -182,6 +187,10 @@ limitClause
     | (LIMIT offset=INTEGER_VALUE COMMA limit=INTEGER_VALUE)
     ;
 
+partitionClause
+    : PARTITION BY expression (COMMA expression)*
+    ;
+
 joinType
     : INNER?
     | CROSS
@@ -208,11 +217,11 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias lateralView*           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
+    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
-      RIGHT_PAREN tableAlias                                                    #tableValuedFunction
+      RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
 tvfProperty
@@ -311,7 +320,8 @@ primaryExpression
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
     | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
-      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN      #functionCall
+      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
+      (OVER windowSpec)?                                                                        #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | ATSIGN identifier                                                                        #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
@@ -325,6 +335,33 @@ primaryExpression
 functionIdentifier
     : identifier
     | LEFT | RIGHT
+    ;
+
+windowSpec
+    // todo: name for windowRef; we haven't support it
+    // : name=identifier
+    // | LEFT_PAREN name=identifier RIGHT_PAREN
+    : LEFT_PAREN
+        partitionClause?
+        sortClause?
+        windowFrame?
+        RIGHT_PAREN
+    ;
+
+windowFrame
+    : frameUnits start=frameBoundary
+    | frameUnits BETWEEN start=frameBoundary AND end=frameBoundary
+    ;
+
+frameUnits
+    : ROWS
+    | RANGE
+    ;
+
+frameBoundary
+    : UNBOUNDED boundType=(PRECEDING | FOLLOWING)
+    | boundType=CURRENT ROW
+    | expression boundType=(PRECEDING | FOLLOWING)
     ;
 
 qualifiedName
@@ -564,7 +601,6 @@ nonReserved
     | OUT
     | OUTER
     | OUTPUTFORMAT
-    | OVER
     | OVERLAPS
     | OVERLAY
     | OVERWRITE

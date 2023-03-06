@@ -25,6 +25,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
+import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
+import org.apache.doris.planner.external.iceberg.IcebergSplit;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
@@ -178,7 +180,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         TScanRangeLocation location = new TScanRangeLocation();
         Backend selectedBackend = backendPolicy.getNextBe();
         location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+        location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
         locations.addToLocations(location);
 
         return locations;
