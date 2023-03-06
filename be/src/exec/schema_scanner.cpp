@@ -34,33 +34,23 @@
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/string_value.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 DorisServer* SchemaScanner::_s_doris_server;
 
-SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
+SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns)
         : _is_init(false),
           _param(nullptr),
           _columns(columns),
-          _column_num(column_num),
-          _tuple_desc(nullptr),
           _schema_table_type(TSchemaTableType::SCH_INVALID) {}
 
-SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num, TSchemaTableType::type type)
-        : _is_init(false),
-          _param(nullptr),
-          _columns(columns),
-          _column_num(column_num),
-          _tuple_desc(nullptr),
-          _schema_table_type(type) {}
+SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type)
+        : _is_init(false), _param(nullptr), _columns(columns), _schema_table_type(type) {}
 
-SchemaScanner::~SchemaScanner() {
-    if (_is_create_columns == true && _columns != nullptr) {
-        delete[] _columns;
-        _columns = nullptr;
-    }
-}
+SchemaScanner::~SchemaScanner() = default;
 
 Status SchemaScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -83,6 +73,19 @@ Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     return Status::OK();
 }
 
+Status SchemaScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("used before initialized.");
+    }
+
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    *eos = true;
+    return Status::OK();
+}
+
 Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
         return Status::OK();
@@ -91,17 +94,21 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::InternalError("invalid parameter");
     }
 
-    if (_schema_table_type == TSchemaTableType::SCH_BACKENDS) {
-        RETURN_IF_ERROR(create_columns(param->table_structure, pool));
-    }
-
-    if (nullptr == _columns) {
+    if (_columns.empty()) {
         return Status::InternalError("invalid parameter");
     }
 
     RETURN_IF_ERROR(create_tuple_desc(pool));
+
     _param = param;
     _is_init = true;
+
+    if (_param->profile) {
+        _get_db_timer = ADD_TIMER(_param->profile, "GetDbTime");
+        _get_table_timer = ADD_TIMER(_param->profile, "GetTableTime");
+        _get_describe_timer = ADD_TIMER(_param->profile, "GetDescribeTime");
+        _fill_block_timer = ADD_TIMER(_param->profile, "FillBlockTime");
+    }
 
     return Status::OK();
 }
@@ -145,23 +152,173 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
     }
 }
 
-Status SchemaScanner::create_columns(const std::vector<TSchemaTableStructure>* table_structure,
-                                     ObjectPool* pool) {
-    _column_num = table_structure->size();
-    _columns = new ColumnDesc[_column_num];
-    _is_create_columns = true;
-    for (size_t idx = 0; idx < table_structure->size(); ++idx) {
-        _columns[idx].name = table_structure->at(idx).column_name.c_str();
-        _columns[idx].type = thrift_to_type(table_structure->at(idx).type);
-        _columns[idx].size = table_structure->at(idx).len;
-        _columns[idx].is_null = table_structure->at(idx).is_null;
+Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+                                                 const std::vector<void*>& datas) {
+    const ColumnDesc& col_desc = _columns[pos];
+    vectorized::MutableColumnPtr column_ptr;
+    column_ptr = std::move(*block->get_by_position(pos).column).assume_mutable();
+    vectorized::IColumn* col_ptr = column_ptr.get();
+
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+
+    // Resize in advance to improve insertion efficiency.
+    size_t fill_num = datas.size();
+    col_ptr = &nullable_column->get_nested_column();
+    for (int i = 0; i < fill_num; ++i) {
+        auto data = datas[i];
+        if (data == nullptr) {
+            // For nested column need not insert default.
+            nullable_column->insert_data(nullptr, 0);
+            continue;
+        } else {
+            nullable_column->get_null_map_data().emplace_back(0);
+        }
+        switch (col_desc.type) {
+        case TYPE_HLL: {
+            HyperLogLog* hll_slot = reinterpret_cast<HyperLogLog*>(data);
+            reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
+            break;
+        }
+        case TYPE_VARCHAR:
+        case TYPE_CHAR:
+        case TYPE_STRING: {
+            StringRef* str_slot = reinterpret_cast<StringRef*>(data);
+            reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
+                                                                              str_slot->size);
+            break;
+        }
+
+        case TYPE_BOOLEAN: {
+            uint8_t num = *reinterpret_cast<bool*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_TINYINT: {
+            int8_t num = *reinterpret_cast<int8_t*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_SMALLINT: {
+            int16_t num = *reinterpret_cast<int16_t*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_INT: {
+            int32_t num = *reinterpret_cast<int32_t*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_BIGINT: {
+            int64_t num = *reinterpret_cast<int64_t*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_LARGEINT: {
+            __int128 num;
+            memcpy(&num, data, sizeof(__int128));
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_FLOAT: {
+            float num = *reinterpret_cast<float*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_DOUBLE: {
+            double num = *reinterpret_cast<double*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_DATE: {
+            vectorized::VecDateTimeValue value;
+            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
+            value.convert_dt_to_vec_dt(ts_slot);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                    reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+
+        case TYPE_DATEV2: {
+            uint32_t num = *reinterpret_cast<uint32_t*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_DATETIME: {
+            vectorized::VecDateTimeValue value;
+            DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(data);
+            value.convert_dt_to_vec_dt(ts_slot);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+                    reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+
+        case TYPE_DATETIMEV2: {
+            uint32_t num = *reinterpret_cast<uint64_t*>(data);
+            reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(
+                    num);
+            break;
+        }
+
+        case TYPE_DECIMALV2: {
+            const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
+            reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                    reinterpret_cast<const char*>(&num), 0);
+            break;
+        }
+        case TYPE_DECIMAL128I: {
+            const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
+            reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+                    reinterpret_cast<const char*>(&num), 0);
+            break;
+        }
+
+        case TYPE_DECIMAL32: {
+            const int32_t num = *reinterpret_cast<int32_t*>(data);
+            reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
+                    reinterpret_cast<const char*>(&num), 0);
+            break;
+        }
+
+        case TYPE_DECIMAL64: {
+            const int64_t num = *reinterpret_cast<int64_t*>(data);
+            reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
+                    reinterpret_cast<const char*>(&num), 0);
+            break;
+        }
+
+        default: {
+            DCHECK(false) << "bad slot type: " << col_desc.type;
+            std::stringstream ss;
+            ss << "Fail to convert schema type:'" << col_desc.type << " on column:`"
+               << std::string(col_desc.name) + "`";
+            return Status::InternalError(ss.str());
+        }
+        }
     }
     return Status::OK();
 }
 
 Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     int null_column = 0;
-    for (int i = 0; i < _column_num; ++i) {
+    for (int i = 0; i < _columns.size(); ++i) {
         if (_columns[i].is_null) {
             null_column++;
         }
@@ -172,7 +329,7 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     int null_byte = 0;
     int null_bit = 0;
 
-    for (int i = 0; i < _column_num; ++i) {
+    for (int i = 0; i < _columns.size(); ++i) {
         TSlotDescriptor t_slot_desc;
         if (_columns[i].type == TYPE_DECIMALV2) {
             t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());

@@ -22,7 +22,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaCollationsScanner::_s_cols_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaCollationsScanner::_s_cols_columns = {
         //   name,       type,          size
         {"COLLATION_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
         {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
@@ -38,9 +38,7 @@ SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[
 };
 
 SchemaCollationsScanner::SchemaCollationsScanner()
-        : SchemaScanner(_s_cols_columns,
-                        sizeof(_s_cols_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _index(0) {}
+        : SchemaScanner(_s_cols_columns, TSchemaTableType::SCH_COLLATIONS), _index(0) {}
 
 SchemaCollationsScanner::~SchemaCollationsScanner() {}
 
@@ -121,6 +119,83 @@ Status SchemaCollationsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* 
 
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("call this before initial.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+
+    *eos = true;
+    return _fill_block_impl(block);
+}
+
+Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = 0;
+    while (nullptr != _s_collations[row_num].name) {
+        ++row_num;
+    }
+    std::vector<void*> datas(row_num);
+
+    // COLLATION_NAME
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 0, datas);
+    }
+    // charset
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // id
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_collations[i].id;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // is_default
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    // IS_COMPILED
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 4, datas);
+    }
+    // sortlen
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_collations[i].sortlen;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 5, datas);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

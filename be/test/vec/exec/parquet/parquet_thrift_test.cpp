@@ -224,7 +224,7 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
 
 static void create_block(std::unique_ptr<vectorized::Block>& block) {
     // Current supported column type:
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -243,8 +243,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
-    SchemaScanner schema_scanner(column_descs,
-                                 sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);
@@ -342,7 +341,7 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
 }
 
 TEST_F(ParquetThriftReaderTest, group_reader) {
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -357,8 +356,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"char_col", TYPE_CHAR, sizeof(StringValue), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
-    int num_cols = sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc);
-    SchemaScanner schema_scanner(column_descs, num_cols);
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);

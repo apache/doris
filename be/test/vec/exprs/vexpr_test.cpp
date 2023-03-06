@@ -86,8 +86,9 @@ TEST(TEST_VEXPR, ABSTEST) {
 
 TEST(TEST_VEXPR, ABSTEST2) {
     using namespace doris;
-    SchemaScanner::ColumnDesc column_descs[] = {{"k1", TYPE_INT, sizeof(int32_t), false}};
-    SchemaScanner schema_scanner(column_descs, 1);
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
+            {"k1", TYPE_INT, sizeof(int32_t), false}};
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);

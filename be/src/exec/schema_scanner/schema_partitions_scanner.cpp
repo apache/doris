@@ -21,10 +21,11 @@
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), true},
@@ -54,8 +55,7 @@ SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
 };
 
 SchemaPartitionsScanner::SchemaPartitionsScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_PARTITIONS),
           _db_index(0),
           _table_index(0) {}
 
@@ -65,25 +65,26 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
-    if (NULL != _param->db) {
+    if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
     if (nullptr != _param->catalog) {
         db_params.__set_catalog(*(_param->catalog));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -97,6 +98,17 @@ Status SchemaPartitionsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* 
         return Status::InternalError("Used before initialized.");
     }
     if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+    *eos = true;
+    return Status::OK();
+}
+
+Status SchemaPartitionsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("Used before initialized.");
+    }
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
     *eos = true;

@@ -24,16 +24,14 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaVariablesScanner::_s_vars_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns = {
         //   name,       type,          size
         {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
         {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringValue), false},
 };
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
-        : SchemaScanner(_s_vars_columns,
-                        sizeof(_s_vars_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _type(type) {}
+        : SchemaScanner(_s_vars_columns, TSchemaTableType::SCH_VARIABLES), _type(type) {}
 
 SchemaVariablesScanner::~SchemaVariablesScanner() {}
 
@@ -103,6 +101,50 @@ Status SchemaVariablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* e
     }
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaVariablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("call this before initial.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+
+    *eos = true;
+    if (_var_result.variables.empty()) {
+        return Status::OK();
+    }
+    return _fill_block_impl(block);
+}
+
+Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = _var_result.variables.size();
+    std::vector<void*> datas(row_num);
+    // variables names
+    {
+        StringRef strs[row_num];
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it.first.c_str(), it.first.size());
+            datas[idx] = strs + idx;
+            ++idx;
+        }
+        fill_dest_column_for_range(block, 0, datas);
+    }
+    // value
+    {
+        StringRef strs[row_num];
+        int idx = 0;
+        for (auto& it : _var_result.variables) {
+            strs[idx] = StringRef(it.second.c_str(), it.second.size());
+            datas[idx] = strs + idx;
+            ++idx;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

@@ -61,6 +61,49 @@ Status SchemaHelper::describe_table(const std::string& ip, const int32_t port,
             });
 }
 
+Status SchemaHelper::describe_tables(const std::string& ip, const int32_t port,
+                                     const TDescribeTablesParams& request,
+                                     TDescribeTablesResult* result) {
+    Status rpcStatus = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->describeTables(*result, request);
+            });
+    // FE have no describeTables rpc service
+    if (!rpcStatus.ok()) {
+        TDescribeTableParams single_table_request;
+        single_table_request.__set_db(request.db);
+        if (request.__isset.catalog) {
+            single_table_request.__set_catalog(request.catalog);
+        }
+
+        if (request.__isset.current_user_ident) {
+            single_table_request.__set_current_user_ident(request.current_user_ident);
+        } else {
+            if (request.__isset.user) {
+                single_table_request.__set_user(request.user);
+            }
+            if (request.__isset.user_ip) {
+                single_table_request.__set_user_ip(request.user_ip);
+            }
+        }
+        const auto& tables = request.tables_name;
+        result->columns.clear();
+        result->tables_offset.clear();
+        for (int i = 0; i < tables.size(); ++i) {
+            single_table_request.__set_table_name(tables[i]);
+            TDescribeTableResult single_table_result;
+            RETURN_IF_ERROR(describe_table(ip, port, single_table_request, &single_table_result));
+            const auto& columns = single_table_result.columns;
+            for (int j = 0; j < columns.size(); ++j) {
+                result->columns.emplace_back(columns[j]);
+            }
+            result->tables_offset.emplace_back(result->columns.size());
+        }
+    }
+
+    return rpcStatus;
+}
+
 Status SchemaHelper::show_variables(const std::string& ip, const int32_t port,
                                     const TShowVariableRequest& request,
                                     TShowVariableResult* result) {

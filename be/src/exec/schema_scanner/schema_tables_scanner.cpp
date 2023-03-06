@@ -17,13 +17,15 @@
 
 #include "exec/schema_scanner/schema_tables_scanner.h"
 
+#include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
+#include "vec/columns/column_complex.h"
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
@@ -49,8 +51,7 @@ SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
 };
 
 SchemaTablesScanner::SchemaTablesScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_TABLES),
           _db_index(0),
           _table_index(0) {}
 
@@ -60,6 +61,7 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
@@ -257,7 +259,8 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     return Status::OK();
 }
 
-Status SchemaTablesScanner::get_new_table() {
+Status SchemaTablesScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -297,7 +300,7 @@ Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos)
     }
     while (_table_index >= _table_result.tables.size()) {
         if (_db_index < _db_result.dbs.size()) {
-            RETURN_IF_ERROR(get_new_table());
+            RETURN_IF_ERROR(_get_new_table());
         } else {
             *eos = true;
             return Status::OK();
@@ -305,6 +308,229 @@ Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos)
     }
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto table_num = _table_result.tables.size();
+    std::vector<void*> null_datas(table_num, nullptr);
+    std::vector<void*> datas(table_num);
+
+    // catalog
+    {
+        if (_db_result.__isset.catalogs) {
+            std::string catalog_name = _db_result.catalogs[_db_index - 1];
+            StringRef str_slot = StringRef(catalog_name.c_str(), catalog_name.size());
+            for (int i = 0; i < table_num; ++i) {
+                datas[i] = &str_slot;
+            }
+            fill_dest_column_for_range(block, 0, datas);
+        } else {
+            fill_dest_column_for_range(block, 0, null_datas);
+        }
+    }
+    // schema
+    {
+        std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
+        StringRef str_slot = StringRef(db_name.c_str(), db_name.size());
+        for (int i = 0; i < table_num; ++i) {
+            datas[i] = &str_slot;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // name
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].name;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // type
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].type;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    // engine
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.engine) {
+                const std::string* src = &tbl_status.engine;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 4, datas);
+    }
+    // version
+    { fill_dest_column_for_range(block, 5, null_datas); }
+    // row_format
+    { fill_dest_column_for_range(block, 6, null_datas); }
+    // rows
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.rows) {
+                srcs[i] = tbl_status.rows;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 7, datas);
+    }
+    // avg_row_length
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.avg_row_length) {
+                srcs[i] = tbl_status.avg_row_length;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 8, datas);
+    }
+    // data_length
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.avg_row_length) {
+                srcs[i] = tbl_status.data_length;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 9, datas);
+    }
+    // max_data_length
+    { fill_dest_column_for_range(block, 10, null_datas); }
+    // index_length
+    { fill_dest_column_for_range(block, 11, null_datas); }
+    // data_free
+    { fill_dest_column_for_range(block, 12, null_datas); }
+    // auto_increment
+    { fill_dest_column_for_range(block, 13, null_datas); }
+    // creation_time
+    {
+        DateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.create_time) {
+                int64_t create_time = tbl_status.create_time;
+                if (create_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(create_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 14, datas);
+    }
+    // update_time
+    {
+        DateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.update_time) {
+                int64_t update_time = tbl_status.update_time;
+                if (update_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(update_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 15, datas);
+    }
+    // check_time
+    {
+        DateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.last_check_time) {
+                int64_t check_time = tbl_status.last_check_time;
+                if (check_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(check_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 16, datas);
+    }
+    // collation
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.collation) {
+                const std::string* src = &tbl_status.collation;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        fill_dest_column_for_range(block, 17, datas);
+    }
+    // checksum
+    { fill_dest_column_for_range(block, 18, null_datas); }
+    // create_options
+    { fill_dest_column_for_range(block, 19, null_datas); }
+    // create_comment
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].comment;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 20, datas);
+    }
+    return Status::OK();
+}
+
+Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("Used before initialized.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+    if (_db_index < _db_result.dbs.size()) {
+        RETURN_IF_ERROR(_get_new_table());
+    } else {
+        *eos = true;
+        return Status::OK();
+    }
+    *eos = false;
+    return _fill_block_impl(block);
 }
 
 } // namespace doris

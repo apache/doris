@@ -21,7 +21,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaCharsetsScanner::_s_css_columns = {
         //   name,       type,          size
         {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
         {"DEFAULT_COLLATE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
@@ -35,8 +35,7 @@ SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
 };
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
-        : SchemaScanner(_s_css_columns, sizeof(_s_css_columns) / sizeof(SchemaScanner::ColumnDesc)),
-          _index(0) {}
+        : SchemaScanner(_s_css_columns, TSchemaTableType::SCH_CHARSETS), _index(0) {}
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
 
@@ -99,6 +98,65 @@ Status SchemaCharsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eo
     }
     *eos = false;
     return fill_one_row(tuple, pool);
+}
+
+Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+    if (!_is_init) {
+        return Status::InternalError("call this before initial.");
+    }
+    if (nullptr == block || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+    *eos = true;
+    return _fill_block_impl(block);
+}
+
+Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = 0;
+    while (nullptr != _s_charsets[row_num].charset) {
+        ++row_num;
+    }
+    std::vector<void*> datas(row_num);
+
+    // variables names
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 0, datas);
+    }
+    // DEFAULT_COLLATE_NAME
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].default_collation,
+                                strlen(_s_charsets[i].default_collation));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 1, datas);
+    }
+    // DESCRIPTION
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
+    }
+    // maxlen
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_charsets[i].maxlen;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

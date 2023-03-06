@@ -25,16 +25,17 @@ namespace doris {
 class SchemaFilesScanner : public SchemaScanner {
 public:
     SchemaFilesScanner();
-    virtual ~SchemaFilesScanner();
+    ~SchemaFilesScanner() override;
 
-    virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status start(RuntimeState* state) override;
+    Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
     int _db_index;
     int _table_index;
     TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 
 } // namespace doris

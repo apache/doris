@@ -46,7 +46,7 @@ private:
     std::string _wild;
 };
 
-SchemaScanner::ColumnDesc s_test_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> s_test_columns = {
         //   name,       type,          size,           is_null
         {"Name", TYPE_VARCHAR, sizeof(StringValue), false},
         {"Location", TYPE_VARCHAR, sizeof(StringValue), false},
@@ -56,8 +56,7 @@ SchemaScanner::ColumnDesc s_test_columns[] = {
 
 char g_tuple_buf[10000]; // enough for tuple
 TEST_F(SchemaScannerTest, normal_use) {
-    SchemaScanner scanner(s_test_columns,
-                          sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner scanner(s_test_columns);
     Status status = scanner.init(&_param, &_obj_pool);
     EXPECT_TRUE(status.ok());
     status = scanner.init(&_param, &_obj_pool);
@@ -73,8 +72,7 @@ TEST_F(SchemaScannerTest, normal_use) {
     EXPECT_TRUE(status.ok());
 }
 TEST_F(SchemaScannerTest, input_fail) {
-    SchemaScanner scanner(s_test_columns,
-                          sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner scanner(s_test_columns);
     Status status = scanner.init(&_param, &_obj_pool);
     EXPECT_TRUE(status.ok());
     status = scanner.init(&_param, &_obj_pool);
@@ -89,13 +87,12 @@ TEST_F(SchemaScannerTest, input_fail) {
     EXPECT_FALSE(status.ok());
 }
 TEST_F(SchemaScannerTest, invalid_param) {
-    SchemaScanner scanner(nullptr, sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner scanner(nullptr);
     Status status = scanner.init(&_param, &_obj_pool);
     EXPECT_FALSE(status.ok());
 }
 TEST_F(SchemaScannerTest, no_init_use) {
-    SchemaScanner scanner(s_test_columns,
-                          sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner scanner(s_test_columns);
     Status status = scanner.start((RuntimeState*)1);
     EXPECT_FALSE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();

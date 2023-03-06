@@ -34,17 +34,19 @@ public:
 
     Status start(RuntimeState* state) override;
     Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_all_rowsets();
+    Status _get_all_rowsets();
     // Status get_new_segments();
     Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fill_block_impl(vectorized::Block* block);
 
 private:
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
     int64_t backend_id_ = 0;
     std::vector<RowsetSharedPtr> rowsets_;
     // used for traversing rowsets_
-    int rowsets_idx_ = 0;
+    int _rowsets_idx = 0;
 };
 } // namespace doris

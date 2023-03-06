@@ -50,7 +50,7 @@ namespace doris {
 using vectorized::Int32;
 
 TEST(BlockTest, RowBatchCovertToBlock) {
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"k1", TYPE_SMALLINT, sizeof(int16_t), true},
             {"k2", TYPE_INT, sizeof(int32_t), false},
             {"k3", TYPE_DOUBLE, sizeof(double), false},
@@ -60,8 +60,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
             {"k7", TYPE_DATETIME, sizeof(int64_t), false},
             {"k8", TYPE_DATEV2, sizeof(uint32_t), false}};
 
-    SchemaScanner schema_scanner(column_descs,
-                                 sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);

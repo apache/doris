@@ -27,8 +27,10 @@ public:
 
     Status start(RuntimeState* state) override;
     Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
+    Status _fill_block_impl(vectorized::Block* block);
     Status _fill_one_row(Tuple* tuple, MemPool* pool);
     Status _fetch_backends_info();
     Status _fill_one_col(Tuple* tuple, MemPool* pool, size_t idx);
@@ -37,6 +39,7 @@ private:
 private:
     // column_name -> type, set by _set_col_name_to_type()
     std::unordered_map<std::string, PrimitiveType> _col_name_to_type;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
     std::vector<TRow> _batch_data;
     size_t _row_idx;

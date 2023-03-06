@@ -29,10 +29,11 @@
 namespace doris {
 
 TEST(ComparisonTest, ComparisonFunctionTest) {
-    SchemaScanner::ColumnDesc column_descs[] = {{"k1", TYPE_SMALLINT, sizeof(int16_t), false},
-                                                {"k2", TYPE_INT, sizeof(int32_t), false},
-                                                {"k3", TYPE_DOUBLE, sizeof(double), false}};
-    SchemaScanner schema_scanner(column_descs, 3);
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
+            {"k1", TYPE_SMALLINT, sizeof(int16_t), false},
+            {"k2", TYPE_INT, sizeof(int32_t), false},
+            {"k3", TYPE_DOUBLE, sizeof(double), false}};
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);
