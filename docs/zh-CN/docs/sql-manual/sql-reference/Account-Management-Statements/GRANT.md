@@ -37,6 +37,10 @@ GRANT 命令有如下功能：
 1. 将指定的权限授予某用户或角色。
 2. 将指定角色授予某用户。
 
+>注意：
+>
+>当前版本尚未支持"将指定角色授予用户"
+
 ```sql
 GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 

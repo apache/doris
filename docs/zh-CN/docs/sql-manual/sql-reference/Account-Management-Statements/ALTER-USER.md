@@ -34,6 +34,10 @@ ALTER USER
 
 ALTER USER 命令用于修改一个用户的账户属性，包括密码、和密码策略等
 
+>注意：
+>
+>此命令不再支持修改用户角色,相关操作请使用[GRANT](./GRANT.md)和[REVOKE](./REVOKE.md)
+
 ```sql
 ALTER USER [IF EXISTS] user_identity [IDENTIFIED BY 'password']
 [password_policy]

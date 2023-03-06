@@ -37,6 +37,10 @@ The GRANT command has the following functions:
 1. Grant the specified permissions to a user or role.
 2. Grant the specified role to a user.
 
+>Note that.
+>
+>"Grant the specified role to the user" is not supported in the current version
+
 ```sql
 GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 

@@ -37,6 +37,10 @@ REVOKE 命令有如下功能：
 1. 撤销某用户或某角色的指定权限。
 2. 撤销先前授予某用户的指定角色。
 
+>注意：
+>
+>当前版本尚未支持"撤销先前授予某用户的指定角色"
+
 ```sql
 REVOKE privilege_list ON db_name[.tbl_name] FROM user_identity [ROLE role_name]
 

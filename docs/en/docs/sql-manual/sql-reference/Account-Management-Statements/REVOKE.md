@@ -37,6 +37,10 @@ The REVOKE command has the following functions:
 1. Revoke the specified permission of a user or a role.
 2. Revoke the specified role previously granted to a user.
 
+>Note that.
+>
+>"Revoke the specified role previously granted to a user" is not supported in the current version
+
 ```sql
 REVOKE privilege_list ON db_name[.tbl_name] FROM user_identity [ROLE role_name]
 
