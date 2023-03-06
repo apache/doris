@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -131,7 +132,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }
 
-    private boolean needBitmapUnion(LogicalApply<GroupPlan, GroupPlan> apply) {
+    private boolean needBitmapUnion(LogicalApply<Plan, Plan> apply) {
         return apply.right().getOutput().get(0).getDataType().isBitmapType()
                 && !((InSubquery) apply.getSubqueryExpr()).getCompareExpr().getDataType().isBitmapType();
     }
