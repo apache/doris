@@ -165,7 +165,7 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
