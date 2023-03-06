@@ -57,11 +57,20 @@ public:
         ColumnArray::Offsets64& column_offsets = result_column->get_offsets();
         column_offsets.resize(input_rows_count);
 
+        size_t total_size = 0;
+        for (size_t col : arguments) {
+            ColumnPtr src_column =
+                    block.get_by_position(col).column->convert_to_full_column_if_const();
+            const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
+            total_size += src_column_array->size();
+        }
+        result_nested_col.reserve(total_size);
+
         size_t off = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
-            for (size_t col = 0; col < arguments.size(); ++col) {
-                ColumnPtr src_column = block.get_by_position(arguments[col])
-                                               .column->convert_to_full_column_if_const();
+            for (size_t col : arguments) {
+                ColumnPtr src_column =
+                        block.get_by_position(col).column->convert_to_full_column_if_const();
                 const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
                 const auto& src_column_offsets = src_column_array->get_offsets();
                 const size_t length = src_column_offsets[row] - src_column_offsets[row - 1];

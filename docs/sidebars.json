@@ -292,6 +292,7 @@
                                 "sql-manual/sql-functions/array-functions/array_enumerate",
                                 "sql-manual/sql-functions/array-functions/array_popback",
                                 "sql-manual/sql-functions/array-functions/array_compact",
+                                "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
