@@ -81,7 +81,7 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
 inline size_t get_char_len(const StringRef& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -215,7 +215,7 @@ private:
             }
 
             if (byte_pos <= str_size && fixed_len > 0) {
-                // return StringRef(str.ptr + byte_pos, fixed_len);
+                // return StringRef(str.data + byte_pos, fixed_len);
                 StringOP::push_value_string(
                         std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
                                           (size_t)fixed_len},
@@ -2066,7 +2066,7 @@ struct MoneyFormatDoubleImpl {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
             StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2080,7 +2080,7 @@ struct MoneyFormatInt64Impl {
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
             StringRef str = MoneyFormat::do_money_format<Int64, 26>(context, value);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2094,7 +2094,7 @@ struct MoneyFormatInt128Impl {
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
             StringRef str = MoneyFormat::do_money_format<Int128, 52>(context, value);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2116,7 +2116,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal32_column =
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
@@ -2135,7 +2135,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal32_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal64_column =
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
@@ -2154,7 +2154,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal64_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal128_column =
                            check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
@@ -2173,7 +2173,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         }
     }
@@ -2247,8 +2247,7 @@ private:
         StringRef substr_sv = StringRef(substr);
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
-        StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
-                               str.len - index[start_pos - 1]);
+        StringRef adjusted_str(str.data + index[start_pos - 1], str.size - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.

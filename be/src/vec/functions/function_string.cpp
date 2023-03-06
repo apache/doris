@@ -335,7 +335,7 @@ struct TrimImpl {
             if constexpr (is_rtrim) {
                 str = simd::VStringFunctions::rtrim(str);
             }
-            StringOP::push_value_string(std::string_view((char*)str.ptr, str.len), i, res_data,
+            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
                                         res_offsets);
         }
         return Status::OK();
