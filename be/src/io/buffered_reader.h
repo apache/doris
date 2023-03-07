@@ -88,7 +88,7 @@ public:
 
     const io::Path& path() const override { return _reader->path(); }
 
-    size_t size() const override { return _reader->size(); }
+    size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
 
@@ -115,6 +115,7 @@ private:
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
     std::atomic_bool _closed {false};
+    size_t _size;
 };
 
 /**

@@ -67,7 +67,7 @@ void PrefetchBuffer::prefetch_buffer() {
     s = _reader->read_at(_offset, Slice {_buf.data(), _buf.capacity()}, io_context, &_len);
     std::unique_lock lck {_lock};
     _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
-    if (!s.ok()) {
+    if (!s.ok() && _offset < _reader->size()) {
         _prefetch_status = std::move(s);
     }
     _buffer_status = BufferStatus::PREFETCHED;
@@ -123,7 +123,7 @@ BufferedReader::BufferedReader(/*RuntimeProfile* profile, */ io::FileReaderSPtr 
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
     }
-    _reader->size();
+    _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
 #ifdef BE_TEST
     s_max_pre_buffer_size = config::prefetch_single_buffer_size_mb;
@@ -146,7 +146,7 @@ BufferedReader::~BufferedReader() {
 
 Status BufferedReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                                size_t* bytes_read) {
-    if (UNLIKELY(result.get_size() <= 0 || offset >= size())) {
+    if (UNLIKELY(result.get_size() == 0 || offset >= size())) {
         *bytes_read = 0;
         return Status::OK();
     }

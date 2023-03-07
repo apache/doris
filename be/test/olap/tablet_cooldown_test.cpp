@@ -377,6 +377,13 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
 }
 
 TEST_F(TabletCooldownTest, normal) {
+    // loading file in remote file system would require threadpool
+    std::unique_ptr<ThreadPool> _pool;
+    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+            .set_min_threads(5)
+            .set_max_threads(10)
+            .build(&_pool);
+    ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
     TabletSharedPtr tablet1;
     TabletSharedPtr tablet2;
     createTablet(k_engine, &tablet1, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId);
