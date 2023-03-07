@@ -31,13 +31,14 @@ PlainBinaryLineReader::~PlainBinaryLineReader() {
 void PlainBinaryLineReader::close() {}
 
 Status PlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
-    std::unique_ptr<uint8_t[]> file_buf;
     int64_t read_size = 0;
-    RETURN_IF_ERROR(_file_reader->read_one_message(&file_buf, &read_size));
-    *ptr = file_buf.release();
+    RETURN_IF_ERROR(_file_reader->read_one_message(&_file_buf, &read_size));
+    *ptr = _file_buf.get();
     *size = read_size;
     if (read_size == 0) {
         *eof = true;
+    } else {
+        _cur_row.reset(*reinterpret_cast<PDataRow**>(_file_buf.get()));
     }
     return Status::OK();
 }

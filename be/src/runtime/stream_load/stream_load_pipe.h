@@ -60,6 +60,16 @@ public:
         return _append(buf, proto_byte_size);
     }
 
+    Status append(std::unique_ptr<PDataRow>&& row) {
+        PDataRow* row_ptr = row.get();
+        {
+            std::unique_lock<std::mutex> l(_lock);
+            _data_row_ptrs.emplace_back(std::move(row));
+        }
+        return append_and_flush(reinterpret_cast<char*>(&row_ptr), sizeof(row_ptr),
+                                sizeof(PDataRow*) + row_ptr->ByteSizeLong());
+    }
+
     Status append(const char* data, size_t size) override {
         size_t pos = 0;
         if (_write_buf != nullptr) {
@@ -219,8 +229,11 @@ private:
         _buf_queue.pop_front();
         _buffered_bytes -= buf->limit;
         if (_use_proto) {
-            PDataRow** ptr = reinterpret_cast<PDataRow**>(data->get());
-            _proto_buffered_bytes -= (sizeof(PDataRow*) + (*ptr)->GetCachedSize());
+            auto row_ptr = std::move(_data_row_ptrs.front());
+            _proto_buffered_bytes -= (sizeof(PDataRow*) + row_ptr->GetCachedSize());
+            _data_row_ptrs.pop_front();
+            // PlainBinaryLineReader will hold the PDataRow
+            row_ptr.release();
         }
         _put_cond.notify_one();
         return Status::OK();
@@ -271,6 +284,7 @@ private:
     int64_t _total_length = -1;
     bool _use_proto = false;
     std::deque<ByteBufferPtr> _buf_queue;
+    std::deque<std::unique_ptr<PDataRow>> _data_row_ptrs;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
 
