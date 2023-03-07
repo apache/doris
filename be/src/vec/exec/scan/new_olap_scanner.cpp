@@ -52,10 +52,7 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                const std::vector<TCondition>& filters,
                                const FilterPredicates& filter_predicates,
                                const std::vector<FunctionFilter>& function_filters) {
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
-    }
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -91,8 +88,7 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             }
         }
 
-        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
-            olap_scan_node.indexes_desc[0].index_id >= 0) {
+        if (olap_scan_node.__isset.indexes_desc) {
             _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 

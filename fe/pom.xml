@@ -186,7 +186,7 @@ under the License.
         <commons-io.version>2.6</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <hikaricp.version>3.4.5</hikaricp.version>
+        <druid.version>1.2.5</druid.version>
         <thrift.version>0.13.0</thrift.version>
         <log4j2.version>2.18.0</log4j2.version>
         <metrics-core.version>4.0.2</metrics-core.version>
@@ -981,9 +981,9 @@ under the License.
                 <version>${dlf-metastore-client-hive.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.zaxxer</groupId>
-                <artifactId>HikariCP</artifactId>
-                <version>${hikaricp.version}</version>
+                <groupId>com.alibaba</groupId>
+                <artifactId>druid</artifactId>
+                <version>${druid.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
             <dependency>

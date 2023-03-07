@@ -275,7 +275,7 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));

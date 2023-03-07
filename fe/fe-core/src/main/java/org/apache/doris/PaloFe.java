@@ -179,7 +179,7 @@ public class PaloFe {
                 Thread.sleep(2000);
             }
         } catch (Throwable e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -245,7 +245,7 @@ public class PaloFe {
         try {
             cmd = commandLineParser.parse(options, args);
         } catch (final ParseException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             System.err.println("Failed to parse command line. exit now");
             System.exit(-1);
         }
@@ -357,7 +357,7 @@ public class PaloFe {
                     System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
                     System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 } finally {
                     System.exit(0);
                 }

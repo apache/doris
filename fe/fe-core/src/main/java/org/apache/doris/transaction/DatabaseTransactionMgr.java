@@ -46,7 +46,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
@@ -742,6 +742,33 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    public void replayBatchRemoveTransaction(BatchRemoveTransactionsOperationV2 operation) {
+        writeLock();
+        try {
+            if (operation.getLatestTxnIdForShort() != -1) {
+                while (!finalStatusTransactionStateDequeShort.isEmpty()) {
+                    TransactionState transactionState = finalStatusTransactionStateDequeShort.pop();
+                    clearTransactionState(transactionState.getTransactionId());
+                    if (operation.getLatestTxnIdForShort() == transactionState.getTransactionId()) {
+                        break;
+                    }
+                }
+            }
+
+            if (operation.getLatestTxnIdForLong() != -1) {
+                while (!finalStatusTransactionStateDequeLong.isEmpty()) {
+                    TransactionState transactionState = finalStatusTransactionStateDequeLong.pop();
+                    clearTransactionState(transactionState.getTransactionId());
+                    if (operation.getLatestTxnIdForLong() == transactionState.getTransactionId()) {
+                        break;
+                    }
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public TransactionStatus getLabelState(String label) {
         readLock();
         try {
@@ -1368,44 +1395,44 @@ public class DatabaseTransactionMgr {
     }
 
     public void removeExpiredTxns(long currentMillis) {
-        List<Long> expiredTxnIds = Lists.newArrayList();
         // delete expired txns
-        int leftNum = MAX_REMOVE_TXN_PER_ROUND;
         writeLock();
         try {
-            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds,
-                    finalStatusTransactionStateDequeShort, leftNum);
-            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds,
-                    finalStatusTransactionStateDequeLong, leftNum);
-
-            if (!expiredTxnIds.isEmpty()) {
-                Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
-                dbExpiredTxnIds.put(dbId, expiredTxnIds);
-                BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
+            Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveExpiredTxns(currentMillis,
+                    finalStatusTransactionStateDequeShort, MAX_REMOVE_TXN_PER_ROUND);
+            Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveExpiredTxns(currentMillis,
+                    finalStatusTransactionStateDequeLong,
+                    MAX_REMOVE_TXN_PER_ROUND - expiredTxnsInfoForShort.second);
+            int numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
+            if (numOfClearedTransaction > 0) {
+                BatchRemoveTransactionsOperationV2 op = new BatchRemoveTransactionsOperationV2(dbId,
+                        expiredTxnsInfoForShort.first, expiredTxnsInfoForLong.first);
                 editLog.logBatchRemoveTransactions(op);
-                LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Remove {} expired transactions", numOfClearedTransaction);
+                }
             }
         } finally {
             writeUnlock();
         }
     }
 
-    private int unprotectedRemoveExpiredTxns(long currentMillis, List<Long> expiredTxnIds,
-                                             ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort,
-                                             int maxNumber) {
-        int left = maxNumber;
-        while (!finalStatusTransactionStateDequeShort.isEmpty() && left > 0) {
-            TransactionState transactionState = finalStatusTransactionStateDequeShort.getFirst();
+    private Pair<Long, Integer> unprotectedRemoveExpiredTxns(long currentMillis,
+            ArrayDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
+        long latestTxnId = -1;
+        int numOfClearedTransaction = 0;
+        while (!finalStatusTransactionStateDeque.isEmpty() && numOfClearedTransaction < left) {
+            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.isExpired(currentMillis)) {
-                finalStatusTransactionStateDequeShort.pop();
+                finalStatusTransactionStateDeque.pop();
                 clearTransactionState(transactionState.getTransactionId());
-                expiredTxnIds.add(transactionState.getTransactionId());
-                left--;
+                latestTxnId = transactionState.getTransactionId();
+                numOfClearedTransaction++;
             } else {
                 break;
             }
         }
-        return left;
+        return Pair.of(latestTxnId, numOfClearedTransaction);
     }
 
     private void clearTransactionState(long txnId) {
@@ -1416,7 +1443,9 @@ public class DatabaseTransactionMgr {
             if (txnIds.isEmpty()) {
                 labelToTxnIds.remove(transactionState.getLabel());
             }
-            LOG.info("transaction [" + txnId + "] is expired, remove it from transaction manager");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("transaction [" + txnId + "] is expired, remove it from transaction manager");
+            }
         } else {
             // should not happen, add a warn log to observer
             LOG.warn("transaction state is not found when clear transaction: " + txnId);

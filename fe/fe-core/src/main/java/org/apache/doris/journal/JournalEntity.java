@@ -71,6 +71,7 @@ import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -375,8 +376,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MASTER_INFO_CHANGE: {
-                data = new MasterInfo();
-                ((MasterInfo) data).readFields(in);
+                data = MasterInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -451,6 +451,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BATCH_REMOVE_TXNS: {
                 data = BatchRemoveTransactionsOperation.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
+                data = BatchRemoveTransactionsOperationV2.read(in);
                 isRead = true;
                 break;
             }

@@ -81,7 +81,7 @@ suite("test_mysql_load", "p0") {
             (k1, k2, v2, v10, v11)
             PROPERTIES ("strict_mode"="true");
         """
-        exception "errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows"
+        exception "too many filtered rows"
     }
 
     // test_line_delimiter

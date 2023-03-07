@@ -24,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,14 +52,14 @@ public class FQDNManager extends MasterDaemon {
 
     private void updateFeIp() {
         for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
-            if (fe.getHostName() != null) {
+            if (!Strings.isNullOrEmpty(fe.getHostName())) {
                 try {
                     InetAddress inetAddress = InetAddress.getByName(fe.getHostName());
                     if (!fe.getIp().equalsIgnoreCase(inetAddress.getHostAddress())) {
                         String oldIp = fe.getIp();
                         String newIp = inetAddress.getHostAddress();
                         Env.getCurrentEnv().modifyFrontendIp(fe.getNodeName(), newIp);
-                        LOG.info("ip for {} of fe has been changed from {} to {}",
+                        LOG.warn("ip for {} of fe has been changed from {} to {}",
                                 fe.getHostName(), oldIp, fe.getIp());
                     }
                 } catch (UnknownHostException e) {

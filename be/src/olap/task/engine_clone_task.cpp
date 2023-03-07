@@ -68,7 +68,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
     SCOPED_ATTACH_TASK(_mem_tracker);
-    if (StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
+    if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
         return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
     }
     Status st = _do_clone();
@@ -579,7 +579,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     /// clone_data to tablet
     /// For incremental clone, nothing will be deleted.
     /// So versions_to_delete is empty.
-    return tablet->revise_tablet_meta(rowsets_to_clone, {});
+    return tablet->revise_tablet_meta(rowsets_to_clone, {}, true);
 }
 
 /// This method will do:
@@ -632,7 +632,10 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
         to_add.push_back(std::move(rs));
     }
     tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
-    return tablet->revise_tablet_meta(to_add, to_delete);
+    if (tablet->enable_unique_key_merge_on_write()) {
+        tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
+    }
+    return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
 

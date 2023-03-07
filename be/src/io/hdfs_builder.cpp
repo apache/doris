@@ -28,6 +28,16 @@
 #include "util/url_coding.h"
 namespace doris {
 
+Status HDFSCommonBuilder::init_hdfs_builder() {
+    hdfs_builder = hdfsNewBuilder();
+    if (hdfs_builder == nullptr) {
+        LOG(INFO) << "failed to init HDFSCommonBuilder, please check check be/conf/hdfs-site.xml";
+        return Status::InternalError(
+                "failed to init HDFSCommonBuilder, please check check be/conf/hdfs-site.xml");
+    }
+    return Status::OK();
+}
+
 Status HDFSCommonBuilder::run_kinit() {
     if (hdfs_kerberos_principal.empty() || hdfs_kerberos_keytab.empty()) {
         return Status::InvalidArgument("Invalid hdfs_kerberos_principal or hdfs_kerberos_keytab");
@@ -79,36 +89,41 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
     return hdfsParams;
 }
 
-HDFSCommonBuilder createHDFSBuilder(const THdfsParams& hdfsParams) {
-    HDFSCommonBuilder builder;
-    hdfsBuilderSetNameNode(builder.get(), hdfsParams.fs_name.c_str());
+Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder) {
+    RETURN_IF_ERROR(builder->init_hdfs_builder());
+    hdfsBuilderSetNameNode(builder->get(), hdfsParams.fs_name.c_str());
     // set hdfs user
     if (hdfsParams.__isset.user) {
-        hdfsBuilderSetUserName(builder.get(), hdfsParams.user.c_str());
+        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
     }
     // set kerberos conf
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
-        builder.need_kinit = true;
-        builder.hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
-        hdfsBuilderSetPrincipal(builder.get(), hdfsParams.hdfs_kerberos_principal.c_str());
+        builder->need_kinit = true;
+        builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
+        hdfsBuilderSetPrincipal(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
     }
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
-        builder.need_kinit = true;
-        builder.hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
+        builder->need_kinit = true;
+        builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
     }
     // set other conf
     if (hdfsParams.__isset.hdfs_conf) {
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
-            hdfsBuilderConfSetStr(builder.get(), conf.key.c_str(), conf.value.c_str());
+            hdfsBuilderConfSetStr(builder->get(), conf.key.c_str(), conf.value.c_str());
         }
     }
 
-    return builder;
+    if (builder->is_need_kinit()) {
+        RETURN_IF_ERROR(builder->run_kinit());
+    }
+
+    return Status::OK();
 }
 
-HDFSCommonBuilder createHDFSBuilder(const std::map<std::string, std::string>& properties) {
+Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
+                         HDFSCommonBuilder* builder) {
     THdfsParams hdfsParams = parse_properties(properties);
-    return createHDFSBuilder(hdfsParams);
+    return createHDFSBuilder(hdfsParams, builder);
 }
 
 } // namespace doris

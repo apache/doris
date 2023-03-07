@@ -28,8 +28,8 @@ namespace doris {
 template <bool is_vectorized>
 class LikeColumnPredicate : public ColumnPredicate {
 public:
-    LikeColumnPredicate(bool opposite, uint32_t column_id, doris_udf::FunctionContext* fn_ctx,
-                        doris_udf::StringVal val);
+    LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
+                        doris::StringVal val);
     ~LikeColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::EQ; }

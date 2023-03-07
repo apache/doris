@@ -1599,6 +1599,20 @@ public class SchemaChangeHandler extends AlterHandler {
         });
     }
 
+    public List<List<Comparable>> getAllAlterJobInfos() {
+        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            // no need to check priv here. This method is only called in show proc stmt,
+            // which already check the ADMIN priv.
+            alterJob.getInfo(schemaChangeJobInfos);
+        }
+
+        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
+        schemaChangeJobInfos.sort(comparator);
+        return schemaChangeJobInfos;
+    }
+
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
@@ -2128,7 +2142,8 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     private boolean processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
             throws UserException {
-        if (alterClause.getIndex() == null) {
+        Index alterIndex = alterClause.getIndex();
+        if (alterIndex == null) {
             return false;
         }
 
@@ -2166,7 +2181,12 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        newIndexes.add(alterClause.getIndex());
+        // the column name in CreateIndexClause is not check case sensitivity,
+        // when send index description to BE, there maybe cannot find column by name,
+        // so here update column name in CreateIndexClause after checkColumn for indexDef,
+        // there will use the column name in olapTable insead of the column name in CreateIndexClause.
+        alterIndex.setColumns(indexDef.getColumns());
+        newIndexes.add(alterIndex);
         return false;
     }
 

@@ -135,11 +135,11 @@ public abstract class Type {
         numericTypes = Lists.newArrayList();
         numericTypes.addAll(integerTypes);
         numericTypes.add(FLOAT);
+        numericTypes.add(DOUBLE);
         numericTypes.add(MAX_DECIMALV2_TYPE);
         numericTypes.add(DECIMAL32);
         numericTypes.add(DECIMAL64);
         numericTypes.add(DECIMAL128);
-        numericTypes.add(DOUBLE);
 
         numericDateTimeTypes = Lists.newArrayList();
         numericDateTimeTypes.add(DATE);

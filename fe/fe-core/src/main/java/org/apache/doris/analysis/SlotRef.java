@@ -551,10 +551,19 @@ public class SlotRef extends Expr {
         if (!(originExpr instanceof SlotRef)) {
             return true; // means this is alias of other expr.
         }
+
         SlotRef aliasExpr = (SlotRef) originExpr;
         if (aliasExpr.getColumnName() == null) {
+            if (desc.getSourceExprs() != null) {
+                for (Expr expr : desc.getSourceExprs()) {
+                    if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
+                        return false;
+                    }
+                }
+            }
             return true; // means this is alias of other expr.
         }
+
         if (aliasExpr.desc != null) {
             TableIf table = aliasExpr.desc.getParent().getTable();
             if (table != null && table.getName() != tableName) {

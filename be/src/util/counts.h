@@ -107,9 +107,9 @@ public:
         return (higher - position) * lower_key + (position - lower) * higher_key;
     }
 
-    doris_udf::DoubleVal terminate(double quantile) const {
+    doris::DoubleVal terminate(double quantile) const {
         if (_counts.empty()) {
-            return doris_udf::DoubleVal::null();
+            return doris::DoubleVal::null();
         }
 
         std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());
@@ -126,7 +126,7 @@ public:
 
         long max_position = total - 1;
         double position = max_position * quantile;
-        return doris_udf::DoubleVal(get_percentile(elems, position));
+        return doris::DoubleVal(get_percentile(elems, position));
     }
 
 private:

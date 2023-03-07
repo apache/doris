@@ -102,7 +102,7 @@ PROPERTIES (
      `k6` double NOT NULL COMMENT ""
    )
    COMMENT "Doris Table"
-   DISTRIBUTED BY HASH(k1) BUCKETS 2;
+   DISTRIBUTED BY HASH(k1) BUCKETS 2
    PROPERTIES (
        "replication_num" = "1"
    );

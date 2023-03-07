@@ -34,7 +34,7 @@ namespace doris {
 
 class StringFunctions {
 public:
-    static bool set_re2_options(const doris_udf::StringVal& match_parameter, std::string* error_str,
+    static bool set_re2_options(const doris::StringVal& match_parameter, std::string* error_str,
                                 re2::RE2::Options* opts);
 
     // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.

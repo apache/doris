@@ -193,12 +193,11 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
 
 } // unnamed namespace
 
-using namespace doris_udf;
 /// The thing to avoid creating strings to find substrings in the hash table.
 /// User should make sure data source is const.
 /// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
 struct StringRef {
-    // TODO: opening member accessing really damages.
+    // FIXME: opening member accessing really damages.
     const char* data = nullptr;
     size_t size = 0;
 

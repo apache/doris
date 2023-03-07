@@ -56,11 +56,11 @@ public class MasterOpExecutor {
         this.originStmt = originStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
-            this.waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+            this.waitTimeoutMs = ctx.getExecTimeout() * 1000;
         } else {
             this.waitTimeoutMs = 0;
         }
-        this.thriftTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
+        this.thriftTimeoutMs = ctx.getExecTimeout() * 1000;
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
     }

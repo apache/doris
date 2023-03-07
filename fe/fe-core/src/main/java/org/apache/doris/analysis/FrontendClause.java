@@ -66,10 +66,10 @@ public class FrontendClause extends AlterClause {
                                                 analyzer.getQualifiedUser());
         }
 
-        HostInfo pair = SystemInfoService.getIpHostAndPort(hostPort, true);
-        this.ip = pair.getIp();
-        this.hostName = pair.getHostName();
-        this.port = pair.getPort();
+        HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+        this.ip = hostInfo.getIp();
+        this.hostName = hostInfo.getHostName();
+        this.port = hostInfo.getPort();
         Preconditions.checkState(!Strings.isNullOrEmpty(ip));
     }
 

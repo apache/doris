@@ -228,7 +228,7 @@ public class UpdateStmtExecutor {
         updateStmtExecutor.analyzer = updateStmt.getAnalyzer();
         updateStmtExecutor.queryId = updateStmtExecutor.analyzer.getContext().queryId();
         updateStmtExecutor.timeoutSecond = updateStmtExecutor.analyzer.getContext()
-                .getSessionVariable().getQueryTimeoutS();
+                .getExecTimeout();
         updateStmtExecutor.updatePlanner = new UpdatePlanner(updateStmtExecutor.dbId, updateStmtExecutor.targetTable,
                 updateStmt.getSetExprs(), updateStmt.getSrcTupleDesc(),
                 updateStmt.getAnalyzer());

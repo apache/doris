@@ -352,10 +352,7 @@ public class Env {
     private FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
-    private int masterRpcPort;
-    private int masterHttpPort;
-    private String masterIp;
-    private String masterHostName;
+    private MasterInfo masterInfo;
 
     private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
@@ -578,9 +575,7 @@ public class Env {
         this.removedFrontends = new ConcurrentLinkedQueue<>();
 
         this.journalObservable = new JournalObservable();
-        this.masterRpcPort = 0;
-        this.masterHttpPort = 0;
-        this.masterIp = "";
+        this.masterInfo = new MasterInfo();
 
         this.systemInfo = new SystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
@@ -993,7 +988,7 @@ public class Env {
                         Thread.sleep(5000);
                         continue;
                     } catch (InterruptedException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                         System.exit(-1);
                     }
                 }
@@ -1047,7 +1042,9 @@ public class Env {
                     if (remoteClusterId != clusterId) {
                         LOG.error("cluster id is not equal with helper node {}. will exit.",
                                 rightHelperNode.getIp());
-                        System.exit(-1);
+                        throw new IOException(
+                                "cluster id is not equal with helper node "
+                                        + rightHelperNode.getIp() + ". will exit.");
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
@@ -1158,20 +1155,8 @@ public class Env {
         return true;
     }
 
-    private void getSelfHostPort() throws Exception {
-        String hostName = FrontendOptions.getHostname();
-        if (hostName.equals(FrontendOptions.getLocalHostAddress())) {
-            if (Config.enable_fqdn_mode) {
-                LOG.fatal("Can't get hostname in FQDN mode. Please check your network configuration."
-                                + " got hostname: {}, ip: {}",
-                        hostName, FrontendOptions.getLocalHostAddress());
-                throw new Exception("Can't get hostname in FQDN mode. Please check your network configuration."
-                                + " got hostname: " + hostName + ", ip: " + FrontendOptions.getLocalHostAddress());
-            } else {
-                // hostName should be real hostname, not ip
-                hostName = null;
-            }
-        }
+    private void getSelfHostPort() {
+        String hostName = Strings.nullToEmpty(FrontendOptions.getHostName());
         selfNode = new HostInfo(FrontendOptions.getLocalHostAddress(), hostName,
                 Config.edit_log_port);
         LOG.debug("get self node: {}", selfNode);
@@ -1323,12 +1308,11 @@ public class Env {
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
-        this.masterIp = Env.getCurrentEnv().getSelfNode().getIp();
-        this.masterHostName = Env.getCurrentEnv().getSelfNode().getHostName();
-        this.masterRpcPort = Config.rpc_port;
-        this.masterHttpPort = Config.http_port;
-        MasterInfo info = new MasterInfo(this.masterIp, this.masterHostName, this.masterHttpPort, this.masterRpcPort);
-        editLog.logMasterInfo(info);
+        this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getIp(),
+                Env.getCurrentEnv().getSelfNode().getHostName(),
+                Config.http_port,
+                Config.rpc_port);
+        editLog.logMasterInfo(masterInfo);
 
         // for master, the 'isReady' is set behind.
         // but we are sure that all metadata is replayed if we get here.
@@ -1362,7 +1346,7 @@ public class Env {
                 try {
                     Thread.sleep(10 * 1000);
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 }
             }
         }
@@ -1714,11 +1698,9 @@ public class Env {
     }
 
     public long loadMasterInfo(DataInputStream dis, long checksum) throws IOException {
-        masterIp = Text.readString(dis);
-        masterRpcPort = dis.readInt();
-        long newChecksum = checksum ^ masterRpcPort;
-        masterHttpPort = dis.readInt();
-        newChecksum ^= masterHttpPort;
+        masterInfo = MasterInfo.read(dis);
+        long newChecksum = checksum ^ masterInfo.getRpcPort();
+        newChecksum ^= masterInfo.getHttpPort();
 
         LOG.info("finished replay masterInfo from image");
         return newChecksum;
@@ -2001,14 +1983,9 @@ public class Env {
     }
 
     public long saveMasterInfo(CountingDataOutputStream dos, long checksum) throws IOException {
-        Text.writeString(dos, masterIp);
-
-        checksum ^= masterRpcPort;
-        dos.writeInt(masterRpcPort);
-
-        checksum ^= masterHttpPort;
-        dos.writeInt(masterHttpPort);
-
+        masterInfo.write(dos);
+        checksum ^= masterInfo.getRpcPort();
+        checksum ^= masterInfo.getHttpPort();
         return checksum;
     }
 
@@ -2503,11 +2480,11 @@ public class Env {
     }
 
     public void modifyFrontendIp(String nodeName, String destIp) throws DdlException {
-        modifyFrontendHost(nodeName, destIp, null);
+        modifyFrontendHost(nodeName, destIp, "");
     }
 
     public void modifyFrontendHostName(String nodeName, String destHostName) throws DdlException {
-        modifyFrontendHost(nodeName, null, destHostName);
+        modifyFrontendHost(nodeName, "", destHostName);
     }
 
     public void modifyFrontendHost(String nodeName, String destIp, String destHostName) throws DdlException {
@@ -2520,12 +2497,12 @@ public class Env {
                 throw new DdlException("frontend does not exist, nodeName:" + nodeName);
             }
             boolean needLog = false;
-            // we use hostname as address of bdbha, so we not need to update node address when ip changed
-            if (destIp != null && !destIp.equals(fe.getIp())) {
+            // we use hostname as address of bdbha, so we don't need to update node address when ip changed
+            if (!Strings.isNullOrEmpty(destIp) && !destIp.equals(fe.getIp())) {
                 fe.setIp(destIp);
                 needLog = true;
             }
-            if (destHostName != null && !destHostName.equals(fe.getHostName())) {
+            if (!Strings.isNullOrEmpty(destHostName) && !destHostName.equals(fe.getHostName())) {
                 fe.setHostName(destHostName);
                 BDBHA bdbha = (BDBHA) haProtocol;
                 bdbha.updateNodeAddress(fe.getNodeName(), destHostName, fe.getEditLogPort());
@@ -2541,7 +2518,7 @@ public class Env {
 
     public void dropFrontend(FrontendNodeType role, String ip, String hostname, int port) throws DdlException {
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
-                && ((selfNode.getHostName() != null && selfNode.getHostName().equals(hostname))
+                && ((!Strings.isNullOrEmpty(selfNode.getHostName()) && selfNode.getHostName().equals(hostname))
                         || ip.equals(selfNode.getIp()))) {
             throw new DdlException("can not drop current master node.");
         }
@@ -2561,10 +2538,7 @@ public class Env {
 
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
-                // ip may be changed, so we need use both ip and hostname to check.
-                // use node.getIdent() for simplicity here.
-                helperNodes.removeIf(node -> (node.getIp().equals(ip)
-                        || node.getIdent().equals(hostname)) && node.getPort() == port);
+                removeHelperNode(ip, hostname, port);
                 BDBHA ha = (BDBHA) haProtocol;
                 ha.removeUnReadyElectableNode(nodeName, getFollowerCount());
             }
@@ -2574,12 +2548,20 @@ public class Env {
         }
     }
 
+    private void removeHelperNode(String ip, String hostName, int port) {
+        // ip may be changed, so we need use both ip and hostname to check.
+        // use node.getIdent() for simplicity here.
+        helperNodes.removeIf(node -> (node.getIp().equals(ip)
+                || node.getIdent().equals(hostName)) && node.getPort() == port);
+    }
+
     public Frontend checkFeExist(String ip, String hostName, int port) {
         for (Frontend fe : frontends.values()) {
             if (fe.getEditLogPort() != port) {
                 continue;
             }
-            if (fe.getIp().equals(ip) || (fe.getHostName() != null && fe.getHostName().equals(hostName))) {
+            if (fe.getIp().equals(ip)
+                    || (!Strings.isNullOrEmpty(fe.getHostName()) && fe.getHostName().equals(hostName))) {
                 return fe;
             }
         }
@@ -3316,7 +3298,8 @@ public class Env {
             existFe.setIp(fe.getIp());
             existFe.setHostName(fe.getHostName());
             // modify fe in helperNodes
-            helperNodes.stream().filter(n -> n.getHostName() != null && n.getHostName().equals(fe.getHostName()))
+            helperNodes.stream().filter(n -> !Strings.isNullOrEmpty(n.getHostName())
+                            && n.getHostName().equals(fe.getHostName()))
                     .forEach(n -> n.ip = fe.getIp());
         } finally {
             unlock();
@@ -3332,11 +3315,7 @@ public class Env {
                 return;
             }
             if (removedFe.getRole() == FrontendNodeType.FOLLOWER || removedFe.getRole() == FrontendNodeType.REPLICA) {
-                // ip may be changed, so we need use both ip and hostname to check.
-                // use node.getIdent() for simplicity here.
-                helperNodes.removeIf(node -> (node.getIp().equals(removedFe.getIp())
-                                || node.getIdent().equals(removedFe.getHostName()))
-                        && node.getPort() == removedFe.getEditLogPort());
+                removeHelperNode(removedFe.getIp(), removedFe.getHostName(), removedFe.getEditLogPort());
             }
 
             removedFrontends.add(removedFe.getNodeName());
@@ -3618,28 +3597,28 @@ public class Env {
         if (!isReady()) {
             return 0;
         }
-        return this.masterRpcPort;
+        return this.masterInfo.getRpcPort();
     }
 
     public int getMasterHttpPort() {
         if (!isReady()) {
             return 0;
         }
-        return this.masterHttpPort;
+        return this.masterInfo.getHttpPort();
     }
 
     public String getMasterIp() {
         if (!isReady()) {
             return "";
         }
-        return this.masterIp;
+        return this.masterInfo.getIp();
     }
 
     public String getMasterHostName() {
         if (!isReady()) {
             return "";
         }
-        return this.masterHostName;
+        return this.masterInfo.getHostName();
     }
 
     public EsRepository getEsRepository() {
@@ -3651,9 +3630,7 @@ public class Env {
     }
 
     public void setMaster(MasterInfo info) {
-        this.masterIp = info.getIp();
-        this.masterHttpPort = info.getHttpPort();
-        this.masterRpcPort = info.getRpcPort();
+        this.masterInfo = info;
     }
 
     public boolean canRead() {

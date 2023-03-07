@@ -48,6 +48,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.ThriftServerContext;
@@ -84,6 +85,8 @@ import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
+import org.apache.doris.thrift.TDescribeTablesParams;
+import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
@@ -220,9 +223,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return;
             }
             // check cooldownReplicaId
-            long cooldownReplicaId = tablet.getCooldownConf().first;
-            if (cooldownReplicaId != info.cooldown_replica_id) {
-                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownReplicaId,
+            Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+            if (cooldownConf.first != info.cooldown_replica_id) {
+                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownConf.first,
                         info.cooldown_replica_id, info.tablet_id);
                 return;
             }
@@ -237,6 +240,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (Replica replica : replicas) {
                 if (!replica.isAlive()) {
                     LOG.info("replica is not alive, tablet={}, replica={}", info.tablet_id, replica.getId());
+                    return;
+                }
+                if (replica.getCooldownTerm() != cooldownConf.second) {
+                    LOG.info("replica's cooldown term not match({} vs {}), tablet={}", cooldownConf.second,
+                            replica.getCooldownTerm(), info.tablet_id);
                     return;
                 }
                 if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
@@ -732,6 +740,79 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 } finally {
                     table.readUnlock();
+                }
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
+        LOG.debug("get desc tables request: {}", params);
+        TDescribeTablesResult result = new TDescribeTablesResult();
+        List<TColumnDef> columns = Lists.newArrayList();
+        List<Integer> tablesOffset = Lists.newArrayList();
+        List<String> tables = params.getTablesName();
+        result.setColumns(columns);
+        result.setTablesOffset(tablesOffset);
+
+        // database privs should be checked in analysis phrase
+        UserIdentity currentUser = null;
+        if (params.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+        for (String tableName : tables) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
+                return result;
+            }
+        }
+
+        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                : params.catalog;
+        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
+                .getDbNullable(params.db);
+        if (db != null) {
+            for (String tableName : tables) {
+                TableIf table = db.getTableNullableIfException(tableName);
+                if (table != null) {
+                    table.readLock();
+                    try {
+                        List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                        for (Column column : baseSchema) {
+                            final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+                            final Integer precision = column.getOriginType().getPrecision();
+                            if (precision != null) {
+                                desc.setColumnPrecision(precision);
+                            }
+                            final Integer columnLength = column.getOriginType().getColumnSize();
+                            if (columnLength != null) {
+                                desc.setColumnLength(columnLength);
+                            }
+                            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
+                            if (decimalDigits != null) {
+                                desc.setColumnScale(decimalDigits);
+                            }
+                            desc.setIsAllowNull(column.isAllowNull());
+                            final TColumnDef colDef = new TColumnDef(desc);
+                            final String comment = column.getComment();
+                            if (comment != null) {
+                                colDef.setComment(comment);
+                            }
+                            if (column.isKey()) {
+                                if (table instanceof OlapTable) {
+                                    desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
+                                }
+                            }
+                            columns.add(colDef);
+                        }
+                    } finally {
+                        table.readUnlock();
+                    }
+                    tablesOffset.add(columns.size());
                 }
             }
         }
