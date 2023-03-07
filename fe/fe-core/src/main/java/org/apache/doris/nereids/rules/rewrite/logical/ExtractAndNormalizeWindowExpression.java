@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -65,8 +64,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             } else {
                 boolean needAggregate = bottomProjects.stream().anyMatch(expr ->
                         expr.anyMatch(AggregateFunction.class::isInstance));
-                boolean hasAggChild = isProjectOnAggregate(project);
-                if (needAggregate & !hasAggChild) {
+                if (needAggregate) {
                     normalizedChild = new LogicalAggregate<>(
                             ImmutableList.of(), ImmutableList.copyOf(bottomProjects), project.child());
                 } else {
@@ -93,11 +91,6 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
             return new LogicalProject<>(topProjects, normalizedLogicalWindow);
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
-    }
-
-    private boolean isProjectOnAggregate(LogicalProject<Plan> project) {
-        return project.child() instanceof GroupPlan && ((GroupPlan) project.child()).getGroup()
-                .getLogicalExpressions().get(0).getPlan() instanceof LogicalAggregate;
     }
 
     private Set<Expression> collectExpressionsToBePushedDown(List<NamedExpression> expressions) {
