@@ -48,6 +48,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -730,6 +732,31 @@ public class SelectStmt extends QueryStmt {
             if (tableRef.lateralViewRefs != null) {
                 for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
                     lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
+                }
+            }
+
+            // In such case, agg output must be materialized whether outer query block required or not.
+            if (tableRef instanceof InlineViewRef) {
+                InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+                QueryStmt queryStmt = inlineViewRef.getQueryStmt();
+                boolean hasConstant = Streams.concat(resultExprs.stream(), queryStmt.resultExprs.stream())
+                        .anyMatch(new Predicate<Expr>() {
+                            @Override
+                            public boolean test(Expr expr) {
+                                if (expr instanceof SlotRef) {
+                                    SlotDescriptor desc = ((SlotRef) expr).getDesc();
+                                    if (desc != null) {
+                                        List<Expr> sourceExprs = desc.getSourceExprs();
+                                        return CollectionUtils.isNotEmpty(sourceExprs)
+                                                && sourceExprs.stream().allMatch(this);
+                                    }
+                                    return false;
+                                }
+                                return expr.isConstant();
+                            }
+                        });
+                if (hasConstant) {
+                    queryStmt.resultExprs.forEach(Expr::materializeSrcExpr);
                 }
             }
         }
