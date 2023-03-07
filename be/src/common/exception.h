@@ -37,6 +37,8 @@ public:
                                : fmt::format("E{}", (int16_t)_code);
     }
 
+    int code() { return _code; }
+
     std::string to_string() const;
 
     friend std::ostream& operator<<(std::ostream& ostr, const Exception& exp);
