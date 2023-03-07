@@ -25,7 +25,9 @@ class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
     Exception(int code, const std::string_view msg);
-    Exception(int code, const std::string_view msg, const Exception& nested);
+    // add nested exception as first param, or the template may could not find
+    // the correct method for ...args
+    Exception(const Exception& nested, int code, const std::string_view msg);
 
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>

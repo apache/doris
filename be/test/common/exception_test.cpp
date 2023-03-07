@@ -48,7 +48,7 @@ TEST_F(ExceptionTest, NestedError) {
     } catch (doris::Exception& e1) {
         std::cout << e1 << std::endl;
         try {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "test INVALID_ARGUMENT", e1);
+            throw doris::Exception(e1, ErrorCode::INVALID_ARGUMENT, "test INVALID_ARGUMENT");
         } catch (doris::Exception& e2) {
             std::cout << e2 << std::endl;
         }

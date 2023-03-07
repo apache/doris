@@ -26,7 +26,7 @@ Exception::Exception(int code, const std::string_view msg) {
     _err_msg->_msg = msg;
     _err_msg->_stack = get_stack_trace();
 }
-Exception::Exception(int code, const std::string_view msg, const Exception& nested) {
+Exception::Exception(const Exception& nested, int code, const std::string_view msg) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
