@@ -95,6 +95,8 @@ public:
     Status execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    bool is_canceled() { return _cancelled; }
+
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
     TUniqueId query_id() const { return _query_id; }
@@ -820,6 +822,20 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
     for (auto it : cancel_fragment_ids) {
         cancel(it, reason, msg);
     }
+}
+
+bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
+    std::lock_guard<std::mutex> lock(_lock);
+    auto ctx = _fragments_ctx_map.find(query_id);
+    if (ctx != _fragments_ctx_map.end()) {
+        for (auto it : ctx->second->fragment_ids) {
+            auto exec_state_iter = _fragment_map.find(it);
+            if (exec_state_iter != _fragment_map.end() && exec_state_iter->second) {
+                return exec_state_iter->second->is_canceled();
+            }
+        }
+    }
+    return true;
 }
 
 void FragmentMgr::cancel_worker() {

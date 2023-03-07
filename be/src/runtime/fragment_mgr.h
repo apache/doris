@@ -81,6 +81,8 @@ public:
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
 
+    bool query_is_canceled(const TUniqueId& query_id);
+
     void cancel_worker();
 
     virtual void debug(std::stringstream& ss);
