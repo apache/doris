@@ -1,4 +1,3 @@
-
 ---
 
 {
@@ -31,12 +30,13 @@ under the License.
 
 ## Introduction
 
-[Apache Kyuubi](https://kyuubi.apache.org/) is a distributed and multi-tenant gateway to provide serverless SQL on Data Warehouses and Lakehouses.
-Apache Kyuubi is providing varied protocols like Thrift, Trino and etc., to the engines as Spark, Flink, Hive, JDBC and etc.
+[Apache Kyuubi](https://kyuubi.apache.org/) is a distributed and multi-tenant gateway to provide serverless SQL on Data
+Warehouses and Lakehouses.
+Apache Kyuubi is providing varied protocols like Thrift, Trino and etc., to the engines as Spark, Flink, Hive, JDBC and
+etc.
 Drois is supported as JDBC data source in Apache Kyuubi.
 Apache Kyuubi also provides a serious useful feature with HA, service discovry,
 unified authentication, engine lifecycles and etc.
-
 
 ## Usage
 
@@ -45,7 +45,6 @@ unified authentication, engine lifecycles and etc.
 Download Apache Kyuubi from <https://kyuubi.apache.org/zh/releases.html>
 
 Get Apache Kyuubi 1.6.0 or above and extract it to folder。
-
 
 ### Config Doris as Kyuubi data source
 
@@ -60,21 +59,24 @@ kyuubi.engine.jdbc.connection.user=***
 kyuubi.engine.jdbc.connection.password=***
 ```
 
-| Configuration                                    | Description                                            |
-|----------------------------------------|-----------------------------------------------|
-| kyuubi.engine.type                     | Enine Type, specify to `jdbc`                                  |
-| kyuubi.engine.jdbc.type                | JDBC service type, specify to `doris`                          |
-| kyuubi.engine.jdbc.connection.url      | JDBC url to Doris FE |
-| kyuubi.engine.jdbc.connection.user     | JDBC username                                    |
-| kyuubi.engine.jdbc.connection.password | JDBC password                                    |
-| kyuubi.engine.jdbc.driver.class        | JDBC driver class name, specify to `com.mysql.cj.jdbc.Driver`   |
+| Configuration                          | Description                                                   |
+|----------------------------------------|---------------------------------------------------------------|
+| kyuubi.engine.type                     | Enine Type, specify to `jdbc`                                 |
+| kyuubi.engine.jdbc.type                | JDBC service type, specify to `doris`                         |
+| kyuubi.engine.jdbc.connection.url      | JDBC url to Doris FE                                          |
+| kyuubi.engine.jdbc.connection.user     | JDBC username                                                 |
+| kyuubi.engine.jdbc.connection.password | JDBC password                                                 |
+| kyuubi.engine.jdbc.driver.class        | JDBC driver class name, specify to `com.mysql.cj.jdbc.Driver` |
 
-- For other configuration in Apache Kyuubi, please refer to [Apache Kyuubi Configuration Docs](https://kyuubi.readthedocs.io/en/master/deployment/settings.html)
+- For other configuration in Apache Kyuubi, please refer
+  to [Apache Kyuubi Configuration Docs](https://kyuubi.readthedocs.io/en/master/deployment/settings.html)
 
 ### Add MySQL JDBC Driver
+
 Copy the Mysql JDBC Driver `mysql-connector-j-8.X.X.jar` to `$KYUUBI_HOME/incubating-bin/externals/engines/jdbc` 目录下。
 
 ### Start Kyuubi Server
+
 Run `$KYUUBI_HOME/bin/kyuubi run`.
 After started, port 10009 by default is listened by Kyuubi Server with Thrift protocol。
 
@@ -83,11 +85,13 @@ After started, port 10009 by default is listened by Kyuubi Server with Thrift pr
 The fowllowing example shows basic example of querying Doris with Kyuubi with beeline CLI in thift protocol.
 
 ### Connect to Kyuubi with Beeline
+
 ```shell
 $ ./beeline -u "jdbc:hive2://xxxx:10009/"
 ```
 
 ### Execute Query to Kyuubi
+
 Execute query statement `select * from demo.expamle_tbl;` with query results returned.
 
 ```shell

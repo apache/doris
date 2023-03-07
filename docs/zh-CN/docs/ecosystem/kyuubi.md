@@ -86,6 +86,7 @@ kyuubi.engine.jdbc.connection.password=***
 
 ```shell
 $ ./beeline -u "jdbc:hive2://xxxx:10009/"
+
 ```
 
 ### 执行查询
