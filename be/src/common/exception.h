@@ -54,7 +54,7 @@ private:
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Exception& exp) {
-    ostr << '[' << exp.code_as_string() << '] ';
+    ostr << '[' << exp.code_as_string() << "] ";
     ostr << (exp._err_msg ? exp._err_msg->_msg : "");
     if (exp._err_msg && !exp._err_msg->_stack.empty()) {
         ostr << '\n' << exp._err_msg->_stack;
