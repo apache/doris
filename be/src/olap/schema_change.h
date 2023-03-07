@@ -36,8 +36,7 @@ class InvertedIndexColumnWriter;
 
 class RowBlockChanger {
 public:
-    RowBlockChanger(TabletSchemaSPtr tablet_schema, const DeleteHandler* delete_handler,
-                    DescriptorTbl desc_tbl);
+    RowBlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl);
 
     ~RowBlockChanger();
 
@@ -52,12 +51,7 @@ private:
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
 
-    // delete handler for filtering data which use specified in DELETE_DATA
-    const DeleteHandler* _delete_handler = nullptr;
-
     DescriptorTbl _desc_tbl;
-
-    DISALLOW_COPY_AND_ASSIGN(RowBlockChanger);
 };
 
 class SchemaChange {
@@ -85,7 +79,7 @@ public:
         _add_filtered_rows(rowset_reader->filtered_rows());
 
         // Check row num changes
-        if (config::row_nums_check && !_check_row_nums(rowset_reader, *rowset_writer)) {
+        if (!_check_row_nums(rowset_reader, *rowset_writer)) {
             return Status::Error<ErrorCode::ALTER_STATUS_ERR>();
         }
 
@@ -181,11 +175,11 @@ class SchemaChangeForInvertedIndex : public SchemaChange {
 public:
     explicit SchemaChangeForInvertedIndex(const std::vector<TOlapTableIndex>& alter_inverted_indexs,
                                           const TabletSchemaSPtr& tablet_schema);
-    virtual ~SchemaChangeForInvertedIndex();
+    ~SchemaChangeForInvertedIndex() override;
 
-    virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
-                           TabletSchemaSPtr base_tablet_schema) override;
+    Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
+                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                   TabletSchemaSPtr base_tablet_schema) override;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeForInvertedIndex);
@@ -197,7 +191,6 @@ private:
                          const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
-private:
     std::vector<TOlapTableIndex> _alter_inverted_indexs;
     TabletSchemaSPtr _tablet_schema;
 
@@ -240,7 +233,6 @@ private:
     struct AlterMaterializedViewParam {
         std::string column_name;
         std::string origin_column_name;
-        std::string mv_expr;
         std::shared_ptr<TExpr> expr;
     };
 

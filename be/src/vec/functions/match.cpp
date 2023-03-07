@@ -45,11 +45,6 @@ public:
         auto match_pred_column_name =
                 BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
         if (!block.has(match_pred_column_name)) {
-            if (!config::enable_storage_vectorization) {
-                return Status::Cancelled(
-                        "please check whether turn on the configuration "
-                        "'enable_storage_vectorization'");
-            }
             if (!config::enable_index_apply_preds_except_leafnode_of_andnode) {
                 return Status::Cancelled(
                         "please check whether turn on the configuration "

@@ -446,12 +446,6 @@ There are two ways to configure BE configuration items:
   - Generally it needs to be turned off. When you want to manually operate the compaction task in the debugging or test environment, you can turn on the configuration.
 * Default value: false
 
-#### `enable_vectorized_compaction`
-
-* Type: bool
-* Description: Whether to enable vectorized compaction
-* Default value: true
-
 #### `enable_vertical_compaction`
 
 * Type: bool
@@ -1399,11 +1393,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: Cgroups assigned to doris
 * Default value: empty
-
-#### `row_nums_check`
-
-* Description: Check row nums for BE/CE and schema change
-* Default value: true
 
 #### `priority_queue_remaining_tasks_increased_frequency`
 
