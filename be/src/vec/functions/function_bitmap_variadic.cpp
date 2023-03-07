@@ -123,6 +123,12 @@ namespace doris::vectorized {
             for (size_t row = 0; row < input_rows_count; ++row) {                                  \
                 res[row] = vals[row].cardinality();                                                \
             }                                                                                      \
+            if (res_nulls) {                                                                       \
+                auto* res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();    \
+                for (size_t row = 0; row < input_rows_count; ++row) {                              \
+                    res_nulls_data[row] = 0;                                                       \
+                }                                                                                  \
+            }                                                                                      \
             return Status::OK();                                                                   \
         }                                                                                          \
     }
@@ -149,12 +155,12 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         using ResultDataType = typename Impl::ResultDataType;
-        if (std::is_same_v<Impl, BitmapOr>) {
-            bool return_nullable = true;
-            // result is nullable only when all columns is nullable for bitmap_or
+        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+            bool return_nullable = false;
+            // result is nullable only when any columns is nullable for bitmap_or and bitmap_or_count
             for (size_t i = 0; i < arguments.size(); ++i) {
-                if (!arguments[i]->is_nullable()) {
-                    return_nullable = false;
+                if (arguments[i]->is_nullable()) {
+                    return_nullable = true;
                     break;
                 }
             }

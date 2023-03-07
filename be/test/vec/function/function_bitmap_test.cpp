@@ -106,7 +106,7 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
                         {{&bitmap2, &bitmap3}, (int64_t)4},
                         {{&bitmap1, &bitmap3}, (int64_t)3}};
 
-    check_function<DataTypeInt64, false>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
     {
         InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap, TypeIndex::BitMap};
@@ -122,7 +122,7 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
                             {{&bitmap1, &bitmap3, &bitmap3},
                              (int64_t)6}}; //1,5,33,1024,2019,18446744073709551615
 
-        check_function<DataTypeInt64, false>(func_name, input_types, data_set);
+        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }
 }
 
