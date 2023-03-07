@@ -910,7 +910,7 @@ CONF_Bool(enable_java_support, "true");
 CONF_Bool(enable_fuzzy_mode, "false");
 
 // max depth of expression tree allowed.
-CONF_Int32(max_depth_of_expr_tree, "200");
+CONF_Int32(max_depth_of_expr_tree, "600");
 
 CONF_mBool(enable_stack_trace, "true");
 
