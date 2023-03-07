@@ -92,7 +92,7 @@ public class MasterOpExecutor {
 
         FrontendService.Client client;
         try {
-            client = ClientPool.frontendPool.borrowObject(thriftAddress, thriftTimeoutMs);
+            client = ClientPool.frontendPool.borrowObject(thriftAddress, thriftTimeoutMs * 5);
         } catch (Exception e) {
             // may throw NullPointerException. add err msg
             throw new Exception("Failed to get master client.", e);
