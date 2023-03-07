@@ -595,7 +595,7 @@ public class StmtExecutor implements ProfileWriter {
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
-                        queryType = "Insert";
+                        queryType = "Load";
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail: {}", t.getMessage());
