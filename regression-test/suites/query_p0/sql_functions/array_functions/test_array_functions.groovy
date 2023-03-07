@@ -90,7 +90,8 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_position(k5, 'hi') FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k5, 'hi222') FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k6, null) from ${tableName} ORDER BY k1"
-
+    qt_select_array "SELECT k1, array(k1), array_contains(array(k1), k1) from ${tableName} ORDER BY k1"
+    
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""
     sql """
