@@ -24,7 +24,9 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "runtime/exec_env.h"
 #include "util/s3_uri.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -392,6 +394,12 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
 }
 
 TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
+    std::unique_ptr<ThreadPool> _pool;
+    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+            .set_min_threads(5)
+            .set_max_threads(10)
+            .build(&_pool);
+    ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
     S3Conf s3_conf;
     S3URI s3_uri(s3_location);
     CHECK_STATUS_OK(s3_uri.parse());
