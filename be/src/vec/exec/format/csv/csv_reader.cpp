@@ -402,16 +402,11 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
     if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
-        PDataRow** ptr = reinterpret_cast<PDataRow**>(line.data);
-        PDataRow* row = *ptr;
-        for (const PDataColumn& col : (row)->col()) {
-            int len = col.value().size();
-            uint8_t* buf = new uint8_t[len];
-            memcpy(buf, col.value().c_str(), len);
-            _split_values.emplace_back(buf, len);
+        PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+        PDataRow* row = *row_ptr;
+        for (const PDataColumn& col : row->col()) {
+            _split_values.emplace_back(col.value());
         }
-        delete row;
-        delete[] ptr;
     } else {
         const char* value = line.data;
         size_t start = 0;     // point to the start pos of next col value.

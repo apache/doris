@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include "exec/line_reader.h"
 
 namespace doris {
@@ -35,6 +37,8 @@ public:
 
 private:
     FileReader* _file_reader;
+    std::unique_ptr<uint8_t[]> _file_buf;
+    std::unique_ptr<PDataRow> _cur_row;
 };
 
 } // namespace doris
