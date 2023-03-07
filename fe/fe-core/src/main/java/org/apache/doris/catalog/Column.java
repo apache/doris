@@ -561,16 +561,6 @@ public class Column implements Writable, GsonPostProcessable {
             throw new DdlException("Can not change from nullable to non-nullable");
         }
 
-        if (this.getDefaultValue() == null) {
-            if (other.getDefaultValue() != null) {
-                throw new DdlException("Can not change default value");
-            }
-        } else {
-            if (!this.getDefaultValue().equals(other.getDefaultValue())) {
-                throw new DdlException("Can not change default value");
-            }
-        }
-
         if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
                 getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
                 getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
