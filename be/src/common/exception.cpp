@@ -33,6 +33,7 @@ Exception::Exception(const Exception& nested, int code, const std::string_view m
     _err_msg->_stack = get_stack_trace();
     _nested_excption = std::make_unique<Exception>();
     _nested_excption->_code = nested._code;
+    _nested_excption->_err_msg = std::make_unique<ErrMsg>();
     _nested_excption->_err_msg->_msg = nested._err_msg->_msg;
     _nested_excption->_err_msg->_stack = nested._err_msg->_stack;
 }
