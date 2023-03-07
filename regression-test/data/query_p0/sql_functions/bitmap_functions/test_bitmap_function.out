@@ -159,7 +159,7 @@ true
 0
 
 -- !sql_bitmap_or_count10 --
-\N
+0
 
 -- !sql_bitmap_or18 --
 \N
@@ -182,8 +182,8 @@ true
 4	\N	\N	5	true
 
 -- !sql_bitmap_or_count11 --
-3	\N	\N	5	\N
-4	\N	\N	5	\N
+3	\N	\N	5	0
+4	\N	\N	5	0
 
 -- !sql_bitmap_or23 --
 3	\N	\N	5	\N

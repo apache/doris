@@ -97,16 +97,9 @@ namespace doris::vectorized {
         using ResTData = typename ColumnVector<Int64>::Container;                                  \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
                                     size_t input_rows_count, ResTData& res, IColumn* res_nulls) {  \
-            const ColumnUInt8::value_type* null_map_datas[col_size];                               \
-            int nullable_cols_count = 0;                                                           \
-            ColumnUInt8::value_type* __restrict res_nulls_data = nullptr;                          \
-            if (res_nulls) {                                                                       \
-                res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();          \
-            }                                                                                      \
             TData vals;                                                                            \
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {     \
                 const auto& nested_col_ptr = nullable->get_nested_column_ptr();                    \
-                null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();      \
                 vals = assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data();         \
             } else {                                                                               \
                 vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();    \
@@ -116,7 +109,6 @@ namespace doris::vectorized {
                 if (auto* nullable =                                                               \
                             check_and_get_column<ColumnNullable>(*argument_columns[col])) {        \
                     const auto& nested_col_ptr = nullable->get_nested_column_ptr();                \
-                    null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();  \
                     col_data_ptr =                                                                 \
                             &(assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data()); \
                 } else {                                                                           \
@@ -130,24 +122,6 @@ namespace doris::vectorized {
             }                                                                                      \
             for (size_t row = 0; row < input_rows_count; ++row) {                                  \
                 res[row] = vals[row].cardinality();                                                \
-            }                                                                                      \
-            if (res_nulls_data) {                                                                  \
-                if (nullable_cols_count == col_size) {                                             \
-                    const auto* null_map_data = null_map_datas[0];                                 \
-                    for (size_t row = 0; row < input_rows_count; ++row) {                          \
-                        res_nulls_data[row] = null_map_data[row];                                  \
-                    }                                                                              \
-                    for (int i = 1; i < nullable_cols_count; ++i) {                                \
-                        const auto* null_map_data = null_map_datas[i];                             \
-                        for (size_t row = 0; row < input_rows_count; ++row) {                      \
-                            res_nulls_data[row] &= null_map_data[row];                             \
-                        }                                                                          \
-                    }                                                                              \
-                } else {                                                                           \
-                    for (size_t row = 0; row < input_rows_count; ++row) {                          \
-                        res_nulls_data[row] = 0;                                                   \
-                    }                                                                              \
-                }                                                                                  \
             }                                                                                      \
             return Status::OK();                                                                   \
         }                                                                                          \
@@ -175,9 +149,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         using ResultDataType = typename Impl::ResultDataType;
-        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+        if (std::is_same_v<Impl, BitmapOr>) {
             bool return_nullable = true;
-            // result is nullable only when all columns is nullable for bitmap_or and bitmap_or_count
+            // result is nullable only when all columns is nullable for bitmap_or
             for (size_t i = 0; i < arguments.size(); ++i) {
                 if (!arguments[i]->is_nullable()) {
                     return_nullable = false;
