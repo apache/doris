@@ -46,7 +46,8 @@ std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
 bool MemTrackerLimiter::_oom_avoidance {true};
 
 MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit,
-                                     RuntimeProfile* profile) {
+                                     RuntimeProfile* profile,
+                                     const std::string& profile_counter_name) {
     DCHECK_GE(byte_limit, -1);
     _consumption = std::make_shared<MemCounter>();
     if (profile != nullptr) {
