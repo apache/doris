@@ -61,10 +61,6 @@ public:
     static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
-    static std::string remote_tablet_path(int64_t tablet_id);
-
-    static std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id);
-
     Status remove() override;
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
@@ -91,8 +87,8 @@ public:
     Status get_segments_size(std::vector<size_t>* segments_size);
 
 protected:
-    BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-               RowsetMetaSharedPtr rowset_meta);
+    BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+               const RowsetMetaSharedPtr& rowset_meta);
 
     // init segment groups
     Status init() override;

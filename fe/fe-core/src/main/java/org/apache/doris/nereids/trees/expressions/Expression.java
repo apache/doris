@@ -199,7 +199,15 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      * This expression has unbound symbols or not.
      */
     public boolean hasUnbound() {
-        return this.anyMatch(Unbound.class::isInstance);
+        if (this instanceof Unbound) {
+            return true;
+        }
+        for (Expression child : children) {
+            if (child.hasUnbound()) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

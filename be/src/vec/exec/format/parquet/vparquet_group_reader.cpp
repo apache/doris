@@ -256,7 +256,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             // generated from next batch, so the filter column is removed ahead.
             DCHECK_EQ(block->rows(), 0);
         } else {
-            ColumnPtr& filter_column = block->get_by_position(filter_column_id).column;
+            const auto& filter_column = block->get_by_position(filter_column_id).column;
             RETURN_IF_ERROR(_filter_block(block, filter_column, origin_column_num,
                                           _lazy_read_ctx.all_predicate_col_ids));
         }
@@ -496,7 +496,7 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
 Status RowGroupReader::_filter_block(Block* block, const ColumnPtr& filter_column,
                                      int column_to_keep, std::vector<uint32_t> columns_to_filter) {
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-        const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+        const auto& nested_column = nullable_column->get_nested_column_ptr();
 
         MutableColumnPtr mutable_holder =
                 nested_column->use_count() == 1

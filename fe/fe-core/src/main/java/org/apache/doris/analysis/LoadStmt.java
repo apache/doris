@@ -121,6 +121,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
+    public static final String KEY_COMMENT = "comment";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -132,6 +134,8 @@ public class LoadStmt extends DdlStmt {
     private boolean isMysqlLoad = false;
 
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
+
+    private String comment;
 
     public static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
             .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
@@ -208,7 +212,7 @@ public class LoadStmt extends DdlStmt {
             })
             .build();
 
-    public LoadStmt(DataDescription dataDescription, Map<String, String> properties) {
+    public LoadStmt(DataDescription dataDescription, Map<String, String> properties, String comment) {
         this.label = new LabelName();
         this.dataDescriptions = Lists.newArrayList(dataDescription);
         this.brokerDesc = null;
@@ -217,10 +221,15 @@ public class LoadStmt extends DdlStmt {
         this.properties = properties;
         this.user = null;
         this.isMysqlLoad = true;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
+                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
@@ -228,10 +237,15 @@ public class LoadStmt extends DdlStmt {
         this.resourceDesc = null;
         this.properties = properties;
         this.user = null;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    ResourceDesc resourceDesc, Map<String, String> properties) {
+                    ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = null;
@@ -239,6 +253,11 @@ public class LoadStmt extends DdlStmt {
         this.resourceDesc = resourceDesc;
         this.properties = properties;
         this.user = null;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LabelName getLabel() {
@@ -448,6 +467,10 @@ public class LoadStmt extends DdlStmt {
         }
 
         user = ConnectContext.get().getQualifiedUser();
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override

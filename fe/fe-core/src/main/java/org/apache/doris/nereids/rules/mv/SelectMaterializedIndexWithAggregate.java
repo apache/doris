@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
@@ -56,7 +57,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -484,87 +484,96 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         Set<Slot> nonVirtualRequiredScanOutput = requiredScanOutput.stream()
                 .filter(slot -> !(slot instanceof VirtualSlotReference))
                 .collect(ImmutableSet.toImmutableSet());
-        Preconditions.checkArgument(scan.getOutputSet().containsAll(nonVirtualRequiredScanOutput),
-                String.format("Scan's output (%s) should contains all the input required scan output (%s).",
-                        scan.getOutput(), nonVirtualRequiredScanOutput));
+
+        // use if condition to skip String.format() and speed up
+        if (!scan.getOutputSet().containsAll(nonVirtualRequiredScanOutput)) {
+            throw new AnalysisException(
+                    String.format("Scan's output (%s) should contains all the input required scan output (%s).",
+                            scan.getOutput(), nonVirtualRequiredScanOutput));
+        }
 
         OlapTable table = scan.getTable();
-
-        switch (table.getKeysType()) {
+        switch (scan.getTable().getKeysType()) {
             case AGG_KEYS:
-            case UNIQUE_KEYS: {
-                final PreAggStatus preAggStatus;
-                if (preAggEnabledByHint(scan)) {
-                    // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
-                    preAggStatus = PreAggStatus.on();
-                } else {
-                    // Only checking pre-aggregation status by base index is enough for aggregate-keys and
-                    // unique-keys OLAP table.
-                    // Because the schemas in non-base materialized index are subsets of the schema of base index.
-                    preAggStatus = checkPreAggStatus(scan, table.getBaseIndexId(), predicates,
-                            aggregateFunctions, groupingExprs);
-                }
-                if (preAggStatus.isOff()) {
-                    // return early if pre agg status if off.
-                    return new SelectResult(preAggStatus, scan.getTable().getBaseIndexId(), new ExprRewriteMap());
-                } else {
-                    List<MaterializedIndex> rollupsWithAllRequiredCols = table.getVisibleIndex().stream()
-                            .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput))
-                            .collect(Collectors.toList());
-                    return new SelectResult(preAggStatus, selectBestIndex(rollupsWithAllRequiredCols, scan, predicates),
-                            new ExprRewriteMap());
-                }
-            }
-            case DUP_KEYS: {
-                Map<Boolean, List<MaterializedIndex>> indexesGroupByIsBaseOrNot = table.getVisibleIndex()
-                        .stream()
-                        .collect(Collectors.groupingBy(index -> index.getId() == table.getBaseIndexId()));
-
-                // Duplicate-keys table could use base index and indexes that pre-aggregation status is on.
-                Set<MaterializedIndex> candidatesWithoutRewriting = Stream.concat(
-                        indexesGroupByIsBaseOrNot.get(true).stream(),
-                        indexesGroupByIsBaseOrNot.getOrDefault(false, ImmutableList.of())
-                                .stream()
-                                .filter(index -> checkPreAggStatus(scan, index.getId(), predicates,
-                                        aggregateFunctions, groupingExprs).isOn())
-                ).collect(ImmutableSet.toImmutableSet());
-
-                // try to rewrite bitmap, hll by materialized index columns.
-                List<AggRewriteResult> candidatesWithRewriting = indexesGroupByIsBaseOrNot.getOrDefault(false,
-                                ImmutableList.of())
-                        .stream()
-                        .filter(index -> !candidatesWithoutRewriting.contains(index))
-                        .map(index -> rewriteAgg(index, scan, nonVirtualRequiredScanOutput, predicates,
-                                aggregateFunctions,
-                                groupingExprs))
-                        .filter(aggRewriteResult -> checkPreAggStatus(scan, aggRewriteResult.index.getId(),
-                                predicates,
-                                // check pre-agg status of aggregate function that couldn't rewrite.
-                                aggFuncsDiff(aggregateFunctions, aggRewriteResult),
-                                groupingExprs).isOn())
-                        .filter(result -> result.success)
-                        .collect(Collectors.toList());
-
-                List<MaterializedIndex> haveAllRequiredColumns = Streams.concat(
-                        candidatesWithoutRewriting.stream()
-                                .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput)),
-                        candidatesWithRewriting
-                                .stream()
-                                .filter(aggRewriteResult -> containAllRequiredColumns(aggRewriteResult.index, scan,
-                                        aggRewriteResult.requiredScanOutput))
-                                .map(aggRewriteResult -> aggRewriteResult.index)
-                ).collect(Collectors.toList());
-
-                long selectIndexId = selectBestIndex(haveAllRequiredColumns, scan, predicates);
-                Optional<AggRewriteResult> rewriteResultOpt = candidatesWithRewriting.stream()
-                        .filter(aggRewriteResult -> aggRewriteResult.index.getId() == selectIndexId)
-                        .findAny();
-                // Pre-aggregation is set to `on` by default for duplicate-keys table.
-                return new SelectResult(PreAggStatus.on(), selectIndexId,
-                        rewriteResultOpt.map(r -> r.exprRewriteMap).orElse(new ExprRewriteMap()));
-            }
+            case UNIQUE_KEYS:
+            case DUP_KEYS:
+                break;
             default:
-                throw new RuntimeException("Not supported keys type: " + table.getKeysType());
+                throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
+        }
+        if (table.isDupKeysOrMergeOnWrite()) {
+            Map<Boolean, List<MaterializedIndex>> indexesGroupByIsBaseOrNot = table.getVisibleIndex()
+                    .stream()
+                    .collect(Collectors.groupingBy(index -> index.getId() == table.getBaseIndexId()));
+
+            // Duplicate-keys table could use base index and indexes that pre-aggregation status is on.
+            Set<MaterializedIndex> candidatesWithoutRewriting = Stream.concat(
+                    indexesGroupByIsBaseOrNot.get(true).stream(),
+                    indexesGroupByIsBaseOrNot.getOrDefault(false, ImmutableList.of())
+                            .stream()
+                            .filter(index -> checkPreAggStatus(scan, index.getId(), predicates,
+                                    aggregateFunctions, groupingExprs).isOn())
+            ).collect(ImmutableSet.toImmutableSet());
+
+            // try to rewrite bitmap, hll by materialized index columns.
+            List<AggRewriteResult> candidatesWithRewriting = indexesGroupByIsBaseOrNot.getOrDefault(false,
+                            ImmutableList.of())
+                    .stream()
+                    .filter(index -> !candidatesWithoutRewriting.contains(index))
+                    .map(index -> rewriteAgg(index, scan, nonVirtualRequiredScanOutput, predicates,
+                            aggregateFunctions,
+                            groupingExprs))
+                    .filter(aggRewriteResult -> checkPreAggStatus(scan, aggRewriteResult.index.getId(),
+                            predicates,
+                            // check pre-agg status of aggregate function that couldn't rewrite.
+                            aggFuncsDiff(aggregateFunctions, aggRewriteResult),
+                            groupingExprs).isOn())
+                    .filter(result -> result.success)
+                    .collect(Collectors.toList());
+
+            List<MaterializedIndex> haveAllRequiredColumns = Streams.concat(
+                    candidatesWithoutRewriting.stream()
+                            .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput)),
+                    candidatesWithRewriting
+                            .stream()
+                            .filter(aggRewriteResult -> containAllRequiredColumns(aggRewriteResult.index, scan,
+                                    aggRewriteResult.requiredScanOutput))
+                            .map(aggRewriteResult -> aggRewriteResult.index)
+            ).collect(Collectors.toList());
+
+            long selectIndexId = selectBestIndex(haveAllRequiredColumns, scan, predicates);
+            Optional<AggRewriteResult> rewriteResultOpt = candidatesWithRewriting.stream()
+                    .filter(aggRewriteResult -> aggRewriteResult.index.getId() == selectIndexId)
+                    .findAny();
+            // Pre-aggregation is set to `on` by default for duplicate-keys table.
+            return new SelectResult(PreAggStatus.on(), selectIndexId,
+                    rewriteResultOpt.map(r -> r.exprRewriteMap).orElse(new ExprRewriteMap()));
+        } else {
+            if (scan.getPreAggStatus().isOff()) {
+                return new SelectResult(scan.getPreAggStatus(),
+                        scan.getTable().getBaseIndexId(), new ExprRewriteMap());
+            }
+            final PreAggStatus preAggStatus;
+            if (preAggEnabledByHint(scan)) {
+                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                preAggStatus = PreAggStatus.on();
+            } else {
+                // Only checking pre-aggregation status by base index is enough for aggregate-keys and
+                // unique-keys OLAP table.
+                // Because the schemas in non-base materialized index are subsets of the schema of base index.
+                preAggStatus = checkPreAggStatus(scan, table.getBaseIndexId(), predicates,
+                        aggregateFunctions, groupingExprs);
+            }
+            if (preAggStatus.isOff()) {
+                // return early if pre agg status if off.
+                return new SelectResult(preAggStatus, scan.getTable().getBaseIndexId(), new ExprRewriteMap());
+            } else {
+                List<MaterializedIndex> rollupsWithAllRequiredCols = table.getVisibleIndex().stream()
+                        .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput))
+                        .collect(Collectors.toList());
+                return new SelectResult(preAggStatus, selectBestIndex(rollupsWithAllRequiredCols, scan, predicates),
+                        new ExprRewriteMap());
+            }
         }
     }
 

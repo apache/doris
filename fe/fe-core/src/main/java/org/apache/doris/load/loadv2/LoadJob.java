@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -28,6 +29,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -129,6 +131,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     private boolean isJobTypeRead = false;
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
+
+    protected UserIdentity userInfo;
+
+    protected String comment = "";
+
 
     public static class LoadStatistic {
         // number of rows processed on BE, this number will be updated periodically by query report.
@@ -377,6 +384,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 throw new DdlException("Failed to set property " + key + ". Error: " + e.getMessage());
             }
         }
+    }
+
+    public UserIdentity getUserInfo() {
+        return userInfo;
+    }
+
+    public void setUserInfo(UserIdentity userInfo) {
+        this.userInfo = userInfo;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     private void initDefaultJobProperties() {
@@ -789,6 +812,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(transactionId);
             // error tablets
             jobInfo.add(errorTabletsToJson());
+            // user
+            jobInfo.add(userInfo.getQualifiedUser());
+            // comment
+            jobInfo.add(comment);
             return jobInfo;
         } finally {
             readUnlock();
@@ -1034,6 +1061,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Text.writeString(out, entry.getKey());
             Text.writeString(out, String.valueOf(entry.getValue()));
         }
+        if (userInfo == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            userInfo.write(out);
+        }
+        Text.writeString(out, comment);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1076,6 +1110,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         } catch (Exception e) {
             // should not happen
             throw new IOException("failed to replay job property", e);
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
+            if (in.readBoolean()) {
+                userInfo = UserIdentity.read(in);
+                // must set is as analyzed, because when write the user info to meta image, it will be checked.
+                userInfo.setIsAnalyzed();
+            }
+            comment = Text.readString(in);
         }
     }
 

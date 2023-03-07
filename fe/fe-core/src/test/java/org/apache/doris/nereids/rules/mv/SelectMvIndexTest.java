@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.ScanNode;
@@ -53,7 +53,7 @@ import java.util.stream.Collectors;
  * Tests ported from {@link org.apache.doris.planner.MaterializedViewFunctionTest}
  */
 @Disabled("Disabled until nereids support advanced mv")
-public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements PatternMatchSupported {
+public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoPatternMatchSupported {
 
     private static final String EMPS_TABLE_NAME = "emps";
     private static final String EMPS_MV_NAME = "emps_mv";

@@ -51,7 +51,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.PriorityQueue;
-import java.util.Queue;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -217,11 +216,11 @@ public class Memo {
      * Utility function to create a new {@link CascadesContext} with this Memo.
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(this, statementContext, PhysicalProperties.ANY);
+        return new CascadesContext(null, this, statementContext, PhysicalProperties.ANY);
     }
 
     public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(this, statementContext, cteContext, PhysicalProperties.ANY);
+        return new CascadesContext(null, this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -720,21 +719,25 @@ public class Memo {
      *
      * In unrank() function, we will extract the actual physical function according the unique ID
      */
-    public long rank(long n) {
+    public Pair<Long, Double> rank(long n) {
+        double threshold = 0.000000001;
         Preconditions.checkArgument(n > 0, "the n %d must be greater than 0 in nthPlan", n);
         List<Pair<Long, Double>> plans = rankGroup(root, PhysicalProperties.GATHER);
-        Queue<Pair<Long, Double>> rankingQueue = new PriorityQueue<>(
-                (l, r) -> -Double.compare(l.second, r.second));
-
-        for (Pair<Long, Double> plan : plans) {
-            if (rankingQueue.size() == 0 || rankingQueue.size() < n) {
-                rankingQueue.add(plan);
-            } else if (rankingQueue.peek().second > plan.second) {
-                rankingQueue.poll();
-                rankingQueue.add(plan);
+        plans = plans.stream().filter(
+                p -> !p.second.equals(Double.NaN)
+                        && !p.second.equals(Double.POSITIVE_INFINITY)
+                        && !p.second.equals(Double.NEGATIVE_INFINITY))
+                .collect(Collectors.toList());
+        // This is big heap, it always pops the element with larger cost or larger id.
+        PriorityQueue<Pair<Long, Double>> pq = new PriorityQueue<>((l, r) -> Math.abs(l.second - r.second) < threshold
+                ? -Long.compare(l.first, r.first) : -Double.compare(l.second, r.second));
+        for (Pair<Long, Double> p : plans) {
+            pq.add(p);
+            if (pq.size() > n) {
+                pq.poll();
             }
         }
-        return rankingQueue.peek().first;
+        return pq.peek();
     }
 
     private List<Pair<Long, Double>> rankGroup(Group group, PhysicalProperties prop) {

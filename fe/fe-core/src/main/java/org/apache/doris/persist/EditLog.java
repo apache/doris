@@ -402,6 +402,11 @@ public class EditLog {
                     env.replayAddFrontend(fe);
                     break;
                 }
+                case OperationType.OP_MODIFY_FRONTEND: {
+                    Frontend fe = (Frontend) journal.getData();
+                    env.replayModifyFrontend(fe);
+                    break;
+                }
                 case OperationType.OP_REMOVE_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
@@ -555,6 +560,12 @@ public class EditLog {
                     final BatchRemoveTransactionsOperation operation =
                             (BatchRemoveTransactionsOperation) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
+                    break;
+                }
+                case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
+                    final BatchRemoveTransactionsOperationV2 operation =
+                            (BatchRemoveTransactionsOperationV2) journal.getData();
+                    Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
                     break;
                 }
                 case OperationType.OP_CREATE_REPOSITORY: {
@@ -1236,6 +1247,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FIRST_FRONTEND, fe);
     }
 
+    public void logModifyFrontend(Frontend fe) {
+        logEdit(OperationType.OP_MODIFY_FRONTEND, fe);
+    }
+
     public void logRemoveFrontend(Frontend fe) {
         logEdit(OperationType.OP_REMOVE_FRONTEND, fe);
     }
@@ -1595,8 +1610,8 @@ public class EditLog {
         logEdit(OperationType.OP_REPLACE_TABLE, log);
     }
 
-    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
-        logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
+        logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {

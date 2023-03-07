@@ -725,7 +725,7 @@ public class PropertyAnalyzer {
             if (!parts[0].startsWith(TAG_LOCATION)) {
                 throw new AnalysisException("Invalid replication allocation tag property: " + location);
             }
-            String locationVal = parts[0].substring(TAG_LOCATION.length() + 1); // +1 to skip dot.
+            String locationVal = parts[0].replace(TAG_LOCATION, "").replace(".", "");
             if (Strings.isNullOrEmpty(locationVal)) {
                 throw new AnalysisException("Invalid replication allocation location tag property: " + location);
             }

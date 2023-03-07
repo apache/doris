@@ -56,7 +56,6 @@ private:
 
 private:
     std::map<std::string, std::string> _properties;
-    HDFSCommonBuilder _builder;
     hdfsFS _hdfs_fs = nullptr;
 };
 

@@ -21,6 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
@@ -57,6 +61,9 @@ import java.util.stream.Collectors;
 
 public class MTMVJobManager {
     private static final Logger LOG = LogManager.getLogger(MTMVJobManager.class);
+
+    // make sure that metrics were registered only once.
+    private static volatile boolean metricsRegistered = false;
 
     private final Map<Long, MTMVJob> idToJobMap;
     private final Map<String, MTMVJob> nameToJobMap;
@@ -113,7 +120,81 @@ public class MTMVJobManager {
             }, 0, 1, TimeUnit.MINUTES);
 
             taskManager.startTaskScheduler();
+            initMetrics();
         }
+    }
+
+    private void initMetrics() {
+        if (metricsRegistered) {
+            return;
+        }
+        metricsRegistered = true;
+
+        // total jobs
+        GaugeMetric<Integer> totalJob = new GaugeMetric<Integer>("mtmv_job",
+                Metric.MetricUnit.NOUNIT, "Total job number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return nameToJobMap.size();
+            }
+        };
+        totalJob.addLabel(new MetricLabel("type", "TOTAL-JOB"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(totalJob);
+
+        // active jobs
+        GaugeMetric<Integer> activeJob = new GaugeMetric<Integer>("mtmv_job",
+                Metric.MetricUnit.NOUNIT, "Active job number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return periodFutureMap.size();
+            }
+        };
+        activeJob.addLabel(new MetricLabel("type", "ACTIVE-JOB"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(activeJob);
+
+        // total tasks
+        GaugeMetric<Integer> totalTask = new GaugeMetric<Integer>("mtmv_task",
+                Metric.MetricUnit.NOUNIT, "Total task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getAllHistory().size();
+            }
+        };
+        totalTask.addLabel(new MetricLabel("type", "TOTAL-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(totalTask);
+
+        // running tasks
+        GaugeMetric<Integer> runningTask = new GaugeMetric<Integer>("mtmv_task",
+                Metric.MetricUnit.NOUNIT, "Running task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getRunningTaskMap().size();
+            }
+        };
+        runningTask.addLabel(new MetricLabel("type", "RUNNING-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(runningTask);
+
+        // pending tasks
+        GaugeMetric<Integer> pendingTask = new GaugeMetric<Integer>("mtmv_task",
+                Metric.MetricUnit.NOUNIT, "Pending task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getPendingTaskMap().size();
+            }
+        };
+        pendingTask.addLabel(new MetricLabel("type", "PENDING-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(pendingTask);
+
+        // failed tasks
+        GaugeMetric<Integer> failedTask = new GaugeMetric<Integer>("mtmv_task",
+                Metric.MetricUnit.NOUNIT, "Failed task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getFailedTaskCount();
+            }
+        };
+        failedTask.addLabel(new MetricLabel("type", "FAILED-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(failedTask);
     }
 
     public void stop() {

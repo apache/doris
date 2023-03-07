@@ -45,6 +45,7 @@ import java.util.List;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
+    public static final boolean SERVER_USE_SSL = Config.enable_ssl;
 
     // scramble: data receive from server.
     // randomString: data send by server in plug-in data field
@@ -122,8 +123,8 @@ public class MysqlProto {
     // send response packet(OK/EOF/ERR).
     // before call this function, should set information in state of ConnectContext
     public static void sendResponsePacket(ConnectContext context) throws IOException {
-        MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSerializer serializer = channel.getSerializer();
         MysqlPacket packet = context.getState().toResponsePacket();
 
         // send response packet to client
@@ -156,8 +157,8 @@ public class MysqlProto {
      * IOException:
      */
     public static boolean negotiate(ConnectContext context) throws IOException {
-        MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSerializer serializer = channel.getSerializer();
         context.getState().setOk();
 
         // Server send handshake packet to client.
@@ -170,8 +171,68 @@ public class MysqlProto {
             LOG.debug("Send and flush channel exception, ignore.", e);
             return false;
         }
+
+        // Server receive request packet from client, we need to determine which request type it is.
+        ByteBuffer clientRequestPacket = channel.fetchOnePacket();
+        MysqlCapability capability = new MysqlCapability(MysqlProto.readLowestInt4(clientRequestPacket));
+
+        // Server receive SSL connection request packet from client.
+        ByteBuffer sslConnectionRequest;
         // Server receive authenticate packet from client.
-        ByteBuffer handshakeResponse = channel.fetchOnePacket();
+        ByteBuffer handshakeResponse;
+
+        if (capability.isClientUseSsl()) {
+            LOG.info("client is using ssl connection.");
+            // During development, we set SSL mode to true by default.
+            if (SERVER_USE_SSL) {
+                LOG.info("server is also using ssl connection. Will use ssl mode for data exchange.");
+                MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
+                mysqlSslContext.init();
+                channel.initSslBuffer();
+                sslConnectionRequest = clientRequestPacket;
+                if (sslConnectionRequest == null) {
+                    // receive response failed.
+                    return false;
+                }
+                MysqlSslPacket sslPacket = new MysqlSslPacket();
+                if (!sslPacket.readFrom(sslConnectionRequest)) {
+                    ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                    sendResponsePacket(context);
+                    return false;
+                }
+                // try to establish ssl connection.
+                try {
+                    // set channel to handshake mode to process data packet as ssl packet.
+                    channel.setSslHandshaking(true);
+                    // The ssl handshake phase still uses plaintext.
+                    if (!mysqlSslContext.sslExchange(channel)) {
+                        ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                        sendResponsePacket(context);
+                        return false;
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                // if the exchange is successful, the channel will switch to ssl communication mode
+                // which means all data after this moment will be ciphertext.
+
+                // Set channel mode to ssl mode to handle socket packet in ssl format.
+                channel.setSslMode(true);
+                LOG.info("switch to ssl mode.");
+                handshakeResponse = channel.fetchOnePacket();
+                capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
+                if (!capability.isClientUseSsl()) {
+                    ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
+                    sendResponsePacket(context);
+                    return false;
+                }
+            } else {
+                handshakeResponse = clientRequestPacket;
+            }
+        } else {
+            handshakeResponse = clientRequestPacket;
+        }
+
         if (handshakeResponse == null) {
             // receive response failed.
             return false;
@@ -298,7 +359,7 @@ public class MysqlProto {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
                     return false;
                 }
-                if (catalogIf.getDbNullable(dbName) == null) {
+                if (catalogIf.getDbNullable(dbFullName) == null) {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + db);
                     return false;
                 }
@@ -324,6 +385,10 @@ public class MysqlProto {
         return buffer.get();
     }
 
+    public static byte readByteAt(ByteBuffer buffer, int index) {
+        return buffer.get(index);
+    }
+
     public static int readInt1(ByteBuffer buffer) {
         return readByte(buffer) & 0XFF;
     }
@@ -335,6 +400,11 @@ public class MysqlProto {
     public static int readInt3(ByteBuffer buffer) {
         return (readByte(buffer) & 0xFF) | ((readByte(buffer) & 0xFF) << 8) | ((readByte(
                 buffer) & 0xFF) << 16);
+    }
+
+    public static int readLowestInt4(ByteBuffer buffer) {
+        return (readByteAt(buffer, 0) & 0xFF) | ((readByteAt(buffer, 1) & 0xFF) << 8) | ((readByteAt(
+                buffer, 2) & 0xFF) << 16) | ((readByteAt(buffer, 3) & 0XFF) << 24);
     }
 
     public static int readInt4(ByteBuffer buffer) {

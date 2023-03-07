@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -56,7 +55,7 @@ import java.util.stream.Stream;
  * scan                scan
  */
 public class PruneJoinChildrenColumns
-        extends AbstractPushDownProjectRule<LogicalJoin<GroupPlan, GroupPlan>> {
+        extends AbstractPushDownProjectRule<LogicalJoin<Plan, Plan>> {
 
     public PruneJoinChildrenColumns() {
         setRuleType(RuleType.COLUMN_PRUNE_JOIN_CHILD);
@@ -64,7 +63,7 @@ public class PruneJoinChildrenColumns
     }
 
     @Override
-    protected Plan pushDownProject(LogicalJoin<GroupPlan, GroupPlan> joinPlan,
+    protected Plan pushDownProject(LogicalJoin<Plan, Plan> joinPlan,
             Set<Slot> references) {
 
         Set<ExprId> exprIds = Stream.of(references, joinPlan.getInputSlots())

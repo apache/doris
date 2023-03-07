@@ -93,30 +93,43 @@ void MemInfo::refresh_allocator_mem() {
 
 void MemInfo::process_cache_gc(int64_t& freed_mem) {
     // TODO, free more cache, and should free a certain percentage of capacity, not all.
-    freed_mem += ChunkAllocator::instance()->mem_consumption();
-    ChunkAllocator::instance()->clear();
-    freed_mem +=
-            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
-    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
-    // TODO add freed_mem
-    SegmentLoader::instance()->prune();
+    int32_t min_free_size = 33554432; // 32M
+    if (ChunkAllocator::instance()->mem_consumption() > min_free_size) {
+        freed_mem += ChunkAllocator::instance()->mem_consumption();
+        ChunkAllocator::instance()->clear();
+    }
+
+    if (StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE) >
+        min_free_size) {
+        freed_mem +=
+                StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+        StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    }
 }
 
 // step1: free all cache
 // step2: free top overcommit query, if enable query memroy overcommit
+// TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemInfo::process_minor_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
     int64_t freed_mem = 0;
     std::string vm_rss_str = PerfCounters::get_vm_rss_str();
     std::string mem_available_str = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
+        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+                                 watch.elapsed_time() / 1000);
     }};
 
     MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
+
+    // TODO add freed_mem
+    SegmentLoader::instance()->prune();
+
     if (config::enable_query_memroy_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
@@ -132,22 +145,32 @@ bool MemInfo::process_minor_gc() {
 // step3: free top overcommit load, load retries are more expensive, So cancel at the end.
 // step4: free top memory load
 bool MemInfo::process_full_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
     int64_t freed_mem = 0;
     std::string vm_rss_str = PerfCounters::get_vm_rss_str();
     std::string mem_available_str = MemInfo::sys_mem_available_str();
 
-    Defer defer {
-            [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
+    Defer defer {[&]() {
+        LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+                                 watch.elapsed_time() / 1000);
+    }};
 
     MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
-    freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
-    SegmentLoader::instance()->prune_all();
-    if (freed_mem > _s_process_full_gc_size) {
-        return true;
+
+    if (SegmentLoader::instance()->segment_cache_get_usage_ratio() > 0.1) {
+        freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
+        LOG(INFO) << "prune all " << SegmentLoader::instance()->segment_cache_get_usage()
+                  << " entries in segment cache.";
+        SegmentLoader::instance()->prune_all();
+        if (freed_mem > _s_process_full_gc_size) {
+            return true;
+        }
     }
+
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
                                                           vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
@@ -214,16 +237,21 @@ void MemInfo::init() {
     }
 
     bool is_percent = true;
-    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-    if (_s_mem_limit <= 0) {
-        LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
-    }
-    if (_s_mem_limit > _s_physical_mem) {
-        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
-                     << " exceeds physical memory of "
-                     << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
-                     << ". Using physical memory instead";
-        _s_mem_limit = _s_physical_mem;
+    if (config::mem_limit == "auto") {
+        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
+    } else {
+        _s_mem_limit =
+                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+        if (_s_mem_limit <= 0) {
+            LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
+        }
+        if (_s_mem_limit > _s_physical_mem) {
+            LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
+                         << " exceeds physical memory of "
+                         << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+                         << ". Using physical memory instead";
+            _s_mem_limit = _s_physical_mem;
+        }
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;

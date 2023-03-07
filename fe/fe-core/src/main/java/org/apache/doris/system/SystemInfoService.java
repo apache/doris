@@ -61,6 +61,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -127,6 +128,33 @@ public class SystemInfoService {
             return res;
         }
 
+        public boolean isSame(HostInfo other) {
+            if (other.getPort() != port) {
+                return false;
+            }
+            if (hostName != null && hostName.equals(other.getHostName())) {
+                return true;
+            }
+            if (ip != null && ip.equals(other.getIp())) {
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            HostInfo that = (HostInfo) o;
+            return Objects.equals(ip, that.getIp())
+                    && Objects.equals(hostName, that.getHostName())
+                    && Objects.equals(port, that.getPort());
+        }
+
         @Override
         public String toString() {
             return "HostInfo{"
@@ -168,8 +196,8 @@ public class SystemInfoService {
             if (!Config.enable_fqdn_mode) {
                 hostInfo.setHostName(null);
             }
-            if (Config.enable_fqdn_mode && hostInfo.getHostName() == null) {
-                throw new DdlException("backend's hostName should not be null while enable_fqdn_mode is true");
+            if (Config.enable_fqdn_mode && StringUtils.isEmpty(hostInfo.getHostName())) {
+                throw new DdlException("backend's hostName should not be empty while enable_fqdn_mode is true");
             }
             // check is already exist
             if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) != null) {
@@ -355,20 +383,20 @@ public class SystemInfoService {
         return null;
     }
 
-    public Backend getBackendWithBePort(String host, int bePort) {
+    public Backend getBackendWithBePort(String ip, int bePort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(host) && backend.getBePort() == bePort) {
+            if (backend.getIp().equals(ip) && backend.getBePort() == bePort) {
                 return backend;
             }
         }
         return null;
     }
 
-    public Backend getBackendWithHttpPort(String host, int httpPort) {
+    public Backend getBackendWithHttpPort(String ip, int httpPort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(host) && backend.getHttpPort() == httpPort) {
+            if (backend.getIp().equals(ip) && backend.getHttpPort() == httpPort) {
                 return backend;
             }
         }
@@ -865,7 +893,7 @@ public class SystemInfoService {
             BeSelectionPolicy policy = builder.build();
             List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
             if (beIds.isEmpty()) {
-                throw new DdlException("Failed to find " + entry.getValue() + " backends for policy: " + policy);
+                throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
             }
             chosenBackendIds.put(entry.getKey(), beIds);
             totalReplicaNum += beIds.size();

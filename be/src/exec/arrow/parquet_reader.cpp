@@ -28,7 +28,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "util/string_util.h"
@@ -39,9 +38,9 @@ namespace doris {
 // Broker
 ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
                                      const std::vector<SlotDescriptor*>& file_slot_descs,
-                                     FileReader* file_reader, int32_t num_of_columns_from_file,
-                                     int64_t range_start_offset, int64_t range_size,
-                                     bool case_sensitive)
+                                     io::FileReaderSPtr file_reader,
+                                     int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                     int64_t range_size, bool case_sensitive)
         : ArrowReaderWrap(state, file_slot_descs, file_reader, num_of_columns_from_file,
                           case_sensitive),
           _rows_of_group(0),

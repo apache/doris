@@ -30,6 +30,7 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -66,7 +67,6 @@ import java.util.concurrent.TimeUnit;
  * Constant evaluation of an expression.
  */
 public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
-    public static final FoldConstantRuleOnBE INSTANCE = new FoldConstantRuleOnBE();
     private static final Logger LOG = LogManager.getLogger(FoldConstantRuleOnBE.class);
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final IdGenerator<ExprId> idGenerator = ExprId.createGenerator();
@@ -80,7 +80,11 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
     private Expression foldByBE(Expression root, ExpressionRewriteContext context) {
         Map<String, Expression> constMap = Maps.newHashMap();
         Map<String, TExpr> staleConstTExprMap = Maps.newHashMap();
-        collectConst(root, constMap, staleConstTExprMap);
+        Expression rootWithoutAlias = root;
+        if (root instanceof Alias) {
+            rootWithoutAlias = ((Alias) root).child();
+        }
+        collectConst(rootWithoutAlias, constMap, staleConstTExprMap);
         if (constMap.isEmpty()) {
             return root;
         }

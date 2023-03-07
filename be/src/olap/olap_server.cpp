@@ -83,7 +83,7 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
-    if (config::enable_segcompaction && config::enable_storage_vectorization) {
+    if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
                 .set_min_threads(config::seg_compaction_max_threads)
                 .set_max_threads(config::seg_compaction_max_threads)
@@ -699,7 +699,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->compact_segments(segments);
+    writer->get_segcompaction_worker().compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
@@ -797,7 +797,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         tablet_to_follow.reserve(n + 1);
 
         for (auto& t : tablets) {
-            if (t->replica_id() == t->cooldown_replica_id()) {
+            if (t->replica_id() == t->cooldown_conf_unlocked().first) {
                 auto score = t->calc_cold_data_compaction_score();
                 if (score < 4) {
                     continue;

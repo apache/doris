@@ -95,24 +95,22 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT,
     static const char* name() { return "min_by"; }
 };
 
-template <typename Data, bool AllocatesMemoryInArena>
+template <typename Data>
 class AggregateFunctionsMinMaxBy final
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionsMinMaxBy<Data, AllocatesMemoryInArena>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>> {
 private:
     DataTypePtr& value_type;
     DataTypePtr& key_type;
 
 public:
-    AggregateFunctionsMinMaxBy(const DataTypePtr& value_type_, const DataTypePtr& key_type_)
-            : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionsMinMaxBy<Data, AllocatesMemoryInArena>>(
-                      {value_type_, key_type_}),
+    AggregateFunctionsMinMaxBy(const DataTypes& arguments)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>(
+                      {arguments[0], arguments[1]}),
               value_type(this->argument_types[0]),
               key_type(this->argument_types[1]) {
         if (StringRef(Data::name()) == StringRef("min_by") ||
             StringRef(Data::name()) == StringRef("max_by")) {
-            CHECK(key_type_->is_comparable());
+            CHECK(key_type->is_comparable());
         }
     }
 
@@ -140,8 +138,6 @@ public:
                      Arena*) const override {
         this->data(place).read(buf);
     }
-
-    bool allocates_memory_in_arena() const override { return AllocatesMemoryInArena; }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);

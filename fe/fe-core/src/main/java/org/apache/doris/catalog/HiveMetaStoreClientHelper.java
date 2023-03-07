@@ -669,15 +669,25 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
+    /**
+     * The nested column has inner columns, and each column is separated a comma. The inner column maybe a nested
+     * column too, so we cannot simply split by the comma. We need to match the angle brackets，
+     * and deal with the inner column recursively.
+     */
     private static int findNextNestedField(String commaSplitFields) {
         int numLess = 0;
+        int numBracket = 0;
         for (int i = 0; i < commaSplitFields.length(); i++) {
             char c = commaSplitFields.charAt(i);
             if (c == '<') {
                 numLess++;
             } else if (c == '>') {
                 numLess--;
-            } else if (c == ',' && numLess == 0) {
+            } else if (c == '(') {
+                numBracket++;
+            } else if (c == ')') {
+                numBracket--;
+            } else if (c == ',' && numLess == 0 && numBracket == 0) {
                 return i;
             }
         }
@@ -714,12 +724,14 @@ public class HiveMetaStoreClientHelper {
             default:
                 break;
         }
+        // resolve schema like array<int>
         if (lowerCaseType.startsWith("array")) {
             if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
                 Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
                 return ArrayType.create(innerType, true);
             }
         }
+        // resolve schema like map<text, int>
         if (lowerCaseType.startsWith("map")) {
             if (lowerCaseType.indexOf("<") == 3 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
                 String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
@@ -730,6 +742,7 @@ public class HiveMetaStoreClientHelper {
                 }
             }
         }
+        // resolve schema like struct<col1: text, col2: int>
         if (lowerCaseType.startsWith("struct")) {
             if (lowerCaseType.indexOf("<") == 6 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
                 String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);

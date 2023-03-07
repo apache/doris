@@ -1579,7 +1579,7 @@ public:
 
     // Serialize the bitmap value to dst, which should be large enough.
     // Client should call `getSizeInBytes` first to get the serialized size.
-    void write(char* dst) {
+    void write_to(char* dst) const {
         switch (_type) {
         case EMPTY:
             *dst = BitmapTypeCode::EMPTY;
@@ -1628,14 +1628,14 @@ public:
         return true;
     }
 
-    doris_udf::BigIntVal minimum() const {
+    doris::BigIntVal minimum() const {
         switch (_type) {
         case SINGLE:
-            return doris_udf::BigIntVal(_sv);
+            return doris::BigIntVal(_sv);
         case BITMAP:
-            return doris_udf::BigIntVal(_bitmap.minimum());
+            return doris::BigIntVal(_bitmap.minimum());
         default:
-            return doris_udf::BigIntVal::null();
+            return doris::BigIntVal::null();
         }
     }
 
@@ -1673,14 +1673,14 @@ public:
         return ss.str();
     }
 
-    doris_udf::BigIntVal maximum() const {
+    doris::BigIntVal maximum() const {
         switch (_type) {
         case SINGLE:
-            return doris_udf::BigIntVal(_sv);
+            return doris::BigIntVal(_sv);
         case BITMAP:
-            return doris_udf::BigIntVal(_bitmap.maximum());
+            return doris::BigIntVal(_bitmap.maximum());
         default:
-            return doris_udf::BigIntVal::null();
+            return doris::BigIntVal::null();
         }
     }
 

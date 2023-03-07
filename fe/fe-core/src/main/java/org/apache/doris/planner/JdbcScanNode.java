@@ -73,12 +73,21 @@ public class JdbcScanNode extends ScanNode {
         computeStats(analyzer);
     }
 
+    /**
+     * Used for Nereids. Should NOT use this function in anywhere else.
+     */
+    public void init() throws UserException {
+        numNodes = numNodes <= 0 ? 1 : numNodes;
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
+    }
+
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return null;
     }
 
-    private void createJdbcFilters(Analyzer analyzer) {
+    private void createJdbcFilters() {
         if (conjuncts.isEmpty()) {
             return;
         }
@@ -103,7 +112,7 @@ public class JdbcScanNode extends ScanNode {
         }
     }
 
-    private void createJdbcColumns(Analyzer analyzer) {
+    private void createJdbcColumns() {
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -168,8 +177,14 @@ public class JdbcScanNode extends ScanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         // Convert predicates to Jdbc columns and filters.
-        createJdbcColumns(analyzer);
-        createJdbcFilters(analyzer);
+        createJdbcColumns();
+        createJdbcFilters();
+    }
+
+    @Override
+    public void finalizeForNereids() throws UserException {
+        createJdbcColumns();
+        createJdbcFilters();
     }
 
     @Override

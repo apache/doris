@@ -175,9 +175,6 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             // remote rowset
             *rowset_meta = visible_rowset;
         }
-        // FIXME(cyx): Redundant?
-        rowset_meta->set_tablet_id(tablet_id);
-        rowset_meta->set_tablet_schema_hash(schema_hash);
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
         rs_version_map[rowset_version] = rowset_meta;
     }
@@ -206,9 +203,6 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             // remote rowset
             *rowset_meta = stale_rowset;
         }
-        // FIXME(cyx): Redundant?
-        rowset_meta->set_tablet_id(tablet_id);
-        rowset_meta->set_tablet_schema_hash(schema_hash);
     }
 
     if (!rowset_id_mapping.empty() && cloned_tablet_meta_pb.has_delete_bitmap()) {
@@ -427,13 +421,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                                 request.tablet_id, request.schema_hash, version.to_string());
                         break;
                     }
-                }
-
-                // Take a full snapshot, will revise according to missed rowset later.
-                if (ref_tablet->keys_type() == UNIQUE_KEYS &&
-                    ref_tablet->enable_unique_key_merge_on_write()) {
-                    delete_bitmap_snapshot = ref_tablet->tablet_meta()->delete_bitmap().snapshot(
-                            ref_tablet->max_version().second);
                 }
             }
 

@@ -678,7 +678,12 @@ void DataDir::perform_path_scan() {
                              << " error[" << ret.to_string() << "]";
                 continue;
             }
+
             for (const auto& schema_hash : schema_hashes) {
+                int32_t interval_ms = config::path_scan_step_interval_ms;
+                if (interval_ms > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+                }
                 auto tablet_schema_hash_path = fmt::format("{}/{}", tablet_id_path, schema_hash);
                 _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
 

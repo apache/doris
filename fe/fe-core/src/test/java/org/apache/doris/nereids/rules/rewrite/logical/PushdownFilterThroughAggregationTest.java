@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -38,7 +38,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
-public class PushdownFilterThroughAggregationTest implements PatternMatchSupported {
+public class PushdownFilterThroughAggregationTest implements MemoPatternMatchSupported {
 
     /*-
      * origin plan:
@@ -135,8 +135,8 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
                                         logicalAggregate(
                                                 logicalFilter(
                                                         logicalOlapScan()
-                                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof LessThanEqual
-                                                        && ImmutableList.copyOf(filter.getConjuncts()).get(1) instanceof GreaterThan)
+                                                ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof GreaterThan
+                                                        && ImmutableList.copyOf(filter.getConjuncts()).get(1) instanceof LessThanEqual)
                                         )
                                 ).when(filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0) instanceof EqualTo)
                         )

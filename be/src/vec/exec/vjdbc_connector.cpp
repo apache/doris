@@ -140,6 +140,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
                     std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
                     _conn_param.driver_checksum, &local_location));
         }
+        VLOG_QUERY << "driver local path = " << local_location;
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);

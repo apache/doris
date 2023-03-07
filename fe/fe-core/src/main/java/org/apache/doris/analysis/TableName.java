@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
@@ -51,6 +52,21 @@ public class TableName implements Writable {
 
     public TableName() {
 
+    }
+
+    public TableName(String alias) {
+        String[] parts = alias.split("\\.");
+        Preconditions.checkArgument(parts.length > 0, "table name can't be empty");
+        tbl = parts[parts.length - 1];
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
+        if (parts.length >= 2) {
+            db = parts[parts.length - 2];
+        }
+        if (parts.length >= 3) {
+            ctl = parts[parts.length - 3];
+        }
     }
 
     public TableName(String ctl, String db, String tbl) {

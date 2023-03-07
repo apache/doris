@@ -22,8 +22,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableSet;
@@ -69,14 +69,8 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
 
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            topJoin.getHashJoinConjuncts(), topJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, c);
-                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(),
-                            bottomJoin.getOtherJoinConjuncts(),
-                            JoinHint.NONE,
-                            newBottomJoin, b);
-
+                    Plan newBottomJoin = topJoin.withChildren(a, c);
+                    Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, b);
                     return newTopJoin;
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE);
     }

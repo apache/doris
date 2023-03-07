@@ -32,11 +32,14 @@ ALTER USER
 
 ### Description
 
-The ALTER USER command is used to modify a user's account attributes, including roles, passwords, and password policies, etc.
+The ALTER USER command is used to modify a user's account attributes, including passwords, and password policies, etc.
+
+>Note that.
+>
+>This command give over supports modifying user roles. Please use [GRANT](./GRANT.md) and [REVOKE](./REVOKE.md) for related operations
 
 ```sql
 ALTER USER [IF EXISTS] user_identity [IDENTIFIED BY 'password']
-[DEFAULT ROLE 'role_name']
 [password_policy]
 
 user_identity:
@@ -58,37 +61,30 @@ About `user_identity` and `password_policy`, Please refer to `CREATE USER`.
 In an ALTER USER command, only one of the following account attributes can be modified at the same time:
 
 1. Change password
-2. Modify the role
-3. Modify `PASSWORD_HISTORY`
-4. Modify `PASSWORD_EXPIRE`
-5. Modify `FAILED_LOGIN_ATTEMPTS` and `PASSWORD_LOCK_TIME`
-6. Unlock users
+2. Modify `PASSWORD_HISTORY`
+3. Modify `PASSWORD_EXPIRE`
+4. Modify `FAILED_LOGIN_ATTEMPTS` and `PASSWORD_LOCK_TIME`
+5. Unlock users
 
 ### Example
 
 1. Change the user's password
 
-	```
-	ALTER USER jack@‘%’ IDENTIFIED BY "12345";
-	```
+    ```
+    ALTER USER jack@‘%’ IDENTIFIED BY "12345";
+    ```
 
-2. Modify the role of the user
-
-	```
-	ALTER USER jack@'192.168.%' DEFAULT ROLE "role2";
-	```
-
-3. Modify the user's password policy
+2. Modify the user's password policy
 	
-	```
-	ALTER USER jack@'%' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;
-	```
+    ```
+    ALTER USER jack@'%' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;
+    ```
 
-4. Unlock a user
+3. Unlock a user
 
-	```
-	ALTER USER jack@'%' ACCOUNT_UNLOCK
-	```
+    ```
+    ALTER USER jack@'%' ACCOUNT_UNLOCK
+    ```
 
 ### Keywords
 
@@ -96,24 +92,8 @@ In an ALTER USER command, only one of the following account attributes can be mo
 
 ### Best Practice
 
-1. Modify the role
+1. Modify the password policy
 
-     If the user previously belonged to role A, when the user role is modified, all permissions corresponding to role A on the user will be revoked first, and then all permissions corresponding to the new role will be granted.
+    1. Modify `PASSWORD_EXPIRE` will reset the timing of password expiration time.
 
-     Note that if the user has been granted a certain permission before, and role A also includes this permission, after modifying the role, the individually granted permission will also be revoked.
-
-     for example:
-
-     Suppose roleA has the privilege: `select_priv on db1.*`, create user user1 and set the role to roleA.
-
-     Then give the user this privilege separately: `GRANT select_priv, load_priv on db1.* to user1`
-
-     roleB has the privilege `alter_priv on db1.tbl1`. At this time, modify the role of user1 to B.
-
-     Then finally user1 has `alter_priv on db1.tbl1` and `load_priv on db1.*` permissions.
-
-2. Modify the password policy
-
-	1. Modify `PASSWORD_EXPIRE` will reset the timing of password expiration time.
-
-	2. Modify `FAILED_LOGIN_ATTEMPTS` or `PASSWORD_LOCK_TIME` will unlock the user.
+    2. Modify `FAILED_LOGIN_ATTEMPTS` or `PASSWORD_LOCK_TIME` will unlock the user.

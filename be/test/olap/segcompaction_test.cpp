@@ -24,6 +24,7 @@
 
 #include "common/config.h"
 #include "env/env_posix.h"
+#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
 #include "olap/row_cursor.h"
@@ -34,6 +35,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
@@ -57,7 +59,6 @@ public:
 
     void SetUp() {
         config::enable_segcompaction = true;
-        config::enable_storage_vectorization = true;
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -124,10 +125,10 @@ protected:
         return true;
     }
 
-    // (k1 int, k2 varchar(20), k3 int) duplicated key (k1, k2)
-    void create_tablet_schema(TabletSchemaSPtr tablet_schema) {
+    // (k1 int, k2 varchar(20), k3 int) keys (k1, k2)
+    void create_tablet_schema(TabletSchemaSPtr tablet_schema, KeysType keystype) {
         TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema_pb.set_keys_type(keystype);
         tablet_schema_pb.set_num_short_key_columns(2);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
@@ -184,6 +185,27 @@ protected:
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
         rowset_writer_context->version.second = 10;
+
+#if 0
+        TCreateTabletReq req;
+        req.table_id =
+        req.tablet_id =
+        req.tablet_scheme =
+        req.partition_id =
+        l_engine->create_tablet(req);
+        rowset_writer_context->tablet = l_engine->tablet_manager()->get_tablet(TTabletId tablet_id);
+#endif
+        std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
+        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->_tablet_id = 1;
+        tablet_meta->_schema = tablet_schema;
+        auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
+        char* tmp_str = (char*)malloc(20);
+        strncpy(tmp_str, "test_tablet_name", 20);
+
+        tablet->_full_name = tmp_str;
+        // tablet->key
+        rowset_writer_context->tablet = tablet;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
@@ -200,12 +222,122 @@ private:
     std::unique_ptr<DataDir> _data_dir;
 };
 
-TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
+TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    create_tablet_schema(tablet_schema);
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetSharedPtr rowset;
+    const int num_segments = 15;
+    const uint32_t rows_per_segment = 4096;
+    config::segcompaction_small_threshold = 6000; // set threshold above
+                                                  // rows_per_segment
+    config::segcompaction_threshold_segment_num = 10;
+    std::vector<uint32_t> segment_num_rows;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10047, tablet_schema, &writer_context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_EQ(Status::OK(), s);
+
+        RowCursor input_row;
+        input_row.init(tablet_schema);
+
+        // for segment "i", row "rid"
+        // k1 := rid*10 + i
+        // k2 := k1 * 10
+        // k3 := rid
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+            sleep(1);
+        }
+
+        rowset = rowset_writer->build();
+        std::vector<std::string> ls;
+        ls.push_back("10047_0.dat");
+        ls.push_back("10047_1.dat");
+        ls.push_back("10047_2.dat");
+        ls.push_back("10047_3.dat");
+        ls.push_back("10047_4.dat");
+        ls.push_back("10047_5.dat");
+        ls.push_back("10047_6.dat");
+        EXPECT_TRUE(check_dir(ls));
+    }
+
+    { // read
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = tablet_schema;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = READER_CUMULATIVE_COMPACTION;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        reader_context.return_columns = &return_columns;
+        reader_context.stats = &_stats;
+
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            uint32_t num_rows_read = 0;
+            bool eof = false;
+            while (!eof) {
+                std::shared_ptr<vectorized::Block> output_block =
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
+                s = rowset_reader->next_block(output_block.get());
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
+                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
+                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    EXPECT_EQ(100 * v3 + k2, k1);
+                    num_rows_read++;
+                }
+                output_block->clear();
+            }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_EQ(total_num_rows, num_rows_read);
+        }
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
 
     RowsetSharedPtr rowset;
     config::segcompaction_small_threshold = 6000; // set threshold above
@@ -328,6 +460,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
+            sleep(1);
         }
 
         rowset = rowset_writer->build();
@@ -346,10 +479,9 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    create_tablet_schema(tablet_schema);
+    create_tablet_schema(tablet_schema, DUP_KEYS);
 
     RowsetSharedPtr rowset;
     config::segcompaction_small_threshold = 6000; // set threshold above
@@ -454,6 +586,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
+            sleep(1);
         }
 
         rowset = rowset_writer->build();
@@ -464,6 +597,475 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         ls.push_back("10049_3.dat"); // o
         ls.push_back("10049_4.dat"); // O
         EXPECT_TRUE(check_dir(ls));
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, UNIQUE_KEYS);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_small_threshold = 6000; // set threshold above
+                                                  // rows_per_segment
+    config::segcompaction_threshold_segment_num = 3;
+    std::vector<uint32_t> segment_num_rows;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10051, tablet_schema, &writer_context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_EQ(Status::OK(), s);
+
+        RowCursor input_row;
+        input_row.init(tablet_schema);
+
+        MemPool mem_pool;
+        uint32_t k1 = 0;
+        uint32_t k2 = 0;
+        uint32_t k3 = 0;
+
+        // segment#0
+        k1 = k2 = 1;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 4;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 6;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+        // segment#1
+        k1 = k2 = 2;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 4;
+        k3 = 2;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 6;
+        k3 = 2;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#2
+        k1 = k2 = 3;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 6;
+        k3 = 3;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 9;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#3
+        k1 = k2 = 4;
+        k3 = 3;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 9;
+        k3 = 2;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 12;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#4
+        k1 = k2 = 25;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#5
+        k1 = k2 = 26;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        rowset = rowset_writer->build();
+        std::vector<std::string> ls;
+        ls.push_back("10051_0.dat");
+        ls.push_back("10051_1.dat");
+        ls.push_back("10051_2.dat");
+        ls.push_back("10051_3.dat");
+        EXPECT_TRUE(check_dir(ls));
+    }
+
+    { // read
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = tablet_schema;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = READER_CUMULATIVE_COMPACTION;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        reader_context.return_columns = &return_columns;
+        reader_context.stats = &_stats;
+        reader_context.is_unique = true;
+
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            uint32_t num_rows_read = 0;
+            bool eof = false;
+            while (!eof) {
+                std::shared_ptr<vectorized::Block> output_block =
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
+                s = rowset_reader->next_block(output_block.get());
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
+                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
+                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    std::cout << "k1 k2 k3: " << k1 << " " << k2 << " " << v3 << std::endl;
+                    num_rows_read++;
+                }
+                output_block->clear();
+            }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            // duplicated keys between segments are counted duplicately
+            // so actual read by rowset reader is less or equal to it
+            EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_GE(total_num_rows, num_rows_read);
+        }
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, AGG_KEYS);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_small_threshold = 6000; // set threshold above
+                                                  // rows_per_segment
+    config::segcompaction_threshold_segment_num = 3;
+    std::vector<uint32_t> segment_num_rows;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10052, tablet_schema, &writer_context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_EQ(Status::OK(), s);
+
+        RowCursor input_row;
+        input_row.init(tablet_schema);
+
+        MemPool mem_pool;
+        uint32_t k1 = 0;
+        uint32_t k2 = 0;
+        uint32_t k3 = 0;
+
+        // segment#0
+        k1 = k2 = 1;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 4;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 6;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+        // segment#1
+        k1 = k2 = 2;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 4;
+        k3 = 2;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 6;
+        k3 = 2;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#2
+        k1 = k2 = 3;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 6;
+        k3 = 3;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 9;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#3
+        k1 = k2 = 4;
+        k3 = 3;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 9;
+        k3 = 2;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        k1 = k2 = 12;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#4
+        k1 = k2 = 25;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#5
+        k1 = k2 = 26;
+        k3 = 1;
+        input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+        input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+        input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+        s = rowset_writer->add_row(input_row);
+        EXPECT_EQ(Status::OK(), s);
+
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        rowset = rowset_writer->build();
+        std::vector<std::string> ls;
+        ls.push_back("10052_0.dat");
+        ls.push_back("10052_1.dat");
+        ls.push_back("10052_2.dat");
+        ls.push_back("10052_3.dat");
+        EXPECT_TRUE(check_dir(ls));
+    }
+
+    { // read
+        RowsetReaderContext reader_context;
+        reader_context.tablet_schema = tablet_schema;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = READER_CUMULATIVE_COMPACTION;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        reader_context.return_columns = &return_columns;
+        reader_context.stats = &_stats;
+        // reader_context.is_unique = true;
+
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            uint32_t num_rows_read = 0;
+            bool eof = false;
+            while (!eof) {
+                std::shared_ptr<vectorized::Block> output_block =
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
+                s = rowset_reader->next_block(output_block.get());
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
+                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
+                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    // dup keys may exist between segments, but not in single segment
+                    std::cout << "k1 k2 k3: " << k1 << " " << k2 << " " << v3 << std::endl;
+                    num_rows_read++;
+                }
+                output_block->clear();
+            }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            // duplicated keys between segments are counted duplicately
+            // so actual read by rowset reader is less or equal to it
+            EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_GE(total_num_rows, num_rows_read);
+        }
     }
 }
 

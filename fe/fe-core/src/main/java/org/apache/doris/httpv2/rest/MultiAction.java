@@ -130,7 +130,7 @@ public class MultiAction extends RestBaseController {
             }
 
             Map<String, String> properties = Maps.newHashMap();
-            String[] keys = {LoadStmt.TIMEOUT_PROPERTY, LoadStmt.MAX_FILTER_RATIO_PROPERTY};
+            String[] keys = {LoadStmt.TIMEOUT_PROPERTY, LoadStmt.MAX_FILTER_RATIO_PROPERTY, LoadStmt.KEY_COMMENT};
             for (String key : keys) {
                 String value = request.getParameter(key);
                 if (!Strings.isNullOrEmpty(value)) {
