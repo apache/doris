@@ -90,7 +90,7 @@ $ ./beeline -u "jdbc:hive2://xxxx:10009/;#kyuubi.engine.type=jdbc"`
 
 ### 执行查询
 
-执行查询语句 `select * from demo.expamle_tbl;` 并得到结果，
+执行查询语句 `select * from demo.expamle_tbl;` 并得到结果。
 
 ```shell
 0: jdbc:hive2://xxxx:10009/> select * from demo.example_tbl;
