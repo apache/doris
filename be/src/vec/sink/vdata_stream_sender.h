@@ -50,6 +50,7 @@ public:
                       int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
 
     VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
+                      PlanNodeId dest_node_id,
                       const std::vector<TPlanFragmentDestination>& destinations,
                       int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
 
