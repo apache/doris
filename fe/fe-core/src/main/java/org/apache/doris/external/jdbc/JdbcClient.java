@@ -180,8 +180,8 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
-                            + "where schema_owner='" + jdbcUser + "';");
+                    rs = stmt.executeQuery("SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
+                            + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
