@@ -3,7 +3,7 @@
 
 {
 "title": "Kyuubi",
-"language": "zh-CN"
+"language": "en"
 }
 
 ---
