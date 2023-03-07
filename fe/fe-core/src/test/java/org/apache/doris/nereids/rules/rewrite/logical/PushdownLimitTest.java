@@ -48,7 +48,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-class LimitPushDownTest extends TestWithFeService implements MemoPatternMatchSupported {
+class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSupported {
     private Plan scanScore = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
     private Plan scanStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
 
@@ -173,7 +173,7 @@ class LimitPushDownTest extends TestWithFeService implements MemoPatternMatchSup
                                 logicalJoin(
                                         logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
                                         logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                                ).when(j -> j.getJoinType() == JoinType.INNER_JOIN)
+                                )
                         )
                 )
         );
@@ -182,7 +182,7 @@ class LimitPushDownTest extends TestWithFeService implements MemoPatternMatchSup
                         logicalJoin(
                                 logicalLimit(logicalOlapScan().when(s -> s.equals(scanScore))),
                                 logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
-                        ).when(j -> j.getJoinType() == JoinType.INNER_JOIN)
+                        )
                 )
         );
     }
@@ -241,7 +241,8 @@ class LimitPushDownTest extends TestWithFeService implements MemoPatternMatchSup
         Plan plan = generatePlan(joinType, hasProject);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(plan)
-                .applyTopDown(new LimitPushDown())
+                .applyTopDown(new InnerToCrossJoin())
+                .applyTopDown(new PushdownLimit())
                 .matchesFromRoot(pattern);
     }
 
