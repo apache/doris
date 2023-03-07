@@ -285,9 +285,9 @@ size_t ColumnMap::filter(const Filter& filter) {
     MutableColumnPtr copied_off = offsets_column->clone_empty();
     copied_off->insert_range_from(*offsets_column, 0, offsets_column->size());
     ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->filter(filter);
+            ->filter(filter);
     ColumnArray::create(values_column->assume_mutable(), copied_off->assume_mutable())
-                    ->filter(filter);
+            ->filter(filter);
     return get_offsets().size();
 }
 
