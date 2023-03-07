@@ -21,6 +21,7 @@
 #pragma once
 #include <mutex>
 #include <string>
+#include <type_traits>
 
 #include "arrow/type.h"
 #include "common/consts.h"
@@ -112,8 +113,19 @@ public:
             if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
                 return entity.second;
             }
-            // todo:
-            // judge array decimalv3
+            if (is_array(type_ptr) && is_array(entity.first)) {
+                auto nested_nullable_type_ptr = (assert_cast<const DataTypeArray*>(type_ptr.get()))->get_nested_type();
+                auto nested_nullable_entity_ptr = (assert_cast<const DataTypeArray*>(entity.first.get()))->get_nested_type();
+                auto nested_type_ptr = nested_nullable_type_ptr->is_nullable()
+                                ?((DataTypeNullable*)(nested_nullable_type_ptr.get()))->get_nested_type()
+                                : nested_nullable_type_ptr;
+                auto nested_entity_ptr= nested_nullable_entity_ptr->is_nullable()
+                                ?((DataTypeNullable*)(nested_nullable_entity_ptr.get()))->get_nested_type()
+                                : nested_nullable_entity_ptr;
+                if(is_decimal(nested_type_ptr)&&nested_type_ptr->get_type_id()==nested_entity_ptr->get_type_id()) {
+                    return entity.second;
+                }
+            }
         }
         if (type_ptr->get_type_id() == TypeIndex::Struct ||
             type_ptr->get_type_id() == TypeIndex::Map) {
