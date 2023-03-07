@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <iostream>
+#include <string>
 
 namespace doris {
 
@@ -38,7 +39,7 @@ TEST_F(ExceptionTest, SingleError) {
     try {
         throw doris::Exception(ErrorCode::OS_ERROR, "test OS_ERROR {}", "bug");
     } catch (doris::Exception& e) {
-        std::cout << e << std::endl;
+        EXPECT_TRUE(e.to_string().find("OS_ERROR") != std::string::npos);
     }
 }
 
@@ -46,11 +47,12 @@ TEST_F(ExceptionTest, NestedError) {
     try {
         throw doris::Exception(ErrorCode::OS_ERROR, "test OS_ERROR {}", "bug");
     } catch (doris::Exception& e1) {
-        std::cout << e1 << std::endl;
+        EXPECT_TRUE(e1.to_string().find("OS_ERROR") != std::string::npos);
         try {
             throw doris::Exception(e1, ErrorCode::INVALID_ARGUMENT, "test INVALID_ARGUMENT");
         } catch (doris::Exception& e2) {
-            std::cout << e2 << std::endl;
+            EXPECT_TRUE(e2.to_string().find("OS_ERROR") != std::string::npos);
+            EXPECT_TRUE(e2.to_string().find("INVALID_ARGUMENT") != std::string::npos);
         }
     }
 }
