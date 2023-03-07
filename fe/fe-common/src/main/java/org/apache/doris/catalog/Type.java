@@ -507,6 +507,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATEV2);
     }
 
+    public boolean isDateV2OrDateTimeV2() {
+        return isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+    }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
