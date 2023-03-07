@@ -1610,7 +1610,7 @@ build_hadoop_libs_x86() {
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    cp ./native/libhdfs.a "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
