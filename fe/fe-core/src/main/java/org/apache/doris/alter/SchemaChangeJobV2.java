@@ -696,10 +696,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void onFinished(OlapTable tbl) {
         if (invertedIndexChange) {
-            // set storage format of table, only set if format is v2
-            if (storageFormat == TStorageFormat.V2) {
-                tbl.setStorageFormat(storageFormat);
-            }
+            tbl.setStorageFormat(storageFormat);
             tbl.setState(OlapTableState.NORMAL);
             return;
         }
@@ -904,7 +901,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         try {
             addShadowIndexToCatalog(olapTable);
             if (invertedIndexChange) {
-                // set table state
+                // invertedIndexChange job begin with WAITING_TXN, no PENDING state,
+                // here need set table state to SCHEMA_CHANGE when replay job begin at WAITING_TXN
                 olapTable.setState(OlapTableState.SCHEMA_CHANGE);
             }
         } finally {
