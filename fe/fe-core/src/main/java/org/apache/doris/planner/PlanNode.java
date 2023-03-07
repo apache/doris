@@ -57,6 +57,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -627,6 +628,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         computeNumNodes();
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             computeOldCardinality();
+        }
+        for (Expr expr : conjuncts) {
+            Set<SlotRef> slotRefs = new HashSet<>();
+            expr.getSlotRefsBoundByTupleIds(tupleIds, slotRefs);
+            for (SlotRef slotRef : slotRefs) {
+                slotRef.getDesc().setIsMaterialized(true);
+            }
+            for (TupleId tupleId : tupleIds) {
+                analyzer.getTupleDesc(tupleId).computeMemLayout();
+            }
         }
     }
 
