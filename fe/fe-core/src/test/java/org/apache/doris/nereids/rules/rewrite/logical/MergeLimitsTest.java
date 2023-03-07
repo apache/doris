@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -33,10 +34,10 @@ import java.util.List;
 public class MergeLimitsTest {
     @Test
     public void testMergeConsecutiveLimits() {
-        LogicalLimit limit3 = new LogicalLimit<>(3, 5, new UnboundRelation(
+        LogicalLimit limit3 = new LogicalLimit<>(3, 5, LimitPhase.ORIGIN, new UnboundRelation(
                 RelationUtil.newRelationId(), Lists.newArrayList("db", "t")));
-        LogicalLimit limit2 = new LogicalLimit<>(2, 0, limit3);
-        LogicalLimit limit1 = new LogicalLimit<>(10, 0, limit2);
+        LogicalLimit limit2 = new LogicalLimit<>(2, 0, LimitPhase.ORIGIN, limit3);
+        LogicalLimit limit1 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit2);
 
         CascadesContext context = MemoTestUtils.createCascadesContext(limit1);
         List<Rule> rules = Lists.newArrayList(new MergeLimits().build());

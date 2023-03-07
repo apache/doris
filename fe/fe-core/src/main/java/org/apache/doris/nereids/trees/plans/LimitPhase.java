@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
-
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+package org.apache.doris.nereids.trees.plans;
 
 /**
- * Implementation rule that convert logical limit to physical limit.
+ * Limit phase for logical and physical limit, like
+ *          LocalLimit -> Gather -> GlobalLimit
+ * Origin is used to mark the limit operator that has not been split into 2-phase
  */
-public class LogicalLimitToPhysicalLimit extends OneImplementationRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalLimit().then(limit -> new PhysicalLimit<>(
-                limit.getLimit(),
-                limit.getOffset(),
-                limit.getPhase(),
-                limit.getLogicalProperties(),
-                limit.child())
-        ).toRule(RuleType.LOGICAL_LIMIT_TO_PHYSICAL_LIMIT_RULE);
+public enum LimitPhase {
+    LOCAL("LOCAL"),
+    GLOBAL("GLOBAL"),
+    ORIGIN("ORIGIN");
+    private final String name;
+
+    LimitPhase(String name) {
+        this.name = name;
+    }
+
+    public boolean isLocal() {
+        return this == LOCAL;
     }
 }

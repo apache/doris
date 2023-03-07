@@ -20,38 +20,29 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
 /**
- * This rule aims to merge consecutive limits.
- * <pre>
- * input plan:
- *   LIMIT1(limit=10, offset=0)
- *     |
- *   LIMIT2(limit=3, offset=5)
- *
- * output plan:
- *    LIMIT(limit=3, offset=5)
- *
- * merged limit = min(LIMIT1.limit, LIMIT2.limit)
- * merged offset = LIMIT2.offset
- * </pre>
- * Note that the top limit should not have valid offset info.
+ * Split limit into two phase
+ * before:
+ *  Limit(origin) limit, offset
+ * after:
+ *  Limit(global) limit, offset
+ *      |
+ *  Limit(local) limit + offset, 0
  */
-public class MergeLimits extends OneRewriteRuleFactory {
+public class SplitLimit extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit(logicalLimit())
-                .when(upperLimit -> upperLimit.getPhase().equals(upperLimit.child().getPhase()))
-                .then(upperLimit -> {
-                    LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
-                    return new LogicalLimit<>(
-                            Math.min(upperLimit.getLimit(),
-                                    Math.max(bottomLimit.getLimit() - upperLimit.getOffset(), 0)),
-                            bottomLimit.getOffset() + upperLimit.getOffset(),
-                            bottomLimit.getPhase(), bottomLimit.child()
+        return logicalLimit().when(limit -> !limit.isSplit())
+                .then(limit -> {
+                    long l = limit.getLimit();
+                    long o = limit.getOffset();
+                    return new LogicalLimit<>(l, o,
+                            LimitPhase.GLOBAL, new LogicalLimit<>(l + o, 0, LimitPhase.LOCAL, limit.child())
                     );
-                }).toRule(RuleType.MERGE_LIMITS);
+                }).toRule(RuleType.SPLIT_LIMIT);
     }
 }
+
