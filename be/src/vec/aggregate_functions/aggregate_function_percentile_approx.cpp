@@ -48,15 +48,13 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
 AggregateFunctionPtr create_aggregate_function_percentile(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<AggregateFunctionPercentile>(
-            result_is_nullable, argument_types));
+    return std::make_shared<AggregateFunctionPercentile>(argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_percentile_array(const std::string& name,
                                                                 const DataTypes& argument_types,
                                                                 const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<AggregateFunctionPercentileArray>(
-            result_is_nullable, argument_types));
+    return std::make_shared<AggregateFunctionPercentileArray>(argument_types);
 }
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {

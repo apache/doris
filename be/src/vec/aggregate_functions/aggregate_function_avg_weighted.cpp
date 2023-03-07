@@ -26,18 +26,8 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_avg_weight(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    WhichDataType which(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return AggregateFunctionPtr(new AggregateFunctionAvgWeight<TYPE>(argument_types));
-    FOR_NUMERIC_TYPES(DISPATCH)
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << fmt::format("Illegal argument  type for aggregate function topn_array is: {}",
-                                argument_types[0]->get_name());
-    return nullptr;
+    return AggregateFunctionPtr(creator_with_type::create<AggregateFunctionAvgWeight>(
+            result_is_nullable, argument_types));
 }
 
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory) {
