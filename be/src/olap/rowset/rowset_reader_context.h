@@ -67,7 +67,6 @@ struct RowsetReaderContext {
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
-    bool is_vec = false;
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;
