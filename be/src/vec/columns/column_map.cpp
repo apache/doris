@@ -282,7 +282,13 @@ ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const 
 }
 
 size_t ColumnMap::filter(const Filter& filter) {
-    return this->filter(filter, 0)->size();
+    MutableColumnPtr copied_off = offsets_column->clone_empty();
+    copied_off->insert_range_from(*offsets_column, 0, offsets_column->size());
+    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
+                    ->filter(filter);
+    ColumnArray::create(values_column->assume_mutable(), copied_off->assume_mutable())
+                    ->filter(filter);
+    return get_offsets().size();
 }
 
 Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
