@@ -151,6 +151,12 @@ public:
         _has_null = true;
     }
 
+    void insert_not_null_elements(size_t num) {
+        get_nested_column().insert_many_defaults(num);
+        _get_null_map_column().fill(0, num);
+        _has_null = false;
+    }
+
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
         _get_null_map_column().fill(1, num);
