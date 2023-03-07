@@ -61,8 +61,8 @@ inline std::ostream& operator<<(std::ostream& ostr, const Exception& exp) {
         ostr << '\n' << exp._err_msg->_stack;
     }
 #endif
-    if (_nested_excption != nullptr) {
-        ostr << '\n' << "Caused by:" << *_nested_excption;
+    if (exp._nested_excption != nullptr) {
+        ostr << '\n' << "Caused by:" << *exp._nested_excption;
     }
     return ostr;
 }
