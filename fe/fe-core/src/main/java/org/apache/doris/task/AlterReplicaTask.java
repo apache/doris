@@ -20,15 +20,12 @@ package org.apache.doris.task;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TAlterTabletType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TTaskType;
-
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,6 +48,7 @@ public class AlterReplicaTask extends AgentTask {
     private AlterJobV2.JobType jobType;
 
     private Map<String, Expr> defineExprs;
+    private Expr whereClause;
     private DescriptorTable descTable;
     private List<Column> baseSchemaColumns;
 
@@ -61,7 +59,7 @@ public class AlterReplicaTask extends AgentTask {
     public AlterReplicaTask(long backendId, long dbId, long tableId, long partitionId, long rollupIndexId,
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,
-            DescriptorTable descTable, List<Column> baseSchemaColumns) {
+            DescriptorTable descTable, List<Column> baseSchemaColumns, Expr whereClause) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
@@ -75,6 +73,7 @@ public class AlterReplicaTask extends AgentTask {
 
         this.jobType = jobType;
         this.defineExprs = defineExprs;
+        this.whereClause = whereClause;
         this.descTable = descTable;
         this.baseSchemaColumns = baseSchemaColumns;
     }
@@ -122,13 +121,18 @@ public class AlterReplicaTask extends AgentTask {
         }
         if (defineExprs != null) {
             for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
-                List<SlotRef> slots = Lists.newArrayList();
-                entry.getValue().collect(SlotRef.class, slots);
+                // List<SlotRef> slots = Lists.newArrayList();
+                // entry.getValue().collect(SlotRef.class, slots);
                 TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(entry.getKey());
-                mvParam.setOriginColumnName(slots.get(0).getColumnName());
+                // mvParam.setOriginColumnName(slots.get(0).getColumnName());
                 mvParam.setMvExpr(entry.getValue().treeToThrift());
                 req.addToMaterializedViewParams(mvParam);
             }
+        }
+        if (whereClause != null) {
+            TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(Column.WHERE_SIGN);
+            mvParam.setMvExpr(whereClause.treeToThrift());
+            req.addToMaterializedViewParams(mvParam);
         }
         req.setDescTbl(descTable.toThrift());
 

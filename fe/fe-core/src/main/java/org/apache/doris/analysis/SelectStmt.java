@@ -303,6 +303,10 @@ public class SelectStmt extends QueryStmt {
         return whereClause;
     }
 
+    public Expr getOriginalWhereClause() {
+        return originalWhereClause;
+    }
+
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
     }
