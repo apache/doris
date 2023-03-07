@@ -61,7 +61,7 @@ public:
             return str;
         }
         auto begin = 0;
-        auto end = str.size - 1;
+        int64_t end = str.size - 1;
 #if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
