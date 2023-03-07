@@ -36,9 +36,22 @@ TEST_F(ExceptionTest, OK) {
 
 TEST_F(ExceptionTest, SingleError) {
     try {
-        throw doris::Exception(ErrorCode::OS_ERROR, "test os error {}", "bug");
+        throw doris::Exception(ErrorCode::OS_ERROR, "test OS_ERROR {}", "bug");
     } catch (doris::Exception& e) {
         std::cout << e << std::endl;
+    }
+}
+
+TEST_F(ExceptionTest, NestedError) {
+    try {
+        throw doris::Exception(ErrorCode::OS_ERROR, "test OS_ERROR {}", "bug");
+    } catch (doris::Exception& e1) {
+        std::cout << e << std::endl;
+        try {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "test INVALID_ARGUMENT", e);
+        } catch (doris::Exception& e2) {
+            std::cout << e << std::endl;
+        }
     }
 }
 
