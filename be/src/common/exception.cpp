@@ -17,6 +17,7 @@
 
 #include "common/exception.h"
 
+#include "util/stack_util.h"
 namespace doris {
 
 Exception::Exception(int code, const std::string_view msg) {
