@@ -72,7 +72,8 @@ public:
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1,
-                      RuntimeProfile* profile = nullptr);
+                      RuntimeProfile* profile = nullptr,
+                      const std::string& profile_counter_name = "PeakMemoryUsage");
 
     ~MemTrackerLimiter();
 
@@ -124,6 +125,8 @@ public:
     }
 
     static void refresh_global_counter();
+    static void refresh_all_tracker_profile();
+
     Snapshot make_snapshot() const;
     // Returns a list of all the valid tracker snapshots.
     static void make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots);
@@ -214,7 +217,7 @@ private:
                 "failed alloc size {}, exceeded tracker:<{}>, limit {}, peak "
                 "used {}, current used {}",
                 print_bytes(bytes), exceed_tracker->label(), print_bytes(exceed_tracker->limit()),
-                print_bytes(exceed_tracker->_consumption->value()),
+                print_bytes(exceed_tracker->_consumption->peak_value()),
                 print_bytes(exceed_tracker->_consumption->current_value()));
     }
 
