@@ -84,7 +84,7 @@ The fowllowing example shows basic example of querying Doris with Kyuubi with be
 
 ### Connect to Kyuubi with Beeline
 ```shell
-$ ./beeline -u "jdbc:hive2://xxxx:10009/;#kyuubi.engine.type=jdbc"`
+$ ./beeline -u "jdbc:hive2://xxxx:10009/"
 ```
 
 ### Execute Query to Kyuubi

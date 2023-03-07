@@ -85,7 +85,7 @@ kyuubi.engine.jdbc.connection.password=***
 ### 建立连接
 
 ```shell
-$ ./beeline -u "jdbc:hive2://xxxx:10009/;#kyuubi.engine.type=jdbc"`
+$ ./beeline -u "jdbc:hive2://xxxx:10009/"
 ```
 
 ### 执行查询
