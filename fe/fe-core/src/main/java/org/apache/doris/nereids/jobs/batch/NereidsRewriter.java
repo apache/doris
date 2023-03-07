@@ -61,6 +61,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
 import java.util.List;
 
@@ -192,6 +193,7 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new EliminateAggregate(),
                     new MergeSetOperations(),
                     new PushdownLimit(),
+                    new SplitLimit(),
                     new BuildAggForUnion()
             )),
 
