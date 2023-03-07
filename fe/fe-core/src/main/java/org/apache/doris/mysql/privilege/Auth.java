@@ -508,13 +508,16 @@ public class Auth implements Writable {
 
     // grant
     public void grant(GrantStmt stmt) throws DdlException {
-        PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
         if (stmt.getTblPattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
                     true /* err on non exist */, false /* not replay */);
-        } else {
+        } else if (stmt.getResourcePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
                     true /* err on non exist */, false /* not replay */);
+        } else {
+            grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
     }
 
@@ -524,10 +527,12 @@ public class Auth implements Writable {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
                         privInfo.getTblPattern(), privInfo.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
-            } else {
+            } else if (privInfo.getResourcePattern() != null) {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
                         privInfo.getResourcePattern(), privInfo.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
+            } else {
+                grantInternal(privInfo.getUserIdent(), privInfo.getRoles(), true);
             }
         } catch (DdlException e) {
             LOG.error("should not happen", e);
@@ -568,7 +573,6 @@ public class Auth implements Writable {
                 role = roleManager.getUserDefaultRoleName(userIdent);
             }
 
-            // grant privs to role, role must exist
             Role newRole = new Role(role, resourcePattern, privs);
             roleManager.addOrMergeRole(newRole, false /* err on exist */);
 
@@ -577,6 +581,30 @@ public class Auth implements Writable {
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
             LOG.info("finished to grant resource privilege. is replay: {}", isReplay);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // grant for roles
+    private void grantInternal(UserIdentity userIdent, List<String> roles, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (userManager.getUserByUserIdentity(userIdent) == null) {
+                throw new DdlException("user: " + userIdent + " does not exist");
+            }
+            //roles must exist
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName) == null) {
+                    throw new DdlException("role:" + roleName + " does not exist");
+                }
+            }
+            userRoleManager.addUserRoles(userIdent, roles);
+            if (!isReplay) {
+                PrivInfo info = new PrivInfo(userIdent, roles);
+                Env.getCurrentEnv().getEditLog().logGrantPriv(info);
+            }
+            LOG.info("finished to grant role privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -603,13 +631,16 @@ public class Auth implements Writable {
 
     // revoke
     public void revoke(RevokeStmt stmt) throws DdlException {
-        PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
         if (stmt.getTblPattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
                     true /* err on non exist */, false /* is replay */);
-        } else {
+        } else if (stmt.getResourcePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
                     true /* err on non exist */, false /* is replay */);
+        } else {
+            revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
     }
 
@@ -618,9 +649,11 @@ public class Auth implements Writable {
             if (info.getTblPattern() != null) {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getTblPattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
-            } else {
+            } else if (info.getResourcePattern() != null) {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getResourcePattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
+            } else {
+                revokeInternal(info.getUserIdent(), info.getRoles(), false);
             }
         } catch (DdlException e) {
             LOG.error("should not happened", e);
@@ -663,6 +696,30 @@ public class Auth implements Writable {
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
             LOG.info("finished to revoke privilege. is replay: {}", isReplay);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // revoke for roles
+    private void revokeInternal(UserIdentity userIdent, List<String> roles, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (userManager.getUserByUserIdentity(userIdent) == null) {
+                throw new DdlException("user: " + userIdent + " does not exist");
+            }
+            //roles must exist
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName) == null) {
+                    throw new DdlException("role:" + roleName + " does not exist");
+                }
+            }
+            userRoleManager.removeUserRoles(userIdent, roles);
+            if (!isReplay) {
+                PrivInfo info = new PrivInfo(userIdent, roles);
+                Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+            }
+            LOG.info("finished to revoke role privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -739,9 +796,6 @@ public class Auth implements Writable {
         Role emptyPrivsRole = new Role(role);
         writeLock();
         try {
-            if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                throw new DdlException("Can not create role starts with " + RoleManager.DEFAULT_ROLE_PREFIX);
-            }
             if (ignoreIfExists && roleManager.getRole(role) != null) {
                 LOG.info("role exists, ignored to create role: {}, is replay: {}", role, isReplay);
                 return;
@@ -775,9 +829,6 @@ public class Auth implements Writable {
     private void dropRoleInternal(String role, boolean ignoreIfNonExists, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                throw new DdlException("Can not drop role starts with " + RoleManager.DEFAULT_ROLE_PREFIX);
-            }
             if (ignoreIfNonExists && roleManager.getRole(role) == null) {
                 LOG.info("role non exists, ignored to drop role: {}, is replay: {}", role, isReplay);
                 return;
@@ -949,6 +1000,9 @@ public class Auth implements Writable {
         userAuthInfo.add(userIdent.toString());
         // ============== Password ==============
         userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+        // ============== Roles ==============
+        userAuthInfo.add(Joiner.on(",").join(userRoleManager
+                .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
         // ==============GlobalPrivs==============
         PrivBitSet ldapGlobalPrivs = LdapPrivsChecker.getGlobalPrivFromLdap(userIdent);
         PrivBitSet globalPrivs = ldapGlobalPrivs.copy();
