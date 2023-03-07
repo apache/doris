@@ -97,7 +97,7 @@ public:
     AggregateFunctionQuantileStateOp(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op, InternalType>,
                                            AggregateFunctionQuantileStateOp<Op, InternalType>>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     DataTypePtr get_return_type() const override {
         return std::make_shared<DataTypeQuantileState<InternalType>>();
@@ -137,7 +137,6 @@ public:
 
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
                                                                     const DataTypes& argument_types,
-                                                                    const Array& parameters,
                                                                     const bool result_is_nullable);
 
 } // namespace doris::vectorized
