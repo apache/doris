@@ -32,8 +32,6 @@ public:
     Exception(int code, const std::string_view fmt, Args&&... args)
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
-    void rethrow() const override { throw *this; }
-
     std::string code_as_string() const {
         return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
                                : fmt::format("E{}", (int16_t)_code);
