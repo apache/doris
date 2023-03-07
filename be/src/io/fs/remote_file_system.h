@@ -28,28 +28,53 @@ public:
             : FileSystem(std::move(root_path), std::move(id), type) {}
     ~RemoteFileSystem() override = default;
 
-    // `local_path` should be an absolute path on local filesystem.
-    virtual Status upload(const Path& local_path, const Path& dest_path) = 0;
+    Status upload(const Path& local_file, const Path& dest_file);
+    Status batch_upload(const std::vector<Path>& local_files,
+                        const std::vector<Path>& remote_files);
+    Status direct_upload(const Path& remote_file, const std::string& content);
+    Status upload_with_checksum(const Path& local_file, const Path& remote,
+                                const std::string& checksum);
+    Status download(const Path& remote_file, const Path& local);
+    Status direct_download(const Path& remote_file, std::string* content);
 
-    virtual Status batch_upload(const std::vector<Path>& local_paths,
-                                const std::vector<Path>& dest_paths) = 0;
+    Status connect();
 
-    virtual Status batch_delete(const std::vector<Path>& paths) {
-        return Status::NotSupported("batch_delete");
-    }
+protected:
+    /// connect to remote file system
+    virtual Status connect_impl() = 0;
 
-    virtual Status connect() = 0;
+    virtual Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
+                                  FileReaderSPtr* reader) override;
+    /// upload load_file to remote remote_file
+    /// local_file should be an absolute path on local filesystem.
+    virtual Status upload_impl(const Path& local_file, const Path& remote_file) = 0;
 
-    Status open_file(const Path& path, const FileReaderOptions& reader_options,
-                     FileReaderSPtr* reader, IOContext* io_ctx) override;
+    /// upload all files in load_files to remote_files
+    /// path in local_files should be an absolute path on local filesystem.
+    /// the size of local_files and remote_files must be equal.
+    virtual Status batch_upload_impl(const std::vector<Path>& local_files,
+                                     const std::vector<Path>& remote_files) = 0;
 
-    Status open_file_impl(const Path& path, const FileReaderOptions& reader_options,
-                          FileReaderSPtr* reader, IOContext* io_ctx);
+    /// save the content in "content" directly to remote file
+    virtual Status direct_upload_impl(const Path& remote_file, const std::string& content) = 0;
 
-    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override {
-        return Status::NotSupported("implemented in derived classes");
-    }
+    /// upload local_file to remote_file,
+    /// and the final remote file name is "remote_file.checksum"
+    virtual Status upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
+                                             const std::string& checksum) = 0;
+
+    /// download remote_file to local_file
+    /// local_file should be an absolute path on local filesystem.
+    virtual Status download_impl(const Path& remote_file, const Path& local_file) = 0;
+
+    /// save of content of remote_file directly into "content"
+    virtual Status direct_download_impl(const Path& remote_file, std::string* content) = 0;
+
+    // The derived class should implement this method.
+    virtual Status open_file_internal(const Path& file, FileReaderSPtr* reader) = 0;
 };
+
+using RemoteFileSystemSPtr = std::shared_ptr<RemoteFileSystem>;
 
 } // namespace io
 } // namespace doris

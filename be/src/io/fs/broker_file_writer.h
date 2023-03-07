@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "io/file_writer.h"
+#include "io/fs/file_writer.h"
 
 namespace doris {
 
@@ -33,32 +33,35 @@ class ExecEnv;
 class TBrokerRangeDesc;
 class TNetworkAddress;
 
+namespace io {
+
 // Reader of broker file
-class BrokerWriter : public FileWriter {
+class BrokerFileWriter : public FileWriter {
 public:
-    BrokerWriter(ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
-                 const std::map<std::string, std::string>& properties, const std::string& path,
-                 int64_t start_offset);
-    virtual ~BrokerWriter();
+    BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address,
+                     const std::map<std::string, std::string>& properties, const std::string& path,
+                     int64_t start_offset, FileSystemSPtr fs);
+    virtual ~BrokerFileWriter();
 
-    virtual Status open() override;
+    Status close() override;
+    Status abort() override;
+    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status finalize() override;
+    Status write_at(size_t offset, const Slice& data) override {
+        return Status::NotSupported("not support");
+    }
 
-    virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
-
-    virtual Status close() override;
+private:
+    Status _open();
+    Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
 
 private:
     ExecEnv* _env;
-    const std::vector<TNetworkAddress>& _addresses;
+    const TNetworkAddress _address;
     const std::map<std::string, std::string>& _properties;
-    std::string _path;
     int64_t _cur_offset;
-
-    bool _is_closed;
     TBrokerFD _fd;
-
-    // TODO: use for retry if one broker down
-    int _addr_idx;
 };
 
+} // end namespace io
 } // end namespace doris

@@ -25,7 +25,6 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"

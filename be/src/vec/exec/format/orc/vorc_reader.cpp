@@ -53,11 +53,10 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     SCOPED_RAW_TIMER(&_statistics->fs_read_time);
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
-    IOContext io_ctx;
     while (has_read < length) {
         size_t loop_read;
         Slice result(out + has_read, length - has_read);
-        Status st = _file_reader->read_at(offset + has_read, result, io_ctx, &loop_read);
+        Status st = _file_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
         if (!st.ok()) {
             throw orc::ParseError(
                     strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
@@ -75,7 +74,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
 
 OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-                     size_t batch_size, const std::string& ctz, IOContext* io_ctx)
+                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -94,7 +93,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<std::string>& column_names, const std::string& ctz,
-                     IOContext* io_ctx)
+                     io::IOContext* io_ctx)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -154,11 +153,10 @@ void OrcReader::_init_profile() {
 Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &inner_reader, _io_ctx));
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &inner_reader));
         _file_input_stream.reset(
-                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics));
+                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);

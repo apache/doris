@@ -17,23 +17,39 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <map>
+#include <string>
 
-#include "common/status.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/path.h"
+#include "io/hdfs_builder.h"
 
 namespace doris {
+namespace io {
 
-class FileWriter {
+class HdfsFileSystem;
+class HdfsFileWriter : public FileWriter {
 public:
-    virtual ~FileWriter() {}
+    HdfsFileWriter(Path file, FileSystemSPtr fs);
+    ~HdfsFileWriter();
 
-    virtual Status open() = 0;
+    Status close() override;
+    Status abort() override;
+    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status finalize() override;
+    Status write_at(size_t offset, const Slice& data) override {
+        return Status::NotSupported("not support");
+    }
 
-    // Writes up to count bytes from the buffer pointed buf to the file.
-    // NOTE: the number of bytes written may be less than count if.
-    virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) = 0;
+private:
+    Status _open();
 
-    virtual Status close() = 0;
+private:
+    hdfsFile _hdfs_file = nullptr;
+    // A convenient pointer to _fs
+    HdfsFileSystem* _hdfs_fs;
 };
 
-} // end namespace doris
+} // namespace io
+} // namespace doris

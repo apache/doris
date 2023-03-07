@@ -51,7 +51,6 @@ set(UTIL_FILES
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
-  # storage_backend_mgr.cpp
   string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
@@ -64,7 +63,6 @@ set(UTIL_FILES
   mysql_row_buffer.cpp
   error_util.cc
   filesystem_util.cc
-  broker_storage_backend.cpp
   time.cpp
   os_info.cpp
   os_util.cpp
@@ -95,9 +93,7 @@ set(UTIL_FILES
   zlib.cpp
   pprof_utils.cpp
   s3_uri.cpp
-  s3_storage_backend.cpp
   s3_util.cpp
-  hdfs_storage_backend.cpp
   hdfs_util.cpp
   time_lut.cpp
   cityhash102/city.cc

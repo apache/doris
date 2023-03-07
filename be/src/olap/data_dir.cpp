@@ -44,7 +44,6 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
-#include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta_manager.h"

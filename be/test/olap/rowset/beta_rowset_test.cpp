@@ -231,7 +231,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     s3_conf.bucket = "bucket";
     s3_conf.prefix = "prefix";
     std::string resource_id = "10000";
-    auto fs = io::S3FileSystem::create(std::move(s3_conf), resource_id);
+    std::shared_ptr<io::S3FileSystem> fs;
+    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
     Aws::SDKOptions aws_options = Aws::SDKOptions {};
     Aws::InitAPI(aws_options);
     // failed to head object

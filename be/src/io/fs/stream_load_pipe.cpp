@@ -39,8 +39,8 @@ StreamLoadPipe::~StreamLoadPipe() {
     }
 }
 
-Status StreamLoadPipe::read_at(size_t /*offset*/, Slice result, const IOContext& /*io_ctx*/,
-                               size_t* bytes_read) {
+Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* bytes_read,
+                                    const IOContext* /*io_ctx*/) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     *bytes_read = 0;
     size_t bytes_req = result.size;
@@ -98,8 +98,7 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
     // _total_length > 0, read the entire data
     data->reset(new uint8_t[_total_length]);
     Slice result(data->get(), _total_length);
-    IOContext io_ctx;
-    Status st = read_at(0, result, io_ctx, length);
+    Status st = read_at(0, result, length);
     return st;
 }
 

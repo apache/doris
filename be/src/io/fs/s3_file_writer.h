@@ -36,35 +36,22 @@ namespace io {
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client, const S3Conf& s3_conf);
+    S3FileWriter(Path path, std::shared_ptr<Aws::S3::S3Client> client, const S3Conf& s3_conf,
+                 FileSystemSPtr fs);
     ~S3FileWriter() override;
 
     Status close() override;
-
     Status abort() override;
-
-    Status append(const Slice& data) override;
-
     Status appendv(const Slice* data, size_t data_cnt) override;
-
-    Status write_at(size_t offset, const Slice& data) override;
-
     Status finalize() override;
-
-    size_t bytes_appended() const override { return _bytes_appended; }
-
-    FileSystemSPtr fs() const override { return _fs; }
-
-private:
-    std::shared_ptr<S3FileSystem> _fs;
+    Status write_at(size_t offset, const Slice& data) override {
+        return Status::NotSupported("not support");
+    }
 
 private:
     Status _close();
-
     Status _open();
-
     Status _upload_part();
-
     void _reset_stream();
 
 private:
@@ -73,7 +60,6 @@ private:
     std::string _upload_id;
     bool _is_open = false;
     bool _closed = false;
-    size_t _bytes_appended = 0;
 
     std::shared_ptr<Aws::StringStream> _stream_ptr;
     // Current Part Num for CompletedPart
