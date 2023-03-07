@@ -26,7 +26,7 @@ namespace doris::vectorized {
 class VExplodeBitmapTableFunction final : public TableFunction {
 public:
     VExplodeBitmapTableFunction();
-    ~VExplodeBitmapTableFunction() = default;
+    ~VExplodeBitmapTableFunction() override = default;
 
     Status reset() override;
     Status get_value(void** output) override;
