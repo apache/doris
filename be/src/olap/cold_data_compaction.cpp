@@ -80,7 +80,7 @@ Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
         _tablet->save_meta();
     }
     // write remote tablet meta
-    _tablet->async_write_cooldown_meta();
+    Tablet::async_write_cooldown_meta(_tablet);
     return Status::OK();
 }
 

@@ -64,35 +64,6 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
 
-class WriteCooldownMetaExecutors {
-public:
-    WriteCooldownMetaExecutors(size_t executor_nums = 5) : _executor_nums(executor_nums) {
-        for (size_t i = 0; i < _executor_nums; i++) {
-            std::unique_ptr<ThreadPool> pool;
-            ThreadPoolBuilder("AsyncWriteCooldownMetaExecutor")
-                    .set_min_threads(1)
-                    .set_max_threads(1)
-                    .set_max_queue_size(1024)
-                    .build(&pool);
-            _executors.emplace_back(std::move(pool));
-        }
-    }
-
-    static WriteCooldownMetaExecutors* GetInstance() {
-        static WriteCooldownMetaExecutors instance;
-        return &instance;
-    }
-
-    void submit(int64_t tablet_id, std::function<Status()> task);
-
-private:
-    void _do_task(int64_t tablet_id, std::function<Status()> task);
-    size_t _get_executor_pos(int64_t tablet_id) const { return tablet_id % _executor_nums; };
-    std::vector<std::unique_ptr<ThreadPool>> _executors;
-    std::unordered_set<int64_t> _pengding_tablets;
-    std::mutex _latch;
-    size_t _executor_nums;
-};
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
@@ -393,8 +364,7 @@ public:
 
     std::shared_mutex& get_cooldown_conf_lock() { return _cooldown_conf_lock; }
 
-    Status write_cooldown_meta();
-    void async_write_cooldown_meta();
+    static void async_write_cooldown_meta(TabletSharedPtr tablet);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////

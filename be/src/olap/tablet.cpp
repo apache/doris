@@ -95,7 +95,33 @@ bvar::Adder<uint64_t> exceed_version_limit_counter;
 bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
         &exceed_version_limit_counter, 60);
 
-void WriteCooldownMetaExecutors::submit(int64_t tablet_id, std::function<Status()> task) {
+struct WriteCooldownMetaExecutors {
+    WriteCooldownMetaExecutors(size_t executor_nums = 5) : _executor_nums(executor_nums) {
+        for (size_t i = 0; i < _executor_nums; i++) {
+            std::unique_ptr<ThreadPool> pool;
+            ThreadPoolBuilder("AsyncWriteCooldownMetaExecutor")
+                    .set_min_threads(1)
+                    .set_max_threads(1)
+                    .set_max_queue_size(std::numeric_limits<int>::max())
+                    .build(&pool);
+            _executors.emplace_back(std::move(pool));
+        }
+    }
+
+    static WriteCooldownMetaExecutors* GetInstance() {
+        static WriteCooldownMetaExecutors instance;
+        return &instance;
+    }
+
+    void submit(int64_t tablet_id, std::function<void()> task);
+    size_t _get_executor_pos(int64_t tablet_id) const { return tablet_id % _executor_nums; };
+    std::vector<std::unique_ptr<ThreadPool>> _executors;
+    std::unordered_set<int64_t> _pengding_tablets;
+    std::mutex _latch;
+    size_t _executor_nums;
+};
+
+void WriteCooldownMetaExecutors::submit(int64_t tablet_id, std::function<void()> task) {
     {
         std::unique_lock<std::mutex> lck {_latch};
         if (_pengding_tablets.count(tablet_id) > 0) {
@@ -103,21 +129,7 @@ void WriteCooldownMetaExecutors::submit(int64_t tablet_id, std::function<Status(
         }
         _pengding_tablets.insert(tablet_id);
     }
-    _executors[_get_executor_pos(tablet_id)]->submit_func(
-            [this, tablet_id, t = std::move(task)] { _do_task(tablet_id, t); });
-}
-
-void WriteCooldownMetaExecutors::_do_task(int64_t tablet_id, std::function<Status()> task) {
-    auto s = task();
-    if (!s.ok()) {
-        // we need to make sure the cooldown meta task is done in the end
-        LOG_INFO("write cooldown meta failed because: {}", s);
-        _executors[_get_executor_pos(tablet_id)]->submit_func(
-                [this, tablet_id, t = std::move(task)] { _do_task(tablet_id, t); });
-        return;
-    }
-    std::unique_lock<std::mutex> lck {_latch};
-    _pengding_tablets.erase(tablet_id);
+    _executors[_get_executor_pos(tablet_id)]->submit_func([task = std::move(task)]() { task(); });
 }
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
@@ -1794,7 +1806,7 @@ Status Tablet::_cooldown_data() {
         save_meta();
     }
     // upload cooldowned rowset meta to remote fs
-    async_write_cooldown_meta();
+    async_write_cooldown_meta(StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id()));
     return Status::OK();
 }
 
@@ -1836,24 +1848,25 @@ Status check_version_continuity(const std::vector<RowsetMetaSharedPtr>& rs_metas
 
 // It's guaranteed the write cooldown meta task would be invoked at the end unless BE crashes
 // one tablet would at most have one async task to be done
-void Tablet::async_write_cooldown_meta() {
-    WriteCooldownMetaExecutors::GetInstance()->submit(tablet_id(), [this]() {
-        std::shared_lock cooldown_conf_rlock(_cooldown_conf_lock);
-        if (_cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
-            LOG_INFO("tablet {} cancel write cooldown meta because invalid cooldown_replica_id",
-                     tablet_id());
-            return Status::OK();
+void Tablet::async_write_cooldown_meta(TabletSharedPtr tablet) {
+    auto tablet_id = tablet->tablet_id();
+    auto async_write_task = [t = std::move(tablet)]() {
+        auto ex = WriteCooldownMetaExecutors::GetInstance();
+        {
+            std::unique_lock<std::mutex> lck {ex->_latch};
+            ex->_pengding_tablets.erase(t->tablet_id());
         }
-        auto [cooldown_replica_id, cooldown_term] = cooldown_conf();
-        if (cooldown_replica_id != replica_id()) {
-            LOG_INFO(
-                    "tablet {} cancel write cooldown meta because this replica is not cooldown "
-                    "replica",
-                    tablet_id());
-            return Status::OK();
+        auto s = t->_write_cooldown_meta();
+        if (s.ok()) {
+            return;
         }
-        return _write_cooldown_meta();
-    });
+        LOG_WARNING("write tablet {} cooldown meta failed because: {}", t->tablet_id(),
+                    s.to_string());
+        if (!s.is<ABORTED>()) {
+            ex->submit(t->tablet_id(), [t]() { Tablet::async_write_cooldown_meta(t); });
+        }
+    };
+    WriteCooldownMetaExecutors::GetInstance()->submit(tablet_id, std::move(async_write_task));
 }
 
 // hold SHARED `cooldown_conf_lock`

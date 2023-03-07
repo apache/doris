@@ -1849,7 +1849,7 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             }
             if (tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
                                              cooldown_conf.cooldown_replica_id)) {
-                tablet->async_write_cooldown_meta();
+                Tablet::async_write_cooldown_meta(tablet);
             }
         }
     }
