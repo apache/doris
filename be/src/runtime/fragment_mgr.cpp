@@ -833,11 +833,6 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
             if (exec_state_iter != _fragment_map.end() && exec_state_iter->second) {
                 return exec_state_iter->second->is_canceled();
             }
-
-            auto pipeline_ctx_iter = _pipeline_map.find(it);
-            if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
-                return pipeline_ctx_iter->second->is_canceled();
-            }
         }
     }
     return true;
