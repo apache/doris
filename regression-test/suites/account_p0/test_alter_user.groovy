@@ -17,32 +17,9 @@
 
 suite("test_alter_user", "account") {
 
-    sql """drop role if exists test_auth_role1"""
-    sql """drop role if exists test_auth_role2"""
-    sql """drop user if exists test_auth_user1"""
     sql """drop user if exists test_auth_user2"""
     sql """drop user if exists test_auth_user3"""
     sql """drop user if exists test_auth_user4"""
-
-    // 1. change user's default role
-    sql """set global validate_password_policy=NONE"""
-    sql """create role test_auth_role1"""
-    sql """grant select_priv on db1.* to role 'test_auth_role1'"""
-    sql """create role test_auth_role2"""
-    sql """grant drop_priv on ctl.*.* to role 'test_auth_role2'"""
-    
-    sql """create user test_auth_user1 identified by '12345' default role 'test_auth_role1'"""
-    order_qt_show_grants1 """show grants for 'test_auth_user1'"""
-
-    sql """alter user test_auth_user1 default role 'test_auth_role2'"""
-    order_qt_show_grants2 """show grants for 'test_auth_user1'"""
-
-    sql """grant load_priv on ctl.*.* to test_auth_user1"""
-    sql """grant load_priv on ctl.*.* to role 'test_auth_role2'"""
-
-    // change user's role again
-    sql """alter user test_auth_user1 default role 'test_auth_role1'"""
-    order_qt_show_grants3 """show grants for 'test_auth_user1'"""
     
     // 2. test password history
     sql """set global password_history=0""" // disabled

@@ -39,8 +39,6 @@ class RowCursor;
 
 class PushHandler {
 public:
-    using SchemaMapping = std::vector<ColumnMapping>;
-
     PushHandler() = default;
     ~PushHandler() = default;
 
@@ -62,7 +60,6 @@ private:
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                    PushType push_type, std::vector<TTabletInfo>* tablet_info_vec);
 
-private:
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 

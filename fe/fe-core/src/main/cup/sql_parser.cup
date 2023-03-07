@@ -1332,10 +1332,9 @@ alter_stmt ::=
     | KW_ALTER KW_USER
       opt_if_exists:ifExists
       grant_user:user
-      opt_user_role:userRole
       opt_password_option:passwdOptions
     {:
-        RESULT = new AlterUserStmt(ifExists, user, userRole, passwdOptions);
+        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions);
     :}
     ;
 
@@ -2797,6 +2796,10 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs);
     :}
+    | KW_GRANT string_list:roles KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(roles, userId);
+    :}
     ;
 
 tbl_pattern ::=
@@ -2853,6 +2856,10 @@ revoke_stmt ::=
     | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs);
+    :}
+    | KW_REVOKE string_list:roles KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(roles, userId);
     :}
     ;
 
@@ -5744,6 +5751,9 @@ type ::=
   {: RESULT = Type.SMALLINT; :}
   | opt_signed_unsigned KW_INT opt_field_length
   {: RESULT = Type.INT; :}
+  // This is just for MySQL compatibility now.
+  | KW_UNSIGNED KW_INT opt_field_length
+  {: RESULT = Type.BIGINT; :}
   | KW_BIGINT opt_field_length
   {: RESULT = Type.BIGINT; :}
   | KW_LARGEINT opt_field_length
@@ -5848,8 +5858,6 @@ opt_signed_unsigned ::=
   {: RESULT = true; :}
   | KW_SIGNED
   {: RESULT = true; :}
-  | KW_UNSIGNED
-  {: RESULT = false; :}
   ;
 
 type_def ::=

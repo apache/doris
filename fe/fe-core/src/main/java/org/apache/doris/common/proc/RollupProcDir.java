@@ -62,13 +62,18 @@ public class RollupProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(materializedViewHandler);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> rollupJobInfos = materializedViewHandler.getAlterJobInfosByDb(db);
+        List<List<Comparable>> rollupJobInfos;
+        // db is null means need total result of all databases
+        if (db == null) {
+            rollupJobInfos = materializedViewHandler.getAllAlterJobInfos();
+        } else {
+            rollupJobInfos = materializedViewHandler.getAlterJobInfosByDb(db);
+        }
         for (List<Comparable> infoStr : rollupJobInfos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : infoStr) {

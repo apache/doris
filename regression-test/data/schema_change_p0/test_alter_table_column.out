@@ -18,6 +18,17 @@ value2	INT	Yes	false	\N	SUM
 -- !sql --
 1	1	40	60
 
+-- !sql --
+k1	INT	Yes	true	\N	
+value1	INT	Yes	false	\N	NONE
+value2	ARRAY<INT(11)>	Yes	false	[]	NONE
+value3	ARRAY<INT(11)>	Yes	false	\N	NONE
+value4	ARRAY<INT(11)>	No	false	[]	NONE
+
+-- !sql --
+1	2	[]	\N	[]
+3	4	[]	\N	[]
+
 -- !select --
 \N	\N	\N
 1	1989	1001

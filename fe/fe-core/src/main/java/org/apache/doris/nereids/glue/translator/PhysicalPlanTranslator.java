@@ -808,9 +808,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = topN.child(0).accept(this, context);
         PlanFragment currentFragment = inputFragment;
 
-        //1. generate new fragment for sort when the child is exchangeNode
-        if (inputFragment.getPlanRoot() instanceof ExchangeNode) {
-            Preconditions.checkArgument(!topN.getSortPhase().isLocal());
+        //1. Generate new fragment for sort when the child is exchangeNode, If the child is
+        // mergingExchange, it means we have always generated a new fragment when processing mergeSort
+        if (inputFragment.getPlanRoot() instanceof ExchangeNode
+                && !((ExchangeNode) inputFragment.getPlanRoot()).isMergingExchange()) {
+            // Except LocalTopN->MergeTopN, we don't allow localTopN's child is Exchange Node
+            Preconditions.checkArgument(!topN.getSortPhase().isLocal(),
+                    "local sort requires any property but child is" + inputFragment.getPlanRoot());
             DataPartition outputPartition = DataPartition.UNPARTITIONED;
             ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
             inputFragment.setOutputPartition(outputPartition);
@@ -822,20 +826,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // 2. According to the type of sort, generate physical plan
         if (!topN.getSortPhase().isMerge()) {
-            // For localSort or Gather->Sort, we just need to add sortNode
+            // For localSort or Gather->Sort, we just need to add TopNNode
             SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
+            sortNode.setOffset(topN.getOffset());
+            sortNode.setLimit(topN.getLimit());
             currentFragment.addPlanRoot(sortNode);
         } else {
             // For mergeSort, we need to push sortInfo to exchangeNode
             if (!(currentFragment.getPlanRoot() instanceof ExchangeNode)) {
                 // if there is no exchange node for mergeSort
-                //   e.g., localSort -> mergeSort
+                //   e.g., mergeTopN -> localTopN
                 // It means the local has satisfied the Gather property. We can just ignore mergeSort
+                currentFragment.getPlanRoot().setOffset(topN.getOffset());
+                currentFragment.getPlanRoot().setLimit(topN.getLimit());
                 return currentFragment;
             }
-            Preconditions.checkArgument(inputFragment.getPlanRoot() instanceof SortNode);
+            Preconditions.checkArgument(inputFragment.getPlanRoot() instanceof SortNode,
+                    "mergeSort' child must be sortNode");
             SortNode sortNode = (SortNode) inputFragment.getPlanRoot();
-            ((ExchangeNode) currentFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+            ExchangeNode exchangeNode = (ExchangeNode) currentFragment.getPlanRoot();
+            exchangeNode.setMergeInfo(sortNode.getSortInfo());
+            exchangeNode.setLimit(topN.getLimit());
+            exchangeNode.setOffset(topN.getOffset());
         }
         return currentFragment;
     }
@@ -1388,38 +1400,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (inputFragment == null) {
             return inputFragment;
         }
-
+        // For case globalLimit(l, o) -> LocalLimit(l+o, 0), that is the LocalLimit has already gathered
+        // The globalLimit can overwrite the limit and offset, so it's still correct
         PlanNode child = inputFragment.getPlanRoot();
-
-        // physical plan:  limit --> sort
-        // after translate, it could be:
-        // 1. limit->sort => set (limit and offset) on sort
-        // 2. limit->exchange->sort => set (limit and offset) on exchange, set sort.limit = limit+offset
-        if (child instanceof SortNode) {
-            SortNode sort = (SortNode) child;
-            sort.setLimit(physicalLimit.getLimit());
-            sort.setOffset(physicalLimit.getOffset());
-            return inputFragment;
-        }
-        if (child instanceof ExchangeNode) {
-            ExchangeNode exchangeNode = (ExchangeNode) child;
-            exchangeNode.setLimit(physicalLimit.getLimit());
-            // we do not check if this is a merging exchange here,
-            // since this guaranteed by translating logic plan to physical plan
-            exchangeNode.setOffset(physicalLimit.getOffset());
-            if (exchangeNode.getChild(0) instanceof SortNode) {
-                SortNode sort = (SortNode) exchangeNode.getChild(0);
-                sort.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
-                sort.setOffset(0);
-            }
-            return inputFragment;
-        }
-        // for other PlanNode, just set limit as limit+offset
-        child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
-        PlanFragment planFragment = exchangeToMergeFragment(inputFragment, context);
-        planFragment.getPlanRoot().setLimit(physicalLimit.getLimit());
-        planFragment.getPlanRoot().setOffSetDirectly(physicalLimit.getOffset());
-        return planFragment;
+        child.setLimit(physicalLimit.getLimit());
+        child.setOffset(physicalLimit.getOffset());
+        return inputFragment;
     }
 
     @Override

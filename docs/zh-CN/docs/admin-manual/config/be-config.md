@@ -460,12 +460,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
   - 一般需要为关闭状态，当调试或测试环境中想要手动操作compaction任务时，可以对该配置进行开启
 * 默认值：false
 
-#### `enable_vectorized_compaction`
-
-* 类型：bool
-* 描述：是否开启向量化compaction
-* 默认值：true
-
 #### `enable_vertical_compaction`
 
 * 类型: bool
@@ -1417,11 +1411,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 分配给doris的cgroups
 * 默认值: 空
-
-#### `row_nums_check`
-
-* 描述: 检查 BE/CE 和schema更改的行号。
-* 默认值: true
 
 #### `priority_queue_remaining_tasks_increased_frequency`
 
