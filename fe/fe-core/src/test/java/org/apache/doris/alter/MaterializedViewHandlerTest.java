@@ -209,10 +209,10 @@ public class MaterializedViewHandlerTest {
         MVColumnItem mvColumnItem = null;
         try {
             mvColumnItem = new MVColumnItem(slot);
-            mvColumnItem.setIsKey(true);
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
         }
+        mvColumnItem.setIsKey(true);
         mvColumnItem.setAggregationType(null, false);
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         new Expectations() {
@@ -260,11 +260,11 @@ public class MaterializedViewHandlerTest {
         MVColumnItem mvColumnItem = null;
         try {
             mvColumnItem = new MVColumnItem(slot);
-            mvColumnItem.setIsKey(false);
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
         }
 
+        mvColumnItem.setIsKey(false);
         mvColumnItem.setAggregationType(AggregateType.SUM, false);
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         Set<String> partitionColumnNames = Sets.newHashSet();

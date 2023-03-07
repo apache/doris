@@ -364,10 +364,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     }
                     break;
                 }
-                // stop key if encounter column with type does not support table key
-                if (!column.getType().supportsTableKey()) {
-                    break;
-                }
                 if (column.getType().isFloatingPointType()) {
                     break;
                 }
