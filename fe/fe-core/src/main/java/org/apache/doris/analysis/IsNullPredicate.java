@@ -65,7 +65,7 @@ public class IsNullPredicate extends Predicate {
                     isNotNullSymbol, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
             // for array type
-            for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.STRUCT)) {
+            for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP)) {
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, isNullSymbol,
                         Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
