@@ -173,7 +173,7 @@ static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
         auto size = bitmap_value->getSizeInBytes();
         // serialize the content of string
         auto ptr = mem_pool->alloc(size);
-        bitmap_value->write(reinterpret_cast<char*>(ptr));
+        bitmap_value->write_to(reinterpret_cast<char*>(ptr));
         jsonb_writer.writeStartBinary();
         jsonb_writer.writeBinary(reinterpret_cast<const char*>(ptr), size);
         jsonb_writer.writeEndBinary();

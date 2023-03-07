@@ -70,8 +70,6 @@ struct JsonPath {
     }
 };
 
-using namespace doris_udf;
-
 class JsonFunctions {
 public:
     /**

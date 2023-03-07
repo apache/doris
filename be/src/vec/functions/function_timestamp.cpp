@@ -118,7 +118,7 @@ struct StrToDate {
             }
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 if (context->impl()->get_return_type().type ==
-                    doris_udf::FunctionContext::Type::TYPE_DATETIME) {
+                    doris::PrimitiveType::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();

@@ -1213,6 +1213,10 @@ public class Coordinator {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
                 cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
             }
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                numReceivedRows = 0;
+                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
+            }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
@@ -3323,4 +3327,5 @@ public class Coordinator {
         }
     }
 }
+
 

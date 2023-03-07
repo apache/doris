@@ -250,19 +250,15 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (config::enable_storage_vectorization && _context->is_vec) {
-        do {
-            auto s = _iterator->next_block_view(block_view);
-            if (!s.ok()) {
-                if (!s.is<END_OF_FILE>()) {
-                    LOG(WARNING) << "failed to read next block view: " << s.to_string();
-                }
-                return s;
+    do {
+        auto s = _iterator->next_block_view(block_view);
+        if (!s.ok()) {
+            if (!s.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
-        } while (block_view->empty());
-    } else {
-        return Status::NotSupported("block view only support enable_storage_vectorization");
-    }
+            return s;
+        }
+    } while (block_view->empty());
 
     return Status::OK();
 }

@@ -40,7 +40,7 @@ static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
     DCHECK_EQ(num_levels, rep_levels.size());
     size_t origin_size = null_map.size();
     null_map.resize(origin_size + num_levels);
-    size_t pos = 0;
+    size_t pos = origin_size;
     for (size_t i = 0; i < num_levels; ++i) {
         // skip the levels affect its ancestor or its descendants
         if (def_levels[i] < field->repeated_parent_def_level ||
@@ -53,7 +53,7 @@ static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
             null_map[pos++] = 1;
         }
     }
-    null_map.resize(origin_size + pos);
+    null_map.resize(pos + 1);
 }
 
 static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offsets_data,
@@ -88,9 +88,9 @@ static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offset
             (*null_map_ptr)[offset_pos] = 1;
         }
     }
-    offsets_data.resize(origin_size + offset_pos + 1);
+    offsets_data.resize(offset_pos + 1);
     if (null_map_ptr != nullptr) {
-        null_map_ptr->resize(origin_size + offset_pos + 1);
+        null_map_ptr->resize(offset_pos + 1);
     }
 }
 

@@ -31,7 +31,7 @@ under the License.
 对于类似于cdc数据导入的场景，数据中insert和delete一般是穿插出现的，面对这种场景我们目前的导入方式也无法满足，即使我们能够分离出insert和delete虽然可以解决导入的问题，但是仍然解决不了删除的问题。使用批量删除功能可以解决这些个别场景的需求。数据导入有三种合并方式：
 
 1. APPEND: 数据全部追加到现有数据中；
-2. DELETE: 删除所有与导入数据key 列值相同的行；
+2. DELETE: 删除所有与导入数据key 列值相同的行(当表存在[`sequence`](sequence-column-manual.md)列时，需要同时满足主键相同以及sequence列的大小逻辑才能正确删除，详见下边用例4)；
 3. MERGE: 根据 DELETE ON 的决定 APPEND 还是 DELETE。
 
 ## 基本原理
@@ -243,3 +243,85 @@ curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, ci
 +--------+----------+----------+------+
 ```
 
+4. 当存在sequence列时，将与导入数据key 相同的数据全部删除
+
+```bash
+curl --location-trusted -u root: -H "column_separator:," -H "columns: name, gender, age" -H "function_column.sequence_col: age" -H "merge_type: DELETE"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
+```
+
+当unique表设置了sequence列时，在相同key列下，sequence列的值会作为REPLACE聚合函数替换顺序的依据，较大值可以替换较小值。
+当对这种表基于`__DORIS_DELETE_SIGN__`进行删除标记时，需要保证key相同和sequence列值要大于等于当前值。
+
+假设有表，结构如下
+```sql
+mysql> SET show_hidden_columns=true;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> DESC table1;
++------------------------+--------------+------+-------+---------+---------+
+| Field                  | Type         | Null | Key   | Default | Extra   |
++------------------------+--------------+------+-------+---------+---------+
+| name                   | VARCHAR(100) | No   | true  | NULL    |         |
+| gender                 | VARCHAR(10)  | Yes  | false | NULL    | REPLACE |
+| age                    | INT          | Yes  | false | NULL    | REPLACE |
+| __DORIS_DELETE_SIGN__  | TINYINT      | No   | false | 0       | REPLACE |
+| __DORIS_SEQUENCE_COL__ | INT          | Yes  | false | NULL    | REPLACE |
++------------------------+--------------+------+-------+---------+---------+
+4 rows in set (0.00 sec)
+```
+
+假设导入表中原有数据为:
+
+```text
++-------+--------+------+
+| name  | gender | age  |
++-------+--------+------+
+| li    | male   |   10 |
+| wang  | male   |   14 |
+| zhang | male   |   12 |
++-------+--------+------+
+```
+
+当导入数据为：
+```text
+li,male,10
+```
+
+导入后数据后会变成:
+```text
++-------+--------+------+
+| name  | gender | age  |
++-------+--------+------+
+| wang  | male   |   14 |
+| zhang | male   |   12 |
++-------+--------+------+
+```
+会发现数据
+```text
+li,male,10
+```
+被删除成功。
+
+但是假如导入数据为：
+```text
+li,male,9
+```
+
+导入后数据会变成:
+```text
++-------+--------+------+
+| name  | gender | age  |
++-------+--------+------+
+| li    | male   |   10 |
+| wang  | male   |   14 |
+| zhang | male   |   12 |
++-------+--------+------+
+```
+
+会看到数据
+```text
+li,male,10
+```
+并没有被删除，这是因为在底层的依赖关系上，会先判断key相同的情况，对外展示sequence列的值大的行数据，然后在看该行的`__DORIS_DELETE_SIGN__`值是否为1，如果为1则不会对外展示，如果为0，则仍会读出来。
+
+**当导入数据中同时存在数据写入和删除时（例如Flink CDC场景中），使用seq列可以有效的保证当数据乱序到达时的一致性，避免后到达的一个旧版本的删除操作，误删掉了先到达的新版本的数据。**

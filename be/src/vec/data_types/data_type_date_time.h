@@ -50,7 +50,7 @@ namespace doris::vectorized {
 	*/
 class DataTypeDateTime final : public DataTypeNumberBase<Int64> {
 public:
-    DataTypeDateTime();
+    DataTypeDateTime() = default;
 
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }

@@ -14,37 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf-debug.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.catalog.authorizer;
 
-#include <sstream>
-#include <string>
-
-#include "udf/udf.h"
-
-namespace doris_udf {
-
-template <typename T>
-std::string debug_string(const T& val) {
-    if (val.is_null) {
-        return "NULL";
-    }
-
-    std::stringstream ss;
-    ss << val.val;
-    return ss.str();
+public enum HiveAccessType {
+    NONE, CREATE, ALTER, DROP, INDEX, LOCK, SELECT, UPDATE, USE, READ, WRITE, ALL, SERVICEADMIN,
+    TEMPUDFADMIN;
 }
-
-template <>
-std::string debug_string(const StringVal& val) {
-    if (val.is_null) {
-        return "NULL";
-    }
-
-    return std::string(reinterpret_cast<const char*>(val.ptr), val.len);
-}
-
-} // namespace doris_udf

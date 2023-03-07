@@ -27,11 +27,8 @@
 #include <iostream>
 #include <memory>
 #include <vector>
-
-// This is the only Doris header required to develop UDFs and UDAs. This header
-// contains the types that need to be used and the FunctionContext object. The context
-// object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
+
 class FunctionContextImpl;
 struct ColumnPtrWrapper;
 struct StringRef;
@@ -39,10 +36,7 @@ class BitmapValue;
 class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
-} // namespace doris
-
-namespace doris_udf {
-
+struct TypeDescriptor;
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
@@ -56,64 +50,6 @@ struct DecimalV2Val;
 // and manage memory.
 class FunctionContext {
 public:
-    enum DorisVersion {
-        V2_0,
-    };
-
-    enum Type {
-        INVALID_TYPE = 0,
-        TYPE_NULL,
-        TYPE_BOOLEAN,
-        TYPE_TINYINT,
-        TYPE_SMALLINT,
-        TYPE_INT,
-        TYPE_BIGINT,
-        TYPE_LARGEINT,
-        TYPE_FLOAT,
-        TYPE_DOUBLE,
-        TYPE_DECIMAL [[deprecated]],
-        TYPE_DATE,
-        TYPE_DATETIME,
-        TYPE_CHAR,
-        TYPE_VARCHAR,
-        TYPE_HLL,
-        TYPE_STRING,
-        TYPE_FIXED_BUFFER,
-        TYPE_DECIMALV2,
-        TYPE_OBJECT,
-        TYPE_ARRAY,
-        TYPE_MAP,
-        TYPE_STRUCT,
-        TYPE_QUANTILE_STATE,
-        TYPE_DATEV2,
-        TYPE_DATETIMEV2,
-        TYPE_TIMEV2,
-        TYPE_DECIMAL32,
-        TYPE_DECIMAL64,
-        TYPE_DECIMAL128I,
-        TYPE_JSONB,
-        TYPE_VARIANT
-    };
-
-    struct TypeDesc {
-        Type type;
-
-        /// Only valid if type == TYPE_DECIMAL
-        int precision;
-        int scale;
-
-        /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
-        int len;
-
-        // only valid if type == TYPE_ARRAY
-        std::vector<TypeDesc> children;
-    };
-
-    struct UniqueId {
-        int64_t hi;
-        int64_t lo;
-    };
-
     enum FunctionStateScope {
         /// Indicates that the function state for this FunctionContext's UDF is shared across
         /// the plan fragment (a query is divided into multiple plan fragments, each of which
@@ -136,68 +72,17 @@ public:
         THREAD_LOCAL,
     };
 
-    // Returns the version of Doris that's currently running.
-    DorisVersion version() const;
-
-    // Returns the user that is running the query. Returns nullptr if it is not
-    // available.
-    const char* user() const;
-
-    // Returns the query_id for the current query.
-    UniqueId query_id() const;
-
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
     // Note: when you set error for the UDFs used in Data Load, you should
     // ensure the function return value is null.
     void set_error(const char* error_msg);
 
-    // when you reused this FunctionContext, you maybe need clear the error status and message.
-    void clear_error_msg();
-
     // Adds a warning that is returned to the user. This can include things like
     // overflow or other recoverable error conditions.
     // Warnings are capped at a maximum number. Returns true if the warning was
     // added and false if it was ignored due to the cap.
     bool add_warning(const char* warning_msg);
-
-    // Returns true if there's been an error set.
-    bool has_error() const;
-
-    // Returns the current error message. Returns nullptr if there is no error.
-    const char* error_msg() const;
-
-    // Allocates memory for UDAs. All UDA allocations should use this if possible instead of
-    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
-    // by Allocate().
-    // If this Allocate causes the memory limit to be exceeded, the error will be set
-    // in this object causing the query to fail.
-    uint8_t* allocate(int byte_size);
-
-    // Allocate and align memory for UDAs. All UDA allocations should use this if possible instead of
-    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
-    // by Allocate().
-    // If this Allocate causes the memory limit to be exceeded, the error will be set
-    // in this object causing the query to fail.
-    uint8_t* aligned_allocate(int alignment, int byte_size);
-
-    // Reallocates 'ptr' to the new byte_size. If the currently underlying allocation
-    // is big enough, the original ptr will be returned. If the allocation needs to
-    // grow, a new allocation is made that is at least 'byte_size' and the contents
-    // of 'ptr' will be copied into it.
-    // This should be used for buffers that constantly get appended to.
-    uint8_t* reallocate(uint8_t* ptr, int byte_size);
-
-    // Frees a buffer returned from Allocate() or Reallocate()
-    void free(uint8_t* buffer);
-
-    // For allocations that cannot use the Allocate() API provided by this
-    // object, TrackAllocation()/Free() can be used to just keep count of the
-    // byte sizes. For each call to TrackAllocation(), the UDF/UDA must call
-    // the corresponding Free().
-    void track_allocation(int64_t byte_size);
-
-    void free(int64_t byte_size);
 
     // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
     // through the query. E.g. "select UDA(col, 'sample=true') from tbl".
@@ -209,7 +94,7 @@ public:
 
     // Returns the underlying opaque implementation object. The UDF/UDA should not
     // use this. This is used internally.
-    doris::FunctionContextImpl* impl() { return _impl; }
+    doris::FunctionContextImpl* impl() { return _impl.get(); }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
     /// be used to store a pointer that can then be retrieved via GetFunctionState(). If
@@ -222,11 +107,7 @@ public:
 
     // Returns the return type information of this function. For UDAs, this is the final
     // return type of the UDA (e.g., the type returned by the finalize function).
-    const TypeDesc& get_return_type() const;
-
-    // Returns the intermediate type for UDAs, i.e., the one returned by
-    // update and merge functions. Returns INVALID_TYPE for UDFs.
-    const TypeDesc& get_intermediate_type() const;
+    const doris::TypeDescriptor& get_return_type() const;
 
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
@@ -234,7 +115,7 @@ public:
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
-    const TypeDesc* get_arg_type(int arg_idx) const;
+    const doris::TypeDescriptor* get_arg_type(int arg_idx) const;
 
     // Returns true if the arg_idx-th input argument (0 indexed, not including the
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
@@ -246,7 +127,10 @@ public:
     // Init() or Close() functions.
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
-    ~FunctionContext();
+    // Creates a StringVal, which memory is available when this function context is used next time
+    StringVal create_temp_string_val(int64_t len);
+
+    ~FunctionContext() = default;
 
 private:
     friend class doris::FunctionContextImpl;
@@ -258,7 +142,7 @@ private:
 
     FunctionContext& operator=(const FunctionContext& other);
 
-    doris::FunctionContextImpl* _impl; // Owned by this object.
+    std::unique_ptr<doris::FunctionContextImpl> _impl; // Owned by this object.
 };
 
 //----------------------------------------------------------------------------
@@ -387,7 +271,7 @@ struct DateTimeV2Val : public AnyVal {
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
-// TODO: need to set explicit align?
+// FIXME: for view using we should use StringRef. StringVal need to be rewrite to deep-copy type.
 // Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {
@@ -416,16 +300,6 @@ struct StringVal : public AnyVal {
         return sv;
     }
 
-    // Creates a StringVal, allocating a new buffer with 'len'. This should
-    // be used to return StringVal objects in UDF/UDAs that need to allocate new
-    // string memory.
-    StringVal(FunctionContext* context, int64_t len);
-
-    // Creates a StringVal, which memory is available when this function context is used next time
-    static StringVal create_temp_string_val(FunctionContext* ctx, int64_t len);
-
-    bool resize(FunctionContext* context, int64_t len);
-
     bool operator==(const StringVal& other) const {
         if (is_null != other.is_null) {
             return false;
@@ -443,19 +317,6 @@ struct StringVal : public AnyVal {
     }
 
     bool operator!=(const StringVal& other) const { return !(*this == other); }
-
-    /// Will create a new StringVal with the given dimension and copy the data from the
-    /// parameters. In case of an error will return a nullptr string and set an error on the
-    /// function context.
-    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len);
-
-    /// Append the passed buffer to this StringVal. Reallocate memory to fit the buffer. If
-    /// the memory allocation becomes too large, will set an error on FunctionContext and
-    /// return a nullptr string.
-    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
-
-    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
-                int64_t buf2_len);
 
     std::string to_string() const { return std::string((char*)ptr, len); }
 };
@@ -499,10 +360,10 @@ struct DecimalV2Val : public AnyVal {
     bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
 };
 
-using doris_udf::BigIntVal;
-using doris_udf::DoubleVal;
-using doris_udf::StringVal;
-using doris_udf::DecimalV2Val;
-using doris_udf::DateTimeVal;
-using doris_udf::FunctionContext;
-} // namespace doris_udf
+using doris::BigIntVal;
+using doris::DoubleVal;
+using doris::StringVal;
+using doris::DecimalV2Val;
+using doris::DateTimeVal;
+using doris::FunctionContext;
+} // namespace doris

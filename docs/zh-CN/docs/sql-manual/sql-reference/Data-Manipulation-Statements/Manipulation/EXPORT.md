@@ -34,7 +34,7 @@ EXPORT
 
 该语句用于将指定表的数据导出到指定位置。
 
-这是一个异步操作，任务提交成功则返回。执行后可使用 [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT) 命令查看进度。
+这是一个异步操作，任务提交成功则返回。执行后可使用 [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT.md) 命令查看进度。
 
 ```sql
 EXPORT TABLE table_name

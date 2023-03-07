@@ -83,6 +83,8 @@ public class FrontendOptions {
         if (localAddr == null) {
             localAddr = loopBack;
         }
+
+        checkHostName();
         LOG.info("local address: {}.", localAddr);
     }
 
@@ -94,8 +96,21 @@ public class FrontendOptions {
         return InetAddresses.toAddrString(localAddr);
     }
 
-    public static String getHostname() {
+    public static String getHostName() {
         return localAddr.getHostName();
+    }
+
+    private static void checkHostName() throws UnknownHostException {
+        if (Config.enable_fqdn_mode) {
+            if (getHostName().equals(getLocalHostAddress())) {
+                LOG.error("Can't get hostname in FQDN mode. Please check your network configuration."
+                                + " got hostname: {}, ip: {}",
+                        getHostName(), getLocalHostAddress());
+                throw new UnknownHostException("Can't get hostname in FQDN mode."
+                        + " Please check your network configuration."
+                        + " got hostname: " + getHostName() + ", ip: " + getLocalHostAddress());
+            }
+        }
     }
 
     private static void analyzePriorityCidrs() {

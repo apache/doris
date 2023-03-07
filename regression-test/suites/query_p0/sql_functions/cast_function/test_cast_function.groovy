@@ -37,7 +37,7 @@ suite("test_cast_function") {
                 end as bitmap
             ) is NULL
         """
-        exception "[INVALID_ARGUMENT]Conversion from UInt8 to BitMap is not supported"
+        exception "Conversion from UInt8 to BitMap is not supported"
     }
 }
 

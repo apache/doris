@@ -73,7 +73,7 @@ Method 1 can produce a smaller Docker image, but if the docker build process fai
 
 ### Prepare Binary Package
 
-Please noted that if you have a need for custom development, you need to modify the source code, [compile](../source-install/compilation) and package it, and then place it in the build directory.
+Please noted that if you have a need for custom development, you need to modify the source code, [compile](../source-install/compilation.md) and package it, and then place it in the build directory.
 
 If you have no such needs, you can just [download](https://doris.apache.org/download) the binary package from the official website.
 ### Steps

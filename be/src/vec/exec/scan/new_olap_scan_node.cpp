@@ -294,7 +294,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                           VExprContext* expr_ctx,
                                                           StringVal* constant_str,
-                                                          doris_udf::FunctionContext** fn_ctx,
+                                                          doris::FunctionContext** fn_ctx,
                                                           VScanNode::PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
@@ -303,7 +303,7 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     }
 
     const auto& children = fn_call->children();
-    doris_udf::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
+    doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
@@ -317,7 +317,7 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
             return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {

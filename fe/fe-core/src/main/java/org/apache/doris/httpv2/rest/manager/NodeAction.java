@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -230,7 +229,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getHost() + ":" + Config.http_port)
+        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getIp() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
@@ -483,7 +482,7 @@ public class NodeAction extends RestBaseController {
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
-                .map(fe -> Pair.of(fe.getHost(), Config.http_port)).collect(Collectors.toList());
+                .map(fe -> Pair.of(fe.getIp(), Config.http_port)).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -646,9 +645,6 @@ public class NodeAction extends RestBaseController {
         }
         try {
             String role = reqInfo.getRole();
-            String[] split = reqInfo.getHostPort().split(":");
-            String host = split[0];
-            int port = Integer.parseInt(split[1]);
             Env currentEnv = Env.getCurrentEnv();
             FrontendNodeType frontendNodeType;
             if (FrontendNodeType.FOLLOWER.name().equals(role)) {
@@ -656,13 +652,14 @@ public class NodeAction extends RestBaseController {
             } else {
                 frontendNodeType = FrontendNodeType.OBSERVER;
             }
+            HostInfo info = SystemInfoService.getIpHostAndPort(reqInfo.getHostPort(), true);
             if ("ADD".equals(action)) {
-                currentEnv.addFrontend(frontendNodeType, host, port);
+                currentEnv.addFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
             } else if ("DROP".equals(action)) {
-                currentEnv.dropFrontend(frontendNodeType, host, port);
+                currentEnv.dropFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
             }
-        } catch (DdlException ddlException) {
-            return ResponseEntityBuilder.okWithCommonError(ddlException.getMessage());
+        } catch (UserException userException) {
+            return ResponseEntityBuilder.okWithCommonError(userException.getMessage());
         }
         return ResponseEntityBuilder.ok();
     }
