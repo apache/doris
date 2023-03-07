@@ -21,6 +21,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.mysql.privilege.RoleManager;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 
@@ -119,7 +120,7 @@ public class FeNameFormat {
                     || (!canBeAdmin && role.equalsIgnoreCase(Role.ADMIN_ROLE));
         }
 
-        if (res) {
+        if (res || role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
             throw new AnalysisException(errMsg + ": " + role);
         }
     }

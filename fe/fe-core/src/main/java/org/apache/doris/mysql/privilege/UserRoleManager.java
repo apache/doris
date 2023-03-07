@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -32,9 +33,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class UserRoleManager implements Writable, GsonPostProcessable {
     // Concurrency control is delegated by Auth, so not concurrentMap
@@ -56,6 +59,35 @@ public class UserRoleManager implements Writable, GsonPostProcessable {
         }
         userIdentities.add(userIdentity);
         roleToUsers.put(roleName, userIdentities);
+    }
+
+    public void addUserRoles(UserIdentity userIdentity, List<String> roles) {
+        for (String roleName : roles) {
+            addUserRole(userIdentity, roleName);
+        }
+    }
+
+    public void removeUserRoles(UserIdentity userIdentity, List<String> roles) {
+        for (String roleName : roles) {
+            removeUserRole(userIdentity, roleName);
+        }
+    }
+
+    public void removeUserRole(UserIdentity userIdentity, String roleName) {
+        Set<String> roles = userToRoles.get(userIdentity);
+        if (!CollectionUtils.isEmpty(roles)) {
+            roles.remove(roleName);
+        }
+        if (CollectionUtils.isEmpty(roles)) {
+            userToRoles.remove(userIdentity);
+        }
+        Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
+        if (!CollectionUtils.isEmpty(userIdentities)) {
+            userIdentities.remove(userIdentity);
+        }
+        if (CollectionUtils.isEmpty(userIdentities)) {
+            roleToUsers.remove(roleName);
+        }
     }
 
     public void dropUser(UserIdentity userIdentity) {
@@ -95,6 +127,17 @@ public class UserRoleManager implements Writable, GsonPostProcessable {
     public Set<String> getRolesByUser(UserIdentity user) {
         Set<String> roles = userToRoles.get(user);
         return roles == null ? Collections.EMPTY_SET : roles;
+    }
+
+    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
+        Set<String> rolesByUser = getRolesByUser(user);
+        if (showUserDefaultRole) {
+            return rolesByUser;
+        } else {
+            return rolesByUser.stream().filter(role ->
+                    !ClusterNamespace.getNameFromFullName(role).startsWith(RoleManager.DEFAULT_ROLE_PREFIX)).collect(
+                    Collectors.toSet());
+        }
     }
 
     public Set<UserIdentity> getUsersByRole(String roleName) {
