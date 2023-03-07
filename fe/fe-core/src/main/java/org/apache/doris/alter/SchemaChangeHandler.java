@@ -1769,6 +1769,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                         olapTable.setStoragePolicy(properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                         return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
+                        //TODO: alter light schema change entry point
+                        // 1. rpc read columnUniqueIds from BE
+                        // 2. refresh table meta data
+
+                        return;
                     }
                 }
 
