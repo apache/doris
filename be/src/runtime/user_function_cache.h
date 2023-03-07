@@ -80,10 +80,12 @@ private:
     Status _download_lib(const std::string& url, UserFunctionCacheEntry* entry);
     Status _load_cache_entry_internal(UserFunctionCacheEntry* entry);
 
-    std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type);
+    std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type,
+                               const std::string& file_name);
     void _destroy_cache_entry(UserFunctionCacheEntry* entry);
 
     std::string _get_real_url(const std::string& url);
+    std::string _get_file_name_from_url(const std::string& url) const;
 
 private:
     std::string _lib_dir;
