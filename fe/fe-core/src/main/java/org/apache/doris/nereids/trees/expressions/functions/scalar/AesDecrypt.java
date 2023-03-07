@@ -60,9 +60,9 @@ public class AesDecrypt extends AesCryptoFunction {
     public AesDecrypt(Expression arg0, Expression arg1) {
         super("aes_decrypt", arg0, arg1, getDefaultBlockEncryptionMode());
         String blockEncryptionMode = String.valueOf(getDefaultBlockEncryptionMode());
-        if (!blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
-                && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
-                && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
+        if (!blockEncryptionMode.toUpperCase().equals("'AES_128_ECB'")
+                && !blockEncryptionMode.toUpperCase().equals("'AES_192_ECB'")
+                && !blockEncryptionMode.toUpperCase().equals("'AES_256_ECB'")) {
             throw new AnalysisException("Incorrect parameter count in the call to native function "
                     + "'aes_encrypt' or 'aes_decrypt'");
         }

@@ -63,7 +63,7 @@ public class Sm4Decrypt extends Sm4CryptoFunction {
      * constructor with 2 arguments.
      */
     public Sm4Decrypt(Expression arg0, Expression arg1) {
-        super("sm4_decrypt", arg0, arg1, getDefaultBlockEncryptionMode());
+        super("sm4_decrypt", arg0, arg1);
         throw new AnalysisException("Incorrect parameter count in the call to native function "
                 + "'sm4_encrypt' or 'sm4_decrypt'");
     }
