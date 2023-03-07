@@ -200,7 +200,7 @@ public:
 
         typename ColumnUInt8::MutablePtr col_res_nulls;
         auto& result_info = block.get_by_position(result);
-        // special case for bitmap_or
+        // special case for bitmap_or and bitmap_or_count
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             col_res_nulls = ColumnUInt8::create(input_rows_count);
         }
