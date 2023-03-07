@@ -79,7 +79,7 @@ public class IsNullPredicate extends Predicate {
                     Lists.newArrayList(nullStruct), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                isNotNullSymbol, Lists.newArrayList(nullStruct), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+                    isNotNullSymbol, Lists.newArrayList(nullStruct), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
         }
     }
 
