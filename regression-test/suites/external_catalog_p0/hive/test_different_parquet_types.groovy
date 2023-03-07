@@ -21,7 +21,7 @@ suite("test_different_parquet_types", "p0") {
     String hms_port = context.config.otherConfigs.get("hms_port")
     String hdfs_port = context.config.otherConfigs.get("hdfs_port")
 
-    // 发现问题 1 ： hive执行select * from delta_byte_array limit 10可以查出数据，但是doris无法查出数据
+    // problem 01 ：in hive execute "select * from delta_byte_array limit 10" ,there will be some valid data return，but doris query return nothing
     def q01 = {
         def res1_1 = sql """
             select * from delta_byte_array limit 10
@@ -39,7 +39,7 @@ suite("test_different_parquet_types", "p0") {
             logger.info("record res" + res1_3.toString())
     }
 
-    // hive加载数据报错  此用例无效
+    // this case is invalid,ignore
     // def q02 = {
     //     def res2_1 = sql """
     //     select * from delta_length_byte_array limit 10;
@@ -58,30 +58,29 @@ suite("test_different_parquet_types", "p0") {
     // }
 
 
-    // 发现问题二： hive查询出的数据全为空，doris catalog查询报错 tvf不报错 返回为空
-    def q03 = {   //hive查询出的数据全为空
+    // problem 2： hive query return null, doris catalog query return exception,  use tvf to query return null, but no exception
 
-        //查询报错  [INTERNAL_ERROR]Only support csv data in utf8 codec
+    def q03 = {
 
+        //exception info: [INTERNAL_ERROR]Only support csv data in utf8 codec
         def res3_1 = sql """
         select * from delta_binary_packed limit 10;
         """
         logger.info("record res" + res3_1.toString())
-        
-        //查询报错  [INTERNAL_ERROR]Only support csv data in utf8 codec
 
         def res3_2 = sql """
         select count(*) from delta_binary_packed;
         """
         logger.info("record res" + res3_1.toString())
 
-        //查询返回数据为空  不报错
+        //return nothing,but no exception
         def res3_3 = sql """
             select * from hdfs(\"uri" = \"hdfs://127.0.0.1:${hdfs_port}/user/doris/preinstalled_data/different_types_parquet/delta_binary_packed/delta_binary_packed.parquet\",\"fs.defaultFS\" = \"hdfs://127.0.0.1:${hdfs_port}\",\"format\" = \"parquet\") limit 10
             """ 
             logger.info("record res" + res3_3.toString())
     }
 
+    //problem 3： hive query exception, doris query return nothing
     def q04 = {
         def res4_1 = sql """
         select * from delta_encoding_required_column limit 10;
@@ -93,14 +92,13 @@ suite("test_different_parquet_types", "p0") {
         """
         logger.info("record res" + res4_2.toString())
 
-        //发现问题 Can not get first file, please check uri.
         def res4_3 = sql """
              select * from hdfs(\"uri" = \"hdfs://127.0.0.1:${hdfs_port}/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/delta_encoding_required_column.parquet\",\"fs.defaultFS\" = \"hdfs://127.0.0.1:${hdfs_port}\",\"format\" = \"parquet\") limit 10
              """ 
         logger.info("record res" + res4_3.toString())
     }
 
-     // 发现问题三： hive查询报错  doris查询全部为空
+
     def q05 = {
         def res5_1 = sql """
         select * from delta_encoding_optional_column limit 10;
@@ -120,27 +118,26 @@ suite("test_different_parquet_types", "p0") {
     }
 
 
-    // 发现问题四：tvf查询报错 Can not get first file, please check uri.
+    // problem 4：tvf query exception:  Can not get first file, please check uri.
     def q06 = {
         def res6_1 = sql """
         select * from datapage_v1_snappy_compressed_checksum limit 10;
-    """
+        """
         logger.info("record res" + res6_1.toString())
 
         def res6_2 = sql """
         select count(*) from datapage_v1_snappy_compressed_checksum;
-    """
+        """
         logger.info("record res" + res6_2.toString())
 
-        // Can not get first file, please check uri.
-         def res6_3 = sql """
+        def res6_3 = sql """
         select * from hdfs(\"uri" = \"hdfs://127.0.0.1:${hdfs_port}/user/doris/preinstalled_data/different_types_parquet/datapage_v1_snappy_compressed_checksum/datapage_v1_snappy_compressed_checksum.parquet\",\"fs.defaultFS\" = \"hdfs://127.0.0.1:${hdfs_port}\",\"format\" = \"parquet\") limit 10
         """ 
         logger.info("record res" + res6_3.toString())
 
     }
 
-    //通过
+    //pass
     def q07 = {   
         def res7_1 = sql """
         select * from overflow_i16_page_cnt limit 10;
@@ -158,7 +155,7 @@ suite("test_different_parquet_types", "p0") {
         logger.info("record res" + res7_3.toString())
     }
 
-    //通过
+    //pass
     def q08 = {
         def res8_1 = sql """
         select * from alltypes_tiny_pages limit 10;
@@ -176,7 +173,7 @@ suite("test_different_parquet_types", "p0") {
         """ 
         logger.info("record res" + res8_3.toString())
     }
-    //通过
+    //pass
     def q09 = {
         def res9_1 = sql """
         select * from alltypes_tiny_pages_plain limit 10;
