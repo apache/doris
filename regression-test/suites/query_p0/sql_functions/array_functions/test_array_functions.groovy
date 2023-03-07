@@ -115,7 +115,8 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_position(k6, null) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k8, cast('2023-02-05' as datev2)) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k10, cast('2022-10-15 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
-
+    qt_select_array "SELECT k1, array(k1), array_contains(array(k1), k1) from ${tableName} ORDER BY k1"
+    
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""
     sql """
