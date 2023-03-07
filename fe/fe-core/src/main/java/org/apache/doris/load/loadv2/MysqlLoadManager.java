@@ -144,16 +144,16 @@ public class MysqlLoadManager {
                 }
             }
         } catch (Throwable t) {
-            LOG.error("Execute mysql load failed", t);
+            LOG.warn("Execute mysql load {} failed", loadId, t);
             // drain the data from client conn util empty packet received, otherwise the connection will be reset
             if (loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
-                LOG.warn("not drained yet, try reading left data from client connection.");
+                LOG.warn("not drained yet, try reading left data from client connection for load {}.", loadId);
                 ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
                 while (buffer != null && buffer.limit() != 0) {
                     buffer = context.getMysqlChannel().fetchOnePacket();
                 }
-                LOG.warn("Finished reading the left bytes.");
+                LOG.debug("Finished reading the left bytes.");
             }
             // make cancel message to user
             if (loadContextMap.containsKey(loadId) && loadContextMap.get(loadId).isCancelled()) {
@@ -248,7 +248,7 @@ public class MysqlLoadManager {
                     loadContextMap.get(loadId).setFinished(true);
                 }
             } catch (IOException | InterruptedException e) {
-                LOG.warn("Failed fetch packet from mysql client", e);
+                LOG.warn("Failed fetch packet from mysql client for load: " + loadId, e);
                 throw new RuntimeException(e);
             } finally {
                 inputStream.markFinished();
