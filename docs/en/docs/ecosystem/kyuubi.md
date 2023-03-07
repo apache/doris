@@ -1,3 +1,4 @@
+
 ---
 
 {
@@ -26,28 +27,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 通过 Kyuubi 连接 Doris
+# Use Kyuubi with Doris
 
-## 介绍
+## Introduction
 
-[Apache Kyuubi](https://kyuubi.apache.org/)，一个分布式和多租户网关，用于在 Lakehouse 上提供 Serverless
-SQL，可连接包括Spark、Flink、Hive、JDBC等引擎，并对外提供Thrift、Trino等接口协议供灵活对接。
-其中Apache Kyuubi实现了JDBC Engine并支持Doris方言，并可用于对接Doris作为数据源。
-Apache Kyuubi可提供高可用、服务发现、租户隔离、统一认证、生命周期等一系列特性。
+[Apache Kyuubi](https://kyuubi.apache.org/) is a distributed and multi-tenant gateway to provide serverless SQL on Data Warehouses and Lakehouses.
+Apache Kyuubi is providing varied protocols like Thrift, Trino and etc., to the engines as Spark, Flink, Hive, JDBC and etc.
+Drois is supported as JDBC data source in Apache Kyuubi.
+Apache Kyuubi also provides a serious useful feature with HA, service discovry,
+unified authentication, engine lifecycles and etc.
 
-## 下载 Apache Kyuubi
 
-## 配置方法
+## Usage
 
-### 下载 Apache Kyuubi
+### Download Apache Kyuubi
 
-从官网下载Apache Kyuubi 1.6.0或以上版本的安装包后解压。
+Download Apache Kyuubi from <https://kyuubi.apache.org/zh/releases.html>
 
-Apache Kyuubi 下载地址： <https://kyuubi.apache.org/zh/releases.html>
+Get Apache Kyuubi 1.6.0 or above and extract it to folder。
 
-### 配置Doris作为Kyuubi数据源
 
-- 修改配置文件 `$KYUUBI_HOME/conf/kyuubi-defaults.conf`
+### Config Doris as Kyuubi data source
+
+- Update Kyuubi configurations in `$KYUUBI_HOME/conf/kyuubi-defaults.conf`
 
 ```properties
 kyuubi.engine.type=jdbc
@@ -58,39 +60,35 @@ kyuubi.engine.jdbc.connection.user=***
 kyuubi.engine.jdbc.connection.password=***
 ```
 
-| 配置项                                    | 说明                                            |
+| Configuration                                    | Description                                            |
 |----------------------------------------|-----------------------------------------------|
-| kyuubi.engine.type                     | 引擎类型。请使用jdbc                                  |
-| kyuubi.engine.jdbc.type                | jdbc服务类型。这里请指定为doris                          |
-| kyuubi.engine.jdbc.connection.url      | jdbc 服务连接。这里请指定 Doris FE 上的 mysql server 连接地址 |
-| kyuubi.engine.jdbc.connection.user     | jdbc 服务用户名                                    |
-| kyuubi.engine.jdbc.connection.password | jdbc 服务密码                                     |
-| kyuubi.engine.jdbc.driver.class        | 连接jdbc服务使用的驱动类名。请使用com.mysql.cj.jdbc.Driver   |
+| kyuubi.engine.type                     | Enine Type, specify to `jdbc`                                  |
+| kyuubi.engine.jdbc.type                | JDBC service type, specify to `doris`                          |
+| kyuubi.engine.jdbc.connection.url      | JDBC url to Doris FE |
+| kyuubi.engine.jdbc.connection.user     | JDBC username                                    |
+| kyuubi.engine.jdbc.connection.password | JDBC password                                    |
+| kyuubi.engine.jdbc.driver.class        | JDBC driver class name, specify to `com.mysql.cj.jdbc.Driver`   |
 
-- 其他相关配置参考 [Apache Kyuubi配置说明](https://kyuubi.readthedocs.io/en/master/deployment/settings.html)
+- For other configuration in Apache Kyuubi, please refer to [Apache Kyuubi Configuration Docs](https://kyuubi.readthedocs.io/en/master/deployment/settings.html)
 
-### 添加MySQL驱动
+### Add MySQL JDBC Driver
+Copy the Mysql JDBC Driver `mysql-connector-j-8.X.X.jar` to `$KYUUBI_HOME/incubating-bin/externals/engines/jdbc` 目录下。
 
-添加 Mysql JDB C驱动 `mysql-connector-j-8.X.X.jar` 到 `$KYUUBI_HOME/incubating-bin/externals/engines/jdbc` 目录下。
+### Start Kyuubi Server
+Run `$KYUUBI_HOME/bin/kyuubi run`.
+After started, port 10009 by default is listened by Kyuubi Server with Thrift protocol。
 
-### 启动 Kyuubi 服务
+## Example
 
-`$KYUUBI_HOME/bin/kyuubi run`
-启动后，Kyuubi默认监听10009端口提供Thrift协议。
+The fowllowing example shows basic example of querying Doris with Kyuubi with beeline CLI in thift protocol.
 
-## 使用方法
-
-以下例子展示通过Apache Kyuubi的beeline工具经Thrift协议查询Doris。
-
-### 建立连接
-
+### Connect to Kyuubi with Beeline
 ```shell
 $ ./beeline -u "jdbc:hive2://xxxx:10009/;#kyuubi.engine.type=jdbc"`
 ```
 
-### 执行查询
-
-执行查询语句 `select * from demo.expamle_tbl;` 并得到结果，
+### Execute Query to Kyuubi
+Execute query statement `select * from demo.expamle_tbl;` with query results returned.
 
 ```shell
 0: jdbc:hive2://xxxx:10009/> select * from demo.example_tbl;
