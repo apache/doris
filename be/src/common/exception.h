@@ -41,6 +41,8 @@ public:
 
     std::string to_string() const;
 
+    friend std::ostream& operator<<(std::ostream& ostr, const Exception& exp);
+
 private:
     int _code;
     struct ErrMsg {
