@@ -47,9 +47,7 @@ private:
     int _code;
     struct ErrMsg {
         std::string _msg;
-#ifdef ENABLE_STACKTRACE
         std::string _stack;
-#endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
     std::unique_ptr<Exception> _nested_excption;
@@ -58,11 +56,9 @@ private:
 inline std::ostream& operator<<(std::ostream& ostr, const Exception& exp) {
     ostr << '[' << exp.code_as_string() << ']';
     ostr << (exp._err_msg ? exp._err_msg->_msg : "");
-#ifdef ENABLE_STACKTRACE
     if (exp._err_msg && !exp._err_msg->_stack.empty()) {
         ostr << '\n' << exp._err_msg->_stack;
     }
-#endif
     if (exp._nested_excption != nullptr) {
         ostr << '\n' << "Caused by:" << *exp._nested_excption;
     }

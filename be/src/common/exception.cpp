@@ -23,23 +23,17 @@ Exception::Exception(int code, const std::string_view msg) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
-#ifdef ENABLE_STACKTRACE
     _err_msg->_stack = get_stack_trace();
-#endif
 }
 Exception::Exception(int code, const std::string_view msg, const Exception& nested) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
-#ifdef ENABLE_STACKTRACE
     _err_msg->_stack = get_stack_trace();
-#endif
     _nested_excption = std::make_unique<Exception>();
     _nested_excption->_code = nested._code;
     _nested_excption->_err_msg->_msg = nested._err_msg->_msg;
-#ifdef ENABLE_STACKTRACE
     _nested_excption->_err_msg->_stack = nested._err_msg->_stack;
-#endif
 }
 
 } // namespace doris
