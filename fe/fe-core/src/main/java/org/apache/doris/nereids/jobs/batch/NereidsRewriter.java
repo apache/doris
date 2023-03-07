@@ -40,7 +40,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
-import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
@@ -191,7 +190,6 @@ public class NereidsRewriter extends BatchRewriteJob {
             // to avoid two consecutive same project appear when we do optimization.
             topic("Others optimization", topDown(
                     new EliminateNotNull(),
-                    new EliminateLimit(),
                     new EliminateFilter(),
                     new PruneOlapScanPartition(),
                     new SelectMaterializedIndexWithAggregate(),
