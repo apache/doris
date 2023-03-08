@@ -21,7 +21,6 @@
 
 #define BUFFER_LENGTH 16384
 #define CL_MAX_PATH 4096
-#define CL_MAX_DIR CL_MAX_PATH
 
 #define STRDUP_WtoA(x) CL_NS(util)::Misc::_wideToChar(x)
 #define STRDUP_TtoA STRDUP_WtoA
