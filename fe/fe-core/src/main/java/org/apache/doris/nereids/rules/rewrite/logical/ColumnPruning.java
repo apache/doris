@@ -174,19 +174,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
     }
 
-    private Plan pruneChild(Plan plan, Set<Slot> usedSlots, Set<Slot> allRequiredSlots, Plan originChild) {
-        SetView<Slot> childRequiredSlots = Sets.intersection(allRequiredSlots, originChild.getOutputSet());
-        Plan prunedChild = originChild.accept(this, new PruneContext(childRequiredSlots, plan));
-
-        Set<Slot> prunedChildProvidedSlots = prunedChild.getOutputSet();
-        SetView<Slot> needSlots = Sets.intersection(usedSlots, prunedChildProvidedSlots);
-        if (prunedChildProvidedSlots.size() > needSlots.size()) {
-            return new LogicalProject<>(ImmutableList.copyOf(needSlots), prunedChild);
-        } else {
-            return prunedChild;
-        }
-    }
-
     /** PruneContext */
     public static class PruneContext {
         Set<Slot> requiredSlots;
