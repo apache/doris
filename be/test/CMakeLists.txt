@@ -31,6 +31,7 @@ set(COMMON_TEST_FILES
     common/resource_tls_test.cpp
     common/status_test.cpp
     common/config_test.cpp
+    common/exception_test.cpp
 )
 set(ENV_TEST_FILES
     env/env_posix_test.cpp
