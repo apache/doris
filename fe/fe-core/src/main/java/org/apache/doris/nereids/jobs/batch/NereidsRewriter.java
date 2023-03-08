@@ -164,7 +164,7 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             topic("Column pruning and infer predicate",
-                    topDown(new ColumnPruning()),
+                    custom(RuleType.COLUMN_PRUNING, () -> new ColumnPruning()),
 
                     custom(RuleType.INFER_PREDICATES, () -> new InferPredicates()),
 

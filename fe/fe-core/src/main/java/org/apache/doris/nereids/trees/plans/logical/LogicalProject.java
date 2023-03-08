@@ -41,7 +41,7 @@ import java.util.Optional;
  * Logical project plan.
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Project, OutputSavePoint {
+        implements Project, OutputPrunable {
 
     private final List<NamedExpression> projects;
     private final List<NamedExpression> excepts;
@@ -198,5 +198,15 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     public boolean isDistinct() {
         return isDistinct;
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        return withProjects(prunedOutputs);
     }
 }

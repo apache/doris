@@ -91,6 +91,11 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
+    public List<NamedExpression> getOutputs() {
+        return outputExpressions;
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("PhysicalRepeat[" + id.asInt() + "]" + getGroupIdAsString(),
                 "groupingSets", groupingSets,
@@ -165,8 +170,8 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public PhysicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return new PhysicalRepeat<>(groupingSets, newOutput, Optional.empty(),
+    public PhysicalRepeat<CHILD_TYPE> withNewOutputs(List<NamedExpression> newOutputs) {
+        return new PhysicalRepeat<>(groupingSets, newOutputs, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
 }

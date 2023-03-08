@@ -39,7 +39,7 @@ import java.util.Optional;
  * A relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation {
+public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation, OutputPrunable {
 
     private final List<NamedExpression> projects;
     private final boolean buildUnionNode;
@@ -125,7 +125,21 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
         return buildUnionNode;
     }
 
+    public LogicalOneRowRelation withProjects(List<NamedExpression> namedExpressions) {
+        return new LogicalOneRowRelation(namedExpressions, buildUnionNode, Optional.empty(), Optional.empty());
+    }
+
     public Plan withBuildUnionNode(boolean buildUnionNode) {
         return new LogicalOneRowRelation(projects, buildUnionNode, Optional.empty(), Optional.empty());
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        return withProjects(prunedOutputs);
     }
 }

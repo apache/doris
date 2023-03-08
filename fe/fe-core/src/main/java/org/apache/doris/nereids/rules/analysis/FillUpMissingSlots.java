@@ -249,7 +249,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         List<NamedExpression> newOutputExpressions = Streams
                 .concat(aggregate.getOutputExpressions().stream(), resolver.getNewOutputSlots().stream())
                 .collect(ImmutableList.toImmutableList());
-        Aggregate newAggregate = aggregate.withAggOutput(newOutputExpressions);
+        Aggregate newAggregate = aggregate.withNewOutputs(newOutputExpressions);
         Plan plan = planGenerator.apply(resolver, newAggregate);
         return new LogicalProject<>(projections, plan);
     }

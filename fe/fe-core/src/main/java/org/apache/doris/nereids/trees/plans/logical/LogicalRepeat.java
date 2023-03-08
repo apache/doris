@@ -41,7 +41,7 @@ import java.util.Optional;
  * LogicalRepeat.
  */
 public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Repeat<CHILD_TYPE>, OutputSavePoint {
+        implements Repeat<CHILD_TYPE> {
 
     // max num of distinct sets in grouping sets clause
     public static final int MAX_GROUPING_SETS_NUM = 64;
@@ -81,6 +81,11 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public List<NamedExpression> getOutputExpressions() {
+        return outputExpressions;
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
         return outputExpressions;
     }
 
@@ -156,8 +161,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return new LogicalRepeat<>(groupingSets, newOutput, child());
+    public LogicalRepeat<CHILD_TYPE> withNewOutputs(List<NamedExpression> newOutputs) {
+        return new LogicalRepeat<>(groupingSets, newOutputs, child());
     }
 
     public LogicalRepeat<Plan> withNormalizedExpr(List<List<Expression>> groupingSets,
