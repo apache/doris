@@ -570,8 +570,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate<false>*>(pred) ||
-        dynamic_cast<LikeColumnPredicate<true>*>(pred)) {
+    if (dynamic_cast<LikeColumnPredicate*>(pred)) {
         return false;
     }
 
@@ -1688,7 +1687,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
         return;
     }
 
-    for (auto iter : _rowid_result_for_index) {
+    for (auto& iter : _rowid_result_for_index) {
         block->insert({vectorized::ColumnUInt8::create(),
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {

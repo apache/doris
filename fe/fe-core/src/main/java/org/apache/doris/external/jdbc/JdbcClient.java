@@ -25,9 +25,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
+import com.google.common.collect.Maps;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -42,6 +42,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 public class JdbcClient {
@@ -54,10 +55,19 @@ public class JdbcClient {
 
     private URLClassLoader classLoader = null;
 
-    private HikariDataSource dataSource = null;
+    private DruidDataSource dataSource = null;
+    private boolean isOnlySpecifiedDatabase = false;
 
-    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private boolean isLowerCaseTableNames = false;
+
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+
+    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
+            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
         this.jdbcUser = user;
+        this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
+        this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -69,21 +79,26 @@ public class JdbcClient {
             //  and URLClassLoader may load the jar package directly into memory
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
-            classLoader = URLClassLoader.newInstance(urls, null);
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
+            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                    parent, oldClassLoader, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
-            HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
-            config.setJdbcUrl(jdbcUrl);
-            config.setUsername(jdbcUser);
-            config.setPassword(password);
-            config.setMaximumPoolSize(1);
+            dataSource = new DruidDataSource();
+            dataSource.setDriverClassLoader(classLoader);
+            dataSource.setDriverClassName(driverClass);
+            dataSource.setUrl(jdbcUrl);
+            dataSource.setUsername(jdbcUser);
+            dataSource.setPassword(password);
+            dataSource.setMinIdle(1);
+            dataSource.setInitialSize(2);
+            dataSource.setMaxActive(5);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            config.setConnectionTimeout(5000);
-            dataSource = new HikariDataSource(config);
+            dataSource.setMaxWait(5000);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
@@ -153,6 +168,9 @@ public class JdbcClient {
         Connection conn =  getConnection();
         Statement stmt = null;
         ResultSet rs = null;
+        if (isOnlySpecifiedDatabase) {
+            return getSpecifiedDatabase(conn);
+        }
         List<String> databaseNames = Lists.newArrayList();
         try {
             stmt = conn.createStatement();
@@ -186,6 +204,30 @@ public class JdbcClient {
         return databaseNames;
     }
 
+    public List<String> getSpecifiedDatabase(Connection conn) {
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
+                    databaseNames.add(conn.getCatalog());
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.SQLSERVER:
+                    databaseNames.add(conn.getSchema());
+                    break;
+                default:
+                    throw new JdbcClientException("Not supported jdbc type");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+        } finally {
+            close(conn);
+        }
+        return databaseNames;
+    }
+
     /**
      * get all tables of one database
      */
@@ -210,7 +252,12 @@ public class JdbcClient {
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
-                tablesName.add(rs.getString("TABLE_NAME"));
+                String tableName = rs.getString("TABLE_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                    tableName = tableName.toLowerCase();
+                }
+                tablesName.add(tableName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get all tables for db %s", e, dbName);
@@ -280,6 +327,11 @@ public class JdbcClient {
         Connection conn =  getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        // if isLowerCaseTableNames == true, tableName is lower case
+        // but databaseMetaData.getColumns() is case sensitive
+        if (isLowerCaseTableNames) {
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)

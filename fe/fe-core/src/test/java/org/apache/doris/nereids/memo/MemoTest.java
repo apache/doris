@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -361,7 +362,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void a2bc() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit = new LogicalLimit<>(1, 0, student);
+        LogicalLimit<? extends Plan> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student")))
                 .applyBottomUp(
@@ -396,7 +397,7 @@ class MemoTest implements MemoPatternMatchSupported {
         // invalid case
         Assertions.assertThrows(IllegalStateException.class, () -> {
             UnboundRelation student = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
-            LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, student);
+            LogicalLimit<? extends Plan> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, student);
 
             PlanChecker.from(connectContext, student)
                     .applyBottomUp(
@@ -414,7 +415,7 @@ class MemoTest implements MemoPatternMatchSupported {
         UnboundRelation a = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
 
         UnboundRelation a2 = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
-        LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, a2);
+        LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, a2);
         PlanChecker.from(connectContext, a)
                 .setMaxInvokeTimesPerRule(1000)
                 .applyBottomUp(
@@ -479,8 +480,8 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void a2bcd() {
         LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, scan);
-        LogicalLimit<LogicalLimit<LogicalOlapScan>> limit10 = new LogicalLimit<>(10, 0, limit5);
+        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, scan);
+        LogicalLimit<LogicalLimit<LogicalOlapScan>> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit5);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -507,7 +508,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2a() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -531,7 +532,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2NewA() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -555,7 +556,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2GroupB() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -577,7 +578,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2PlanB() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -599,7 +600,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2c() {
         UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
-        LogicalLimit<UnboundRelation> limit10 = new LogicalLimit<>(10, 0, relation);
+        LogicalLimit<UnboundRelation> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, relation);
 
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
         PlanChecker.from(connectContext, limit10)
@@ -622,10 +623,10 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2cd() {
         UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
-        LogicalLimit<UnboundRelation> limit10 = new LogicalLimit<>(10, 0, relation);
+        LogicalLimit<UnboundRelation> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, relation);
 
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, student);
+        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -650,8 +651,8 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2cb() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
-        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, student);
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
+        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -681,7 +682,7 @@ class MemoTest implements MemoPatternMatchSupported {
         Assertions.assertThrowsExactly(IllegalStateException.class, () -> {
 
             LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-            LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
+            LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
             PlanChecker.from(connectContext, limit10)
                     .setMaxInvokeTimesPerRule(1000)
@@ -707,8 +708,8 @@ class MemoTest implements MemoPatternMatchSupported {
         Assertions.assertThrowsExactly(IllegalStateException.class, () -> {
             UnboundRelation student = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
 
-            LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, student);
-            LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, limit5);
+            LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, student);
+            LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit5);
 
             PlanChecker.from(connectContext, limit10)
                     .applyBottomUp(
@@ -733,11 +734,11 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void ab2cde() {
         UnboundRelation student = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
-        LogicalLimit<UnboundRelation> limit3 = new LogicalLimit<>(3, 0, student);
+        LogicalLimit<UnboundRelation> limit3 = new LogicalLimit<>(3, 0, LimitPhase.ORIGIN, student);
 
         LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, scan);
-        LogicalLimit<LogicalLimit<LogicalOlapScan>> limit10 = new LogicalLimit<>(10, 0, limit5);
+        LogicalLimit<LogicalOlapScan> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, scan);
+        LogicalLimit<LogicalLimit<LogicalOlapScan>> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit5);
 
         PlanChecker.from(connectContext, limit3)
                 .applyBottomUp(
@@ -766,8 +767,8 @@ class MemoTest implements MemoPatternMatchSupported {
     public void abc2bac() {
         UnboundRelation student = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
 
-        LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, student);
-        LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, limit5);
+        LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, student);
+        LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit5);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -805,8 +806,8 @@ class MemoTest implements MemoPatternMatchSupported {
     public void abc2bc() {
         UnboundRelation student = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
 
-        LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, student);
-        LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, limit5);
+        LogicalLimit<UnboundRelation> limit5 = new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, student);
+        LogicalLimit<LogicalLimit<UnboundRelation>> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit5);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -829,7 +830,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testRewriteBottomPlanToOnePlan() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit = new LogicalLimit<>(1, 0, student);
+        LogicalLimit<LogicalOlapScan> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, student);
 
         LogicalOlapScan score = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
 
@@ -848,10 +849,10 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testRewriteBottomPlanToMultiPlan() {
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<LogicalOlapScan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
         LogicalOlapScan score = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
-        LogicalLimit<LogicalOlapScan> limit1 = new LogicalLimit<>(1, 0, score);
+        LogicalLimit<LogicalOlapScan> limit1 = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, score);
 
         PlanChecker.from(connectContext, limit10)
                 .applyBottomUp(
@@ -892,7 +893,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testRecomputeLogicalProperties() {
         UnboundRelation unboundTable = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("score"));
-        LogicalLimit<UnboundRelation> unboundLimit = new LogicalLimit<>(1, 0, unboundTable);
+        LogicalLimit<UnboundRelation> unboundLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, unboundTable);
 
         LogicalOlapScan boundTable = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
         LogicalLimit<Plan> boundLimit = unboundLimit.withChildren(ImmutableList.of(boundTable));
@@ -924,7 +925,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testEliminateRootWithChildGroupInTwoLevels() {
         LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
-        LogicalLimit<Plan> limit = new LogicalLimit<>(1, 0, scan);
+        LogicalLimit<Plan> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, scan);
 
         PlanChecker.from(connectContext, limit)
                 .applyBottomUp(logicalLimit().then(LogicalLimit::child))
@@ -936,7 +937,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testEliminateRootWithChildPlanInTwoLevels() {
         LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
-        LogicalLimit<Plan> limit = new LogicalLimit<>(1, 0, scan);
+        LogicalLimit<Plan> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, scan);
 
         PlanChecker.from(connectContext, limit)
                 .applyBottomUp(logicalLimit(any()).then(LogicalLimit::child))
@@ -948,7 +949,7 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testEliminateTwoLevelsToOnePlan() {
         LogicalOlapScan score = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
-        LogicalLimit<Plan> limit = new LogicalLimit<>(1, 0, score);
+        LogicalLimit<Plan> limit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, score);
 
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
 
@@ -968,10 +969,10 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     public void testEliminateTwoLevelsToTwoPlans() {
         LogicalOlapScan score = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
-        LogicalLimit<Plan> limit1 = new LogicalLimit<>(1, 0, score);
+        LogicalLimit<Plan> limit1 = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, score);
 
         LogicalOlapScan student = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
-        LogicalLimit<Plan> limit10 = new LogicalLimit<>(10, 0, student);
+        LogicalLimit<Plan> limit10 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, student);
 
         PlanChecker.from(connectContext, limit1)
                 .applyBottomUp(logicalLimit(any()).when(limit1::equals).then(l -> limit10))
@@ -998,7 +999,7 @@ class MemoTest implements MemoPatternMatchSupported {
     public void test() {
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(new LogicalLimit<>(10, 0,
-                        new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                        LimitPhase.ORIGIN, new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                                 ImmutableList.of(new EqualTo(new UnboundSlot("sid"), new UnboundSlot("id"))),
                                 new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score),
                                 new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student)

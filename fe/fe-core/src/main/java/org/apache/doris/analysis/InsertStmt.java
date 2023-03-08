@@ -51,6 +51,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -226,9 +227,9 @@ public class InsertStmt extends DdlStmt {
     }
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
-        queryStmt.foldConstant(rewriter);
+        queryStmt.foldConstant(rewriter, tQueryOptions);
     }
 
     @Override
@@ -304,7 +305,7 @@ public class InsertStmt extends DdlStmt {
 
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        long timeoutSecond = ConnectContext.get().resetExecTimeoutByInsert();
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }

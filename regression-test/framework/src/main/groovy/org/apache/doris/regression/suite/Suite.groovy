@@ -519,5 +519,6 @@ class Suite implements GroovyInterceptable {
             return metaClass.invokeMethod(this, name, args)
         }
     }
+
 }
 

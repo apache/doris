@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS `hive_table`(
 
    Hive Bitmap UDF used in Hive/Spark,First, you need to compile fe to get hive-udf-jar-with-dependencies.jar.
    Compilation preparation:If you have compiled the ldb source code, you can directly compile fe,If you have compiled the ldb source code, you can compile it directly. If you have not compiled the ldb source code, you need to manually install thrift，
-   Reference:[Setting Up dev env for FE](/community/developer-guide/fe-idea-dev) .
+   Reference:[Setting Up dev env for FE](/community/developer-guide/fe-idea-dev.md).
 
 ```sql
 --clone doris code
@@ -106,4 +106,4 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive Bitmap import into Doris
 
- see details: [Spark Load](../../data-operate/import/import-way/spark-load-manual) -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)
+ see details: [Spark Load](../data-operate/import/import-way/spark-load-manual.md) -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)

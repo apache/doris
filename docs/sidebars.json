@@ -224,6 +224,7 @@
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
+                "ecosystem/kyuubi",
                 "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
                 "ecosystem/plugin-development-manual",
@@ -576,7 +577,8 @@
                                 "sql-manual/sql-functions/json-functions/get_json_string",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
-                                "sql-manual/sql-functions/json-functions/json_quote"
+                                "sql-manual/sql-functions/json-functions/json_quote",
+                                "sql-manual/sql-functions/json-functions/json_valid"
                             ]
                         },
                         {

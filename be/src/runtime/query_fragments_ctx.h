@@ -67,6 +67,8 @@ public:
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
     bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
 
+    ExecEnv* exec_env() { return _exec_env; }
+
     bool is_timeout(const DateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;

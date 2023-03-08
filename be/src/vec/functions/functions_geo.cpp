@@ -251,7 +251,7 @@ struct StCircle {
         return Status::OK();
     }
 
-    static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 
@@ -299,14 +299,14 @@ struct StContains {
         return Status::OK();
     }
 
-    static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-};
+}; // namespace doris::vectorized
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -376,7 +376,7 @@ struct StGeoFromText {
         return Status::OK();
     }
 
-    static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 

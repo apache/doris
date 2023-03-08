@@ -22,6 +22,8 @@
 
 #include <string_view>
 
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
@@ -50,16 +52,22 @@ static inline void read(IColumn& column, Reader&& reader) {
 }
 
 std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const StringRef& s = assert_cast<const ColumnString&>(*ptr.get()).get_data_at(row_num);
-    return s.to_string();
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    return value.to_string();
 }
 
 void DataTypeString::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
                                class doris::vectorized::BufferWritable& ostr) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const StringRef& s = assert_cast<const ColumnString&>(*ptr.get()).get_data_at(row_num);
-    ostr.write(s.data, s.size);
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    ostr.write(value.data, value.size);
 }
 
 Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {

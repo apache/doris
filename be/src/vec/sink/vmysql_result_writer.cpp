@@ -54,6 +54,7 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
     set_output_object_data(state->return_object_data_as_binary());
+    _is_dry_run = state->query_options().dry_run_query;
     return Status::OK();
 }
 
@@ -105,7 +106,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     BitmapValue bitmapValue = pColumnComplexType->get_element(i);
                     size_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-                    bitmapValue.write(buf.get());
+                    bitmapValue.write_to(buf.get());
                     buf_ret = rows_buffer[i].push_string(buf.get(), size);
                 } else if (column->is_hll() && output_object_data()) {
                     const vectorized::ColumnComplexType<HyperLogLog>* pColumnComplexType =
@@ -801,13 +802,14 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
     if (status) {
         SCOPED_TIMER(_result_send_timer);
-        // push this batch to back
-        if (_sinker) {
-            status = _sinker->add_batch(result);
-        } else {
-            _results.push_back(std::move(result));
+        // If this is a dry run task, no need to send data block
+        if (!_is_dry_run) {
+            if (_sinker) {
+                status = _sinker->add_batch(result);
+            } else {
+                _results.push_back(std::move(result));
+            }
         }
-
         if (status.ok()) {
             _written_rows += num_rows;
         } else {

@@ -355,7 +355,6 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->mark_as_stale();
         _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
     }
     _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
@@ -459,7 +458,6 @@ Status VScanNode::_normalize_conjuncts() {
             if (new_root) {
                 (*_vconjunct_ctx_ptr)->set_root(new_root);
             } else {
-                (*_vconjunct_ctx_ptr)->mark_as_stale();
                 _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                 _vconjunct_ctx_ptr.reset(nullptr);
             }
@@ -640,8 +638,8 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
     }
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
-        doris_udf::FunctionContext* fn_ctx = nullptr;
-        StringVal val;
+        doris::FunctionContext* fn_ctx = nullptr;
+        StringRef val;
         PushDownType temp_pdt;
         RETURN_IF_ERROR(_should_push_down_function_filter(
                 reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));
@@ -691,7 +689,7 @@ bool VScanNode::_is_predicate_acting_on_slot(
 Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -1288,7 +1286,7 @@ Status VScanNode::_should_push_down_binary_predicate(
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {

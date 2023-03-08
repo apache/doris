@@ -22,8 +22,11 @@
 
 #include "gen_cpp/data.pb.h"
 #include "util/stack_util.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -110,12 +113,14 @@ void get_decimal_value(const IColumn& nested_column, DecimalV2Value& decimal_val
     decimal_value = (DecimalV2Value)(reinterpret_cast<const PackedInt128*>(
                                              nested_col->get_data_at(pos).data)
                                              ->value);
-    return;
 }
 
 void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
     auto& offsets = data_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
@@ -145,34 +150,37 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
 }
 
 std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
     auto& offsets = data_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
     const IColumn& nested_column = data_column.get_data();
-    std::stringstream ss;
-    ss << "[";
+    std::string str;
+    str += "[";
     for (size_t i = offset; i < next_offset; ++i) {
         if (i != offset) {
-            ss << ", ";
+            str += ", ";
         }
         WhichDataType which(remove_nullable(nested));
         if (which.is_string_or_fixed_string()) {
-            ss << "'";
-            ss << nested->to_string(nested_column, i);
-            ss << "'";
+            str += "'";
+            str += nested->to_string(nested_column, i);
+            str += "'";
         } else if (which.is_decimal()) {
             DecimalV2Value decimal_value;
             get_decimal_value(nested_column, decimal_value, i);
-            ss << decimal_value.to_string();
+            str += decimal_value.to_string();
         } else {
-            ss << nested->to_string(nested_column, i);
+            str += nested->to_string(nested_column, i);
         }
     }
-    ss << "]";
-    return ss.str();
+    str += "]";
+    return str;
 }
 
 bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {

@@ -1223,6 +1223,34 @@ public class FunctionSet<T> {
             return null;
         }
 
+        List<Function> normalFunctions = Lists.newArrayList();
+        List<Function> templateFunctions = Lists.newArrayList();
+        for (Function fn : fns) {
+            if (fn.hasTemplateArg()) {
+                templateFunctions.add(fn);
+            } else {
+                normalFunctions.add(fn);
+            }
+        }
+
+        // try normal functions first
+        Function fn = getFunction(desc, mode, normalFunctions);
+        if (fn != null) {
+            return fn;
+        }
+
+        // then specialize template functions and try them
+        List<Function> specializedTemplateFunctions = Lists.newArrayList();
+        for (Function f : templateFunctions) {
+            f = FunctionSet.specializeTemplateFunction(f, desc);
+            if (f != null) {
+                specializedTemplateFunctions.add(f);
+            }
+        }
+        return getFunction(desc, mode, specializedTemplateFunctions);
+    }
+
+    private Function getFunction(Function desc, Function.CompareMode mode, List<Function> fns) {
         // First check for identical
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_IDENTICAL)) {
@@ -1260,6 +1288,45 @@ public class FunctionSet<T> {
             }
         }
         return null;
+    }
+
+    public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction) {
+        try {
+            boolean hasTemplateType = false;
+            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
+                        + "  return: " + templateFunction.getReturnType());
+            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
+                        + "  return: " + requestFunction.getReturnType());
+            Function specializedFunction = templateFunction;
+            if (templateFunction instanceof ScalarFunction) {
+                ScalarFunction f = (ScalarFunction) templateFunction;
+                specializedFunction = new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()),
+                                            f.getReturnType(), f.hasVarArgs(), f.getSymbolName(), f.getBinaryType(),
+                                            f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+            } else {
+                // TODO(xk)
+            }
+            Type[] args = specializedFunction.getArgs();
+            Map<String, Type> specializedTypeMap = Maps.newHashMap();
+            for (int i = 0; i < args.length; i++) {
+                if (args[i].hasTemplateType()) {
+                    hasTemplateType = true;
+                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
+                }
+            }
+            if (specializedFunction.getReturnType().hasTemplateType()) {
+                hasTemplateType = true;
+                specializedFunction.setReturnType(
+                        specializedFunction.getReturnType().specializeTemplateType(
+                        requestFunction.getReturnType(), specializedTypeMap, true));
+            }
+            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
+                        + "  return: " + specializedFunction.getReturnType());
+            return hasTemplateType ? specializedFunction : templateFunction;
+        } catch (TypeException e) {
+            LOG.warn("specializeTemplateFunction exception", e);
+            return null;
+        }
     }
 
     /**
@@ -2748,9 +2815,29 @@ public class FunctionSet<T> {
         // Group_concat(string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
                 Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.CHAR), Type.CHAR,
+                Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.CHAR), Type.CHAR,
+                Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.STRING), Type.STRING,
+                Type.STRING, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.STRING), Type.STRING,
+                Type.STRING, initNullString, "", "", "", "", false, true, false, true));
         // Group_concat(string, string) vectorized
         addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 Type.VARCHAR, Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                Type.VARCHAR, Type.VARCHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.CHAR, Type.CHAR),
+                Type.CHAR, Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.CHAR, Type.CHAR),
+                Type.CHAR, Type.CHAR, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_concat", Lists.<Type>newArrayList(Type.STRING, Type.STRING),
+                Type.STRING, Type.STRING, initNullString, "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.STRING, Type.STRING),
+                Type.STRING, Type.STRING, initNullString, "", "", "", "", false, true, false, true));
 
         // analytic functions
         // Rank

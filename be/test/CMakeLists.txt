@@ -31,6 +31,7 @@ set(COMMON_TEST_FILES
     common/resource_tls_test.cpp
     common/status_test.cpp
     common/config_test.cpp
+    common/exception_test.cpp
 )
 set(ENV_TEST_FILES
     env/env_posix_test.cpp
@@ -155,7 +156,6 @@ set(RUNTIME_TEST_FILES
     runtime/memory/chunk_allocator_test.cpp
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
-    runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
@@ -164,10 +164,7 @@ set(TESTUTIL_TEST_FILES
     testutil/function_utils.cpp
     testutil/run_all_tests.cpp
 )
-set(UDF_TEST_FILES
-    # udf/udf_test.cpp
-    # udf/uda_test.cpp
-)
+
 set(UTIL_TEST_FILES
     util/bit_util_test.cpp
     util/brpc_client_cache_test.cpp
@@ -287,7 +284,6 @@ add_executable(doris_be_test
     ${OLAP_TEST_FILES}
     ${RUNTIME_TEST_FILES}
     ${TESTUTIL_TEST_FILES}
-    ${UDF_TEST_FILES}
     ${UTIL_TEST_FILES}
     ${VEC_TEST_FILES}
 )

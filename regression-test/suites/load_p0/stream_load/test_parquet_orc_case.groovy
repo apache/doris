@@ -206,5 +206,43 @@ suite("test_parquet_orc_case", "p0") {
 
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    def arrayParquetTbl = "test_array_parquet_tb"
+    sql """ DROP TABLE IF EXISTS ${arrayParquetTbl} """
+
+    sql """
+    CREATE TABLE ${arrayParquetTbl} ( 
+        k1 int NULL, 
+        a1 array<boolean> NULL, 
+        a2 array<tinyint> NULL, 
+        a3 array<smallint> NULL, 
+        a4 array<int> NULL, 
+        a5 array<bigint> NULL, 
+        a6 array<largeint> NULL,
+        a7 array<decimal(27, 7)> NULL, 
+        a8 array<float> NULL, 
+        a9 array<double> NULL, 
+        a10 array<date> NULL, 
+        a11 array<datetime> NULL, 
+        a12 array<char(20)> NULL, 
+        a13 array<varchar(50)> NULL, 
+        a14 array<string> NULL 
+    ) 
+    DUPLICATE KEY(k1) 
+    DISTRIBUTED BY HASH(k1) BUCKETS 5
+    PROPERTIES(
+        "replication_num"="1"
+    );
+    """
+
+    streamLoad {
+        table "${arrayParquetTbl}"
+        set 'format', 'parquet'
+        set 'columns', '`k1`, `a1`, `a2`, `a3`, `a4`, `a5`, `a6`, `a7`, `a8`, `a9`, `a10`, `a11`, `a12`, `a13`, `a14`'
+        file 'array_test.parquet'
+        time 10000 // limit inflight 10s
+    }
+    sql "sync"
+    qt_sql_array_parquet "select * from ${arrayParquetTbl} order by k1 limit 3"
 }
 

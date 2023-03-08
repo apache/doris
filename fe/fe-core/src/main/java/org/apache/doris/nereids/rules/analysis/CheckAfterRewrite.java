@@ -64,10 +64,10 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .collect(Collectors.toSet());
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
-            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s",
+            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s in plan: %s",
                     StringUtils.join(notFromChildren.stream()
                             .map(ExpressionTrait::toSql)
-                            .collect(Collectors.toSet()), ", ")));
+                            .collect(Collectors.toSet()), ", "), plan));
         }
     }
 

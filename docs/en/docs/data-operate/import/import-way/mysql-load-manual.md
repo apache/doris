@@ -83,7 +83,7 @@ PROPERTIES ("strict_mode" = "true")
 6. `LINES TERMINATED BY` specifies the line separator
 7. `IGNORE num LINES` skips the num header of the CSV.
 8. Column mapping syntax, see the column mapping chapter of [Imported Data Transformation](../import-scenes/load-data-convert.md) for specific parameters
-9. `PROPERTIES` is the configuration of import, please refer to the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual for specific properties.
+9. `PROPERTIES` is the configuration of import, please refer to the [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command manual for specific properties.
 
 ### import file from fe server node
 Assuming that the '/root/server_local.csv' path on the FE node is a CSV file, use the MySQL client side to connect to the corresponding FE node, and then execute the following command to import data into the test table.
@@ -120,4 +120,4 @@ Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 
 ## More Help
 
-1. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual.
+1. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command manual.

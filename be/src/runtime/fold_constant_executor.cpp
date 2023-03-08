@@ -38,16 +38,15 @@ using std::map;
 
 namespace doris {
 
-TUniqueId FoldConstantExecutor::_dummy_id;
-
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
     const auto& expr_map = params.expr_map;
     auto expr_result_map = response->mutable_expr_result_map();
 
     TQueryGlobals query_globals = params.query_globals;
+    _query_id = params.query_id;
     // init
-    RETURN_IF_ERROR(_init(query_globals));
+    RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -71,10 +70,9 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             // calc vexpr
             RETURN_IF_ERROR(ctx->execute(&tmp_block, &result_column));
             DCHECK(result_column != -1);
-            PrimitiveType root_type = ctx->root()->type().type;
             // covert to thrift type
-            TPrimitiveType::type t_type = doris::to_thrift(root_type);
-
+            const TypeDescriptor& res_type = ctx->root()->type();
+            TPrimitiveType::type t_type = doris::to_thrift(res_type.type);
             // collect result
             PExprResult expr_result;
             string result;
@@ -91,6 +89,9 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
 
             expr_result.set_content(std::move(result));
             expr_result.mutable_type()->set_type(t_type);
+            expr_result.mutable_type()->set_scale(res_type.scale);
+            expr_result.mutable_type()->set_precision(res_type.precision);
+            expr_result.mutable_type()->set_len(res_type.len);
             pexpr_result_map.mutable_map()->insert({n.first, expr_result});
         }
         expr_result_map->insert({m.first, pexpr_result_map});
@@ -99,15 +100,15 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     return Status::OK();
 }
 
-Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
+Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
+                                   const TQueryOptions& query_options) {
     // init runtime state, runtime profile
     TPlanFragmentExecParams params;
-    params.fragment_instance_id = FoldConstantExecutor::_dummy_id;
-    params.query_id = FoldConstantExecutor::_dummy_id;
+    params.fragment_instance_id = _query_id;
+    params.query_id = _query_id;
     TExecPlanFragmentParams fragment_params;
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
-    TQueryOptions query_options;
     _runtime_state.reset(new RuntimeState(fragment_params.params, query_options, query_globals,
                                           ExecEnv::GetInstance()));
     DescriptorTbl* desc_tbl = nullptr;
@@ -118,7 +119,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
         return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    status = _runtime_state->init_mem_trackers(FoldConstantExecutor::_dummy_id);
+    status = _runtime_state->init_mem_trackers(_query_id);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
         return status;
