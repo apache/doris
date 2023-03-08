@@ -116,14 +116,13 @@ public:
             if (is_array(type_ptr) && is_array(entity.first)) {
                 auto nested_nullable_type_ptr = (assert_cast<const DataTypeArray*>(type_ptr.get()))->get_nested_type();
                 auto nested_nullable_entity_ptr = (assert_cast<const DataTypeArray*>(entity.first.get()))->get_nested_type();
-                auto nested_type_ptr = nested_nullable_type_ptr->is_nullable()
-                                ?((DataTypeNullable*)(nested_nullable_type_ptr.get()))->get_nested_type()
-                                : nested_nullable_type_ptr;
-                auto nested_entity_ptr= nested_nullable_entity_ptr->is_nullable()
-                                ?((DataTypeNullable*)(nested_nullable_entity_ptr.get()))->get_nested_type()
-                                : nested_nullable_entity_ptr;
-                if(is_decimal(nested_type_ptr)&&nested_type_ptr->get_type_id()==nested_entity_ptr->get_type_id()) {
-                    return entity.second;
+                // There must be nullable inside array type.
+                if(nested_nullable_type_ptr->is_nullable() && nested_nullable_entity_ptr->is_nullable()) {
+                    auto nested_type_ptr = ((DataTypeNullable*)(nested_nullable_type_ptr.get()))->get_nested_type();
+                    auto nested_entity_ptr= ((DataTypeNullable*)(nested_nullable_entity_ptr.get()))->get_nested_type();
+                    if(is_decimal(nested_type_ptr)&&nested_type_ptr->get_type_id()==nested_entity_ptr->get_type_id()) {
+                        return entity.second;
+                    }
                 }
             }
         }
