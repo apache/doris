@@ -21,7 +21,7 @@ import java.util.Scanner;
 
 public class Test {
     public static void main(String[] args) {
-        TestMethod testMethod = new TestMethod();
+        org.apache.doris.test.TestMethod testMethod = new TestMethod();
         Scanner input = new Scanner(System.in);
         while (true) {
             int i = input.nextInt();
