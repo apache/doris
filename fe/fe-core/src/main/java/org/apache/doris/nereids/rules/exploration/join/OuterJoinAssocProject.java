@@ -56,6 +56,7 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
                 .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topJoin -> {

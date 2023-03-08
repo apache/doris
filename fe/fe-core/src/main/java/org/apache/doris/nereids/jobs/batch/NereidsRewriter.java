@@ -84,7 +84,6 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new AvgDistinctToSumDivCount(),
                     new CountDistinctRewrite(),
 
-                    new NormalizeAggregate(),
                     new ExtractFilterFromCrossJoin()
                 ),
 
@@ -114,6 +113,14 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new CorrelateApplyToUnCorrelateApply(),
                     new ApplyToJoin()
                 )
+            ),
+
+            // The rule modification needs to be done after the subquery is unnested,
+            // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
+            // but when normalizeAggregate is performed, the members in apply cannot be obtained,
+            // resulting in inconsistent output results and results in apply
+            topDown(
+                new NormalizeAggregate()
             ),
 
             topDown(

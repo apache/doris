@@ -74,7 +74,7 @@ public class PlanToStringTest {
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 left, right);
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin \\( type=INNER_JOIN, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
+                "LogicalJoin \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
     }
 
     @Test

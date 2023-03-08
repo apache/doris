@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -78,7 +79,8 @@ public class Validator extends PlanPostProcessor {
                 .<Set<Slot>>map(expr -> expr.collect(Slot.class::isInstance))
                 .flatMap(Collection::stream).collect(Collectors.toSet());
         for (Slot slot : slotsUsedByFilter) {
-            Preconditions.checkState(childOutputSet.contains(slot));
+            Preconditions.checkState(childOutputSet.contains(slot)
+                    || slot instanceof MarkJoinSlotReference);
         }
 
         child.accept(this, context);
