@@ -53,6 +53,7 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                const FilterPredicates& filter_predicates,
                                const std::vector<FunctionFilter>& function_filters,
                                VExprContext** common_vexpr_ctxs_pushdown) {
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     if (common_vexpr_ctxs_pushdown != nullptr) {
         // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
         RETURN_IF_ERROR((*common_vexpr_ctxs_pushdown)->clone(_state, &_common_vexpr_ctxs_pushdown));
