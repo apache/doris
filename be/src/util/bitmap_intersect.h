@@ -17,10 +17,9 @@
 #pragma once
 #include <parallel_hashmap/phmap.h>
 
-#include <string>
-
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
