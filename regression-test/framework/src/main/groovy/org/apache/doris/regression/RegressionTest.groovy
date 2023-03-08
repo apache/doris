@@ -186,7 +186,7 @@ class RegressionTest {
                 {
                     def load_flag_01 = 0
                     dir.eachFileRecurse { f_01 ->
-                        if (f_01.name.contains('load')) {
+                        if (f_01.name.contains("load")) {
                             load_flag_01 = 1
                             load_sources.add(f_01.name)
                         }
@@ -209,7 +209,7 @@ class RegressionTest {
                     List<File> sources = new ArrayList<>()
                     def load_flag_02 = 0
                     dir.eachFileRecurse { f_03 ->
-                        if (f_03.name.contains('load')) {
+                        if (f_03.name.contains("load")) {
                             load_flag_02 = 1
                         }
                     }
