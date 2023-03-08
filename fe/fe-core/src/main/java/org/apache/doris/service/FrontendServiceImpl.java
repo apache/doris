@@ -104,7 +104,8 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.TIcebergMetadataType;
+import org.apache.doris.thrift.TIcebergMetadataParams;
+import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -1353,8 +1354,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         switch (request.getSchemaTableName()) {
             case BACKENDS:
                 return getBackendsSchemaTable(request);
-            case ICEBERG_TABLE_META:
-                return getIcebergMetadataTable(request);
+            case METADATA_TABLE:
+                return getMetadataTable(request);
+            default:
+                break;
+        }
+        // TODO(ftw): 最好把下面这两行放在一个函数里
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
+        return result;
+    }
+
+    private TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) {
+        if (!request.isSetMetadaTableParams()) {
+            return errorResult("Metadata table params is not set. ");
+        }
+        switch (request.getMetadaTableParams().getMetadataType()) {
+            case ICEBERG:
+                return getIcebergMetadataTable(request.getMetadaTableParams());
             default:
                 break;
         }
@@ -1363,27 +1380,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private TFetchSchemaTableDataResult getIcebergMetadataTable(TFetchSchemaTableDataRequest request) {
-        if (!request.isSetMetadaTableParams()) {
-            return errorResult("Metadata table params is not set. ");
-        }
-        TMetadataTableRequestParams params = request.getMetadaTableParams();
+    private TFetchSchemaTableDataResult getIcebergMetadataTable(TMetadataTableRequestParams params) {
         if (!params.isSetIcebergMetadataParams()) {
             return errorResult("Iceberg metadata params is not set. ");
         }
-
+        TIcebergMetadataParams icebergMetadataParams =  params.getIcebergMetadataParams();
         HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalog(params.getCatalog());
+                .getCatalog(icebergMetadataParams.getCatalog());
         org.apache.iceberg.Table table;
         try {
-            table = getIcebergTable(catalog, params.getDatabase(), params.getTable());
+            table = getIcebergTable(catalog, icebergMetadataParams.getDatabase(), icebergMetadataParams.getTable());
         } catch (MetaNotFoundException e) {
             return errorResult(e.getMessage());
         }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        TIcebergMetadataType metadataType = params.getIcebergMetadataParams().getMetadataType();
-        switch (metadataType) {
+        TIcebergQueryType icebergQueryType = icebergMetadataParams.getIcebergQueryType();
+        switch (icebergQueryType) {
             case SNAPSHOTS:
                 for (Snapshot snapshot : table.snapshots()) {
                     TRow trow = new TRow();
@@ -1406,7 +1419,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 break;
             default:
-                return errorResult("Unsupported metadata inspect type: " + metadataType);
+                return errorResult("Unsupported iceberg inspect type: " + icebergQueryType);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
