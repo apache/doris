@@ -136,6 +136,7 @@ suite("test_agg_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -157,6 +158,7 @@ suite("test_agg_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -185,6 +187,7 @@ suite("test_agg_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -206,6 +209,7 @@ suite("test_agg_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -234,6 +238,7 @@ suite("test_agg_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -263,6 +268,7 @@ suite("test_agg_keys_schema_change_datev2") {
     while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)

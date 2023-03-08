@@ -61,6 +61,7 @@ suite ("test_update_schema_change") {
     while (max_try_secs--) {
         String result = getAlterColumnJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -107,6 +108,7 @@ suite ("test_update_schema_change") {
     while (max_try_secs--) {
         String result = getAlterColumnJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
