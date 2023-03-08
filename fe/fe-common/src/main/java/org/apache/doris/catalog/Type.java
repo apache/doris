@@ -508,6 +508,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATEV2);
     }
 
+    public boolean isDateV2OrDateTimeV2() {
+        return isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+    }
+
     public boolean hasTemplateType() {
         return false;
     }
