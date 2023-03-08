@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -505,6 +506,21 @@ public abstract class Type {
 
     public boolean isDateV2() {
         return isScalarType(PrimitiveType.DATEV2);
+    }
+
+    public boolean hasTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize tempalte type in this type
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
+        if (hasTemplateType()) {
+            // throw exception by default, sub class should specialize tempalte type properly
+            throw new TypeException("specializeTemplateType not implemented");
+        } else {
+            return this;
+        }
     }
 
     /**
@@ -1560,6 +1576,7 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
                         || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
+                        || t1 == PrimitiveType.TEMPLATE || t2 == PrimitiveType.TEMPLATE
                         || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED
                         || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT) {
                     continue;
