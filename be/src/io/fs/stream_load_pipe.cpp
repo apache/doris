@@ -17,8 +17,6 @@
 
 #include "stream_load_pipe.h"
 
-#include <gen_cpp/internal_service.pb.h>
-
 #include "olap/iterators.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
@@ -112,6 +110,16 @@ Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t pr
     return _append(buf, proto_byte_size);
 }
 
+Status StreamLoadPipe::append(std::unique_ptr<PDataRow>&& row) {
+    PDataRow* row_ptr = row.get();
+    {
+        std::unique_lock<std::mutex> l(_lock);
+        _data_row_ptrs.emplace_back(std::move(row));
+    }
+    return append_and_flush(reinterpret_cast<char*>(&row_ptr), sizeof(row_ptr),
+                            sizeof(PDataRow*) + row_ptr->ByteSizeLong());
+}
+
 Status StreamLoadPipe::append(const char* data, size_t size) {
     size_t pos = 0;
     if (_write_buf != nullptr) {
@@ -168,8 +176,11 @@ Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_
     _buf_queue.pop_front();
     _buffered_bytes -= buf->limit;
     if (_use_proto) {
-        PDataRow** ptr = reinterpret_cast<PDataRow**>(data->get());
-        _proto_buffered_bytes -= (sizeof(PDataRow*) + (*ptr)->GetCachedSize());
+        auto row_ptr = std::move(_data_row_ptrs.front());
+        _proto_buffered_bytes -= (sizeof(PDataRow*) + row_ptr->GetCachedSize());
+        _data_row_ptrs.pop_front();
+        // PlainBinaryLineReader will hold the PDataRow
+        row_ptr.release();
     }
     _put_cond.notify_one();
     return Status::OK();
