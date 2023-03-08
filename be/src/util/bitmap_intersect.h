@@ -18,6 +18,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <string>
+
 #include "runtime/string_value.h"
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
