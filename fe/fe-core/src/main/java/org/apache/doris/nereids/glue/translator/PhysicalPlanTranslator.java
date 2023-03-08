@@ -204,7 +204,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (physicalPlan instanceof PhysicalDistribute) {
             PhysicalDistribute distribute = (PhysicalDistribute) physicalPlan;
             DataPartition dataPartition;
-            if (distribute.getPhysicalProperties().equals(PhysicalProperties.GATHER)) {
+            if (distribute.getDistributionSpec().equals(PhysicalProperties.GATHER.getDistributionSpec())) {
                 dataPartition = DataPartition.UNPARTITIONED;
             } else {
                 throw new AnalysisException("Unsupported PhysicalDistribute in the root plan: " + distribute);

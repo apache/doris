@@ -35,6 +35,7 @@ public class PlanContext {
     private List<Statistics> childrenStats = new ArrayList<>();
     private Statistics planStats;
     private int arity = 0;
+    private boolean isBroadcastJoin = false;
 
     /**
      * Constructor for PlanContext.
@@ -57,6 +58,14 @@ public class PlanContext {
         this.arity = this.childrenStats.size();
     }
 
+    public void setBroadcastJoin() {
+        isBroadcastJoin = true;
+    }
+
+    public boolean isBroadcastJoin() {
+        return isBroadcastJoin;
+    }
+
     public int arity() {
         return arity;
     }
@@ -70,5 +79,9 @@ public class PlanContext {
      */
     public Statistics getChildStatistics(int index) {
         return childrenStats.get(index);
+    }
+
+    public List<StatsDeriveResult> getChildrenStatistics() {
+        return childrenStats;
     }
 }
