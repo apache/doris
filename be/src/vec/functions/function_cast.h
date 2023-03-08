@@ -1558,8 +1558,9 @@ private:
                                       const DataTypeStruct& to_type) const {
         switch (from_type->get_type_id()) {
         case TypeIndex::String:
-        default:
             return &ConvertImplGenericFromString<ColumnString>::execute;
+        default:
+            return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
         }
     }
 
