@@ -300,7 +300,7 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     if (reason != nullptr) {
         formatter.AppendString(reason);
     } else {
-        formatter.AppendString("unkown detail explain");
+        formatter.AppendString("unknown detail explain");
     }
     formatter.AppendString(" (@0x");
     formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);

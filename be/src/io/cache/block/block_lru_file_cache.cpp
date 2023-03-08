@@ -639,7 +639,7 @@ void LRUFileCache::remove(const Key& key, bool is_persistent, size_t offset,
 void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock) {
     /// version 1.0: cache_base_path / key / offset
     /// version 2.0: cache_base_path / key_prefix / key / offset
-    if (read_file_cache_version() != FILE_CACHE_VERSION) {
+    if (USE_CACHE_VERSION2 && read_file_cache_version() != "2.0") {
         // move directories format as version 2.0
         fs::directory_iterator key_it {_cache_base_path};
         for (; key_it != fs::directory_iterator(); ++key_it) {
@@ -675,22 +675,7 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
     uint64_t offset = 0;
     size_t size = 0;
     std::vector<std::pair<LRUQueue::Iterator, bool>> queue_entries;
-
-    /// version 2.0: cache_base_path / key_prefix / key / offset
-    fs::directory_iterator key_prefix_it {_cache_base_path};
-    for (; key_prefix_it != fs::directory_iterator(); ++key_prefix_it) {
-        if (!key_prefix_it->is_directory()) {
-            // maybe version hits file
-            continue;
-        }
-        if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
-            LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
-                         << ", try to remove it";
-            std::filesystem::remove(key_prefix_it->path());
-            continue;
-        }
-
-        fs::directory_iterator key_it {key_prefix_it->path()};
+    auto scan_file_cache = [&](fs::directory_iterator& key_it) {
         for (; key_it != fs::directory_iterator(); ++key_it) {
             key = Key(
                     vectorized::unhex_uint<uint128_t>(key_it->path().filename().native().c_str()));
@@ -747,6 +732,27 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
                 }
             }
         }
+    };
+
+    if constexpr (USE_CACHE_VERSION2) {
+        fs::directory_iterator key_prefix_it {_cache_base_path};
+        for (; key_prefix_it != fs::directory_iterator(); ++key_prefix_it) {
+            if (!key_prefix_it->is_directory()) {
+                // maybe version hits file
+                continue;
+            }
+            if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
+                LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
+                             << ", try to remove it";
+                std::filesystem::remove(key_prefix_it->path());
+                continue;
+            }
+            fs::directory_iterator key_it {key_prefix_it->path()};
+            scan_file_cache(key_it);
+        }
+    } else {
+        fs::directory_iterator key_it {_cache_base_path};
+        scan_file_cache(key_it);
     }
 
     /// Shuffle cells to have random order in LRUQueue as at startup all cells have the same priority.
@@ -760,12 +766,15 @@ void LRUFileCache::load_cache_info_into_memory(std::lock_guard<std::mutex>& cach
 }
 
 Status LRUFileCache::write_file_cache_version() const {
-    std::string version_path = get_version_path();
-    Slice version(FILE_CACHE_VERSION);
-    FileWriterPtr version_writer;
-    RETURN_IF_ERROR(global_local_filesystem()->create_file(version_path, &version_writer));
-    RETURN_IF_ERROR(version_writer->append(version));
-    return version_writer->close();
+    if constexpr (USE_CACHE_VERSION2) {
+        std::string version_path = get_version_path();
+        Slice version("2.0");
+        FileWriterPtr version_writer;
+        RETURN_IF_ERROR(global_local_filesystem()->create_file(version_path, &version_writer));
+        RETURN_IF_ERROR(version_writer->append(version));
+        return version_writer->close();
+    }
+    return Status::OK();
 }
 
 std::string LRUFileCache::read_file_cache_version() const {

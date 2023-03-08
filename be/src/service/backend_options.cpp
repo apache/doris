@@ -86,7 +86,7 @@ bool BackendOptions::init() {
     return true;
 }
 
-std::string BackendOptions::get_localhost() {
+const std::string& BackendOptions::get_localhost() {
     return _s_localhost;
 }
 

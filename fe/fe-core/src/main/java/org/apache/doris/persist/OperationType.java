@@ -150,6 +150,8 @@ public class OperationType {
     public static final short OP_DROP_REPOSITORY = 90;
     public static final short OP_MODIFY_BACKEND = 91;
 
+    public static final short OP_MODIFY_FRONTEND = 92;
+
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
@@ -161,12 +163,15 @@ public class OperationType {
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
     @Deprecated
-    // use OP_BATCH_REMOVE_TXNS instead
+    // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
     public static final short OP_FINISHING_ROLLUP = 102;
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
+    @Deprecated
+    // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_BATCH_REMOVE_TXNS = 105;
+    public static final short OP_BATCH_REMOVE_TXNS_V2 = 106;
 
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;

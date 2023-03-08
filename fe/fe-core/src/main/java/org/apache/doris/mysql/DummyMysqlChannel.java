@@ -50,7 +50,7 @@ public class DummyMysqlChannel extends MysqlChannel {
     }
 
     @Override
-    protected int readAll(ByteBuffer dstBuf) throws IOException {
+    protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         return 0;
     }
 

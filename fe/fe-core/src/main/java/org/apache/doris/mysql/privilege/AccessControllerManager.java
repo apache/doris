@@ -153,7 +153,7 @@ public class AccessControllerManager {
             PrivPredicate wanted) throws UserException {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
-        for (TableName tableName : tableToColsMap.keys()) {
+        for (TableName tableName : tableToColsMap.keySet()) {
             accessController.checkColsPriv(hasGlobal, currentUser, ctl, tableName.getDb(),
                     tableName.getTbl(), tableToColsMap.get(tableName), wanted);
         }

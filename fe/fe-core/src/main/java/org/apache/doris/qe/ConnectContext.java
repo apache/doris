@@ -32,6 +32,7 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
@@ -62,6 +63,8 @@ import java.util.Set;
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+
+    private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -149,14 +152,17 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
+
     private long userQueryTimeout;
 
     /**
      * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
      * <p>
      * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
-     * then it is set to max(query_timeout, insert_timeout) with {@link #resetExecTimeout()} in
-     * after the StmtExecutor is specified.
+     * then it is set to max(executionTimeoutS, insert_timeout) using {@link #setExecTimeout(int timeout)} at
+     * {@link StmtExecutor}.
      */
     private int executionTimeoutS;
 
@@ -169,6 +175,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public MysqlSslContext getMysqlSslContext() {
+        return mysqlSslContext;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -640,12 +650,13 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
-    public void resetExecTimeout() {
-        if (executor != null && executor.isInsertStmt()) {
-            // particular timeout for insert stmt, we can make other particular timeout in the same way.
-            // set the execution timeout as max(insert_timeout,query_timeout) to be compatible with older versions
-            executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), executionTimeoutS);
-        }
+    public void setExecTimeout(int timeout) {
+        executionTimeoutS = timeout;
+    }
+
+    public long resetExecTimeoutByInsert() {
+        executionTimeoutS = Math.max(executionTimeoutS, sessionVariable.getInsertTimeoutS());
+        return executionTimeoutS;
     }
 
     public int getExecTimeout() {

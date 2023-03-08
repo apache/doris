@@ -86,7 +86,7 @@ public class UpdateStmtExecutorTest {
                 result = 1;
                 analyzer.getContext().queryId();
                 result = new TUniqueId(1, 2);
-                analyzer.getContext().getSessionVariable().getQueryTimeoutS();
+                analyzer.getContext().getExecTimeout();
                 result = 1000;
                 olapTable.getId();
                 result = 2;

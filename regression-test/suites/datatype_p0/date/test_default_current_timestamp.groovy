@@ -40,6 +40,7 @@ suite("test_default_current_timestamp") {
     while(max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)

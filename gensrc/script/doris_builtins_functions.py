@@ -25,13 +25,17 @@
 # It contains all the meta data that describes the function.
 
 # The format is:
-#   [sql aliases], <return_type>, [<args>], <nullable mode>
+#   [sql aliases], <return_type>, [<args>], <nullable mode>, [template_types]
 #
 # 'sql aliases' are the function names that can be used from sql. There must be at least
 # one per function.
 #
 # 'nullable mode' reflects whether the return value of the function is null. See @Function.NullableMode
 # for the specific mode and meaning.
+#
+# 'template_types' is for template function just like C++. It is optional list.
+# eg. [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+#     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
 visible_functions = [
     # Bit and Byte functions
@@ -100,7 +104,7 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
 
     # map element
-    [['element_at', '%element_extract%'], 'INT', ['MAP_STRING_INT', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],

@@ -88,20 +88,16 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     }
 
     for (auto& scan_range : _scan_ranges) {
-        VScanner* scanner =
-                (VScanner*)_create_scanner(scan_range.scan_range.ext_scan_range.file_scan_range);
+        VScanner* scanner = new VFileScanner(_state, this, _limit_per_scanner,
+                                             scan_range.scan_range.ext_scan_range.file_scan_range,
+                                             runtime_profile(), _kv_cache);
+        _scanner_pool.add(scanner);
+        RETURN_IF_ERROR(((VFileScanner*)scanner)
+                                ->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range));
         scanners->push_back(scanner);
     }
 
     return Status::OK();
-}
-
-VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
-    VScanner* scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range,
-                                         runtime_profile(), _kv_cache);
-    ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
-    _scanner_pool.add(scanner);
-    return scanner;
 }
 
 }; // namespace doris::vectorized

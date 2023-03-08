@@ -38,6 +38,7 @@ suite("test_materialized_view_hll_with_light_sc", "rollup") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)

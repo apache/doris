@@ -542,7 +542,7 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
                                              const PTabletKeyLookupRequest* request,
                                              PTabletKeyLookupResponse* response,
                                              google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
         Status st = _tablet_fetch_data(request, response);
@@ -717,15 +717,16 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
                                      google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        TUniqueId fragment_instance_id;
-        fragment_instance_id.hi = request->fragment_instance_id().hi();
-        fragment_instance_id.lo = request->fragment_instance_id().lo();
-
-        auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
-        if (pipe == nullptr) {
+        TUniqueId load_id;
+        load_id.hi = request->load_id().hi();
+        load_id.lo = request->load_id().lo();
+        // On 1.2.3 we add load id to send data request and using load id to get pipe
+        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
+        if (stream_load_ctx == nullptr) {
             response->mutable_status()->set_status_code(1);
-            response->mutable_status()->add_error_msgs("pipe is null");
+            response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
+            auto pipe = stream_load_ctx->pipe;
             for (int i = 0; i < request->data_size(); ++i) {
                 PDataRow* row = new PDataRow();
                 row->CopyFrom(request->data(i));
@@ -748,16 +749,16 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
                                   google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        TUniqueId fragment_instance_id;
-        fragment_instance_id.hi = request->fragment_instance_id().hi();
-        fragment_instance_id.lo = request->fragment_instance_id().lo();
+        TUniqueId load_id;
+        load_id.hi = request->load_id().hi();
+        load_id.lo = request->load_id().lo();
 
-        auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
-        if (pipe == nullptr) {
+        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
+        if (stream_load_ctx == nullptr) {
             response->mutable_status()->set_status_code(1);
-            response->mutable_status()->add_error_msgs("pipe is null");
+            response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            pipe->finish();
+            stream_load_ctx->pipe->finish();
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -774,16 +775,15 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
                                     google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        TUniqueId fragment_instance_id;
-        fragment_instance_id.hi = request->fragment_instance_id().hi();
-        fragment_instance_id.lo = request->fragment_instance_id().lo();
-
-        auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
-        if (pipe == nullptr) {
+        TUniqueId load_id;
+        load_id.hi = request->load_id().hi();
+        load_id.lo = request->load_id().lo();
+        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
+        if (stream_load_ctx == nullptr) {
             response->mutable_status()->set_status_code(1);
-            response->mutable_status()->add_error_msgs("pipe is null");
+            response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            pipe->cancel("rollback");
+            stream_load_ctx->pipe->cancel("rollback");
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -1083,10 +1083,11 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 // Check file length
                 uint64_t local_file_size = std::filesystem::file_size(local_file_path);
                 if (local_file_size != file_size) {
-                    LOG(WARNING)
-                            << "failed to pull rowset for slave replica. download file length error"
-                            << ", remote_path=" << remote_file_url << ", file_size=" << file_size
-                            << ", local_file_size=" << local_file_size;
+                    LOG(WARNING) << "failed to pull rowset for slave replica. download file "
+                                    "length error"
+                                 << ", remote_path=" << remote_file_url
+                                 << ", file_size=" << file_size
+                                 << ", local_file_size=" << local_file_size;
                     return Status::InternalError("downloaded file size is not equal");
                 }
                 chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
@@ -1094,10 +1095,10 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             };
             auto st = HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
             if (!st.ok()) {
-                LOG(WARNING)
-                        << "failed to pull rowset for slave replica. failed to download file. url="
-                        << remote_file_url << ", local_path=" << local_file_path
-                        << ", txn_id=" << rowset_meta->txn_id();
+                LOG(WARNING) << "failed to pull rowset for slave replica. failed to download "
+                                "file. url="
+                             << remote_file_url << ", local_path=" << local_file_path
+                             << ", txn_id=" << rowset_meta->txn_id();
                 _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
                                             rowset_meta->tablet_id(), node_id, false);
                 return;

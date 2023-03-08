@@ -14,37 +14,28 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf-debug.h
-// and modified by Doris
 
-#pragma once
+#include "common/exception.h"
 
-#include <sstream>
-#include <string>
+#include "util/stack_util.h"
+namespace doris {
 
-#include "udf/udf.h"
-
-namespace doris_udf {
-
-template <typename T>
-std::string debug_string(const T& val) {
-    if (val.is_null) {
-        return "NULL";
-    }
-
-    std::stringstream ss;
-    ss << val.val;
-    return ss.str();
+Exception::Exception(int code, const std::string_view msg) {
+    _code = code;
+    _err_msg = std::make_unique<ErrMsg>();
+    _err_msg->_msg = msg;
+    _err_msg->_stack = get_stack_trace();
+}
+Exception::Exception(const Exception& nested, int code, const std::string_view msg) {
+    _code = code;
+    _err_msg = std::make_unique<ErrMsg>();
+    _err_msg->_msg = msg;
+    _err_msg->_stack = get_stack_trace();
+    _nested_excption = std::make_unique<Exception>();
+    _nested_excption->_code = nested._code;
+    _nested_excption->_err_msg = std::make_unique<ErrMsg>();
+    _nested_excption->_err_msg->_msg = nested._err_msg->_msg;
+    _nested_excption->_err_msg->_stack = nested._err_msg->_stack;
 }
 
-template <>
-std::string debug_string(const StringVal& val) {
-    if (val.is_null) {
-        return "NULL";
-    }
-
-    return std::string(reinterpret_cast<const char*>(val.ptr), val.len);
-}
-
-} // namespace doris_udf
+} // namespace doris
