@@ -71,17 +71,15 @@ AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_intersect_count
 }
 
 AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_expr_calculate(
-        const std::string& name, const DataTypes& argument_types, const Array& parameters,
-        bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, bool result_is_nullable) {
     return create_aggregate_function_orthogonal<AggOrthBitMapExprCal>(
-            name, argument_types, parameters, result_is_nullable);
+            name, argument_types, result_is_nullable);
 }
 
 AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_expr_calculate_count(
-        const std::string& name, const DataTypes& argument_types, const Array& parameters,
-        bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, bool result_is_nullable) {
     return create_aggregate_function_orthogonal<AggOrthBitMapExprCalCount>(
-            name, argument_types, parameters, result_is_nullable);
+            name, argument_types, result_is_nullable);
 }
 
 AggregateFunctionPtr create_aggregate_function_intersect_count(const std::string& name,
