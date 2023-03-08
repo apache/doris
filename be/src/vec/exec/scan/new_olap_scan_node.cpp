@@ -237,6 +237,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                             if (exact_range) {
                                 _colname_to_value_range.erase(iter->first);
                             }
+                        } else {
+                            // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
+                            // and will not erase from _colname_to_value_range, it must be not exact_range
+                            temp_range.set_whole_value_range();
+                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
+                                    temp_range, _max_scan_key_num, &exact_range, &eos));
                         }
                         return Status::OK();
                     },

@@ -411,6 +411,13 @@ public class ExpressionUtils {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(Collectors.toSet());
+    }
+
     public static <E> List<E> collectAll(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()
