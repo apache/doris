@@ -17,15 +17,10 @@
 
 #include <gtest/gtest.h>
 
-#include "common/logging.h"
-#include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_histogram.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/common/arena.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 

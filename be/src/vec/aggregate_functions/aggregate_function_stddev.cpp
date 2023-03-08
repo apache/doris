@@ -30,8 +30,8 @@ static IAggregateFunction* create_function_single_value(const String& name,
                                                         const DataTypes& argument_types,
                                                         const bool result_is_nullable,
                                                         bool custom_nullable) {
+    IAggregateFunction* res = nullptr;
     WhichDataType which(remove_nullable(argument_types[0]));
-    IAggregateFunction* res;
 #define DISPATCH(TYPE)                                                          \
     if (which.idx == TypeIndex::TYPE)                                           \
         res = creator_without_type::create<AggregateFunctionTemplate<           \
