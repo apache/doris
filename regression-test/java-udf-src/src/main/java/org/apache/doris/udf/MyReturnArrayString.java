@@ -72,10 +72,8 @@ public class MyReturnArrayString {
     }
 
     public ArrayList<String> getValue(State state) {
-        System.out.println(state.data.toString());
         //sort for regression test
         state.data.sort(Comparator.naturalOrder());
-        System.out.println(state.data);
         return state.data;
     }
 }
