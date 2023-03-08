@@ -101,14 +101,18 @@ public class ArrayType extends Type {
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
-        if (!(specificType instanceof ArrayType)) {
+        ArrayType specificArrayType = null;
+        if (specificType instanceof ArrayType) {
+            specificArrayType = (ArrayType) specificType;
+        } else if (!useSpecializedType) {
             throw new TypeException(specificType + " is not ArrayType");
         }
 
-        ArrayType o = (ArrayType) specificType;
         Type newItemType = itemType;
         if (itemType.hasTemplateType()) {
-            newItemType = itemType.specializeTemplateType(o.itemType, specializedTypeMap, useSpecializedType);
+            newItemType = itemType.specializeTemplateType(
+                specificArrayType != null ? specificArrayType.itemType : specificType,
+                specializedTypeMap, useSpecializedType);
         }
 
         return new ArrayType(newItemType);
