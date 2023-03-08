@@ -110,6 +110,8 @@ public class ProfileManager {
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
+        public double qError;
+
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
             if (profileContent != null) {
@@ -119,6 +121,15 @@ public class ProfileManager {
             profileContent = profile.toString();
             return profileContent;
         }
+
+        public double getqError() {
+            return qError;
+        }
+
+        public void setqError(double qError) {
+            this.qError = qError;
+        }
+
     }
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -252,6 +263,10 @@ public class ProfileManager {
         }
     }
 
+    public ProfileElement findProfileElementObject(String queryId) {
+        return queryIdToProfileMap.get(queryId);
+    }
+
     /**
      * Check if the query with specific query id is queried by specific user.
      *
@@ -370,5 +385,12 @@ public class ProfileManager {
 
     public boolean isQueryProfile(RuntimeProfile profile) {
         return "Query".equals(profile.getName());
+    }
+
+    public void setQErrorToProfileElementObject(String queryId, double qError) {
+        ProfileElement profileElement = findProfileElementObject(queryId);
+        if (profileElement != null) {
+            profileElement.setqError(qError);
+        }
     }
 }
