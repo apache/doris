@@ -814,4 +814,14 @@ public class Function implements Writable {
             throw new UserException("failed to serialize function: " + functionName(), t);
         }
     }
+
+    public boolean hasTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.hasTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
