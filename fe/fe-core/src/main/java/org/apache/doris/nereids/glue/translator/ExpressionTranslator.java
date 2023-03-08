@@ -107,9 +107,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Expr staleExpr = expression.accept(INSTANCE, context);
         try {
             staleExpr.finalizeForNereids();
-        } catch (org.apache.doris.common.AnalysisException e) {
+        } catch (Exception e) {
             throw new AnalysisException(
-                    "Translate Nereids expression to stale expression failed. " + e.getMessage(), e);
+                    "Translate Nereids expression `" + expression.toSql()
+                            + "` to stale expression failed. " + e.getMessage(), e);
         }
         return staleExpr;
     }

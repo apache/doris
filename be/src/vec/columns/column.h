@@ -587,6 +587,8 @@ public:
     /// It's a special kind of column, that contain single value, but is not a ColumnConst.
     virtual bool is_dummy() const { return false; }
 
+    virtual bool is_exclusive() const { return use_count() == 1; }
+
     /// Clear data of column, just like vector clear
     virtual void clear() {}
 

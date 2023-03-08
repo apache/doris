@@ -85,4 +85,34 @@ suite("test_null_predicate") {
     qt_select12 """ select id, name from ${tableName} where id < 110 or name is not null order by id, name; """
     qt_select13 """ select id, name from ${tableName} where id > 109 or name is not null order by id, name; """
     qt_select14 """ select count(1) from ${tableName} where name is not null; """
+
+    sql """ DROP TABLE IF EXISTS test_null_predicate2 """
+    // Here, create a table and make the "value" column nullable before the "name" column.
+    // Via: https://github.com/apache/doris/issues/17462
+    sql """
+            CREATE TABLE IF NOT EXISTS test_null_predicate2 (
+            `id` INT,
+            `value` double NULL,
+            `name` varchar(30)
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_num" = "1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+    """
+
+    sql """
+        INSERT INTO test_null_predicate2 values
+            (1, null, "abc"),
+            (2, 2.0, "efg"),
+            (3, null, "ccc"),
+            (4, 4.0, "ddd"),
+            (5, null, "eeee");
+    """
+
+    qt_select15 """ select * from test_null_predicate2 where `value` is null order by id; """
 }

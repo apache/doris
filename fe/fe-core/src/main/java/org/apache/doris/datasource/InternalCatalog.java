@@ -311,7 +311,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         // to see which thread held this lock for long time.
                         Thread owner = lock.getOwner();
                         if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                            // There are many catalog timeout during regression test
+                            // And this timeout should not happen very often, so it could be info log
+                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                         }
                     }
 

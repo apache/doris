@@ -248,8 +248,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
-// check row nums for BE/CE and schema change. true is open, false is closed.
-CONF_mBool(row_nums_check, "true");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -269,8 +267,6 @@ CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 CONF_Bool(disable_storage_row_cache, "true");
 
-CONF_Bool(enable_storage_vectorization, "true");
-
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
@@ -278,10 +274,6 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
-// whether enable vectorized compaction
-CONF_Bool(enable_vectorized_compaction, "true");
-// whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "true");
 // whether enable vertical compaction
 CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction
@@ -933,7 +925,7 @@ CONF_Int32(num_broadcast_buffer, "32");
 CONF_Bool(enable_parse_multi_dimession_array, "true");
 
 // max depth of expression tree allowed.
-CONF_Int32(max_depth_of_expr_tree, "200");
+CONF_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");

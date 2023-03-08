@@ -153,6 +153,12 @@ public:
         _has_null = true;
     }
 
+    void insert_not_null_elements(size_t num) {
+        get_nested_column().insert_many_defaults(num);
+        _get_null_map_column().fill(0, num);
+        _has_null = false;
+    }
+
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
         _get_null_map_column().fill(1, num);
@@ -225,6 +231,11 @@ public:
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
     bool is_fixed_and_contiguous() const override { return false; }
     bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
+
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && nested_column->is_exclusive() && null_map->is_exclusive();
+    }
+
     size_t size_of_value_if_fixed() const override {
         return null_map->size_of_value_if_fixed() + nested_column->size_of_value_if_fixed();
     }

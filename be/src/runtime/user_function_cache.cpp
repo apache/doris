@@ -252,14 +252,15 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
                                            const std::string& checksum,
                                            UserFunctionCacheEntry** output_entry, LibType type) {
     UserFunctionCacheEntry* entry = nullptr;
+    std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
         auto it = _entry_map.find(fid);
         if (it != _entry_map.end()) {
             entry = it->second;
         } else {
-            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum, type),
-                                               type);
+            entry = new UserFunctionCacheEntry(
+                    fid, checksum, _make_lib_file(fid, checksum, type, file_name), type);
             entry->ref();
             _entry_map.emplace(fid, entry);
         }
@@ -376,6 +377,17 @@ std::string UserFunctionCache::_get_real_url(const std::string& url) {
     return url;
 }
 
+std::string UserFunctionCache::_get_file_name_from_url(const std::string& url) const {
+    std::string file_name;
+    size_t last_slash_pos = url.find_last_of('/');
+    if (last_slash_pos != std::string::npos) {
+        file_name = url.substr(last_slash_pos + 1, url.size());
+    } else {
+        file_name = url;
+    }
+    return file_name;
+}
+
 // entry's lock must be held
 Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* entry) {
     RETURN_IF_ERROR(dynamic_open(entry->lib_file.c_str(), &entry->lib_handle));
@@ -384,12 +396,12 @@ Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* ent
 }
 
 std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum,
-                                              LibType type) {
+                                              LibType type, const std::string& file_name) {
     int shard = function_id % kLibShardNum;
     std::stringstream ss;
     ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum;
     if (type == LibType::JAR) {
-        ss << ".jar";
+        ss << '.' << file_name;
     } else {
         ss << ".so";
     }
@@ -417,6 +429,7 @@ Status UserFunctionCache::check_jar(int64_t fid, const std::string& url,
                                     const std::string& checksum) {
     UserFunctionCacheEntry* entry = nullptr;
     Status st = Status::OK();
+    std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
         auto it = _entry_map.find(fid);
@@ -424,7 +437,8 @@ Status UserFunctionCache::check_jar(int64_t fid, const std::string& url,
             entry = it->second;
         } else {
             entry = new UserFunctionCacheEntry(
-                    fid, checksum, _make_lib_file(fid, checksum, LibType::JAR), LibType::JAR);
+                    fid, checksum, _make_lib_file(fid, checksum, LibType::JAR, file_name),
+                    LibType::JAR);
             entry->ref();
             _entry_map.emplace(fid, entry);
         }

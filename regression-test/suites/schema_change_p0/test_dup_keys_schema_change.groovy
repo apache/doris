@@ -130,6 +130,7 @@ suite ("test_dup_keys_schema_change") {
         while (max_try_time--){
             String result = getJobState(tableName)
             if (result == "FINISHED") {
+                sleep(3000)
                 break
             } else {
                 sleep(100)

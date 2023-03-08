@@ -33,6 +33,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 public class PrivInfo implements Writable {
     @SerializedName(value = "userIdent")
@@ -49,6 +50,9 @@ public class PrivInfo implements Writable {
     private String role;
     @SerializedName(value = "passwordOptions")
     private PasswordOptions passwordOptions;
+    // Indicates that these roles are granted to a user
+    @SerializedName(value = "roles")
+    private List<String> roles;
 
     private PrivInfo() {
 
@@ -88,6 +92,12 @@ public class PrivInfo implements Writable {
         this.role = role;
     }
 
+    // For grant/revoke roles to/from userIdent
+    public PrivInfo(UserIdentity userIdent, List<String> roles) {
+        this.userIdent = userIdent;
+        this.roles = roles;
+    }
+
     public UserIdentity getUserIdent() {
         return userIdent;
     }
@@ -114,6 +124,10 @@ public class PrivInfo implements Writable {
 
     public PasswordOptions getPasswordOptions() {
         return passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
+    }
+
+    public List<String> getRoles() {
+        return roles;
     }
 
     public static PrivInfo read(DataInput in) throws IOException {
