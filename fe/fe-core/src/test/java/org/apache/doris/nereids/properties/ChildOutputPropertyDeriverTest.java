@@ -66,6 +66,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @SuppressWarnings("unused")
@@ -114,7 +115,7 @@ public class ChildOutputPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
@@ -164,7 +165,7 @@ public class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         Map<ExprId, Integer> leftMap = Maps.newHashMap();
@@ -210,7 +211,7 @@ public class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
         Map<ExprId, Integer> leftMap = Maps.newHashMap();
@@ -247,7 +248,7 @@ public class ChildOutputPropertyDeriverTest {
     @Test
     public void testNestedLoopJoin() {
         PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, logicalProperties, groupPlan,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, Optional.empty(), logicalProperties, groupPlan,
                 groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 

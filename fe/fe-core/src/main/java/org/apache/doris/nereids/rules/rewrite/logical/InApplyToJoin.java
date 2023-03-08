@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Lists;
 
@@ -46,14 +47,19 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalApply().when(LogicalApply::isIn).then(apply -> {
             Expression predicate;
+            Expression left = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
+            Expression right = apply.right().getOutput().get(0);
             if (apply.isCorrelated()) {
                 predicate = ExpressionUtils.and(
-                        new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
-                                apply.right().getOutput().get(0)),
+                        TypeCoercionUtils.processComparisonPredicate(
+                            new EqualTo(left, right), left, right),
                         apply.getCorrelationFilter().get());
             } else {
-                predicate = new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
-                        apply.right().getOutput().get(0));
+                predicate = TypeCoercionUtils.processComparisonPredicate(new EqualTo(left, right), left, right);
+            }
+
+            if (apply.getSubCorrespondingConject().isPresent()) {
+                predicate = ExpressionUtils.and(predicate, apply.getSubCorrespondingConject().get());
             }
 
             //TODO nereids should support bitmap runtime filter in future
@@ -67,12 +73,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         predicate.nullable() ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN : JoinType.LEFT_ANTI_JOIN,
                         Lists.newArrayList(),
                         conjuncts,
-                        JoinHint.NONE,
+                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
                         apply.left(), apply.right());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
-                        JoinHint.NONE,
+                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
                         apply.left(), apply.right());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

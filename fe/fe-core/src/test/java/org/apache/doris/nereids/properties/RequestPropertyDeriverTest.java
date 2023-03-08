@@ -52,6 +52,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 @SuppressWarnings("unused")
 public class RequestPropertyDeriverTest {
@@ -79,7 +80,7 @@ public class RequestPropertyDeriverTest {
     @Test
     public void testNestedLoopJoin() {
         PhysicalNestedLoopJoin<GroupPlan, GroupPlan> join = new PhysicalNestedLoopJoin<>(JoinType.CROSS_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, logicalProperties, groupPlan,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, Optional.empty(), logicalProperties, groupPlan,
                 groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
@@ -103,7 +104,7 @@ public class RequestPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
@@ -130,7 +131,7 @@ public class RequestPropertyDeriverTest {
         };
 
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
 
