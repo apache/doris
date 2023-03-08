@@ -366,6 +366,7 @@ TEST_F(TabletCooldownTest, normal) {
     ASSERT_EQ(Status::OK(), st);
     st = tablet1->cooldown(); // rowset [2-2]
     ASSERT_EQ(Status::OK(), st);
+    sleep(30);
     auto rs = tablet1->get_rowset_by_version({2, 2});
     ASSERT_FALSE(rs->is_local());
 
@@ -391,6 +392,7 @@ TEST_F(TabletCooldownTest, normal) {
     tablet2->update_cooldown_conf(2, kReplicaId);
     st = tablet2->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
+    sleep(30);
     auto rs2 = tablet2->get_rowset_by_version({2, 2});
     ASSERT_FALSE(rs2->is_local());
 
