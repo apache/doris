@@ -100,14 +100,14 @@ AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_union_count(
 
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("orthogonal_bitmap_intersect",
-            create_aggregate_function_orthogonal_bitmap_intersect);
+                                   create_aggregate_function_orthogonal_bitmap_intersect);
     factory.register_function_both("orthogonal_bitmap_intersect_count",
-            create_aggregate_function_orthogonal_bitmap_intersect_count);
+                                   create_aggregate_function_orthogonal_bitmap_intersect_count);
     factory.register_function_both("orthogonal_bitmap_union_count",
-            create_aggregate_function_orthogonal_bitmap_union_count);
+                                   create_aggregate_function_orthogonal_bitmap_union_count);
     factory.register_function_both("intersect_count", create_aggregate_function_intersect_count);
     factory.register_function_both("orthogonal_bitmap_expr_calculate",
-            create_aggregate_function_orthogonal_bitmap_expr_calculate);
+                                   create_aggregate_function_orthogonal_bitmap_expr_calculate);
     factory.register_function_both(
             "orthogonal_bitmap_expr_calculate_count",
             create_aggregate_function_orthogonal_bitmap_expr_calculate_count);
