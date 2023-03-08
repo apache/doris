@@ -117,9 +117,6 @@ public final class RuntimeFilter {
 
         public RuntimeFilterTarget(ScanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
-            if (!targetExpr.isBoundByTupleIds(targetNode.getTupleIds())) {
-                System.out.println("aaa");
-            }
             Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds()));
             this.node = targetNode;
             this.expr = targetExpr;

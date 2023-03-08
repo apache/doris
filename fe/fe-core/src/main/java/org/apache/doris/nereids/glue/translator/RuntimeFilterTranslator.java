@@ -129,7 +129,7 @@ public class RuntimeFilterTranslator {
         SlotId targetSlotId = targetSlot.getSlotId();
         // adjust data type
         if (!src.getType().equals(target.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-            target = new CastExpr(src.getType(), target);
+            targetExpr = new CastExpr(src.getType(), targetExpr);
         }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
