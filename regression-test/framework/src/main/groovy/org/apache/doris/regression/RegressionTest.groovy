@@ -184,14 +184,14 @@ class RegressionTest {
             List<String> other_sources = new ArrayList<>()
             new File(config.suitePath).eachDir { dir ->
                 {
-                    def load_flag_01 = 0
+                    def load_flag = 0
                     dir.eachFileRecurse { f_01 ->
                         if (f_01.name.contains("load")) {
-                            load_flag_01 = 1
+                            load_flag = 1
                             load_sources.add(f_01.name)
                         }
                     }
-                    if (load_flag_01 == 0) {
+                    if (load_flag == 0) {
                         dir.eachFileRecurse { f_02 ->
                             load_sources.add(f_02.name)
                         }
