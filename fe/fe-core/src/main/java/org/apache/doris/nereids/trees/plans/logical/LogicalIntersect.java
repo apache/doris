@@ -87,4 +87,9 @@ public class LogicalIntersect extends LogicalSetOperation {
     public LogicalIntersect withNewChildren(List<Plan> children) {
         return withChildren(children);
     }
+
+    @Override
+    public LogicalIntersect pruneOutputs(List<NamedExpression> prunedOutputs) {
+        return withNewOutputs(prunedOutputs);
+    }
 }

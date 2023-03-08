@@ -143,4 +143,9 @@ public class LogicalUnion extends LogicalSetOperation {
     public LogicalUnion withNewChildren(List<Plan> children) {
         return withChildren(children);
     }
+
+    @Override
+    public LogicalUnion pruneOutputs(List<NamedExpression> prunedOutputs) {
+        return withNewOutputs(prunedOutputs);
+    }
 }
