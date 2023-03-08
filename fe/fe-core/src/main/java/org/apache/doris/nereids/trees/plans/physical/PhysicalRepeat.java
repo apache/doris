@@ -170,7 +170,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public PhysicalRepeat<CHILD_TYPE> withNewOutputs(List<NamedExpression> newOutputs) {
+    public PhysicalRepeat<CHILD_TYPE> withAggOutputs(List<NamedExpression> newOutputs) {
         return new PhysicalRepeat<>(groupingSets, newOutputs, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, child());
     }

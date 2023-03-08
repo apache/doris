@@ -231,7 +231,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public LogicalAggregate<CHILD_TYPE> withNewOutputs(List<NamedExpression> newOutputs) {
+    public LogicalAggregate<CHILD_TYPE> withAggOutputs(List<NamedExpression> newOutputs) {
         return new LogicalAggregate<>(groupByExpressions, newOutputs, normalized, ordinalIsResolved,
                 sourceRepeat, Optional.empty(), Optional.empty(), child());
     }

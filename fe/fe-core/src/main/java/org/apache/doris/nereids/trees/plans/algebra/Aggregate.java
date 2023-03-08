@@ -39,14 +39,14 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
 
     List<NamedExpression> getOutputExpressions();
 
-    Aggregate<CHILD_TYPE> withNewOutputs(List<NamedExpression> newOutputs);
+    Aggregate<CHILD_TYPE> withAggOutputs(List<NamedExpression> newOutputs);
 
     @Override
     Aggregate<Plan> withChildren(List<Plan> children);
 
     @Override
     default Aggregate<CHILD_TYPE> pruneOutputs(List<NamedExpression> prunedOutputs) {
-        return withNewOutputs(prunedOutputs);
+        return withAggOutputs(prunedOutputs);
     }
 
     default Set<AggregateFunction> getAggregateFunctions() {

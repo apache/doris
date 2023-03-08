@@ -1219,7 +1219,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     }
                     return outputChild;
                 });
-        return Pair.of(aggregate.withNewOutputs(newOutput), countIfList.build());
+        return Pair.of(aggregate.withAggOutputs(newOutput), countIfList.build());
     }
 
     private boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
