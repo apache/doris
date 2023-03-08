@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -197,6 +198,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSlotReference(SlotReference slotReference, C context) {
         return visitSlot(slotReference, context);
+    }
+
+    public R visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, C context) {
+        return visitSlotReference(markJoinSlotReference, context);
     }
 
     public R visitLiteral(Literal literal, C context) {

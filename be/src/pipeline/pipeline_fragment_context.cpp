@@ -64,6 +64,8 @@
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "vec/exec/join/vhash_join_node.h"
@@ -123,8 +125,11 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
-        if (_pipe != nullptr) {
-            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+        // For stream load the fragment's query_id == load id, it is set in FE.
+        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+        if (stream_load_ctx != nullptr) {
+            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
         }
         _cancel_reason = reason;
         _cancel_msg = msg;

@@ -80,7 +80,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (deniedJoinType.contains(join.getJoinType())) {
+        if (deniedJoinType.contains(join.getJoinType()) || join.isMarkJoin()) {
             // copy to avoid bug when next call of getOutputSet()
             Set<Slot> slots = join.getOutputSet();
             slots.forEach(aliasTransferMap::remove);

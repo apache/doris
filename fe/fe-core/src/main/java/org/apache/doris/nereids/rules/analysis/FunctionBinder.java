@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -187,7 +188,8 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         Expression right = compoundPredicate.right().accept(this, context);
         Expression ret = compoundPredicate.withChildren(left, right);
         ret.children().forEach(e -> {
-                    if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()) {
+                    if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()
+                            && !(e instanceof SubqueryExpr)) {
                         throw new AnalysisException(String.format(
                                 "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
                                         + "returns type '%s'.",

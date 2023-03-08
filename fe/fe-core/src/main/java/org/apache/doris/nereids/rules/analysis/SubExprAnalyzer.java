@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -81,6 +83,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
+        checkHasNotAgg(analyzedResult);
         checkHasGroupBy(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
@@ -99,6 +102,21 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         checkHasGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
+    }
+
+    @Override
+    public Expression visitBinaryOperator(BinaryOperator binaryOperator, CascadesContext context) {
+        if (childrenAtLeastOneInOrExistsSub(binaryOperator) && (binaryOperator instanceof ComparisonPredicate)) {
+            throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery");
+        }
+        return visit(binaryOperator, context);
+    }
+
+    private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
+        return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
+                || binaryOperator.left().anyMatch(Exists.class::isInstance)
+                || binaryOperator.right().anyMatch(InSubquery.class::isInstance)
+                || binaryOperator.right().anyMatch(Exists.class::isInstance);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {
@@ -126,6 +144,16 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         if (analyzedResult.hasGroupBy()) {
             throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
                     + analyzedResult.getLogicalPlan());
+        }
+    }
+
+    private void checkHasNotAgg(AnalyzedResult analyzedResult) {
+        if (!analyzedResult.isCorrelated()) {
+            return;
+        }
+        if (analyzedResult.hasAgg()) {
+            throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
+                + analyzedResult.getLogicalPlan());
         }
     }
 

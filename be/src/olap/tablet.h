@@ -83,7 +83,8 @@ public:
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
-                              const std::vector<RowsetSharedPtr>& to_delete);
+                              const std::vector<RowsetSharedPtr>& to_delete,
+                              bool is_incremental_clone);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -309,6 +310,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+    int64_t last_failed_follow_cooldown_time() const { return _last_failed_follow_cooldown_time; }
+
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -363,7 +366,7 @@ public:
 
     std::shared_mutex& get_cooldown_conf_lock() { return _cooldown_conf_lock; }
 
-    Status write_cooldown_meta();
+    static void async_write_cooldown_meta(TabletSharedPtr tablet);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -475,6 +478,7 @@ private:
     Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                TabletMetaPB* tablet_meta_pb);
+    Status _write_cooldown_meta();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -562,6 +566,7 @@ private:
     // `_cold_compaction_lock` is used to serialize cold data compaction and all operations that
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
+    int64_t _last_failed_follow_cooldown_time = 0;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

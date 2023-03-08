@@ -28,7 +28,7 @@
 namespace doris::vectorized {
 
 template <typename Element>
-static Field getValueAsField(const Element& element) {
+Field getValueAsField(const Element& element) {
     // bool will convert to type FiledType::UInt64
     if (element.isBool()) {
         return element.getBool();
@@ -53,7 +53,7 @@ static Field getValueAsField(const Element& element) {
 }
 
 template <typename Element>
-static std::string castValueAsString(const Element& element) {
+std::string castValueAsString(const Element& element) {
     if (element.isBool()) {
         return element.getBool() ? "1" : "0";
     }

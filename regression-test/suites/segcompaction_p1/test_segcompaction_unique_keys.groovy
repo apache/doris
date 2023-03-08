@@ -21,6 +21,9 @@ suite("test_segcompaction_unique_keys") {
     def tableName = "segcompaction_unique_keys_regression_test"
     String ak = getS3AK()
     String sk = getS3SK()
+    String endpoint = getS3Endpoint()
+    String region = getS3Region()
+    String bucket = getS3BucketName()
 
 
     try {
@@ -79,14 +82,14 @@ suite("test_segcompaction_unique_keys") {
         """
 
         def uuid = UUID.randomUUID().toString().replace("-", "0")
-        def path = "oss://doris-build-hk-1308700295/regression/segcompaction_test/segcompaction_test.orc"
+        def path = "oss://$bucket/regression/segcompaction_test/segcompaction_test.orc"
 
         def columns = "col_0, col_1, col_2, col_3, col_4, col_5, col_6, col_7, col_8, col_9, col_10, col_11, col_12, col_13, col_14, col_15, col_16, col_17, col_18, col_19, col_20, col_21, col_22, col_23, col_24, col_25, col_26, col_27, col_28, col_29, col_30, col_31, col_32, col_33, col_34, col_35, col_36, col_37, col_38, col_39, col_40, col_41, col_42, col_43, col_44, col_45, col_46, col_47, col_48, col_49"
         String columns_str = ("$columns" != "") ? "($columns)" : "";
 
         sql """
             LOAD LABEL $uuid (
-                DATA INFILE("s3://doris-build-hk-1308700295/regression/segcompaction/segcompaction.orc")
+                DATA INFILE("s3://$bucket/regression/segcompaction/segcompaction.orc")
                 INTO TABLE $tableName
                 FORMAT AS "ORC"
                 $columns_str
@@ -94,8 +97,8 @@ suite("test_segcompaction_unique_keys") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-hongkong.myqcloud.com",
-                "AWS_REGION" = "ap-hongkong"
+                "AWS_ENDPOINT" = "$endpoint",
+                "AWS_REGION" = "$region"
             )
             properties(
                 "use_new_load_scan_node" = "true"

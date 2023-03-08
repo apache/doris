@@ -43,7 +43,9 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
@@ -66,6 +68,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -345,6 +348,30 @@ public class LoadManager implements Writable {
         }
     }
 
+    /**
+     * Get load job num, used by proc.
+     **/
+    public int getLoadJobNum(JobState jobState) {
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
+            for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
+            }
+
+            List<LoadJob> loadJobList =
+                    labelToLoadJobs.values().stream().flatMap(entity -> entity.stream()).collect(Collectors.toList());
+            return (int) loadJobList.stream().filter(entity -> entity.getState() == jobState).count();
+        } finally {
+            readUnlock();
+        }
+    }
 
     /**
      * Get load job num, used by metric.
@@ -526,6 +553,40 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    // add load job info
+                    loadJobInfos.add(loadJob.getShowInfo());
+                } catch (DdlException e) {
+                    continue;
+                }
+            }
+            return loadJobInfos;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<List<Comparable>> getAllLoadJobInfos() {
+        LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
+
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
+            for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
+            }
+            List<LoadJob> loadJobList = Lists.newArrayList();
+            loadJobList.addAll(
+                    labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()));
+
+            // check state
+            for (LoadJob loadJob : loadJobList) {
+                try {
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
                 } catch (DdlException e) {

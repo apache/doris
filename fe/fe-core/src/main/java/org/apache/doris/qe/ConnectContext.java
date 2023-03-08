@@ -32,7 +32,9 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -62,6 +64,8 @@ import java.util.Set;
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+
+    private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -149,6 +153,9 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
+
     private long userQueryTimeout;
 
     /**
@@ -160,6 +167,8 @@ public class ConnectContext {
      */
     private int executionTimeoutS;
 
+    private StatsErrorEstimator statsErrorEstimator;
+
     public void setUserQueryTimeout(long queryTimeout) {
         this.userQueryTimeout = queryTimeout;
     }
@@ -169,6 +178,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public MysqlSslContext getMysqlSslContext() {
+        return mysqlSslContext;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -700,5 +713,12 @@ public class ConnectContext {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    public StatsErrorEstimator getStatsErrorEstimator() {
+        return statsErrorEstimator;
+    }
+
+    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+        this.statsErrorEstimator = statsErrorEstimator;
+    }
 }
 

@@ -1628,14 +1628,14 @@ public:
         return true;
     }
 
-    doris_udf::BigIntVal minimum() const {
+    int64_t minimum() const {
         switch (_type) {
         case SINGLE:
-            return doris_udf::BigIntVal(_sv);
+            return _sv;
         case BITMAP:
-            return doris_udf::BigIntVal(_bitmap.minimum());
+            return _bitmap.minimum();
         default:
-            return doris_udf::BigIntVal::null();
+            return 0;
         }
     }
 
@@ -1673,14 +1673,14 @@ public:
         return ss.str();
     }
 
-    doris_udf::BigIntVal maximum() const {
+    int64_t maximum() const {
         switch (_type) {
         case SINGLE:
-            return doris_udf::BigIntVal(_sv);
+            return _sv;
         case BITMAP:
-            return doris_udf::BigIntVal(_bitmap.maximum());
+            return _bitmap.maximum();
         default:
-            return doris_udf::BigIntVal::null();
+            return 0;
         }
     }
 

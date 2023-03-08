@@ -50,6 +50,7 @@ suite("test_materialized_view_nereids") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -64,6 +65,7 @@ suite("test_materialized_view_nereids") {
     while (max_try_secs--) {
         String res = getJobState(tbName2)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -101,6 +103,7 @@ suite("test_materialized_view_nereids") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)

@@ -317,7 +317,7 @@ public abstract class PlanVisitor<R, C> {
     }
 
     public R visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, C context) {
-        return visit(topN, context);
+        return visitAbstractPhysicalSort(topN, context);
     }
 
     public R visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, C context) {

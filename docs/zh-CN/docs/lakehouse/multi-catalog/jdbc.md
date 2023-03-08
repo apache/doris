@@ -184,7 +184,7 @@ CREATE CATALOG doris_catalog PROPERTIES (
 ## 数据查询
 
 ```sql
-select * from mysql_table where k1 > 1000 and k3 ='term';
+select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
 ```
 由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
 
@@ -197,8 +197,8 @@ select * from mysql_table where k1 > 1000 and k3 ='term';
 示例：
 
 ```sql
-insert into mysql_table values(1, "doris");
-insert into mysql_table select * from table;
+insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
+insert into mysql_catalog.mysql_database.mysql_table select * from table;
 ```
 ### 事务
 
@@ -427,6 +427,6 @@ set enable_odbc_transcation = true;
     为减少内存的使用，在获取结果集时，每次仅获取batchSize的大小，这样一批一批的获取结果。而MYSQL默认是一次将结果全部加载到内存，
     设置的按批获取无法生效，需要主动显示的在URL中指定:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true"
 
- 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
+7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
 
     如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。

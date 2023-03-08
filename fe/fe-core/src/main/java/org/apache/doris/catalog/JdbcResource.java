@@ -26,6 +26,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -39,7 +40,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.List;
 import java.util.Map;
 
 
@@ -84,13 +84,23 @@ public class JdbcResource extends Resource {
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CHECK_SUM = "checksum";
-
-    private static final List<String> OPTIONAL_PROPERTIES = Lists.newArrayList(
+    private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
+            JDBC_URL,
+            USER,
+            PASSWORD,
+            DRIVER_CLASS,
+            DRIVER_URL,
+            TYPE,
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES
-    );
+    ).build();
+    private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
+            ONLY_SPECIFIED_DATABASE,
+            LOWER_CASE_TABLE_NAMES
+    ).build();
 
     // The default value of optional properties
+    // if one optional property is not specified, will use default value
     private static final Map<String, String> OPTIONAL_PROPERTIES_DEFAULT_VALUE = Maps.newHashMap();
 
     static {
@@ -116,29 +126,12 @@ public class JdbcResource extends Resource {
         this.configs = configs;
     }
 
-    public JdbcResource getCopiedResource() {
-        return new JdbcResource(name, Maps.newHashMap(configs));
-    }
-
-    private void checkProperties(String propertiesKey) throws DdlException {
-        // check the properties key
-        String value = configs.get(propertiesKey);
-        if (value == null) {
-            throw new DdlException("JdbcResource Missing " + propertiesKey + " in properties");
-        }
-    }
-
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
         // modify properties
-        replaceIfEffectiveValue(this.configs, DRIVER_URL, properties.get(DRIVER_URL));
-        replaceIfEffectiveValue(this.configs, DRIVER_CLASS, properties.get(DRIVER_CLASS));
-        replaceIfEffectiveValue(this.configs, JDBC_URL, properties.get(JDBC_URL));
-        replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
-        replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
-        replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
-        replaceIfEffectiveValue(this.configs, ONLY_SPECIFIED_DATABASE, properties.get(ONLY_SPECIFIED_DATABASE));
-        replaceIfEffectiveValue(this.configs, LOWER_CASE_TABLE_NAMES, properties.get(LOWER_CASE_TABLE_NAMES));
+        for (String propertyKey : ALL_PROPERTIES) {
+            replaceIfEffectiveValue(this.configs, propertyKey, properties.get(propertyKey));
+        }
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         super.modifyProperties(properties);
     }
@@ -147,14 +140,9 @@ public class JdbcResource extends Resource {
     public void checkProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> copiedProperties = Maps.newHashMap(properties);
         // check properties
-        copiedProperties.remove(DRIVER_URL);
-        copiedProperties.remove(DRIVER_CLASS);
-        copiedProperties.remove(JDBC_URL);
-        copiedProperties.remove(USER);
-        copiedProperties.remove(PASSWORD);
-        copiedProperties.remove(TYPE);
-        copiedProperties.remove(ONLY_SPECIFIED_DATABASE);
-        copiedProperties.remove(LOWER_CASE_TABLE_NAMES);
+        for (String propertyKey : ALL_PROPERTIES) {
+            copiedProperties.remove(propertyKey);
+        }
         if (!copiedProperties.isEmpty()) {
             throw new AnalysisException("Unknown JDBC catalog resource properties: " + copiedProperties);
         }
@@ -164,30 +152,19 @@ public class JdbcResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
         for (String key : properties.keySet()) {
-            switch (key) {
-                case DRIVER_URL:
-                case JDBC_URL:
-                case USER:
-                case PASSWORD:
-                case TYPE:
-                case DRIVER_CLASS:
-                case ONLY_SPECIFIED_DATABASE: // optional argument
-                case LOWER_CASE_TABLE_NAMES: // optional argument
-                    break;
-                default:
-                    throw new DdlException("JDBC resource Property of " + key + " is unknown");
+            if (!ALL_PROPERTIES.contains(key)) {
+                throw new DdlException("JDBC resource Property of " + key + " is unknown");
             }
         }
         configs = properties;
         handleOptionalArguments();
-        checkProperties(DRIVER_URL);
-        checkProperties(DRIVER_CLASS);
-        checkProperties(JDBC_URL);
-        checkProperties(USER);
-        checkProperties(PASSWORD);
-        checkProperties(TYPE);
-        checkProperties(ONLY_SPECIFIED_DATABASE);
-        checkProperties(LOWER_CASE_TABLE_NAMES);
+        // check properties
+        for (String property : ALL_PROPERTIES) {
+            String value = configs.get(property);
+            if (value == null) {
+                throw new DdlException("JdbcResource Missing " + property + " in properties");
+            }
+        }
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
     }

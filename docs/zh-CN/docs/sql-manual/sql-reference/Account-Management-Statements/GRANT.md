@@ -32,12 +32,21 @@ GRANT
 
 ### Description
 
-GRANT 命令用于赋予指定用户或角色指定的权限
+GRANT 命令有如下功能：
+
+1. 将指定的权限授予某用户或角色。
+2. 将指定角色授予某用户。
+
+>注意：
+>
+>当前版本尚未支持"将指定角色授予用户"
 
 ```sql
 GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 
 GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
+
+GRANT role_list TO user_identity
 ```
 
 privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris 支持如下权限：
@@ -83,6 +92,8 @@ user_identity：
     
     也可以将权限赋予指定的 ROLE，如果指定的 ROLE 不存在，则会自动创建。
 
+role_list 是需要赋予的角色列表，以逗号分隔，指定的角色必须存在。
+
 ### Example
 
 1. 授予所有catalog和库表的权限给用户
@@ -119,6 +130,12 @@ user_identity：
    
     ```sql
     GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
+    ```
+
+7. 将指定角色授予某用户
+
+    ```sql
+    GRANT 'role1','role2' TO 'jack'@'%';
     ```
 
 ### Keywords

@@ -578,6 +578,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_shard_id(shard_id());
     tablet_meta_pb->set_creation_time(creation_time());
     tablet_meta_pb->set_cumulative_layer_point(cumulative_layer_point());
+    tablet_meta_pb->set_local_data_size(tablet_local_size());
+    tablet_meta_pb->set_remote_data_size(tablet_remote_size());
     *(tablet_meta_pb->mutable_tablet_uid()) = tablet_uid().to_proto();
     tablet_meta_pb->set_tablet_type(_tablet_type);
     switch (tablet_state()) {
@@ -725,6 +727,11 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             } else {
                 ++it;
             }
+        }
+        // delete delete_bitmap of to_delete's rowsets if not added to _stale_rs_metas.
+        if (same_version && _enable_unique_key_merge_on_write) {
+            delete_bitmap().remove({rs_to_del->rowset_id(), 0, 0},
+                                   {rs_to_del->rowset_id(), UINT32_MAX, 0});
         }
     }
     if (!same_version) {
@@ -977,6 +984,14 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
             break;
         }
         subset_rowset_map->set(k, bm);
+    }
+}
+
+void DeleteBitmap::merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
+    std::lock_guard l(lock);
+    auto [iter, succ] = delete_bitmap.emplace(bmk, segment_delete_bitmap);
+    if (!succ) {
+        iter->second |= segment_delete_bitmap;
     }
 }
 

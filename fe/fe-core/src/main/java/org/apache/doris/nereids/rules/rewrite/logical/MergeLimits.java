@@ -42,13 +42,16 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 public class MergeLimits extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit(logicalLimit()).then(upperLimit -> {
-            LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
-            return new LogicalLimit<>(
-                    Math.min(upperLimit.getLimit(), Math.max(bottomLimit.getLimit() - upperLimit.getOffset(), 0)),
-                    bottomLimit.getOffset() + upperLimit.getOffset(),
-                    bottomLimit.child()
-            );
-        }).toRule(RuleType.MERGE_LIMITS);
+        return logicalLimit(logicalLimit())
+                .when(upperLimit -> upperLimit.getPhase().equals(upperLimit.child().getPhase()))
+                .then(upperLimit -> {
+                    LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
+                    return new LogicalLimit<>(
+                            Math.min(upperLimit.getLimit(),
+                                    Math.max(bottomLimit.getLimit() - upperLimit.getOffset(), 0)),
+                            bottomLimit.getOffset() + upperLimit.getOffset(),
+                            bottomLimit.getPhase(), bottomLimit.child()
+                    );
+                }).toRule(RuleType.MERGE_LIMITS);
     }
 }

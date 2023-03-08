@@ -197,7 +197,8 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 * 类型：string
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
-* 默认值：80%
+  - `auto` 等于 max(physical_mem * 0.9, physical_mem - 6.4G)，6.4G是默认为系统预留的最大内存。
+* 默认值：auto
 
 #### `cluster_id`
 
@@ -458,12 +459,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：关闭自动执行compaction任务
   - 一般需要为关闭状态，当调试或测试环境中想要手动操作compaction任务时，可以对该配置进行开启
 * 默认值：false
-
-#### `enable_vectorized_compaction`
-
-* 类型：bool
-* 描述：是否开启向量化compaction
-* 默认值：true
 
 #### `enable_vertical_compaction`
 
@@ -1416,11 +1411,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 分配给doris的cgroups
 * 默认值: 空
-
-#### `row_nums_check`
-
-* 描述: 检查 BE/CE 和schema更改的行号。
-* 默认值: true
 
 #### `priority_queue_remaining_tasks_increased_frequency`
 
