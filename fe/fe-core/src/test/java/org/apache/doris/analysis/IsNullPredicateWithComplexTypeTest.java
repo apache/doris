@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.utframe.TestWithFeService;
+
 import org.junit.jupiter.api.Test;
 
 public class IsNullPredicateWithComplexTypeTest extends TestWithFeService {
@@ -31,24 +32,24 @@ public class IsNullPredicateWithComplexTypeTest extends TestWithFeService {
         createDatabase("test");
 
         createTable("CREATE TABLE test.complex (\n"
-            + "  `dt` int(11) COMMENT \"\",\n"
-            + "  `id` int(11) COMMENT \"\",\n"
-            + "  `m` Map<STRING, INT> COMMENT \"\",\n"
-            + "  `a` Array<BIGINT> COMMENT \"\",\n"
-            + "  `s` Struct<f1:string, f2:int> COMMENT \"\",\n"
-            + "  `value` varchar(8) COMMENT \"\"\n"
-            + ") ENGINE=OLAP\n"
-            + "DUPLICATE KEY(`dt`)\n"
-            + "PARTITION BY RANGE(`dt`)\n"
-            + "(PARTITION p1 VALUES LESS THAN (\"10\"))\n"
-            + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
-            + "PROPERTIES (\n"
-            + "  \"replication_num\" = \"1\"\n"
-            + ");");
+                + "  `dt` int(11) COMMENT \"\",\n"
+                + "  `id` int(11) COMMENT \"\",\n"
+                + "  `m` Map<STRING, INT> COMMENT \"\",\n"
+                + "  `a` Array<BIGINT> COMMENT \"\",\n"
+                + "  `s` Struct<f1:string, f2:int> COMMENT \"\",\n"
+                + "  `value` varchar(8) COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`dt`)\n"
+                + "PARTITION BY RANGE(`dt`)\n"
+                + "(PARTITION p1 VALUES LESS THAN (\"10\"))\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ");");
     }
 
     @Test
-    public void testIsNull() throws Exception{
+    public void testIsNull() throws Exception {
         String testStructIsNUll = "select * from test.complex where s is null";
         String testMapIsNUll = "select * from test.complex where m is null";
         String testArrayIsNUll = "select * from test.complex where a is null";
