@@ -402,10 +402,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
-    auto origin_column_num = _src_block.columns();
 
     // Set block dynamic, block maybe merge or add_rows
-    // in in later process.
+    // in later process.
     if (_is_dynamic_schema) {
         block->set_block_type(BlockType::DYNAMIC);
     }
