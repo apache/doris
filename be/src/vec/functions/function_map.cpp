@@ -21,6 +21,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/array/function_array_index.h"
@@ -132,7 +133,11 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_map(arguments[0]))
+        DataTypePtr datatype = arguments[0];
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
+        }
+        DCHECK(is_map(datatype))
                 << "first argument for function: " << name << " should be DataTypeMap";
         return std::make_shared<DataTypeInt64>();
     }
@@ -141,8 +146,17 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto col_map = check_and_get_column<ColumnMap>(*left_column);
-        if (!col_map) {
+        const ColumnMap* map_column = nullptr;
+        // const UInt8* map_null_map = nullptr;
+        if (left_column->is_nullable()) {
+            auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
+            map_column =
+                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            // map_null_map = nullable_column->get_null_map_column().get_data().data();
+        } else {
+            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+        }
+        if (!map_column) {
             return Status::RuntimeError("unsupported types for function {}({})", get_name(),
                                         block.get_by_position(arguments[0]).type->get_name());
         }
@@ -150,8 +164,8 @@ public:
         auto dst_column = ColumnInt64::create(input_rows_count);
         auto& dst_data = dst_column->get_data();
 
-        for (size_t i = 0; i < col_map->size(); i++) {
-            dst_data[i] = col_map->size_at(i);
+        for (size_t i = 0; i < map_column->size(); i++) {
+            dst_data[i] = map_column->size_at(i);
         }
 
         block.replace_by_position(result, std::move(dst_column));
@@ -172,15 +186,18 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_map(arguments[0]))
-                << "first argument for function: " << name << " should be DataTypeMap";
+    bool use_default_implementation_for_nulls() const override {
+        return array_contains.use_default_implementation_for_nulls();
+    }
 
-        if (arguments[0]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
-        } else {
-            return std::make_shared<DataTypeNumber<UInt8>>();
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DataTypePtr datatype = arguments[0];
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
+        DCHECK(is_map(datatype))
+                << "first argument for function: " << name << " should be DataTypeMap";
+        return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -189,24 +206,55 @@ public:
         auto orig_arg0 = block.get_by_position(arguments[0]);
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto col_map = check_and_get_column<ColumnMap>(*left_column);
-        if (!col_map) {
+        const ColumnMap* map_column = nullptr;
+        ColumnPtr nullmap_column = nullptr;
+        if (left_column->is_nullable()) {
+            auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
+            map_column =
+                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            nullmap_column = nullable_column->get_null_map_column_ptr();
+        } else {
+            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+        }
+        if (!map_column) {
             return Status::RuntimeError("unsupported types for function {}({})", get_name(),
                                         block.get_by_position(arguments[0]).type->get_name());
         }
 
+        DataTypePtr datatype = block.get_by_position(arguments[0]).type;
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
+        }
         const auto datatype_map =
-                static_cast<const DataTypeMap*>(block.get_by_position(arguments[0]).type.get());
+                static_cast<const DataTypeMap*>(datatype.get());
         if constexpr (is_key) {
-            block.get_by_position(arguments[0]) = {
-                    col_map->get_keys_ptr(),
-                    std::make_shared<DataTypeArray>(datatype_map->get_key_type()),
+            const auto& array_column = map_column->get_keys_ptr();
+            const auto datatype_array = std::make_shared<DataTypeArray>(datatype_map->get_key_type());
+            if (nullmap_column) {
+                block.get_by_position(arguments[0]) = {
+                    ColumnNullable::create(array_column, nullmap_column),
+                    make_nullable(datatype_array),
                     block.get_by_position(arguments[0]).name + ".keys"};
+            } else {
+                block.get_by_position(arguments[0]) = {
+                    array_column,
+                    datatype_array,
+                    block.get_by_position(arguments[0]).name + ".keys"};
+            }
         } else {
-            block.get_by_position(arguments[0]) = {
-                    col_map->get_values_ptr(),
-                    std::make_shared<DataTypeArray>(datatype_map->get_value_type()),
+            const auto& array_column = map_column->get_values_ptr();
+            const auto datatype_array = std::make_shared<DataTypeArray>(datatype_map->get_value_type());
+            if (nullmap_column) {
+                block.get_by_position(arguments[0]) = {
+                    ColumnNullable::create(array_column, nullmap_column),
+                    make_nullable(datatype_array),
                     block.get_by_position(arguments[0]).name + ".values"};
+            } else {
+                block.get_by_position(arguments[0]) = {
+                    array_column,
+                    datatype_array,
+                    block.get_by_position(arguments[0]).name + ".values"};
+            }
         }
 
         RETURN_IF_ERROR(
@@ -296,9 +344,13 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_map(arguments[0]))
+        DataTypePtr datatype = arguments[0];
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
+        }
+        DCHECK(is_map(datatype))
                 << "first argument for function: " << name << " should be DataTypeMap";
-        const auto datatype_map = static_cast<const DataTypeMap*>(arguments[0].get());
+        const auto datatype_map = static_cast<const DataTypeMap*>(datatype.get());
         if (is_key) {
             return std::make_shared<DataTypeArray>(datatype_map->get_key_type());
         } else {
@@ -310,16 +362,23 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto col_map = check_and_get_column<ColumnMap>(*left_column);
-        if (!col_map) {
+        const ColumnMap* map_column = nullptr;
+        if (left_column->is_nullable()) {
+            auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
+            map_column =
+                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+        } else {
+            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+        }
+        if (!map_column) {
             return Status::RuntimeError("unsupported types for function {}({})", get_name(),
                                         block.get_by_position(arguments[0]).type->get_name());
         }
 
         if constexpr (is_key) {
-            block.replace_by_position(result, col_map->get_keys_ptr());
+            block.replace_by_position(result, map_column->get_keys_ptr());
         } else {
-            block.replace_by_position(result, col_map->get_values_ptr());
+            block.replace_by_position(result, map_column->get_values_ptr());
         }
 
         return Status::OK();
