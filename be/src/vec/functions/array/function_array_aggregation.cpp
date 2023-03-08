@@ -117,8 +117,8 @@ struct AggregateFunction {
     using Function = typename Derived::template TypeTraits<T>::Function;
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return AggregateFunctionPtr(creator_with_type::create<Function>(
-                true, DataTypes {make_nullable(data_type_ptr)}));
+        return AggregateFunctionPtr(
+                creator_with_type::create<Function>(true, DataTypes {data_type_ptr}));
     }
 };
 
