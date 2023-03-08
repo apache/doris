@@ -364,7 +364,7 @@ public:
 
     std::shared_mutex& get_cooldown_conf_lock() { return _cooldown_conf_lock; }
 
-    Status write_cooldown_meta();
+    static void async_write_cooldown_meta(TabletSharedPtr tablet);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -476,6 +476,7 @@ private:
     Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                TabletMetaPB* tablet_meta_pb);
+    Status _write_cooldown_meta();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
