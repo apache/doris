@@ -17,7 +17,6 @@
 #pragma once
 #include <parallel_hashmap/phmap.h>
 
-#include <sstream>
 #include <string>
 #include "runtime/string_value.h"
 #include "udf/udf.h"
@@ -54,37 +53,7 @@ public:
         memcpy(result, *src, type_size);
         *src += type_size;
     }
-
-    template <typename T>
-    static std::string to_string(T item) {
-        std::stringstream buffer;
-        buffer << item;
-        return buffer.str();
-    }
 };
-
-template <>
-inline StringValue Helper::get_val<StringVal>(const StringVal& x) {
-    DCHECK(!x.is_null);
-    return StringValue::from_string_val(x);
-}
-
-template <>
-inline std::string Helper::get_val<StringVal>(const StringVal& x) {
-    DCHECK(!x.is_null);
-    return std::string(reinterpret_cast<char*>(x.ptr), x.len);
-}
-
-template <>
-inline DateTimeValue Helper::get_val<DateTimeVal>(const DateTimeVal& x) {
-    return DateTimeValue::from_datetime_val(x);
-}
-
-template <>
-inline DecimalV2Value Helper::get_val<DecimalV2Val>(const DecimalV2Val& x) {
-    return DecimalV2Value::from_decimal_val(x);
-}
-// get_val end
 
 template <>
 inline char* Helper::write_to<DateTimeValue>(const DateTimeValue& v, char* dest) {
