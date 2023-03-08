@@ -25,7 +25,7 @@ namespace doris::vectorized {
 template <typename T>
 AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
-    bool has_input_param = (argument_types.size() == 3);
+    bool has_input_param = (argument_types.size() == 2);
 
     if (has_input_param) {
         return AggregateFunctionPtr(
