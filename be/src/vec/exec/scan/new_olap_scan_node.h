@@ -138,7 +138,6 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
-    RuntimeProfile::Counter* _inverted_index_searcher_bitmap_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

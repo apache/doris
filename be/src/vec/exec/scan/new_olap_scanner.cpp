@@ -515,8 +515,6 @@ void NewOlapScanner::_update_counters_before_close() {
                    stats.inverted_index_searcher_open_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
                    stats.inverted_index_searcher_search_timer);
-    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_bitmap_timer,
-                   stats.inverted_index_searcher_bitmap_timer);
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);
