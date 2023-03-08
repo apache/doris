@@ -35,7 +35,8 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status _fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns);
-    Status _fetch_iceberg_metadata_batch();
+    Status _fetch_metadata(const TMetaScanRange& meta_scan_range);
+    Status _fetch_iceberg_metadata(const TMetaScanRange& meta_scan_range);
 
 private:
     VMetaScanNode* _parent;

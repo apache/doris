@@ -46,11 +46,7 @@ Status VMetaScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_p
     VLOG_CRITICAL << "VMetaScanner::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
-    if (_scan_range.meta_scan_range.__isset.iceberg_params) {
-        RETURN_IF_ERROR(_fetch_iceberg_metadata_batch());
-    } else {
-        _meta_eos = true;
-    }
+    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 
@@ -158,38 +154,48 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
     return Status::OK();
 }
 
-Status VMetaScanner::_fetch_iceberg_metadata_batch() {
-    VLOG_CRITICAL << "VMetaScanner::_fetch_iceberg_metadata_batch";
+Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
+    VLOG_CRITICAL << "VMetaScanner::_fetch_iceberg_metadata";
+    switch (meta_scan_range.metadata_type) {
+    case TMetadataType::ICEBERG:
+        return _fetch_iceberg_metadata(meta_scan_range);
+    default:
+        _meta_eos = true;
+        break;
+    }
+    return Status::OK();
+}
+
+Status VMetaScanner::_fetch_iceberg_metadata(const TMetaScanRange& meta_scan_range) {
+    VLOG_CRITICAL << "VMetaScanner::_fetch_iceberg_metadata";
+    if (meta_scan_range.__isset.iceberg_params) {
+        return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
+    }
+    // create request
     TFetchSchemaTableDataRequest request;
     request.cluster_name = "";
     request.__isset.cluster_name = true;
-    request.schema_table_name = TSchemaTableName::ICEBERG_TABLE_META;
+    request.schema_table_name = TSchemaTableName::METADATA_TABLE;
     request.__isset.schema_table_name = true;
-    auto scan_params = _parent->scan_params();
-    TMetadataTableRequestParams meta_table_params = TMetadataTableRequestParams();
-    meta_table_params.catalog = scan_params.catalog;
-    meta_table_params.__isset.catalog = true;
-    meta_table_params.database = scan_params.database;
-    meta_table_params.__isset.database = true;
-    meta_table_params.table = scan_params.table;
-    meta_table_params.__isset.table = true;
 
-    meta_table_params.iceberg_metadata_params = _scan_range.meta_scan_range.iceberg_params;
-    meta_table_params.__isset.iceberg_metadata_params = true;
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.metadata_type = TMetadataType::ICEBERG;
+    metadata_table_params.__isset.metadata_type = true;
+    metadata_table_params.iceberg_metadata_params = meta_scan_range.iceberg_params;
+    metadata_table_params.__isset.iceberg_metadata_params = true;
 
-    request.metada_table_params = meta_table_params;
+    request.metada_table_params = metadata_table_params;
     request.__isset.metada_table_params = true;
 
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     TFetchSchemaTableDataResult result;
-
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(result, request);
             },
             config::txn_commit_rpc_timeout_ms));
-
     Status status(result.status);
     if (!status.ok()) {
         LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
