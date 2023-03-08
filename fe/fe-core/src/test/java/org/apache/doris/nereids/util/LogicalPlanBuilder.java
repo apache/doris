@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -41,6 +42,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -112,7 +114,7 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
-                JoinHint.NONE, this.plan, right);
+                JoinHint.NONE, Optional.empty(), this.plan, right);
         return from(join);
     }
 
@@ -122,7 +124,7 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder limit(long limit, long offset) {
-        LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, this.plan);
+        LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, this.plan);
         return from(limitPlan);
     }
 

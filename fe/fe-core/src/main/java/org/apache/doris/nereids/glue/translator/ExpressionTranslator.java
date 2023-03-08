@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -107,9 +108,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Expr staleExpr = expression.accept(INSTANCE, context);
         try {
             staleExpr.finalizeForNereids();
-        } catch (org.apache.doris.common.AnalysisException e) {
+        } catch (Exception e) {
             throw new AnalysisException(
-                    "Translate Nereids expression to stale expression failed. " + e.getMessage(), e);
+                    "Translate Nereids expression `" + expression.toSql()
+                            + "` to stale expression failed. " + e.getMessage(), e);
         }
         return staleExpr;
     }
@@ -190,6 +192,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findSlotRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, PlanTranslatorContext context) {
+        return markJoinSlotReference.isExistsHasAgg()
+                ? new BoolLiteral(true) : context.findSlotRef(markJoinSlotReference.getExprId());
     }
 
     @Override

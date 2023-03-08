@@ -1847,9 +1847,10 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
                 LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
                 continue;
             }
-            tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
-                                         cooldown_conf.cooldown_replica_id);
-            // TODO(AlexYue): if `update_cooldown_conf` success, async call `write_cooldown_meta`
+            if (tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
+                                             cooldown_conf.cooldown_replica_id)) {
+                Tablet::async_write_cooldown_meta(tablet);
+            }
         }
     }
 }

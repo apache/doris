@@ -1012,7 +1012,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
-                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")) {
+                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1369,37 +1370,34 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (!fn.getFunctionName().getFunction().equals(ELEMENT_EXTRACT_FN_NAME)) {
-            Type[] args = fn.getArgs();
-            if (args.length > 0) {
-                // Implicitly cast all the children to match the function if necessary
-                for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
-                    // For varargs, we must compare with the last type in callArgs.argTypes.
-                    int ix = Math.min(args.length - 1, i);
-                    if (fnName.getFunction().equalsIgnoreCase("money_format")
-                            && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
-                        continue;
-                    } else if (fnName.getFunction().equalsIgnoreCase("array")
-                            && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
-                                    || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
-                        continue;
-                    } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
-                            .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
-                            && ((
-                            children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
-                                    .isDecimalV3())
-                                    || (children.get(0).getType().isDatetimeV2()
-                                            && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
-                                    || (children.get(0).getType().isDecimalV2()
-                                            && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
-                        continue;
-                    } else if (!argTypes[i].matchesType(args[ix])
-                            && !(argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
-                            && (!fn.getReturnType().isDecimalV3()
-                                    || (argTypes[i].isValid() && !argTypes[i].isDecimalV3()
-                                            && args[ix].isDecimalV3()))) {
-                        uncheckedCastChild(args[ix], i);
-                    }
+        Type[] args = fn.getArgs();
+        if (args.length > 0) {
+            // Implicitly cast all the children to match the function if necessary
+            for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
+                // For varargs, we must compare with the last type in callArgs.argTypes.
+                int ix = Math.min(args.length - 1, i);
+                if (fnName.getFunction().equalsIgnoreCase("money_format")
+                        && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
+                    continue;
+                } else if (fnName.getFunction().equalsIgnoreCase("array")
+                        && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
+                        || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
+                    continue;
+                } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
+                        .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
+                        && ((
+                        children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
+                                .isDecimalV3())
+                        || (children.get(0).getType().isDatetimeV2()
+                        && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
+                        || (children.get(0).getType().isDecimalV2()
+                        && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
+                    continue;
+                } else if (!argTypes[i].matchesType(args[ix]) && !(
+                        argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
+                        && (!fn.getReturnType().isDecimalV3()
+                        || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                    uncheckedCastChild(args[ix], i);
                 }
             }
         }
@@ -1492,9 +1490,11 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_compact")
                 || fnName.getFunction().equalsIgnoreCase("array_slice")
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
+                || fnName.getFunction().equalsIgnoreCase("array_popfront")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
-                || fnName.getFunction().equalsIgnoreCase("array_except")) {
+                || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }

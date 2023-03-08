@@ -45,7 +45,7 @@ protected:
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-                                             StringVal* constant_str,
+                                             StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
@@ -138,7 +138,6 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
-    RuntimeProfile::Counter* _inverted_index_searcher_bitmap_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

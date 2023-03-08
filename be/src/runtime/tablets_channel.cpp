@@ -48,7 +48,6 @@ TabletsChannel::~TabletsChannel() {
     for (auto& it : _tablet_writers) {
         delete it.second;
     }
-    delete _row_desc;
     delete _schema;
 }
 
@@ -65,7 +64,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _schema = new OlapTableSchemaParam();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
-    _row_desc = new RowDescriptor(_tuple_desc, false);
 
     _num_remaining_senders = request.num_senders();
     _next_seqs.resize(_num_remaining_senders, 0);

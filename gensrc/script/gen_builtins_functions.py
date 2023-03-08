@@ -54,6 +54,7 @@ package org.apache.doris.builtins;\n\
 \n\
 import org.apache.doris.catalog.ArrayType;\n\
 import org.apache.doris.catalog.MapType;\n\
+import org.apache.doris.catalog.TemplateType;\n\
 import org.apache.doris.catalog.Type;\n\
 import org.apache.doris.catalog.Function;\n\
 import org.apache.doris.catalog.FunctionSet;\n\
@@ -73,14 +74,14 @@ print(FE_PATH)
 
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data
-#   - fn_name, ret_type, args, symbol, sql_names
+#   - fn_name, ret_type, args, symbol, sql_names, template_types(optional)
 meta_data_entries = []
 
 # Read in the function and add it to the meta_data_entries map
 def add_function(fn_meta_data, user_visible):
     """add function
     """
-    assert len(fn_meta_data) == 4, \
+    assert len(fn_meta_data) >= 4, \
             "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(fn_meta_data)
     entry = {}
     entry["sql_names"] = fn_meta_data[0]
@@ -90,6 +91,12 @@ def add_function(fn_meta_data, user_visible):
         entry['nullable_mode'] = fn_meta_data[3]
     else:
         entry['nullable_mode'] = 'DEPEND_ON_ARGUMENT'
+
+    # process template
+    if len(fn_meta_data) >= 5:
+        entry["template_types"] = fn_meta_data[4]
+    else:
+        entry["template_types"] = []
 
     entry["user_visible"] = user_visible
     meta_data_entries.append(entry)
@@ -103,15 +110,35 @@ for example:
     in[ARRAY_INT]   --> out[new ArrayType(Type.INT)]
     in[MAP_STRING_INT]   --> out[new MapType(Type.STRING,Type.INT)]
 """
-def generate_fe_datatype(str_type):
+def generate_fe_datatype(str_type, template_types):
+    # delete whitespace
+    str_type = str_type.replace(' ', '').replace('\t', '')
+
+    # process template
+    if str_type in template_types:
+        return 'new TemplateType("{}")'.format(str_type)
+
+    # process Array, Map, Struct template
+    template_start = str_type.find('<')
+    template_end  = str_type.rfind('>')
+    if template_start >= 0 and template_end > 0:
+        # exclude <>
+        template = str_type[template_start + 1 : template_end]
+        if str_type.startswith("ARRAY<"):
+            return 'new ArrayType({})'.format(generate_fe_datatype(template, template_types))
+        elif str_type.startswith("MAP<"):
+            types = template.split(',', 2)
+            return 'new MapType({}, {})'.format(generate_fe_datatype(types[0], template_types), generate_fe_datatype(types[1], template_types))
+
+    # lagacy Array, Map syntax
     if str_type.startswith("ARRAY_"):
         vec_type = str_type.split('_', 1);
         if len(vec_type) > 1 and vec_type[0] == "ARRAY":
-            return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
+            return "new ArrayType(" + generate_fe_datatype(vec_type[1], template_types) + ")"
     if str_type.startswith("MAP_"):
         vec_type = str_type.split('_', 2)
         if len(vec_type) > 2 and vec_type[0] == "MAP": 
-            return "new MapType(" + generate_fe_datatype(vec_type[1]) + "," + generate_fe_datatype(vec_type[2])+")"
+            return "new MapType(" + generate_fe_datatype(vec_type[1], template_types) + "," + generate_fe_datatype(vec_type[2], template_types)+")"
     if str_type == "DECIMALV2":
         return "Type.MAX_DECIMALV2_TYPE"
     if str_type == "DECIMAL32":
@@ -136,7 +163,7 @@ def generate_fe_entry(entry, name):
     else:
         java_output += ", false"
     java_output += ", Function.NullableMode." + entry["nullable_mode"]
-    java_output += ", " + generate_fe_datatype(entry["ret_type"])
+    java_output += ", " + generate_fe_datatype(entry["ret_type"], entry["template_types"])
 
     # Check the last entry for varargs indicator.
     if entry["args"] and entry["args"][-1] == "...":
@@ -145,7 +172,7 @@ def generate_fe_entry(entry, name):
     else:
         java_output += ", false"
     for arg in entry["args"]:
-        java_output += ", " + generate_fe_datatype(arg)
+        java_output += ", " + generate_fe_datatype(arg, entry["template_types"])
     return java_output
 
 # Generates the FE builtins init file that registers all the builtins.

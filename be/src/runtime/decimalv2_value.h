@@ -237,12 +237,6 @@ public:
                 MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
     }
 
-    static DecimalV2Value from_decimal_val(const DecimalV2Val& val) {
-        return DecimalV2Value(val.value());
-    }
-
-    void to_decimal_val(DecimalV2Val* value) const { value->val = _value; }
-
     // Solve Square root for int128
     static DecimalV2Value sqrt(const DecimalV2Value& v);
 

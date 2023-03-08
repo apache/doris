@@ -639,7 +639,7 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
         doris::FunctionContext* fn_ctx = nullptr;
-        StringVal val;
+        StringRef val;
         PushDownType temp_pdt;
         RETURN_IF_ERROR(_should_push_down_function_filter(
                 reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));

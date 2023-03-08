@@ -668,7 +668,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         for (auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
             if (column->size() != count) {
-                if (column->use_count() == 1) {
+                if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
                     CHECK_EQ(result_size, count);
                 } else {
