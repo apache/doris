@@ -429,7 +429,7 @@ public class Config extends ConfigBase {
     /**
      * core num of thread to handle task in mysql.The corePoolSize param of ThreadPoolExecutor.
      */
-    @ConfField public static int core_mysql_service_task_threads_num = 8;
+    @ConfField public static int core_mysql_service_task_threads_num = 0;
     /**
      * max num of thread to handle task in mysql.
      */
