@@ -471,7 +471,7 @@ thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
 #### `core_mysql_service_task_threads_num`
 
-默认值：8
+默认值：0
 
 mysql 中处理任务的线程池核心线程数大小。
 
