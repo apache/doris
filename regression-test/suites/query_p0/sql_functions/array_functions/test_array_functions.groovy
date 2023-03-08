@@ -125,6 +125,7 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_popfront(k7) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popfront(k8) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popfront(k10) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popfromt(k12) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_with_constant(3, k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_with_constant(10, null) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_with_constant(2, 'a') from ${tableName} ORDER BY k1"
@@ -147,6 +148,7 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_concat(k2, [1, null, 2], k4, [null]) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_concat(k8, k9) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_concat(k10, k11, array(cast('2023-03-05 10:30:00.999' as datetimev2(3)))) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_concat(k12, k13) FROM ${tableName} ORDER BY k1"
 
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""
