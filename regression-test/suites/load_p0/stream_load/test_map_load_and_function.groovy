@@ -77,14 +77,31 @@ suite("test_map_load_and_function", "p0") {
 
     // map construct
     qt_select_map1 "SELECT map('k11', 1000, 'k22', 2000)"
+    qt_select_map2 "SELECT map(1000, 'k11', 2000, 'k22')"
 
     // map element_at
     qt_select_element1 "SELECT map('k11', 1000, 'k22', 2000)['k11']"
     qt_select_element2 "SELECT map('k11', 1000, 'k22', 2000)['k22']"
     qt_select_element3 "SELECT map('k11', 1000, 'k22', 2000)['nokey']"
     qt_select_element4 "SELECT map('k11', 1000, 'k22', 2000)['']"
-    // qt_select_element5 "SELECT map('k11', 1000, 'k22', 2000)[NULL]"
-    qt_select_element6 "SELECT id, m, m['k2'] FROM ${testTable} ORDER BY id"
+    qt_select_element5 "SELECT map(1000, 'k11', 2000, 'k22')[1000]"
+    qt_select_element6 "SELECT map(1000, 'k11', 2000, 'k22')[2000]"
+    qt_select_element7 "SELECT map(1000, 'k11', 2000, 'k22')[3000]"
+    qt_select_element8 "SELECT map('k11', 1000, 'k22', 2000)[NULL]"
+    qt_select_element101 "SELECT id, m, m['k1'] FROM ${testTable} ORDER BY id"
+    qt_select_element102 "SELECT id, m, m['k2'] FROM ${testTable} ORDER BY id"
+    qt_select_element103 "SELECT id, m, m['  11amory  '] FROM ${testTable} ORDER BY id"
+    qt_select_element104 "SELECT id, m, m['beat'] FROM ${testTable} ORDER BY id"
+    qt_select_element105 "SELECT id, m, m[' clever '] FROM ${testTable} ORDER BY id"
+    qt_select_element106 "SELECT id, m, m['  33,amory  '] FROM ${testTable} ORDER BY id"
+    qt_select_element107 "SELECT id, m, m[' bet '] FROM ${testTable} ORDER BY id"
+    qt_select_element108 "SELECT id, m, m[' cler '] FROM ${testTable} ORDER BY id"
+    qt_select_element109 "SELECT id, m, m['  1,amy  '] FROM ${testTable} ORDER BY id"
+    qt_select_element110 "SELECT id, m, m[' k2 '] FROM ${testTable} ORDER BY id"
+    qt_select_element111 "SELECT id, m, m['null'] FROM ${testTable} ORDER BY id"
+    qt_select_element112 "SELECT id, m, m[''] FROM ${testTable} ORDER BY id"
+    qt_select_element113 "SELECT id, m, m[NULL] FROM ${testTable} ORDER BY id"
+    qt_select_element114 "SELECT id, m, m['nokey'] FROM ${testTable} ORDER BY id"
 
     // map size
     qt_select_map_size1 "SELECT map_size(map('k11', 1000, 'k22', 2000))"
