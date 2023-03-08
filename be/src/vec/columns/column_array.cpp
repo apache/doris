@@ -624,19 +624,19 @@ size_t ColumnArray::filter_generic(const Filter& filter) {
     }
 
     data->filter(nested_filter);
-
-    auto& res_offsets = get_offsets();
-    res_offsets.set_end_ptr(res_offsets.data());
-
+    // Make a new offset to avoid inplace operation
+    auto res_offset = ColumnOffsets::create();
+    auto& res_offset_data = res_offset->get_data();
+    res_offset_data.reserve(size);
     size_t current_offset = 0;
     for (size_t i = 0; i < size; ++i) {
         if (filter[i]) {
             current_offset += size_at(i);
-            res_offsets.push_back(current_offset);
+            res_offset_data.push_back(current_offset);
         }
     }
-
-    return res_offsets.size();
+    get_offsets().swap(res_offset_data);
+    return get_offsets().size();
 }
 
 ColumnPtr ColumnArray::filter_nullable(const Filter& filt, ssize_t result_size_hint) const {
