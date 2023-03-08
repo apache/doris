@@ -1339,6 +1339,9 @@ void SegmentIterator::_vec_init_char_column_id() {
         do {
             if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
                 _char_type_idx.emplace_back(i);
+                if (i != 0) {
+                    _char_type_idx_no_0.emplace_back(i);
+                }
                 break;
             } else if (column_desc->type() != OLAP_FIELD_TYPE_ARRAY) {
                 break;
@@ -1703,20 +1706,26 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                         }
                     }
 
+                    DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
                     // block->rows() takes the size of the first column by default. If the first column is no predicate column,
                     // it has not been read yet. add a const column that has been read to calculate rows().
                     if (block->rows() == 0) {
+                        vectorized::MutableColumnPtr col0 =
+                                std::move(*block->get_by_position(0).column).mutate();
                         auto res_column = vectorized::ColumnString::create();
                         res_column->insert_data("", 0);
                         auto col_const = vectorized::ColumnConst::create(std::move(res_column),
                                                                          selected_size);
                         block->replace_by_position(0, std::move(col_const));
+                        _output_index_result_column(sel_rowid_idx, selected_size, block);
+                        block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
+                        RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                        block->replace_by_position(0, std::move(col0));
+                    } else {
+                        _output_index_result_column(sel_rowid_idx, selected_size, block);
+                        block->shrink_char_type_column_suffix_zero(_char_type_idx);
+                        RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                     }
-                    DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
-                    _output_index_result_column(sel_rowid_idx, selected_size, block);
-
-                    block->shrink_char_type_column_suffix_zero(_char_type_idx);
-                    RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
                 }
             } else if (_is_need_expr_eval) {
                 for (auto cid : _second_read_column_ids) {
@@ -1736,15 +1745,22 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             }
 
             if (block->rows() == 0) {
+                vectorized::MutableColumnPtr col0 =
+                        std::move(*block->get_by_position(0).column).mutate();
                 auto res_column = vectorized::ColumnString::create();
                 res_column->insert_data("", 0);
                 auto col_const =
                         vectorized::ColumnConst::create(std::move(res_column), selected_size);
                 block->replace_by_position(0, std::move(col_const));
+                _output_index_result_column(nullptr, 0, block);
+                block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
+                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
+                block->replace_by_position(0, std::move(col0));
+            } else {
+                _output_index_result_column(nullptr, 0, block);
+                block->shrink_char_type_column_suffix_zero(_char_type_idx);
+                RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
             }
-            _output_index_result_column(nullptr, 0, block);
-            block->shrink_char_type_column_suffix_zero(_char_type_idx);
-            RETURN_IF_ERROR(_execute_common_expr(sel_rowid_idx, selected_size, block));
         }
 
         if (UNLIKELY(_opts.record_rowids)) {
