@@ -18,15 +18,18 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 
 #include "exec/line_reader.h"
 #include "io/fs/file_reader.h"
 
 namespace doris {
 
+// only used for FORMAT_PROTO type, which used for insert
+// transaction(begin/insert into/commit)
 class NewPlainBinaryLineReader : public LineReader {
 public:
-    NewPlainBinaryLineReader(io::FileReaderSPtr file_reader, TFileType::type file_type);
+    NewPlainBinaryLineReader(io::FileReaderSPtr file_reader);
 
     ~NewPlainBinaryLineReader() override;
 
@@ -37,7 +40,8 @@ public:
 private:
     io::FileReaderSPtr _file_reader;
 
-    TFileType::type _file_type;
+    std::unique_ptr<uint8_t[]> _file_buf;
+    std::unique_ptr<PDataRow> _cur_row;
 };
 
 } // namespace doris
