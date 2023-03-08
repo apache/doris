@@ -229,7 +229,8 @@ public:
                 static_cast<const DataTypeMap*>(datatype.get());
         if constexpr (is_key) {
             const auto& array_column = map_column->get_keys_ptr();
-            const auto datatype_array = std::make_shared<DataTypeArray>(datatype_map->get_key_type());
+            const auto datatype_array =
+                std::make_shared<DataTypeArray>(datatype_map->get_key_type());
             if (nullmap_column) {
                 block.get_by_position(arguments[0]) = {
                     ColumnNullable::create(array_column, nullmap_column),
@@ -243,7 +244,8 @@ public:
             }
         } else {
             const auto& array_column = map_column->get_values_ptr();
-            const auto datatype_array = std::make_shared<DataTypeArray>(datatype_map->get_value_type());
+            const auto datatype_array =
+                std::make_shared<DataTypeArray>(datatype_map->get_value_type());
             if (nullmap_column) {
                 block.get_by_position(arguments[0]) = {
                     ColumnNullable::create(array_column, nullmap_column),
