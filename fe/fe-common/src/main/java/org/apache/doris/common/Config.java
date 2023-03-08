@@ -426,11 +426,19 @@ public class Config extends ConfigBase {
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
-
+    /**
+     * core num of thread to handle task in mysql.The corePoolSize param of ThreadPoolExecutor.
+     */
+    @ConfField public static int core_mysql_service_task_threads_num = 8;
     /**
      * max num of thread to handle task in mysql.
      */
     @ConfField public static int max_mysql_service_task_threads_num = 4096;
+
+    /**
+     * this is the maximum time that excess idle threads will wait for new tasks before terminating.
+     */
+    @ConfField public static long mysql_service_task_threads_keep_alive_time = 60L;
 
     /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.

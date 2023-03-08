@@ -469,11 +469,23 @@ Default：1G
 
 Used to set the initial flow window size of the GRPC client channel, and also used to max message size.  When the result set is large, you may need to increase this value.
 
+#### `core_mysql_service_task_threads_num`
+
+Default：8
+
+the number of threads to keep in the pool, even if they are idle, unless allowCoreThreadTimeOut is set.
+
 #### `max_mysql_service_task_threads_num`
 
 Default：4096
 
 When FeEstarts the MySQL server based on NIO model, the number of threads responsible for Task events. Only `mysql_service_nio_enabled` is true takes effect.
+
+#### `mysql_service_task_threads_keep_alive_time`
+
+Default：60 second
+
+when the number of threads is greater than the core, this is the maximum time that excess idle threads will wait for new tasks before terminating.
 
 #### `mysql_service_io_threads_num`
 

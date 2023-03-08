@@ -469,11 +469,23 @@ thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
 用于设置 GRPC 客户端通道的初始流窗口大小，也用于设置最大消息大小。当结果集较大时，可能需要增大该值。
 
+#### `core_mysql_service_task_threads_num`
+
+默认值：8
+
+mysql 中处理任务的线程池核心线程数大小。
+
 #### `max_mysql_service_task_threads_num`
 
 默认值：4096
 
 mysql 中处理任务的最大线程数。
+
+#### `mysql_service_task_threads_keep_alive_time`
+
+默认值：60 秒
+
+mysql 中处理任务线程空闲多久会被回收。
 
 #### `mysql_service_io_threads_num`
 

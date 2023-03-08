@@ -108,9 +108,13 @@ public class ThreadPoolManager {
 
     public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread,
             String poolName, boolean needRegisterMetric) {
-        return newDaemonThreadPool(0, maxNumThread, KEEP_ALIVE_TIME,
-                TimeUnit.SECONDS, new SynchronousQueue(),
-                new LogDiscardPolicy(poolName), poolName, needRegisterMetric);
+        return newDaemonCacheThreadPool(0, maxNumThread, KEEP_ALIVE_TIME, poolName, needRegisterMetric);
+    }
+
+    public static ThreadPoolExecutor newDaemonCacheThreadPool(int corePoolSize, int maxNumThread, long keepAliveTime,
+                                                              String poolName, boolean needRegisterMetric) {
+        return newDaemonThreadPool(corePoolSize, maxNumThread, keepAliveTime, TimeUnit.SECONDS, new SynchronousQueue(),
+            new LogDiscardPolicy(poolName), poolName, needRegisterMetric);
     }
 
     public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread,

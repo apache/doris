@@ -52,7 +52,8 @@ public class MysqlServer {
 
     // default task service.
     private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(
-            Config.max_mysql_service_task_threads_num, "mysql-nio-pool", true);
+            Config.core_mysql_service_task_threads_num, Config.max_mysql_service_task_threads_num,
+            Config.mysql_service_task_threads_keep_alive_time, "mysql-nio-pool", true);
 
     public MysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
