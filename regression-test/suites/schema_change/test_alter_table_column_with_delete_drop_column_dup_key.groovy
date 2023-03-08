@@ -51,6 +51,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
@@ -71,6 +72,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
@@ -115,6 +117,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
@@ -135,6 +138,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
@@ -158,6 +162,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
@@ -199,6 +204,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
@@ -219,6 +225,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(100)
