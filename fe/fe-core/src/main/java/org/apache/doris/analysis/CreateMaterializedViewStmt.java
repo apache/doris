@@ -191,7 +191,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 }
                 SlotRef slotRef = (SlotRef) selectListItemExpr;
                 // check duplicate column
-                String columnName = slotRef.getColumnName().toLowerCase();
+                String columnName = slotRef.getColumnName();
                 if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
@@ -217,7 +217,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 List<SlotRef> slots = new ArrayList<>();
                 functionCallExpr.collect(SlotRef.class, slots);
                 Preconditions.checkArgument(slots.size() == 1);
-                String columnName = slots.get(0).getColumnName().toLowerCase();
+                String columnName = slots.get(0).getColumnName();
                 if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
@@ -359,7 +359,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         functionCallExpr.collect(SlotRef.class, slots);
         Preconditions.checkArgument(slots.size() == 1);
         SlotRef baseColumnRef = slots.get(0);
-        String baseColumnName = baseColumnRef.getColumnName().toLowerCase();
+        String baseColumnName = baseColumnRef.getColumnName();
         Column baseColumn = baseColumnRef.getColumn();
         Preconditions.checkNotNull(baseColumn);
         Type baseType = baseColumn.getOriginType();
