@@ -471,7 +471,7 @@ Used to set the initial flow window size of the GRPC client channel, and also us
 
 #### `core_mysql_service_task_threads_num`
 
-Default：8
+Default：0
 
 the number of threads to keep in the pool, even if they are idle, unless allowCoreThreadTimeOut is set.
 
