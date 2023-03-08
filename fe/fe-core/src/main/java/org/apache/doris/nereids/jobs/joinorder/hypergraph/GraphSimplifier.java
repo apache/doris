@@ -432,6 +432,7 @@ public class GraphSimplifier {
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
                     join.getOtherJoinConjuncts(),
+                    join.getMarkJoinSlotReference(),
                     join.getLogicalProperties(),
                     join.left(),
                     join.right());
@@ -442,6 +443,7 @@ public class GraphSimplifier {
                     join.getHashJoinConjuncts(),
                     join.getOtherJoinConjuncts(),
                     join.getHint(),
+                    join.getMarkJoinSlotReference(),
                     join.getLogicalProperties(),
                     join.left(),
                     join.right());

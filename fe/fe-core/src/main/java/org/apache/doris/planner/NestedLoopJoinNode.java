@@ -92,8 +92,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
      */
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
             JoinOperator joinOperator, List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
-            TupleDescriptor outputTuple) {
-        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, joinOperator);
+            TupleDescriptor outputTuple, boolean isMarkJoin) {
+        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, joinOperator, isMarkJoin);
         this.tupleIds.addAll(tupleIds);
         children.add(outer);
         children.add(inner);
@@ -228,7 +228,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         StringBuilder output =
                 new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
                         .append(distrModeStr).append(")\n");
-        output.append(detailPrefix).append("is mark: ").append(isMarkJoin()).append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
@@ -266,6 +265,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                 output.append(slotId).append(" ");
             }
             output.append("\n");
+        }
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(detailPrefix).append("isMarkJoin: ").append(isMarkJoin()).append("\n");
         }
         return output.toString();
     }

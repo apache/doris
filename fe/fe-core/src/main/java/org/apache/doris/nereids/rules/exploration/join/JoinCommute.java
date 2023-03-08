@@ -46,6 +46,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
         return logicalJoin()
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),

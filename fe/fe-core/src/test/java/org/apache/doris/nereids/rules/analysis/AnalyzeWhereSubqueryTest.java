@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyProjectFi
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -219,9 +220,14 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                         logicalJoin(
                                 any(),
                                 logicalAggregate()
-                        ).when(FieldChecker.check("joinType", JoinType.LEFT_OUTER_JOIN))
+                        ).when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
                                 .when(FieldChecker.check("otherJoinConjuncts",
                                         ImmutableList.of(new EqualTo(
+                                                new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
+                                                        ImmutableList.of("default_cluster:test", "t6")),
+                                                new SlotReference(new ExprId(7), "sum(k3)", BigIntType.INSTANCE, true,
+                                                        ImmutableList.of())
+                                        ), new EqualTo(
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t7")),
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
@@ -473,19 +479,23 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
                 .applyBottomUp(new ScalarApplyToJoin())
                 .matches(
-                        logicalJoin(
-                                any(),
-                                logicalAggregate(
-                                        logicalProject()
-                                )
-                        )
-                        .when(j -> j.getJoinType().equals(JoinType.LEFT_OUTER_JOIN))
-                        .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(
-                                new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                        ImmutableList.of("default_cluster:test", "t6")),
-                                        new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")))
-                        )))
+                            logicalJoin(
+                                    any(),
+                                    logicalAggregate(
+                                            logicalProject()
+                                    )
+                            )
+                            .when(j -> j.getJoinType().equals(JoinType.LEFT_SEMI_JOIN))
+                            .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(
+                                    new LessThan(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
+                                            ImmutableList.of("default_cluster:test", "t6")),
+                                            new SlotReference(new ExprId(8), "max(aa)", BigIntType.INSTANCE, true,
+                                                    ImmutableList.of())),
+                                    new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
+                                            ImmutableList.of("default_cluster:test", "t6")),
+                                            new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
+                                                    ImmutableList.of("default_cluster:test", "t7")))
+                            )))
                 );
     }
 }
