@@ -78,10 +78,10 @@ inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str
     return char_len;
 }
 
-inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
+inline size_t get_char_len(const StringRef& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+    for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -215,7 +215,7 @@ private:
             }
 
             if (byte_pos <= str_size && fixed_len > 0) {
-                // return StringVal(str.ptr + byte_pos, fixed_len);
+                // return StringRef(str.data + byte_pos, fixed_len);
                 StringOP::push_value_string(
                         std::string_view {reinterpret_cast<const char*>(raw_str + byte_pos),
                                           (size_t)fixed_len},
@@ -1258,7 +1258,7 @@ public:
                 pad_byte_len = pad_times * pad_len;
                 pad_byte_len += pad_index[pad_remainder];
                 int32_t byte_len = str_len + pad_byte_len;
-                // StringVal result(context, byte_len);
+                // StringRef result(context, byte_len);
                 if constexpr (Impl::is_lpad) {
                     int pad_idx = 0;
                     int result_index = 0;
@@ -2020,38 +2020,40 @@ public:
 namespace MoneyFormat {
 
 template <typename T, size_t N>
-static StringVal do_money_format(FunctionContext* context, const T int_value,
+static StringRef do_money_format(FunctionContext* context, const T int_value,
                                  const int32_t frac_value = 0) {
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;
-    StringVal result = context->create_temp_string_val(string_val_len);
-    memcpy(result.ptr, p, string_val_len - 3);
-    *(result.ptr + string_val_len - 3) = '.';
-    *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
-    *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+    StringRef result = context->create_temp_string_val(string_val_len);
+    char* result_data = const_cast<char*>(result.data);
+    memcpy(result_data, p, string_val_len - 3);
+    *(result_data + string_val_len - 3) = '.';
+    *(result_data + string_val_len - 2) = '0' + (frac_value / 10);
+    *(result_data + string_val_len - 1) = '0' + (frac_value % 10);
     return result;
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringVal do_money_format(FunctionContext* context, const string& value) {
+static StringRef do_money_format(FunctionContext* context, const string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
-    StringVal result = context->create_temp_string_val(result_len);
+    StringRef result = context->create_temp_string_val(result_len);
+    char* result_data = const_cast<char*>(result.data);
     if (!is_positive) {
-        *result.ptr = '-';
+        *result_data = '-';
     }
     for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
-        *(result.ptr + j) = *(value.data() + i);
+        *(result_data + j) = *(value.data() + i);
         if (i - 1 < 0) break;
-        *(result.ptr + j - 1) = *(value.data() + i - 1);
+        *(result_data + j - 1) = *(value.data() + i - 1);
         if (i - 2 < 0) break;
-        *(result.ptr + j - 2) = *(value.data() + i - 2);
+        *(result_data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-            *(result.ptr + j - 3) = ',';
+            *(result_data + j - 3) = ',';
         }
     }
-    memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+    memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
     return result;
 };
 
@@ -2065,8 +2067,8 @@ struct MoneyFormatDoubleImpl {
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
-            StringVal str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2079,8 +2081,8 @@ struct MoneyFormatInt64Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            StringVal str = MoneyFormat::do_money_format<Int64, 26>(context, value);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MoneyFormat::do_money_format<Int64, 26>(context, value);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2093,8 +2095,8 @@ struct MoneyFormatInt128Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            StringVal str = MoneyFormat::do_money_format<Int128, 52>(context, value);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MoneyFormat::do_money_format<Int128, 52>(context, value);
+            result_column->insert_data(str.data, str.size);
         }
     }
 };
@@ -2108,15 +2110,15 @@ struct MoneyFormatDecimalImpl {
                         size_t input_rows_count) {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
-                DecimalV2Val value = DecimalV2Val(decimalv2_column->get_element(i));
+                DecimalV2Value value = DecimalV2Value(decimalv2_column->get_element(i));
 
                 DecimalV2Value rounded(0);
-                DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
+                value.round(&rounded, 2, HALF_UP);
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal32_column =
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
@@ -2132,10 +2134,10 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal32_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal64_column =
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
@@ -2151,10 +2153,10 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal64_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal128_column =
                            check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
@@ -2170,10 +2172,10 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(str.data, str.size);
             }
         }
     }
@@ -2215,8 +2217,8 @@ public:
         vec_res.resize(input_rows_count);
 
         for (int i = 0; i < input_rows_count; ++i) {
-            vec_res[i] = locate_pos(col_substr->get_data_at(i).to_string_val(),
-                                    col_str->get_data_at(i).to_string_val(), vec_pos[i]);
+            vec_res[i] =
+                    locate_pos(col_substr->get_data_at(i), col_str->get_data_at(i), vec_pos[i]);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -2224,13 +2226,13 @@ public:
     }
 
 private:
-    int locate_pos(StringVal substr, StringVal str, int start_pos) {
-        if (substr.len == 0) {
+    int locate_pos(StringRef substr, StringRef str, int start_pos) {
+        if (substr.size == 0) {
             if (start_pos <= 0) {
                 return 0;
             } else if (start_pos == 1) {
                 return 1;
-            } else if (start_pos > str.len) {
+            } else if (start_pos > str.size) {
                 return 0;
             } else {
                 return start_pos;
@@ -2241,14 +2243,13 @@ private:
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
         size_t char_len = get_char_len(str, &index);
-        if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
+        if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
             return 0;
         }
         StringRef substr_sv = StringRef(substr);
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
-        StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
-                               str.len - index[start_pos - 1]);
+        StringRef adjusted_str(str.data + index[start_pos - 1], str.size - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
@@ -2330,8 +2331,8 @@ struct ReverseImpl {
             int64_t src_len = offsets[i] - offsets[i - 1];
             string dst;
             dst.resize(src_len);
-            simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                            StringVal((uint8_t*)dst.data(), src_len));
+            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
+                                            StringRef((uint8_t*)dst.data(), src_len));
             StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
                                         res_offsets);
         }

@@ -570,8 +570,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate<false>*>(pred) ||
-        dynamic_cast<LikeColumnPredicate<true>*>(pred)) {
+    if (dynamic_cast<LikeColumnPredicate*>(pred)) {
         return false;
     }
 

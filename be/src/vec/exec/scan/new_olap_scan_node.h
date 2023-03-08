@@ -45,7 +45,7 @@ protected:
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-                                             StringVal* constant_str,
+                                             StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
