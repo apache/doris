@@ -163,6 +163,26 @@ public class Function implements Writable {
         this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
     }
 
+    public Function(Function other) {
+        if (other == null) {
+            return;
+        }
+        this.id = other.id;
+        this.name = new FunctionName(other.name.getDb(), other.name.getFunction());
+        this.hasVarArgs = other.hasVarArgs;
+        this.retType = other.retType;
+        this.userVisible = other.userVisible;
+        this.nullableMode = other.nullableMode;
+        this.vectorized = other.vectorized;
+        this.binaryType = other.binaryType;
+        this.location = other.location;
+        if (other.argTypes != null) {
+            this.argTypes = new Type[other.argTypes.length];
+            System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
+        }
+        this.checksum = other.checksum;
+    }
+
     public FunctionName getFunctionName() {
         return name;
     }
