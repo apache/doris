@@ -1490,7 +1490,9 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        int timeoutSecond = sessionVariable.getQueryTimeoutS();
+
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
@@ -1520,10 +1522,17 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+
+        long maxExecMemByte = sessionVariable.getMaxExecMemByte();
+        String timeZone = sessionVariable.getTimeZone();
+        int sendBatchParallelism = sessionVariable.getSendBatchParallelism();
+
         request.setTxnId(txnConf.getTxnId()).setDb(txnConf.getDb())
                 .setTbl(txnConf.getTbl())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
+                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
+                .setExecMemLimit(maxExecMemByte).setTimeout(timeoutSecond)
+                .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
