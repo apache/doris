@@ -157,7 +157,7 @@ protected:
 
     virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                      VExprContext* expr_ctx,
-                                                     StringVal* constant_str,
+                                                     StringRef* constant_str,
                                                      doris::FunctionContext** fn_ctx,
                                                      PushDownType& pdt) {
         pdt = PushDownType::UNACCEPTABLE;

@@ -56,50 +56,50 @@ public:
     static constexpr auto REGISTER_SIZE = sizeof(__m128i);
 #endif
 public:
-    static StringVal rtrim(const StringVal& str) {
-        if (str.is_null || str.len == 0) {
+    static StringRef rtrim(const StringRef& str) {
+        if (str.size == 0) {
             return str;
         }
         auto begin = 0;
-        auto end = str.len - 1;
+        int64_t end = str.size - 1;
 #if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
             const auto v_haystack = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(str.ptr + end + 1 - REGISTER_SIZE));
+                    reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
             const auto mask = _mm_movemask_epi8(v_against_pattern);
             int offset = __builtin_clz(~(mask << REGISTER_SIZE));
             /// means not found
             if (offset == 0) {
-                return StringVal(str.ptr + begin, end - begin + 1);
+                return StringRef(str.data + begin, end - begin + 1);
             } else {
                 end -= offset;
             }
         }
 #endif
-        while (end >= begin && str.ptr[end] == ' ') {
+        while (end >= begin && str.data[end] == ' ') {
             --end;
         }
         if (end < 0) {
-            return StringVal("");
+            return StringRef("");
         }
-        return StringVal(str.ptr + begin, end - begin + 1);
+        return StringRef(str.data + begin, end - begin + 1);
     }
 
-    static StringVal ltrim(const StringVal& str) {
-        if (str.is_null || str.len == 0) {
+    static StringRef ltrim(const StringRef& str) {
+        if (str.size == 0) {
             return str;
         }
         auto begin = 0;
-        auto end = str.len - 1;
+        auto end = str.size - 1;
 #if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
             const auto v_haystack =
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.ptr + begin));
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
             const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
             /// zero means not found
@@ -108,56 +108,57 @@ public:
             } else {
                 const auto offset = __builtin_ctz(mask);
                 begin += offset;
-                return StringVal(str.ptr + begin, end - begin + 1);
+                return StringRef(str.data + begin, end - begin + 1);
             }
         }
 #endif
-        while (begin <= end && str.ptr[begin] == ' ') {
+        while (begin <= end && str.data[begin] == ' ') {
             ++begin;
         }
-        return StringVal(str.ptr + begin, end - begin + 1);
+        return StringRef(str.data + begin, end - begin + 1);
     }
 
-    static StringVal trim(const StringVal& str) {
-        if (str.is_null || str.len == 0) {
+    static StringRef trim(const StringRef& str) {
+        if (str.size == 0) {
             return str;
         }
         return rtrim(ltrim(str));
     }
 
     // Gcc will do auto simd in this function
-    static bool is_ascii(const StringVal& str) {
+    static bool is_ascii(const StringRef& str) {
         char or_code = 0;
-        for (size_t i = 0; i < str.len; i++) {
-            or_code |= str.ptr[i];
+        for (size_t i = 0; i < str.size; i++) {
+            or_code |= str.data[i];
         }
         return !(or_code & 0x80);
     }
 
-    static void reverse(const StringVal& str, StringVal dst) {
+    static void reverse(const StringRef& str, StringRef dst) {
         if (is_ascii(str)) {
             int64_t begin = 0;
-            int64_t end = str.len;
-            int64_t result_end = dst.len - 1;
+            int64_t end = str.size;
+            int64_t result_end = dst.size - 1;
 
             // auto SIMD here
-            auto* __restrict l = dst.ptr;
-            auto* __restrict r = str.ptr;
+            auto* __restrict l = const_cast<char*>(dst.data);
+            auto* __restrict r = str.data;
             for (; begin < end; ++begin, --result_end) {
                 l[result_end] = r[begin];
             }
         } else {
-            for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+            char* dst_data = const_cast<char*>(dst.data);
+            for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
                 // there exists occasion where the last character is an illegal UTF-8 one which returns
                 // a char_size larger than the actual space, which would cause offset execeeding the buffer range
-                // for example, consider str.len=4, i = 3, then the last char returns char_size 2, then
-                // the str.ptr + offset would exceed the buffer range
+                // for example, consider str.size=4, i = 3, then the last char returns char_size 2, then
+                // the str.data + offset would exceed the buffer range
                 size_t offset = i + char_size;
-                if (offset > str.len) {
-                    offset = str.len;
+                if (offset > str.size) {
+                    offset = str.size;
                 }
-                std::copy(str.ptr + i, str.ptr + offset, dst.ptr + str.len - offset);
+                std::copy(str.data + i, str.data + offset, dst_data + str.size - offset);
             }
         }
     }

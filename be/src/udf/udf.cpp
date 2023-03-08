@@ -37,6 +37,7 @@
 #include "runtime/types.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -165,12 +166,9 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     }
 }
 
-StringVal FunctionContext::create_temp_string_val(int64_t len) {
+StringRef FunctionContext::create_temp_string_val(int64_t len) {
     this->impl()->string_result().resize(len);
-    return StringVal((uint8_t*)this->impl()->string_result().c_str(), len);
+    return StringRef((uint8_t*)this->impl()->string_result().c_str(), len);
 }
 
-std::ostream& operator<<(std::ostream& os, const StringVal& string_val) {
-    return os << string_val.to_string();
-}
 } // namespace doris
