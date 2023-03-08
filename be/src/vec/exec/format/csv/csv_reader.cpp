@@ -179,7 +179,7 @@ Status CsvReader::init_reader(bool is_load) {
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type));
+        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader));
         break;
     default:
         return Status::InternalError(
@@ -441,16 +441,11 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 }
 
 void CsvReader::_split_line_for_proto_format(const Slice& line) {
-    PDataRow** ptr = reinterpret_cast<PDataRow**>(line.data);
-    PDataRow* row = *ptr;
-    for (const PDataColumn& col : (row)->col()) {
-        int len = col.value().size();
-        uint8_t* buf = new uint8_t[len];
-        memcpy(buf, col.value().c_str(), len);
-        _split_values.emplace_back(buf, len);
+    PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+    PDataRow* row = *row_ptr;
+    for (const PDataColumn& col : row->col()) {
+        _split_values.emplace_back(col.value());
     }
-    delete row;
-    delete[] ptr;
 }
 
 void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
