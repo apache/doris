@@ -180,13 +180,54 @@ class RegressionTest {
         def recorder = new Recorder()
         def directoryFilter = config.getDirectoryFilter()
         if (!config.withOutLoadData) {
-            log.info('Start to run load scripts')
+            log.info('Start run suites that do not contain the load file in the directory and run  all load scripts asynchronous')
+            List<String> load_sources = new ArrayList<>()
+            new File(config.suitePath).eachDir { dir ->
+                {
+                    def load_flag_01 = 0
+                    dir.eachFileRecurse { f_01 ->
+                        if (f_01.name.contains('load')) {
+                            load_flag_01 = 1
+                            load_sources.add(f_01.name)
+                        }
+                    }
+                    if (load_flag_01 == 0) {
+                        dir.eachFileRecurse { f_02 ->
+                            load_sources.add(f_02.name)
+                        }
+                    }
+                }
+            }
+            runScripts(config, recorder, directoryFilter, {fileName -> fileName in load_sources})
+
+            log.info("---------------------------------------------------------")
+
+            log.info('Start to run the remaining suite containing the load file')
+            List<String> other_sources = new ArrayList<>()
+            new File(config.suitePath).eachDir { dir ->
+                {
+                    List<File> sources = new ArrayList<>()
+                    def load_flag_02 = 0
+                    dir.eachFileRecurse { f_03 ->
+                        if (f_03.name.contains('load')) {
+                            load_flag_02 = 1
+                        }
+                    }
+                    if (load_flag_02 == 1) {
+                        dir.eachFileRecurse { f_04 ->
+                            if (! f_04.name.contains("load")) {
+                                other_sources.add(f_04.name)
+                            }
+                        }
+                    }
+                }
+            }
+            runScripts(config, recorder, directoryFilter, { fileName -> fileName in other_sources})
+        }else {
+            log.info('Start to run scripts')
             runScripts(config, recorder, directoryFilter,
-                    { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
+                    { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
         }
-        log.info('Start to run scripts')
-        runScripts(config, recorder, directoryFilter,
-                { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
 
         return recorder
     }
