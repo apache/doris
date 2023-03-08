@@ -1,6 +1,6 @@
 ---
 {
-    "title": "GET TABLETS ON A PARTICULAR BE",
+    "title": "查询tablet信息",
     "language": "zh-CN"
 }
 ---
@@ -24,24 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# GET TABLETS ON A PARTICULAR BE
-   
+# 查询tablet信息
+
+## Request
+
+`GET /tablets_page?limit={int}`
+
+## Description
+
 获取特定BE节点上指定数量的tablet的tablet id和schema hash信息
 
-```
-curl -X GET http://be_host:webserver_port/tablets_page?limit=XXXXX
-```
+## Query parameters
 
-返回值就是指定BE节点上特定数量tablet的tablet id和schema hash，以渲染的Web页面形式返回。返回的tablet数量由参数limit确定，若limit不存在，则不返回tablet；若limit的值为"all"，则返回指定BE节点上所有的tablet；若limit的值为除“all”之外的其他非数值类型，则不返回tablet。
+* `limit`
+    返回的tablet数量，选填，默认1000个，可以有以下取值：
+    - `all`： 返回全部tablet
+    - 正整数： 返回相应数量的tablet
 
-```
-curl -X GET http://be_host:webserver_port/tablets_json?limit=XXXXX
-```
+## Request body
 
-返回值就是指定BE节点上特定数量tablet的tablet id和schema hash，以Json对象形式返回。返回的tablet数量由参数limit确定，若limit不存在，则不返回tablet；若limit的值为"all"，则返回指定BE节点上所有的tablet；若limit的值为除“all”之外的其他非数值类型，则不返回tablet。
+无
 
-```
-{
+## Response
+
+    ```
+    {
     msg: "OK",
     code: 0,
     data: {
@@ -62,4 +69,12 @@ curl -X GET http://be_host:webserver_port/tablets_json?limit=XXXXX
     },
     count: 30
 }
-```
+    ```
+## Examples
+
+
+    ```
+    curl http://127.0.0.1:8040/api/tablets_json?limit=123
+
+    ```
+

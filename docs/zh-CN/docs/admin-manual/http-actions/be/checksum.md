@@ -1,6 +1,6 @@
 ---
 {
-    "title": "RESTORE TABLET",
+    "title": "Checksum",
     "language": "zh-CN"
 }
 ---
@@ -24,20 +24,41 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# RESTORE TABLET
-## description
-   
-    该功能用于恢复trash目录中被误删的tablet数据。
+# Checksum
 
-    说明：这个功能暂时只在be服务中提供一个http接口。如果要使用，
-    需要向要进行数据恢复的那台be机器的http端口发送restore tablet api请求。api格式如下：
-    METHOD: POST
-    URI: http://be_host:be_http_port/api/restore_tablet?tablet_id=xxx&schema_hash=xxx
+## Request
 
-## example
+`GET /api/checksum?tablet_id={int}&version={int}&schema_hash={int}`
 
-    curl -X POST "http://hostname:8088/api/restore_tablet?tablet_id=123456\&schema_hash=1111111"
+## Description
 
-## keyword
+checksum
 
-    RESTORE,TABLET,RESTORE,TABLET
+## Query parameters
+
+* `tablet_id`
+    需要校验的tablet的id
+
+* `version`
+    需要校验的tablet的version    
+
+* `schema_hash`
+    schema hash
+
+## Request body
+
+无
+
+## Response
+
+    ```
+    1843743562
+    ```
+## Examples
+
+
+    ```
+    curl "http://127.0.0.1:8040/api/checksum?tablet_id=1&version=1&schema_hash=-1"
+    
+    ```
+

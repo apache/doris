@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Be Version Info Action",
+    "title": "BE版本信息",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Be Version Info Action
+# BE版本信息
 
 ## Request
 
-`GET be_host:be_http_port/api/be_version_info`
+`GET /api/be_version_info`
 
 ## Description
 
@@ -73,27 +73,7 @@ under the License.
 
 
     ```
-    GET be_host:be_http_port/api/be_version_info
+    curl http://127.0.0.1:8040/api/be_version_info
     
-    Response:
-    {
-        "msg":"success",
-        "code":0,
-        "data":{
-            "beVersionInfo":{
-                "dorisBuildVersionPrefix":"doris",
-                "dorisBuildVersionMajor":0,
-                "dorisBuildVersionMinor":0,
-                "dorisBuildVersionPatch":0,
-                "dorisBuildVersionRcVersion":"trunk",
-                "dorisBuildVersion":"doris-0.0.0-trunk",
-                "dorisBuildHash":"git://4b7b503d1cb3/data/doris/doris/be/../@a04f9814fe5a09c0d9e9399fe71cc4d765f8bff1",
-                "dorisBuildShortHash":"a04f981",
-                "dorisBuildTime":"Fri, 09 Sep 2022 07:57:02 UTC",
-                "dorisBuildInfo":"root@4b7b503d1cb3"
-            }
-        },
-        "count":0
-    }
     ```
 

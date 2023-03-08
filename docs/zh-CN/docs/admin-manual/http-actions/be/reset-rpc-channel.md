@@ -1,6 +1,6 @@
 ---
 {
-    "title": "PAD ROWSET",
+    "title": "重置连接缓存",
     "language": "zh-CN"
 }
 ---
@@ -24,20 +24,45 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PAD ROWSET
-## description
-   
-    该功能用于使用一个空的rowset填充损坏的副本。
+# 重置连接缓存
 
-    说明：这个功能暂时只在be服务中提供一个http接口。如果要使用，
-    需要向要进行数据恢复的那台be机器的http端口发送pad rowset api请求。api格式如下：
-    METHOD: POST
-    URI: http://be_host:be_http_port/api/pad_rowset?tablet_id=xxx&start_version=xxx&end_version=xxx
+## Request
 
-## example
+`GET /api/reset_rpc_channel/{endpoints}`
 
-    curl -X POST "http://hostname:8088/api/pad_rowset?tablet_id=123456\&start_version=1111111\&end_version=1111112"
+## Description
 
-## keyword
+该功能用于重置brpc的连接缓存。
 
-    PAD,ROWSET,PAD,ROWSET
+## Path parameters
+
+* `endpoints`
+    支持如下形式:
+    - `all`
+    - `host1:port1,host2:port2`
+
+## Request body
+
+无
+
+## Response
+
+    ```
+    {
+        "msg":"success",
+        "code":0,
+        "data": "no cached channel.",
+        "count":0
+    }
+    ```
+## Examples
+
+
+    ```
+    curl http://127.0.0.1:8040/api/reset_rpc_channel/all
+    ```
+    
+    ```
+    curl http://127.0.0.1:8040/api/reset_rpc_channel/1.1.1.1:8080,2.2.2.2:8080
+    ```
+
