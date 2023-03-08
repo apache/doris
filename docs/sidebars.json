@@ -224,6 +224,7 @@
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
+                "ecosystem/kyuubi",
                 "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
                 "ecosystem/plugin-development-manual",
