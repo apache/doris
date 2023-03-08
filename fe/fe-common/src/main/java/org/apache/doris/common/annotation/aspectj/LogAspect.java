@@ -34,7 +34,7 @@ public class LogAspect {
     }
 
     @AfterThrowing(value = "logPointCut()", throwing = "e")
-    public void exceptionLog(JoinPoint joinPoint, Exception e)  {
+    public void exceptionLog(Exception e)  {
         LOG.error(e.getMessage());
     }
 }
