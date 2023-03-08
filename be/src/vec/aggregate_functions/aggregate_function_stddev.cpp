@@ -31,11 +31,12 @@ static IAggregateFunction* create_function_single_value(const String& name,
                                                         const bool result_is_nullable) {
     WhichDataType which(remove_nullable(argument_types[0]));
 
-#define DISPATCH(TYPE)                                                                             \
-    if (which.idx == TypeIndex::TYPE)                                                              \
-        return creator_without_type::create<AggregateFunctionTemplate<                             \
-                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>(result_is_nullable, \
-                                                                               argument_types);
+#define DISPATCH(TYPE)                                                          \
+    if (which.idx == TypeIndex::TYPE)                                           \
+        return creator_without_type::create<AggregateFunctionTemplate<          \
+                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>( \
+                result_is_nullable,                                             \
+                is_nullable ? remove_nullable(argument_types) : argument_types);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
@@ -43,7 +44,8 @@ static IAggregateFunction* create_function_single_value(const String& name,
     if (which.idx == TypeIndex::TYPE)                                                  \
         return creator_without_type::create<AggregateFunctionTemplate<                 \
                 NameData<Data<TYPE, BaseDatadecimal<TYPE, is_stddev>>>, is_nullable>>( \
-                result_is_nullable, argument_types);
+                result_is_nullable,                                                    \
+                is_nullable ? remove_nullable(argument_types) : argument_types);
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
@@ -89,10 +91,10 @@ AggregateFunctionPtr create_aggregate_function_stddev_pop(const std::string& nam
 }
 
 void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("variance", create_aggregate_function_variance_pop<false>);
+    factory.register_function_both("variance", create_aggregate_function_variance_pop<false>);
     factory.register_alias("variance", "var_pop");
     factory.register_alias("variance", "variance_pop");
-    factory.register_function("stddev", create_aggregate_function_stddev_pop<true>);
+    factory.register_function_both("stddev", create_aggregate_function_stddev_pop<true>);
     factory.register_alias("stddev", "stddev_pop");
 }
 
