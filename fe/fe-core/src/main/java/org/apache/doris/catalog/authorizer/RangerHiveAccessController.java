@@ -64,9 +64,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
         String user = currentUser.getQualifiedUser();
         if (user.indexOf(":") != -1) {
             // user is as of form: default_cluster:user1, only use `user1`
-            String[] userArray = user.split(":");
-            request.setUser(userArray[1]);
-            request.setClusterName(userArray[0]);
+            request.setUser(user.split(":")[1]);
         } else {
             request.setUser(user);
         }
