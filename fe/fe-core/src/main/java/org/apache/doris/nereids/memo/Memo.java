@@ -707,9 +707,9 @@ public class Memo {
             builder.append(" lowest Plan(cost, properties, plan)");
             group.getAllProperties().forEach(
                     prop -> {
-                        Optional<Pair<Double, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
+                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
                         if (costAndGroupExpression.isPresent()) {
-                            builder.append("\n    " + costAndGroupExpression.get().first + " " + prop)
+                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
                                     .append("\n     ").append(costAndGroupExpression.get().second);
                         }
                     }
