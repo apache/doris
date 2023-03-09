@@ -157,6 +157,7 @@ private:
     Status _apply_inverted_index_on_block_column_predicate(
             ColumnId column_id, MutilColumnBlockPredicate* pred,
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
+            std::set<const ColumnPredicate*>& remaining_predicates_set,
             bool* continue_apply);
     Status _apply_index_except_leafnode_of_andnode();
     Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,

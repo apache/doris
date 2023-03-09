@@ -46,7 +46,7 @@ public:
                     roaring::Roaring* bitmap) const override;
 
 private:
-    InvertedIndexQueryType _to_inverted_index_query_type(MatchType match_type) const;
+    InvertedIndexQueryOp _to_inverted_index_query_type(MatchType match_type) const;
     std::string _debug_string() const override {
         std::string info = "MatchPredicate";
         return info;

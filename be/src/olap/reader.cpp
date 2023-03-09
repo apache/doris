@@ -451,9 +451,13 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         if (predicate != nullptr) {
             // record condition value into predicate_params in order to pushdown segment_iterator,
             // _gen_predicate_result_sign will build predicate result unique sign with condition value
+            const TabletColumn& column = _tablet_schema->column_by_uid(condition_col_uid);
+
             auto predicate_params = predicate->predicate_params();
             predicate_params->value = condition.condition_values[0];
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
+            predicate_params->precision = column.precision();
+            predicate_params->scale = column.frac();
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
@@ -525,8 +529,12 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
-            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
+            const TabletColumn& column = _tablet_schema->column_by_uid(condition_col_uid);
+
             predicate_params->value = condition.condition_values[0];
+            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
+            predicate_params->precision = column.precision();
+            predicate_params->scale = column.frac();
             _col_preds_except_leafnode_of_andnode.push_back(predicate);
         }
     }

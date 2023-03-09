@@ -65,35 +65,71 @@ public:
             return Status::OK();
         }
         auto column_desc = schema.column(_column_id);
+        column_desc->type();
         std::string column_name = column_desc->name();
 
-        InvertedIndexQueryType query_type;
+        InvertedIndexQuery<Type> query(column_desc->type_info());
         switch (PT) {
-        case PredicateType::EQ:
-            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+        case PredicateType::GT: {
+            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
+                RETURN_IF_ERROR(query.add_value_str(
+                        InvertedIndexQueryOp::GREATER_THAN_QUERY, predicate_params()->value,
+                        predicate_params()->precision, predicate_params()->scale));
+            } else {
+                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::GREATER_THAN_QUERY, _value));
+            }
             break;
+        }
+        case PredicateType::LT: {
+            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
+                RETURN_IF_ERROR(query.add_value_str(
+                        InvertedIndexQueryOp::LESS_THAN_QUERY, predicate_params()->value,
+                        predicate_params()->precision, predicate_params()->scale));
+            } else {
+                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::LESS_THAN_QUERY, _value));
+            }
+            break;
+        }
+        case PredicateType::GE: {
+            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
+                RETURN_IF_ERROR(query.add_value_str(
+                        InvertedIndexQueryOp::GREATER_EQUAL_QUERY, predicate_params()->value,
+                        predicate_params()->precision, predicate_params()->scale));
+            } else {
+                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::GREATER_EQUAL_QUERY, _value));
+            }
+            break;
+        }
+        case PredicateType::LE: {
+            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
+                RETURN_IF_ERROR(query.add_value_str(
+                        InvertedIndexQueryOp::LESS_EQUAL_QUERY, predicate_params()->value,
+                        predicate_params()->precision, predicate_params()->scale));
+            } else {
+                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::LESS_EQUAL_QUERY, _value));
+            }
+            break;
+        }
         case PredicateType::NE:
-            query_type = InvertedIndexQueryType::EQUAL_QUERY;
+        case PredicateType::EQ: {
+            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
+                RETURN_IF_ERROR(query.add_value_str(
+                        InvertedIndexQueryOp::EQUAL_QUERY, predicate_params()->value,
+                        predicate_params()->precision, predicate_params()->scale));
+            } else {
+                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::EQUAL_QUERY, _value));
+            }
             break;
-        case PredicateType::LT:
-            query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
-            break;
-        case PredicateType::LE:
-            query_type = InvertedIndexQueryType::LESS_EQUAL_QUERY;
-            break;
-        case PredicateType::GT:
-            query_type = InvertedIndexQueryType::GREATER_THAN_QUERY;
-            break;
-        case PredicateType::GE:
-            query_type = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-            break;
-        default:
+        }
+        default: {
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
+        }
         }
 
         roaring::Roaring roaring;
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
-                                                           num_rows, &roaring));
+        std::unique_ptr<InvertedIndexQueryType> q(new InvertedIndexQueryType(query));
+        RETURN_IF_ERROR(
+                iterator->read_from_inverted_index(column_name, q.get(), num_rows, &roaring));
 
         if constexpr (PT == PredicateType::NE) {
             *bitmap -= roaring;

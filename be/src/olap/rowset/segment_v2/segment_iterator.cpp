@@ -792,7 +792,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         ColumnId column_id, MutilColumnBlockPredicate* pred,
         std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
-        bool* continue_apply) {
+        std::set<const ColumnPredicate*>& remaining_predicates_set, bool* continue_apply) {
     auto unique_id = _schema.unique_id(column_id);
     bool handle_by_fulltext = _column_has_fulltext_index(unique_id);
     std::set<const ColumnPredicate*> predicate_set {};
@@ -809,13 +809,11 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         all_predicates_are_range_predicate(predicate_set) && !handle_by_fulltext) {
         roaring::Roaring output_result = _row_bitmap;
 
-        std::string column_name = _schema.column(column_id)->name();
-
-        auto res = pred->evaluate(column_name, _inverted_index_iterators[unique_id], num_rows(),
-                                  &output_result);
+        auto res = pred->evaluate(column_id, _schema, _inverted_index_iterators[unique_id],
+                                  num_rows(), &output_result);
 
         if (res.ok()) {
-            if (_check_column_pred_all_push_down(column_name) &&
+            if (_check_column_pred_all_push_down(_schema.column(column_id)->name()) &&
                 !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
                 _need_read_data_indices[unique_id] = false;
             }
@@ -826,11 +824,12 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
                 *continue_apply = false;
             }
             return res;
+        } else if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+                   res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
+            //downgrade without index query
+            remaining_predicates_set.insert(predicate_set.begin(), predicate_set.end());
+            return Status::OK();
         } else {
-            //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
-                return Status::OK();
-            }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: range predicate"
                          << ", error msg: " << res.code_as_string();
@@ -856,20 +855,24 @@ Status SegmentIterator::_apply_inverted_index() {
     size_t input_rows = _row_bitmap.cardinality();
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
+    std::set<const ColumnPredicate*> remaining_predicates_set;
 
     for (const auto& entry : _opts.col_id_to_predicates) {
         ColumnId column_id = entry.first;
         auto pred = entry.second;
         bool continue_apply = true;
         RETURN_IF_ERROR(_apply_inverted_index_on_block_column_predicate(
-                column_id, pred.get(), no_need_to_pass_column_predicate_set, &continue_apply));
+                column_id, pred.get(), no_need_to_pass_column_predicate_set,
+                remaining_predicates_set, &continue_apply));
         if (!continue_apply) {
             break;
         }
     }
 
     for (auto pred : _col_predicates) {
-        if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
+        if (remaining_predicates_set.count(pred) > 0) {
+            remaining_predicates.emplace_back(pred);
+        } else if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
             continue;
         } else {
             bool continue_apply = true;

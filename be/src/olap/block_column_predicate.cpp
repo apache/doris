@@ -187,11 +187,79 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     }
 }
 
-Status AndBlockColumnPredicate::evaluate(const std::string& column_name,
+Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schema,
                                          InvertedIndexIterator* iterator, uint32_t num_rows,
                                          roaring::Roaring* bitmap) const {
-    return Status::NotSupported(
-            "Not Implemented evaluate with inverted index, please check the predicate");
+    if (iterator == nullptr) {
+        return Status::OK();
+    }
+    auto column_desc = schema.column(column_id);
+    std::string column_name = column_desc->name();
+    roaring::Roaring roaring;
+
+    //std::unique_ptr<InvertedIndexQueryRangeType> query_range = nullptr;
+    InvertedIndexQueryType* query_range = nullptr;
+    RETURN_IF_ERROR(InvertedIndexQueryRangeTypeFactory::create_inverted_index_query(
+            column_desc->type_info(), &query_range));
+
+    std::set<const ColumnPredicate*> predicate_set {};
+
+    get_all_column_predicate(predicate_set);
+
+    for (const ColumnPredicate* p : predicate_set) {
+        switch (p->type()) {
+        case PredicateType::GT: {
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto& value_range) -> Status {
+                        return value_range.add_value_str(InvertedIndexQueryOp::GREATER_THAN_QUERY,
+                                                         p->predicate_params()->value,
+                                                         p->predicate_params()->precision,
+                                                         p->predicate_params()->scale);
+                    },
+                    *query_range));
+            break;
+        }
+        case PredicateType::LT: {
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto& value_range) -> Status {
+                        return value_range.add_value_str(
+                                InvertedIndexQueryOp::LESS_THAN_QUERY, p->predicate_params()->value,
+                                p->predicate_params()->precision, p->predicate_params()->scale);
+                    },
+                    *query_range));
+            break;
+        }
+        case PredicateType::GE: {
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto& value_range) -> Status {
+                        return value_range.add_value_str(InvertedIndexQueryOp::GREATER_EQUAL_QUERY,
+                                                         p->predicate_params()->value,
+                                                         p->predicate_params()->precision,
+                                                         p->predicate_params()->scale);
+                    },
+                    *query_range));
+            break;
+        }
+        case PredicateType::LE: {
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto& value_range) -> Status {
+                        return value_range.add_value_str(InvertedIndexQueryOp::LESS_EQUAL_QUERY,
+                                                         p->predicate_params()->value,
+                                                         p->predicate_params()->precision,
+                                                         p->predicate_params()->scale);
+                    },
+                    *query_range));
+            break;
+        }
+        default:
+            return Status::InvalidArgument("invalid predicate type for inverted index evaluate");
+        }
+    }
+    RETURN_IF_ERROR(
+            iterator->read_from_inverted_index(column_name, query_range, num_rows, &roaring));
+
+    *bitmap &= roaring;
+    return Status::OK();
 }
 
 } // namespace doris

@@ -164,7 +164,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexCacheHandle);
 };
 
-enum class InvertedIndexQueryType;
+enum class InvertedIndexQueryOp;
 
 class InvertedIndexQueryCacheHandle;
 
@@ -172,10 +172,10 @@ class InvertedIndexQueryCache {
 public:
     // cache key
     struct CacheKey {
-        io::Path index_path;               // index file path
-        std::string column_name;           // column name
-        InvertedIndexQueryType query_type; // query type
-        std::wstring value;                // query value
+        io::Path index_path; // index file path
+        std::string column_name;
+        std::string query;
+        //std::wstring value; // query value
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
@@ -183,9 +183,7 @@ public:
             key_buf.append("/");
             key_buf.append(column_name);
             key_buf.append("/");
-            key_buf.append(1, static_cast<char>(query_type));
-            key_buf.append("/");
-            key_buf.append(lucene::util::Misc::toString(value.c_str()));
+            key_buf.append(query);
             return key_buf;
         }
     };

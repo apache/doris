@@ -45,53 +45,84 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     roaring::Roaring roaring;
     Status s = Status::OK();
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
+    InvertedIndexQueryType* query = nullptr;
+    bool skip_try_inverted_index = false;
 
-    if (is_string_type(column_desc->type()) ||
-        (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
-         is_string_type(column_desc->get_sub_field(0)->type_info()->type()))) {
-        StringRef match_value;
-        int32_t length = _value.length();
-        char* buffer = const_cast<char*>(_value.c_str());
-        match_value.replace(buffer, length); //is it safe?
-        s = iterator->read_from_inverted_index(column_desc->name(), &match_value,
-                                               inverted_index_query_type, num_rows, &roaring);
-    } else if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY &&
-               is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
-        char buf[column_desc->get_sub_field(0)->type_info()->size()];
-        column_desc->get_sub_field(0)->from_string(buf, _value);
-        s = iterator->read_from_inverted_index(column_desc->name(), buf, inverted_index_query_type,
-                                               num_rows, &roaring, true);
+    if (is_string_type(column_desc->type())) {
+        RETURN_IF_ERROR(InvertedIndexQueryRangeTypeFactory::create_inverted_index_query(
+                column_desc->type_info(), &query));
+        RETURN_IF_ERROR(std::visit(
+                [&](auto& q) -> Status {
+                    return q.add_value_str(inverted_index_query_type, _value,
+                                           predicate_params()->precision,
+                                           predicate_params()->scale);
+                },
+                *query));
+        s = iterator->read_from_inverted_index(column_desc->name(), query, num_rows, &roaring,
+                                               skip_try_inverted_index);
+    } else if (column_desc->type() == OLAP_FIELD_TYPE_ARRAY) {
+        RETURN_IF_ERROR(InvertedIndexQueryRangeTypeFactory::create_inverted_index_query(
+                column_desc->get_sub_field(0)->type_info(), &query));
+
+        if (is_string_type(column_desc->get_sub_field(0)->type_info()->type())) {
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto& q) -> Status {
+                        return q.add_value_str(inverted_index_query_type, _value,
+                                               predicate_params()->precision,
+                                               predicate_params()->scale);
+                    },
+                    *query));
+            //StringRef match_value;
+            //int32_t length = _value.length();
+            //char* buffer = const_cast<char*>(_value.c_str());
+            //match_value.replace(buffer, length); //is it safe?
+            s = iterator->read_from_inverted_index(column_desc->name(), query, num_rows, &roaring,
+                                                   skip_try_inverted_index);
+        } else if (is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
+            //char buf[column_desc->get_sub_field(0)->type_info()->size()];
+            //column_desc->get_sub_field(0)->from_string(buf, _value);
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto& q) -> Status {
+                        return q.add_value_str(inverted_index_query_type, _value,
+                                               predicate_params()->precision,
+                                               predicate_params()->scale);
+                    },
+                    *query));
+            skip_try_inverted_index = true;
+            s = iterator->read_from_inverted_index(column_desc->name(), query, num_rows, &roaring,
+                                                   skip_try_inverted_index);
+        }
     }
     *bitmap &= roaring;
     return s;
 }
 
-InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType match_type) const {
-    auto ret = InvertedIndexQueryType::UNKNOWN_QUERY;
+InvertedIndexQueryOp MatchPredicate::_to_inverted_index_query_type(MatchType match_type) const {
+    auto ret = InvertedIndexQueryOp::UNKNOWN_QUERY;
     switch (match_type) {
     case MatchType::MATCH_ANY:
-        ret = InvertedIndexQueryType::MATCH_ANY_QUERY;
+        ret = InvertedIndexQueryOp::MATCH_ANY_QUERY;
         break;
     case MatchType::MATCH_ALL:
-        ret = InvertedIndexQueryType::MATCH_ALL_QUERY;
+        ret = InvertedIndexQueryOp::MATCH_ALL_QUERY;
         break;
     case MatchType::MATCH_PHRASE:
-        ret = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+        ret = InvertedIndexQueryOp::MATCH_PHRASE_QUERY;
         break;
     case MatchType::MATCH_ELEMENT_EQ:
-        ret = InvertedIndexQueryType::EQUAL_QUERY;
+        ret = InvertedIndexQueryOp::EQUAL_QUERY;
         break;
     case MatchType::MATCH_ELEMENT_LT:
-        ret = InvertedIndexQueryType::LESS_THAN_QUERY;
+        ret = InvertedIndexQueryOp::LESS_THAN_QUERY;
         break;
     case MatchType::MATCH_ELEMENT_GT:
-        ret = InvertedIndexQueryType::GREATER_THAN_QUERY;
+        ret = InvertedIndexQueryOp::GREATER_THAN_QUERY;
         break;
     case MatchType::MATCH_ELEMENT_LE:
-        ret = InvertedIndexQueryType::LESS_EQUAL_QUERY;
+        ret = InvertedIndexQueryOp::LESS_EQUAL_QUERY;
         break;
     case MatchType::MATCH_ELEMENT_GE:
-        ret = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+        ret = InvertedIndexQueryOp::GREATER_EQUAL_QUERY;
         break;
     default:
         DCHECK(false);

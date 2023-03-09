@@ -206,13 +206,32 @@ public:
         auto column_desc = schema.column(_column_id);
         std::string column_name = column_desc->name();
         roaring::Roaring indices;
-        for (auto value : *_values) {
-            InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            roaring::Roaring index;
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                               num_rows, &index));
-            indices |= index;
+
+        InvertedIndexQuery<Type> query(column_desc->type_info());
+
+        for (auto& value : *_values) {
+            //NOTE: we DO NOT use predicate_params()->value here, because there are multiple values in in_list_predicate.
+            //we use value.to_string() to convert StringRef to string, although it is not efficient, because we need to cast it again to std::string in add_range.
+            //also don't need to worry about StringRef->std::string->StringRef, because StringRef is just a pointer to the original string.
+            if constexpr (std::is_same_v<decltype(value), const StringRef&>) {
+                auto value_str = ((StringRef)value).to_string();
+                RETURN_IF_ERROR(query.add_value_str(InvertedIndexQueryOp::EQUAL_QUERY, value_str,
+                                                    predicate_params()->precision,
+                                                    predicate_params()->scale));
+            } else {
+                RETURN_IF_ERROR(
+                        query.add_value(InvertedIndexQueryOp::EQUAL_QUERY, std::move(value)));
+            }
+
+            //InvertedIndexQueryOp query_type = InvertedIndexQueryOp::EQUAL_QUERY;
+            //roaring::Roaring index;
+            //RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
+            //                                                   num_rows, &index));
+            //indices |= index;
         }
+        std::unique_ptr<InvertedIndexQueryType> q(new InvertedIndexQueryType(query));
+        RETURN_IF_ERROR(
+                iterator->read_from_inverted_index(column_name, q.get(), num_rows, &indices));
         if constexpr (PT == PredicateType::IN_LIST) {
             *result &= indices;
         } else {

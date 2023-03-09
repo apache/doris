@@ -37,11 +37,136 @@
 
 namespace doris {
 namespace segment_v2 {
+using CLTermDeleter = void (*)(lucene::index::Term*);
+using CLTermType = std::unique_ptr<lucene::index::Term, CLTermDeleter>;
+CLTermDeleter termDeleter = [](lucene::index::Term* term) { _CLDECDELETE(term) };
 
-bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
-    return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+template <PrimitiveType Type>
+Status InvertedIndexQuery<Type>::add_fixed_value(InvertedIndexQueryOp op, const CppType& value,
+                                                 const std::string& value_str) {
+    _fixed_values.insert(value);
+    _fixed_values_str.insert(value_str);
+    std::string tmp;
+    _value_key_coder->full_encode_ascending(&value, &tmp);
+    _fixed_values_encoded.insert(tmp);
+
+    _high_value = value;
+    _low_value = value;
+    _high_op = op;
+    _low_op = op;
+
+    return Status::OK();
+}
+
+template <>
+bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_lower_bound() {
+    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
+}
+
+template <>
+bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_lower_bound() {
+    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
+}
+
+template <>
+bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_lower_bound() {
+    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
+}
+
+template <>
+bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_upper_bound() {
+    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
+}
+
+template <>
+bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_upper_bound() {
+    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
+}
+
+template <>
+bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_upper_bound() {
+    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
+}
+
+template <>
+Status InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::add_fixed_value(
+        InvertedIndexQueryOp op, const CppType& value, const std::string& value_str) {
+    _fixed_values.insert(value);
+    _fixed_values_str.insert(value_str);
+
+    _high_value = value;
+    _low_value = value;
+    _high_op = op;
+    _low_op = op;
+
+    return Status::OK();
+}
+
+template <>
+Status InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::add_fixed_value(InvertedIndexQueryOp op,
+                                                                     const CppType& value,
+                                                                     const std::string& value_str) {
+    _fixed_values.insert(value);
+    _fixed_values_str.insert(value_str);
+
+    _high_value = value;
+    _low_value = value;
+    _high_op = op;
+    _low_op = op;
+
+    return Status::OK();
+}
+
+template <>
+Status InvertedIndexQuery<PrimitiveType::TYPE_STRING>::add_fixed_value(
+        InvertedIndexQueryOp op, const CppType& value, const std::string& value_str) {
+    _fixed_values.insert(value);
+    _fixed_values_str.insert(value_str);
+
+    _high_value = value;
+    _low_value = value;
+    _high_op = op;
+    _low_op = op;
+
+    return Status::OK();
+}
+
+template <PrimitiveType Type>
+Status InvertedIndexQuery<Type>::from_string(const std::string& str_value, CppType& value,
+                                             int precision, int scale) {
+    StringParser::ParseResult result;
+    if constexpr (Type == TYPE_TINYINT || Type == TYPE_SMALLINT || Type == TYPE_INT ||
+                  Type == TYPE_BIGINT || Type == TYPE_LARGEINT) {
+        std::from_chars(str_value.data(), str_value.data() + str_value.size(), value);
+    } else if constexpr (Type == TYPE_FLOAT) {
+        value = std::stof(str_value, nullptr);
+    } else if constexpr (Type == TYPE_DOUBLE) {
+        value = std::stod(str_value, nullptr);
+    } else if constexpr (Type == TYPE_DATE) {
+        value = timestamp_from_date(str_value);
+    } else if constexpr (Type == TYPE_DATEV2) {
+        value = timestamp_from_date_v2(str_value);
+    } else if constexpr (Type == TYPE_DATETIME) {
+        value = timestamp_from_datetime(str_value);
+    } else if constexpr (Type == TYPE_DATETIMEV2) {
+        value = timestamp_from_datetime_v2(str_value);
+    } else if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
+        value = str_value;
+    } else if constexpr (Type == TYPE_BOOLEAN) {
+        value = StringParser::string_to_bool(str_value.c_str(), str_value.size(), &result);
+    } else if constexpr (Type == TYPE_DECIMALV2) {
+        decimal12_t tmp = {precision, scale};
+        value.from_string(str_value);
+        value = tmp;
+    } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
+                         Type == TYPE_DECIMAL128I) {
+        value = StringParser::string_to_decimal<int128_t>(str_value.data(), str_value.size(),
+                                                          precision, scale, &result);
+    } else {
+        return Status::InternalError("from_string fail! Unsupported primitive type.");
+    }
+
+    return Status::OK();
 }
 
 bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
@@ -51,7 +176,7 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
 }
 
 std::vector<std::wstring> FullTextIndexReader::get_analyse_result(
-        const std::wstring& field_name, const std::string& value, InvertedIndexQueryType query_type,
+        const std::wstring& field_name, const std::string& value, InvertedIndexQueryOp query_type,
         InvertedIndexParserType analyser_type) {
     std::vector<std::wstring> analyse_result;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
@@ -91,8 +216,8 @@ std::vector<std::wstring> FullTextIndexReader::get_analyse_result(
         token_stream->close();
     }
 
-    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-        query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+    if (query_type == InvertedIndexQueryOp::MATCH_ANY_QUERY ||
+        query_type == InvertedIndexQueryOp::MATCH_ALL_QUERY) {
         std::set<std::wstring> unrepeated_result(analyse_result.begin(), analyse_result.end());
         analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
     }
@@ -106,13 +231,11 @@ Status FullTextIndexReader::new_iterator(const TabletIndex* index_meta, OlapRead
     return Status::OK();
 }
 
-Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string& column_name,
-                                  const void* query_value, InvertedIndexQueryType query_type,
-                                  InvertedIndexParserType analyser_type,
-                                  roaring::Roaring* bit_map) {
-    SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
-
-    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
+Status FullTextIndexReader::query_internal(const std::string& search_str,
+                                           const std::string& column_name,
+                                           InvertedIndexQueryOp query_type,
+                                           InvertedIndexParserType analyser_type,
+                                           OlapReaderStatistics* stats, roaring::Roaring* bit_map) {
     LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
               << search_str << "]";
 
@@ -142,7 +265,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             auto cache = InvertedIndexQueryCache::instance();
             // use EQUAL_QUERY type here since cache is for each term/token
             InvertedIndexQueryCache::CacheKey cache_key {
-                    index_file_path, column_name, InvertedIndexQueryType::EQUAL_QUERY, token_ws};
+                    index_file_path, column_name,
+                    "= " + std::string(token_ws.begin(), token_ws.end())};
             InvertedIndexQueryCacheHandle cache_handle;
             if (cache->lookup(cache_key, &cache_handle)) {
                 stats->inverted_index_query_cache_hit++;
@@ -191,23 +315,24 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             }
 
             switch (query_type) {
-            case InvertedIndexQueryType::MATCH_ANY_QUERY: {
+            case InvertedIndexQueryOp::MATCH_ANY_QUERY: {
                 SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
                 query_match_bitmap |= *term_match_bitmap;
                 break;
             }
-            case InvertedIndexQueryType::EQUAL_QUERY:
-            case InvertedIndexQueryType::MATCH_ALL_QUERY: {
+            case InvertedIndexQueryOp::EQUAL_QUERY:
+            case InvertedIndexQueryOp::MATCH_ALL_QUERY: {
                 SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
                 query_match_bitmap &= *term_match_bitmap;
                 break;
             }
-            case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
+            case InvertedIndexQueryOp::MATCH_PHRASE_QUERY: {
                 return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
                 break;
             }
             default: {
-                LOG(ERROR) << "fulltext query do not support query type other than match.";
+                LOG(ERROR) << "fulltext query do not support query type other "
+                              "than match.";
                 return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
             }
             }
@@ -221,6 +346,28 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
     }
 }
 
+Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string& column_name,
+                                  InvertedIndexQueryType* query_range,
+                                  InvertedIndexParserType analyser_type,
+                                  roaring::Roaring* bit_map) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
+
+    return std::visit(
+            [&](auto& arg) -> Status {
+                DCHECK(arg.is_point_query());
+                auto query_op = arg.point_op();
+                auto query_value = arg.get_fixed_value_string();
+                if (is_match_query(query_op)) {
+                    return query_internal(query_value, column_name, query_op, analyser_type, stats,
+                                          bit_map);
+                } else {
+                    LOG(WARNING) << column_name << " must use match query";
+                    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                }
+            },
+            *query_range);
+}
+
 InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
 }
@@ -232,26 +379,76 @@ Status StringTypeInvertedIndexReader::new_iterator(const TabletIndex* index_meta
     return Status::OK();
 }
 
+template <PrimitiveType field_type>
+std::unique_ptr<lucene::search::Query> StringTypeInvertedIndexReader::generate_query(
+        InvertedIndexQuery<field_type>& query, const std::string& column_name) {
+    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+
+    if (query.is_point_query()) {
+        bool deleteQuery = true;
+        auto term_value_set = query.get_fixed_value_string_set();
+        //std::vector<lucene::search::BooleanClause*> bcs;
+        auto bq = std::make_unique<lucene::search::BooleanQuery>();
+        for (auto term_value : term_value_set) {
+            std::wstring search_str_ws = std::wstring(term_value.begin(), term_value.end());
+            CLTermType term {
+                    _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
+                    termDeleter};
+            //lucene::search::BooleanClause* bc = _CLNEW lucene::search::BooleanClause(
+            //        _CLNEW lucene::search::TermQuery(term.get()), deleteQuery,
+            //        lucene::search::BooleanClause::SHOULD);
+            //bcs.emplace_back(bc);
+
+            bq->add(_CLNEW lucene::search::TermQuery(term.get()), deleteQuery,
+                    lucene::search::BooleanClause::SHOULD);
+        }
+        //int32_t minimumNumberShouldMatch = 1;
+        //lucene::search::BooleanQuery* bq =
+        //        _CLNEW lucene::search::BooleanQuery(minimumNumberShouldMatch, bcs);
+        //return std::make_unique<lucene::search::BooleanQuery>(minimumNumberShouldMatch, bcs);
+        return bq;
+    } else if (query.is_range_query()) {
+        if (query.has_lower_bound()) {
+            std::wstring lower_value = std::wstring(query.lower_value_string().begin(),
+                                                    query.lower_value_string().end());
+            CLTermType lower_term {
+                    _CLNEW lucene::index::Term(column_name_ws.c_str(), lower_value.c_str()),
+                    termDeleter};
+            bool include_lower = query.get_include_lower();
+            if (query.has_upper_bound()) {
+                std::wstring upper_value = std::wstring(query.upper_value_string().begin(),
+                                                        query.upper_value_string().end());
+                bool include_upper = query.get_include_upper();
+                CLTermType upper_term {
+                        _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),
+                        termDeleter};
+                return std::make_unique<lucene::search::RangeQuery>(
+                        lower_term.get(), upper_term.get(), include_lower && include_upper);
+            } else {
+                return std::make_unique<lucene::search::RangeQuery>(lower_term.get(), nullptr,
+                                                                    include_lower);
+            }
+        } else if (query.has_upper_bound()) {
+            std::wstring upper_value = std::wstring(query.upper_value_string().begin(),
+                                                    query.upper_value_string().end());
+            bool include_upper = query.get_include_upper();
+            CLTermType upper_term {
+                    _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),
+                    termDeleter};
+            return std::make_unique<lucene::search::RangeQuery>(nullptr, upper_term.get(),
+                                                                include_upper);
+        }
+    }
+    return nullptr;
+}
+
 Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
-                                            const std::string& column_name, const void* query_value,
-                                            InvertedIndexQueryType query_type,
+                                            const std::string& column_name,
+                                            InvertedIndexQueryType* query,
                                             InvertedIndexParserType analyser_type,
                                             roaring::Roaring* bit_map) {
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
-
-    const StringRef* search_query = reinterpret_cast<const StringRef*>(query_value);
-    auto act_len = strnlen(search_query->data, search_query->size);
-    std::string search_str(search_query->data, act_len);
-    // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    VLOG_DEBUG << "begin to query the inverted index from clucene"
-               << ", column_name: " << column_name << ", search_str: " << search_str;
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
-    std::wstring search_str_ws = std::wstring(search_str.begin(), search_str.end());
-    // unique_ptr with custom deleter
-    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
-            _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
-            [](lucene::index::Term* term) { _CLDECDELETE(term); }};
-    std::unique_ptr<lucene::search::Query> query;
+    auto query_key = std::visit([&](auto& q) -> std::string { return q.to_string(); }, *query);
 
     io::Path path(_path);
     auto index_dir = path.parent_path();
@@ -259,8 +456,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     auto index_file_path = index_dir / index_file_name;
 
     // try to get query bitmap result from cache and return immediately on cache hit
-    InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name, query_type,
-                                                 search_str_ws};
+    InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name, query_key};
     auto cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handle;
     if (cache->lookup(cache_key, &cache_handle)) {
@@ -278,33 +474,11 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
-    switch (query_type) {
-    case InvertedIndexQueryType::MATCH_ANY_QUERY:
-    case InvertedIndexQueryType::MATCH_ALL_QUERY:
-    case InvertedIndexQueryType::EQUAL_QUERY: {
-        query.reset(new lucene::search::TermQuery(term.get()));
-        break;
-    }
-    case InvertedIndexQueryType::LESS_THAN_QUERY: {
-        query.reset(new lucene::search::RangeQuery(nullptr, term.get(), false));
-        break;
-    }
-    case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
-        query.reset(new lucene::search::RangeQuery(nullptr, term.get(), true));
-        break;
-    }
-    case InvertedIndexQueryType::GREATER_THAN_QUERY: {
-        query.reset(new lucene::search::RangeQuery(term.get(), nullptr, false));
-        break;
-    }
-    case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
-        query.reset(new lucene::search::RangeQuery(term.get(), nullptr, true));
-        break;
-    }
-    default:
-        LOG(WARNING) << "invalid query type when query untokenized inverted index";
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-    }
+    auto search_query = std::visit(
+            [&](auto& q) -> std::unique_ptr<lucene::search::Query> {
+                return std::move(generate_query(q, column_name));
+            },
+            *query);
 
     roaring::Roaring result;
     InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -314,7 +488,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        index_searcher->_search(query.get(),
+        index_searcher->_search(search_query.get(),
                                 [&result](const int32_t docid, const float_t /*score*/) {
                                     // docid equal to rowid in segment
                                     result.add(docid);
@@ -362,110 +536,101 @@ Status BkdIndexReader::new_iterator(const TabletIndex* index_meta, OlapReaderSta
     return Status::OK();
 }
 
+template <PrimitiveType field_type>
 Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string& column_name,
-                                 const void* query_value, InvertedIndexQueryType query_type,
                                  std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
-                                 InvertedIndexVisitor* visitor) {
+                                 InvertedIndexVisitor<field_type>* visitor) {
     auto status = get_bkd_reader(r);
     if (!status.ok()) {
         LOG(WARNING) << "get bkd reader for column " << column_name
                      << " failed: " << status.code_as_string();
         return status;
     }
-    char tmp[r->bytes_per_dim_];
-    switch (query_type) {
-    case InvertedIndexQueryType::EQUAL_QUERY: {
-        _value_key_coder->full_encode_ascending(query_value, &visitor->queryMax);
-        _value_key_coder->full_encode_ascending(query_value, &visitor->queryMin);
-        break;
-    }
-    case InvertedIndexQueryType::LESS_THAN_QUERY:
-    case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
-        _value_key_coder->full_encode_ascending(query_value, &visitor->queryMax);
-        _type_info->set_to_min(tmp);
-        _value_key_coder->full_encode_ascending(tmp, &visitor->queryMin);
-        break;
-    }
-    case InvertedIndexQueryType::GREATER_THAN_QUERY:
-    case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
-        _value_key_coder->full_encode_ascending(query_value, &visitor->queryMin);
-        _type_info->set_to_max(tmp);
-        _value_key_coder->full_encode_ascending(tmp, &visitor->queryMax);
-        break;
-    }
-    default:
-        LOG(ERROR) << "invalid query type when query bkd index";
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-    }
     visitor->set_reader(r.get());
     return Status::OK();
 }
 
-Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string& column_name,
-                                 const void* query_value, InvertedIndexQueryType query_type,
-                                 InvertedIndexParserType analyser_type, uint32_t* count) {
-    uint64_t start = UnixMillis();
-    auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
-    std::shared_ptr<lucene::util::bkd::bkd_reader> r;
-    try {
-        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
-        *count = r->estimate_point_count(visitor.get());
-    } catch (const CLuceneError& e) {
-        LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
-    }
+template <PrimitiveType field_type>
+std::unique_ptr<InvertedIndexVisitor<field_type>> construct_visitor(
+        InvertedIndexQuery<field_type>* query, roaring::Roaring* hits, bool only_count) {
+    return std::make_unique<InvertedIndexVisitor<field_type>>(hits, query, only_count);
+}
 
-    LOG(INFO) << "BKD index try search time taken: " << UnixMillis() - start << "ms "
-              << " column: " << column_name << " result: " << *count;
-    return Status::OK();
+Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                                 InvertedIndexQueryType* query,
+                                 InvertedIndexParserType analyser_type, uint32_t* count) {
+    return std::visit(
+            [&](auto& q) -> Status {
+                uint64_t start = UnixMillis();
+
+                auto visitor = construct_visitor(&q, nullptr, true);
+                std::shared_ptr<lucene::util::bkd::bkd_reader> r;
+                try {
+                    RETURN_IF_ERROR(bkd_query(stats, column_name, r, visitor.get()));
+                    *count = r->estimate_point_count(visitor.get());
+                } catch (const CLuceneError& e) {
+                    LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                }
+
+                LOG(INFO) << "BKD index try search time taken: " << UnixMillis() - start << "ms "
+                          << " column: " << column_name << " result: " << *count;
+                return Status::OK();
+            },
+            *query);
 }
 
 Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& column_name,
-                             const void* query_value, InvertedIndexQueryType query_type,
-                             InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) {
-    SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
+                             InvertedIndexQueryType* query, InvertedIndexParserType analyser_type,
+                             roaring::Roaring* bit_map) {
+    return std::visit(
+            [&](auto& q) -> Status {
+                SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
-    io::Path path(_path);
-    auto index_dir = path.parent_path();
-    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
-    auto index_file_path = index_dir / index_file_name;
-    // std::string query_str {(const char *)query_value};
+                io::Path path(_path);
+                auto index_dir = path.parent_path();
+                auto index_file_name =
+                        InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
+                auto index_file_path = index_dir / index_file_name;
+                // std::string query_str {(const char *)query_value};
 
-    // // try to get query bitmap result from cache and return immediately on cache hit
-    // InvertedIndexQueryCache::CacheKey cache_key
-    //     {index_file_path, column_name, query_type, std::wstring(query_str.begin(), query_str.end())};
-    // auto cache = InvertedIndexQueryCache::instance();
-    // InvertedIndexQueryCacheHandle cache_handle;
-    // if (cache->lookup(cache_key, &cache_handle)) {
-    //     stats->inverted_index_query_cache_hit++;
-    //     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
-    //     *bit_map = *cache_handle.match_bitmap();
-    //     return Status::OK();
-    // } else {
-    //     stats->inverted_index_query_cache_miss++;
-    // }
+                // // try to get query bitmap result from cache and return immediately on cache hit
+                // InvertedIndexQueryCache::CacheKey cache_key
+                //     {index_file_path, column_name, query_type, std::wstring(query_str.begin(), query_str.end())};
+                // auto cache = InvertedIndexQueryCache::instance();
+                // InvertedIndexQueryCacheHandle cache_handle;
+                // if (cache->lookup(cache_key, &cache_handle)) {
+                //     stats->inverted_index_query_cache_hit++;
+                //     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
+                //     *bit_map = *cache_handle.match_bitmap();
+                //     return Status::OK();
+                // } else {
+                //     stats->inverted_index_query_cache_miss++;
+                // }
+                uint64_t start = UnixMillis();
+                auto visitor = construct_visitor(&q, bit_map, false);
 
-    uint64_t start = UnixMillis();
-    auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
-    std::shared_ptr<lucene::util::bkd::bkd_reader> r;
-    try {
-        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
-        r->intersect(visitor.get());
-    } catch (const CLuceneError& e) {
-        LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
-    }
+                std::shared_ptr<lucene::util::bkd::bkd_reader> r;
+                try {
+                    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+                    RETURN_IF_ERROR(bkd_query(stats, column_name, r, visitor.get()));
+                    r->intersect(visitor.get());
+                } catch (const CLuceneError& e) {
+                    LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                }
 
-    // // add to cache
-    // roaring::Roaring* term_match_bitmap = new roaring::Roaring(*bit_map);
-    // term_match_bitmap->runOptimize();
-    // cache->insert(cache_key, term_match_bitmap, &cache_handle);
+                // // add to cache
+                // roaring::Roaring* term_match_bitmap = new roaring::Roaring(*bit_map);
+                // term_match_bitmap->runOptimize();
+                // cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
-    LOG(INFO) << "BKD index search time taken: " << UnixMillis() - start << "ms "
-              << " column: " << column_name << " result: " << bit_map->cardinality()
-              << " reader stats: " << r->stats.to_string();
-    return Status::OK();
+                LOG(INFO) << "BKD index search time taken: " << UnixMillis() - start << "ms "
+                          << " column: " << column_name << " result: " << bit_map->cardinality()
+                          << " reader stats: " << r->stats.to_string();
+                return Status::OK();
+            },
+            *query);
 }
 
 Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>& bkdReader) {
@@ -512,64 +677,301 @@ InvertedIndexReaderType BkdIndexReader::type() {
     return InvertedIndexReaderType::BKD;
 }
 
-InvertedIndexVisitor::InvertedIndexVisitor(roaring::Roaring* h, InvertedIndexQueryType query_type,
-                                           bool only_count)
-        : hits(h), num_hits(0), only_count(only_count), query_type(query_type) {}
+template <PrimitiveType field_type>
+InvertedIndexVisitor<field_type>::InvertedIndexVisitor(roaring::Roaring* h,
+                                                       InvertedIndexQuery<field_type>* q,
+                                                       bool only_count)
+        : hits(h), num_hits(0), only_count(only_count), query(q) {}
 
-bool InvertedIndexVisitor::matches(uint8_t* packedValue) {
+template <PrimitiveType field_type>
+bool InvertedIndexVisitor<field_type>::point_is_in_range(uint8_t* packedValue, int offset,
+                                                         InvertedIndexQuery<field_type>* q) {
+    switch (q->upper_op()) {
+    case InvertedIndexQueryOp::LESS_THAN_QUERY: {
+        switch (q->lower_op()) {
+        case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
+            return (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) < 0) &&
+                   (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) > 0);
+        }
+
+        case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
+            return (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) < 0) &&
+                   (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) >= 0);
+        }
+
+        default: {
+            DCHECK(false);
+        }
+        }
+
+        break;
+    }
+
+    case InvertedIndexQueryOp::LESS_EQUAL_QUERY: {
+        switch (q->lower_op()) {
+        case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
+            return (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) <= 0) &&
+                   (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) > 0);
+        }
+
+        case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
+            return (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) <= 0) &&
+                   (lucene::util::FutureArrays::CompareUnsigned(
+                            packedValue, offset, offset + reader->bytes_per_dim_,
+                            (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                            offset + reader->bytes_per_dim_) >= 0);
+        }
+
+        default: {
+            DCHECK(false);
+        }
+        }
+    }
+
+    default: {
+        DCHECK(false);
+    }
+    }
+
+    return false;
+}
+
+template <PrimitiveType field_type>
+bool InvertedIndexVisitor<field_type>::point_is_in_list(uint8_t* packedValue, int offset,
+                                                        InvertedIndexQuery<field_type>* q) {
+    if (q->point_op() == InvertedIndexQueryOp::EQUAL_QUERY) {
+        for (auto& value : q->get_fixed_value_encoded_set()) {
+            if (lucene::util::FutureArrays::CompareUnsigned(packedValue, offset,
+                                                            offset + reader->bytes_per_dim_,
+                                                            (const uint8_t*)value.c_str(), offset,
+                                                            offset + reader->bytes_per_dim_) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+template <PrimitiveType field_type>
+bool InvertedIndexVisitor<field_type>::intersect_point(uint8_t* packedValue, int offset,
+                                                       InvertedIndexQuery<field_type>* q) {
+    if (q->is_point_query()) {
+        return point_is_in_list(packedValue, offset, q);
+    } else if (q->is_range_query()) {
+        return point_is_in_range(packedValue, offset, q);
+    }
+    return false;
+}
+
+template <PrimitiveType field_type>
+lucene::util::bkd::relation InvertedIndexVisitor<field_type>::relation_between_point_and_range(
+        uint8_t* minValue, uint8_t* maxValue, int offset, InvertedIndexQuery<field_type>* q) {
+    if (q->point_op() == InvertedIndexQueryOp::EQUAL_QUERY) {
+        for (auto& value : q->get_fixed_value_encoded_set()) {
+            if ((lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)value.c_str(), offset, offset + reader->bytes_per_dim_,
+                         minValue, offset, offset + reader->bytes_per_dim_) >= 0) &&
+                (lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)value.c_str(), offset, offset + reader->bytes_per_dim_,
+                         maxValue, offset, offset + reader->bytes_per_dim_) <= 0)) {
+                return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+            }
+        }
+    }
+    return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+}
+
+template <PrimitiveType field_type>
+lucene::util::bkd::relation InvertedIndexVisitor<field_type>::relation_between_range_and_range(
+        uint8_t* minValue, uint8_t* maxValue, int offset, InvertedIndexQuery<field_type>* q) {
+    switch (q->upper_op()) {
+    case InvertedIndexQueryOp::LESS_THAN_QUERY: {
+        switch (q->lower_op()) {
+        case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
+            if ((lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, minValue, offset,
+                         offset + reader->bytes_per_dim_) < 0) &&
+                (lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, maxValue, offset,
+                         offset + reader->bytes_per_dim_) > 0)) {
+                return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
+            } else if ((lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, maxValue, offset,
+                                offset + reader->bytes_per_dim_) >= 0) ||
+                       (lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, minValue, offset,
+                                offset + reader->bytes_per_dim_) <= 0)) {
+                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+            } else {
+                return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+            }
+        }
+
+        case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
+            if ((lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, minValue, offset,
+                         offset + reader->bytes_per_dim_) <= 0) &&
+                (lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, maxValue, offset,
+                         offset + reader->bytes_per_dim_) > 0)) {
+                return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
+            } else if ((lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, maxValue, offset,
+                                offset + reader->bytes_per_dim_) > 0) ||
+                       (lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, minValue, offset,
+                                offset + reader->bytes_per_dim_) <= 0)) {
+                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+            } else {
+                return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+            }
+        }
+
+        default: {
+            DCHECK(false);
+            break;
+        }
+        }
+        break;
+    }
+
+    case InvertedIndexQueryOp::LESS_EQUAL_QUERY: {
+        switch (q->lower_op()) {
+        case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
+            if ((lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, minValue, offset,
+                         offset + reader->bytes_per_dim_) < 0) &&
+                (lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, maxValue, offset,
+                         offset + reader->bytes_per_dim_) >= 0)) {
+                return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
+            } else if ((lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, maxValue, offset,
+                                offset + reader->bytes_per_dim_) >= 0) ||
+                       (lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, minValue, offset,
+                                offset + reader->bytes_per_dim_) < 0)) {
+                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+            } else {
+                return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+            }
+        }
+
+        case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
+            if ((lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, minValue, offset,
+                         offset + reader->bytes_per_dim_) <= 0) &&
+                (lucene::util::FutureArrays::CompareUnsigned(
+                         (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                         offset + reader->bytes_per_dim_, maxValue, offset,
+                         offset + reader->bytes_per_dim_) >= 0)) {
+                return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
+            } else if ((lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->lower_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, maxValue, offset,
+                                offset + reader->bytes_per_dim_) > 0) ||
+                       (lucene::util::FutureArrays::CompareUnsigned(
+                                (const uint8_t*)q->upper_value_encoded().c_str(), offset,
+                                offset + reader->bytes_per_dim_, minValue, offset,
+                                offset + reader->bytes_per_dim_) < 0)) {
+                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+            } else {
+                return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
+            }
+        }
+        default: {
+            DCHECK(false);
+            break;
+        }
+        }
+        break;
+    }
+    default: {
+        DCHECK(false);
+        break;
+    }
+    }
+
+    return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+}
+
+template <PrimitiveType field_type>
+lucene::util::bkd::relation InvertedIndexVisitor<field_type>::intersect_range(
+        uint8_t* minValue, uint8_t* maxValue, int offset, InvertedIndexQuery<field_type>* q) {
+    if (q->is_point_query()) {
+        return relation_between_point_and_range(minValue, maxValue, offset, q);
+    } else if (q->is_range_query()) {
+        return relation_between_range_and_range(minValue, maxValue, offset, q);
+    }
+    return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
+}
+
+template <PrimitiveType field_type>
+bool InvertedIndexVisitor<field_type>::matches(uint8_t* packedValue) {
     for (int dim = 0; dim < reader->num_data_dims_; dim++) {
         int offset = dim * reader->bytes_per_dim_;
-        if (query_type == InvertedIndexQueryType::LESS_THAN_QUERY) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packedValue, offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMax.c_str(), offset,
-                        offset + reader->bytes_per_dim_) >= 0) {
-                // Doc's value is too high, in this dimension
-                return false;
-            }
-        } else if (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packedValue, offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMin.c_str(), offset,
-                        offset + reader->bytes_per_dim_) <= 0) {
-                // Doc's value is too high, in this dimension
-                return false;
-            }
-        } else {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packedValue, offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMin.c_str(), offset,
-                        offset + reader->bytes_per_dim_) < 0) {
-                // Doc's value is too low, in this dimension
-                return false;
-            }
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        packedValue, offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMax.c_str(), offset,
-                        offset + reader->bytes_per_dim_) > 0) {
-                // Doc's value is too high, in this dimension
-                return false;
-            }
+        auto match = intersect_point(packedValue, offset, query);
+        if (!match) {
+            return false;
         }
     }
     return true;
 }
 
-void InvertedIndexVisitor::visit(std::vector<char>& docID, std::vector<uint8_t>& packedValue) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(std::vector<char>& docID,
+                                             std::vector<uint8_t>& packedValue) {
     if (!matches(packedValue.data())) {
         return;
     }
     visit(roaring::Roaring::read(docID.data(), false));
 }
 
-void InvertedIndexVisitor::visit(Roaring* docID, std::vector<uint8_t>& packedValue) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(Roaring* docID, std::vector<uint8_t>& packedValue) {
     if (!matches(packedValue.data())) {
         return;
     }
     visit(*docID);
 }
 
-void InvertedIndexVisitor::visit(roaring::Roaring&& r) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(roaring::Roaring&& r) {
     if (only_count) {
         num_hits += r.cardinality();
     } else {
@@ -577,7 +979,8 @@ void InvertedIndexVisitor::visit(roaring::Roaring&& r) {
     }
 }
 
-void InvertedIndexVisitor::visit(roaring::Roaring& r) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(roaring::Roaring& r) {
     if (only_count) {
         num_hits += r.cardinality();
     } else {
@@ -585,7 +988,8 @@ void InvertedIndexVisitor::visit(roaring::Roaring& r) {
     }
 }
 
-void InvertedIndexVisitor::visit(int rowID) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(int rowID) {
     if (only_count) {
         num_hits++;
     } else {
@@ -593,8 +997,9 @@ void InvertedIndexVisitor::visit(int rowID) {
     }
 }
 
-void InvertedIndexVisitor::visit(lucene::util::bkd::bkd_docid_set_iterator* iter,
-                                 std::vector<uint8_t>& packedValue) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(lucene::util::bkd::bkd_docid_set_iterator* iter,
+                                             std::vector<uint8_t>& packedValue) {
     if (!matches(packedValue.data())) {
         return;
     }
@@ -609,7 +1014,8 @@ void InvertedIndexVisitor::visit(lucene::util::bkd::bkd_docid_set_iterator* iter
     }
 }
 
-void InvertedIndexVisitor::visit(int rowID, std::vector<uint8_t>& packedValue) {
+template <PrimitiveType field_type>
+void InvertedIndexVisitor<field_type>::visit(int rowID, std::vector<uint8_t>& packedValue) {
     if (matches(packedValue.data())) {
         if (only_count) {
             num_hits++;
@@ -619,77 +1025,31 @@ void InvertedIndexVisitor::visit(int rowID, std::vector<uint8_t>& packedValue) {
     }
 }
 
-lucene::util::bkd::relation InvertedIndexVisitor::compare(std::vector<uint8_t>& minPacked,
-                                                          std::vector<uint8_t>& maxPacked) {
-    bool crosses = false;
+template <PrimitiveType field_type>
+lucene::util::bkd::relation InvertedIndexVisitor<field_type>::compare(
+        std::vector<uint8_t>& minPacked, std::vector<uint8_t>& maxPacked) {
+    //bool crosses = false;
 
     for (int dim = 0; dim < reader->num_data_dims_; dim++) {
         int offset = dim * reader->bytes_per_dim_;
+        auto relation = intersect_range(minPacked.data(), maxPacked.data(), offset, query);
 
-        if (query_type == InvertedIndexQueryType::LESS_THAN_QUERY) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        minPacked.data(), offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMax.c_str(), offset,
-                        offset + reader->bytes_per_dim_) >= 0) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        } else if (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY) {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        maxPacked.data(), offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMin.c_str(), offset,
-                        offset + reader->bytes_per_dim_) <= 0) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        } else {
-            if (lucene::util::FutureArrays::CompareUnsigned(
-                        minPacked.data(), offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMax.c_str(), offset,
-                        offset + reader->bytes_per_dim_) > 0 ||
-                lucene::util::FutureArrays::CompareUnsigned(
-                        maxPacked.data(), offset, offset + reader->bytes_per_dim_,
-                        (const uint8_t*)queryMin.c_str(), offset,
-                        offset + reader->bytes_per_dim_) < 0) {
-                return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
-            }
-        }
-        if (query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
-            query_type == InvertedIndexQueryType::GREATER_THAN_QUERY) {
-            crosses |= lucene::util::FutureArrays::CompareUnsigned(
-                               minPacked.data(), offset, offset + reader->bytes_per_dim_,
-                               (const uint8_t*)queryMin.c_str(), offset,
-                               offset + reader->bytes_per_dim_) <= 0 ||
-                       lucene::util::FutureArrays::CompareUnsigned(
-                               maxPacked.data(), offset, offset + reader->bytes_per_dim_,
-                               (const uint8_t*)queryMax.c_str(), offset,
-                               offset + reader->bytes_per_dim_) >= 0;
-        } else {
-            crosses |= lucene::util::FutureArrays::CompareUnsigned(
-                               minPacked.data(), offset, offset + reader->bytes_per_dim_,
-                               (const uint8_t*)queryMin.c_str(), offset,
-                               offset + reader->bytes_per_dim_) < 0 ||
-                       lucene::util::FutureArrays::CompareUnsigned(
-                               maxPacked.data(), offset, offset + reader->bytes_per_dim_,
-                               (const uint8_t*)queryMax.c_str(), offset,
-                               offset + reader->bytes_per_dim_) > 0;
+        if (relation == lucene::util::bkd::relation::CELL_OUTSIDE_QUERY ||
+            relation == lucene::util::bkd::relation::CELL_CROSSES_QUERY) {
+            return relation;
         }
     }
-    if (crosses) {
-        return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
-    } else {
-        return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
-    }
+    return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
 }
 
 Status InvertedIndexIterator::read_from_inverted_index(const std::string& column_name,
-                                                       const void* query_value,
-                                                       InvertedIndexQueryType query_type,
+                                                       InvertedIndexQueryType* query,
                                                        uint32_t segment_num_rows,
                                                        roaring::Roaring* bit_map, bool skip_try) {
     if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
         auto query_bkd_limit_percent = config::query_bkd_inverted_index_limit_percent;
         uint32_t hit_count = 0;
-        RETURN_IF_ERROR(
-                try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
+        RETURN_IF_ERROR(try_read_from_inverted_index(column_name, query, &hit_count));
         if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
             LOG(INFO) << "hit count: " << hit_count << "for bkd inverted reached limit "
                       << query_bkd_limit_percent << "%, segment num rows: " << segment_num_rows;
@@ -697,23 +1057,16 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
         }
     }
 
-    RETURN_IF_ERROR(
-            _reader->query(_stats, column_name, query_value, query_type, _analyser_type, bit_map));
+    RETURN_IF_ERROR(_reader->query(_stats, column_name, query, _analyser_type, bit_map));
     return Status::OK();
 }
 
 Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& column_name,
-                                                           const void* query_value,
-                                                           InvertedIndexQueryType query_type,
+                                                           InvertedIndexQueryType* query,
                                                            uint32_t* count) {
     // NOTE: only bkd index support try read now.
-    if (query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
-        query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
-        query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY ||
-        query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
-        query_type == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(_reader->try_query(_stats, column_name, query_value, query_type,
-                                           _analyser_type, count));
+    if (get_inverted_index_reader_type() == InvertedIndexReaderType::BKD) {
+        RETURN_IF_ERROR(_reader->try_query(_stats, column_name, query, _analyser_type, count));
     }
     return Status::OK();
 }
@@ -725,6 +1078,73 @@ InvertedIndexParserType InvertedIndexIterator::get_inverted_index_analyser_type(
 InvertedIndexReaderType InvertedIndexIterator::get_inverted_index_reader_type() const {
     return _reader->type();
 }
+
+/*template <PrimitiveType Type, typename VT>
+Status InvertedIndexIterator::add_range(InvertedIndexQueryRange<Type>* range, VT value, InvertedIndexQueryOp op) {
+    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+
+    if (range->_high_value > range->_low_value) {
+        switch (op) {
+        case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
+            if (value >= range->_low_value) {
+                range->_lo_value = value;
+                range->_low_op = op;
+            }
+            break;
+        }
+
+        case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
+            if (value > range->_low_value) {
+                range->_low_value = value;
+                range->_low_op = op;
+            }
+            break;
+        }
+
+        case InvertedIndexQueryOp::LESS_THAN_QUERY: {
+            if (value <= range->_high_value) {
+                range->_high_value = value;
+                range->_high_op = op;
+            }
+            break;
+        }
+
+        case InvertedIndexQueryOp::LESS_EQUAL_QUERY: {
+            if (value < range->_high_value) {
+                range->_high_value = value;
+                range->_high_op = op;
+            }
+            break;
+        }
+
+        default: {
+            return Status::InternalError("Add Range fail! Unsupported InvertedIndexQueryOp.");
+        }
+        }
+    }
+
+    return Status::OK();
+}*/
+
+template class InvertedIndexQuery<TYPE_BOOLEAN>;
+template class InvertedIndexQuery<TYPE_TINYINT>;
+template class InvertedIndexQuery<TYPE_SMALLINT>;
+template class InvertedIndexQuery<TYPE_INT>;
+template class InvertedIndexQuery<TYPE_BIGINT>;
+template class InvertedIndexQuery<TYPE_LARGEINT>;
+template class InvertedIndexQuery<TYPE_FLOAT>;
+template class InvertedIndexQuery<TYPE_DOUBLE>;
+template class InvertedIndexQuery<TYPE_DECIMALV2>;
+template class InvertedIndexQuery<TYPE_DATEV2>;
+template class InvertedIndexQuery<TYPE_DATE>;
+template class InvertedIndexQuery<TYPE_DATETIME>;
+template class InvertedIndexQuery<TYPE_DATETIMEV2>;
+template class InvertedIndexQuery<TYPE_CHAR>;
+template class InvertedIndexQuery<TYPE_VARCHAR>;
+template class InvertedIndexQuery<TYPE_STRING>;
+template class InvertedIndexQuery<TYPE_DECIMAL32>;
+template class InvertedIndexQuery<TYPE_DECIMAL64>;
+template class InvertedIndexQuery<TYPE_DECIMAL128I>;
 
 } // namespace segment_v2
 } // namespace doris
