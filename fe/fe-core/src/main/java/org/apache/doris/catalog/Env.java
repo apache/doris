@@ -1011,7 +1011,7 @@ public class Env {
                         Thread.sleep(5000);
                         continue;
                     } catch (InterruptedException e) {
-                        e.printStackTrace();
+                        LOG.warn("", e);
                         System.exit(-1);
                     }
                 }
@@ -1463,15 +1463,6 @@ public class Env {
         }
 
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
-
-        // add helper sockets
-        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
-            for (Frontend fe : frontends.values()) {
-                if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
-                    ((BDBHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getEditLogPort());
-                }
-            }
-        }
 
         if (replayer == null) {
             createReplayer();
@@ -2566,8 +2557,7 @@ public class Env {
             frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                bdbha.addHelperSocket(host, editLogPort);
-                helperNodes.add(Pair.of(host, editLogPort));
+                helperNodes.add(new HostInfo(ip, hostname, editLogPort));
                 bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }
             bdbha.removeConflictNodeIfExist(host, editLogPort);

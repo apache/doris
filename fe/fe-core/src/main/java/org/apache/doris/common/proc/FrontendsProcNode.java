@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -140,24 +139,32 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
     }
 
-    private static boolean isHelperNode(List<Pair<String, Integer>> helperNodes, Frontend fe) {
-        return helperNodes.stream().anyMatch(p -> p.first.equals(fe.getHost()) && p.second == fe.getEditLogPort());
+    private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
+        return helperNodes.stream().anyMatch(p -> p.getIp().equals(fe.getIp()) && p.getPort() == fe.getEditLogPort());
     }
 
-    private static boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
-        for (Pair<String, Integer> pair : allFeHosts) {
-            if (fe.getHost().equals(pair.first) && fe.getEditLogPort() == pair.second) {
+    private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
+        for (InetSocketAddress addr : allFeHosts) {
+            if (fe.getEditLogPort() != addr.getPort()) {
+                continue;
+            }
+            if (!Strings.isNullOrEmpty(addr.getHostName())) {
+                if (addr.getHostName().equals(fe.getHostName())
+                        || addr.getHostName().equals(fe.getIp())) {
+                    return true;
+                }
+            }
+            // if hostname of InetSocketAddress is ip, addr.getHostName() may be not equal to fe.getIp()
+            // so we need to compare fe.getIp() with address.getHostAddress()
+            InetAddress address = addr.getAddress();
+            if (null == address) {
+                LOG.warn("Failed to get InetAddress {}", addr);
+                continue;
+            }
+            if (fe.getIp().equals(address.getHostAddress())) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
-        List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
-        for (InetSocketAddress addr : addrs) {
-            hostPortPair.add(Pair.of(addr.getAddress().getHostAddress(), addr.getPort()));
-        }
-        return hostPortPair;
     }
 }
