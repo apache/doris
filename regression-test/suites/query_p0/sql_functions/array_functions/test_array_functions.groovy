@@ -125,7 +125,7 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_popfront(k7) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popfront(k8) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popfront(k10) from ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array_popfromt(k12) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popfront(k12) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_with_constant(3, k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_with_constant(10, null) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_with_constant(2, 'a') from ${tableName} ORDER BY k1"
