@@ -171,8 +171,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
             return CostV1.of(
-                    childStatistics.getRowCount() * beNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber,
+                    childStatistics.getRowCount(),
+                    childStatistics.getRowCount() / beNumber,
                     childStatistics.getRowCount() * beNumber * instanceNumber);
         }
 
