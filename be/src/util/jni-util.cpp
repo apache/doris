@@ -73,7 +73,7 @@ void FindOrCreateJavaVM() {
         auto classpath = GetDorisJNIClasspath();
         std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
         std::string log_path = fmt::format("-DlogPath={}/log/udf-jdbc.log", getenv("DORIS_HOME"));
-        std::string jvm_name = fmt::format("-Dsun.java.command={}", "DORIS_BE");
+        std::string jvm_name = fmt::format("-Dsun.java.command={}", "DorisBE");
 
         JavaVMOption options[] = {
                 {const_cast<char*>(classpath.c_str()), nullptr},
