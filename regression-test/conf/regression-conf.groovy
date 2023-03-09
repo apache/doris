@@ -24,11 +24,11 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://172.21.0.140:9330/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "172.21.0.140:8330"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -58,7 +58,7 @@ customConf1 = "test_custom_conf_value"
 
 // for test csv with header
 enableHdfs=false // set to true if hdfs is ready
-hdfsFs = "hdfs://172.21.0.140:9000"
+hdfsFs = "hdfs://127.0.0.1:9000"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"

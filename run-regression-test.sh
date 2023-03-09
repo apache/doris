@@ -169,10 +169,10 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
 fi
 
 # check java home
-#if [[ -z "${JAVA_HOME}" ]]; then
-#    echo "Error: JAVA_HOME is not set"
-#    exit 1
-#fi
+if [[ -z "${JAVA_HOME}" ]]; then
+    echo "Error: JAVA_HOME is not set"
+    exit 1
+fi
 
 # check java version
 export JAVA="${JAVA_HOME}/bin/java"
