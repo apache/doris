@@ -181,7 +181,7 @@ public:
 
     uint32_t total_schedule_time() const { return _schedule_time; }
 
-    resourcegroup::ResourceGroup* get_rs_group();
+    taskgroup::TaskGroup* get_task_group();
 
     void set_task_queue(TaskQueue* task_queue);
 

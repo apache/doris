@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "resource_group.h"
+#include "task_group.h"
 #include "pipeline/pipeline_task.h"
 
 namespace doris {
-namespace resourcegroup {
+namespace taskgroup {
 
-pipeline::PipelineTask* ResourceGroupEntry::take() {
-//    std::unique_lock<std::mutex> lock(_work_size_mutex);
+pipeline::PipelineTask* TaskGroupEntity::take() {
     if (_queue.empty()) {
         return nullptr;
     }
@@ -31,23 +30,25 @@ pipeline::PipelineTask* ResourceGroupEntry::take() {
     return task;
 }
 
-void ResourceGroupEntry::incr_runtime_ns(int64_t runtime_ns)  {
+void TaskGroupEntity::incr_runtime_ns(int64_t runtime_ns)  {
     auto v_time = runtime_ns / _rs->cpu_share();
     _vruntime_ns += v_time;
-//    LOG(INFO) << "llj test " << cpu_share() << " inc " << v_time << " total: " << _vruntime_ns;
 }
 
-void ResourceGroupEntry::push_back(pipeline::PipelineTask* task) {
-//    std::unique_lock<std::mutex> lock(_work_size_mutex);
+void adjust_vruntime_ns(int64_t vruntime_ns) {
+    _vruntime_ns = vruntime_ns;
+}
+
+void TaskGroupEntity::push_back(pipeline::PipelineTask* task) {
     _queue.emplace(task);
 }
 
-int ResourceGroupEntry::cpu_share() const {
+int TaskGroupEntity::cpu_share() const {
     return _rs->cpu_share();
 }
 
-ResourceGroup::ResourceGroup(uint64_t id, std::string name, int cpu_share)
+TaskGroup::TaskGroup(uint64_t id, std::string name, int cpu_share)
         : _id(id), _name(name), _cpu_share(cpu_share), _task_entry(this) {}
 
-} // namespace resourcegroup
+} // namespace taskgroup
 } // namespace doris

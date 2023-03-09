@@ -21,8 +21,8 @@
 #include "pipeline_task.h"
 
 namespace doris {
-namespace resourcegroup {
-class ResourceGroup;
+namespace taskgroup {
+class TaskGroup;
 }
 
 namespace pipeline {
@@ -98,7 +98,6 @@ public:
 
     virtual Status push_back(PipelineTask* task, size_t core_id) = 0;
 
-    // TODO rs poc
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
     int cores() const { return _core_size; }
@@ -108,11 +107,10 @@ protected:
     static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 
-// Each thread have resource group to MLFQ
-class ResourceGroupTaskQueue : public TaskQueue {
+class TaskGroupTaskQueue : public TaskQueue {
 public:
-    explicit ResourceGroupTaskQueue(size_t);
-    ~ResourceGroupTaskQueue() override;
+    explicit TaskGroupTaskQueue(size_t);
+    ~TaskGroupTaskQueue() override;
 
     void close() override;
 
@@ -130,26 +128,25 @@ private:
     template <bool from_executor>
     Status _push_back(PipelineTask* task);
     template <bool from_worker>
-    void _enqueue_resource_group(resourcegroup::RSEntryPtr);
-    void _dequeue_resource_group(resourcegroup::RSEntryPtr);
-    resourcegroup::RSEntryPtr _next_rs_entry();
-    int64_t _ideal_runtime_ns(resourcegroup::RSEntryPtr rs_entity) const;
+    void _enqueue_task_group(taskgroup::TGEntityPtr);
+    void _dequeue_task_group(taskgroup::TGEntityPtr);
+    taskgroup::TGEntityPtr _next_ts_entity();
+    int64_t _ideal_runtime_ns(taskgroup::TGEntityPtr ts_entity) const;
     void _update_min_rg();
 
     static constexpr int64_t SCHEDULE_PERIOD_PER_WG_NS = 100'000'000;
 
-    // 类似cfs sched_entity中的红黑树，按照vruntime排序
-    struct ResourceGroupSchedEntityComparator {
-        bool operator()(const resourcegroup::RSEntryPtr&, const resourcegroup::RSEntryPtr&) const;
+    // Like cfs rb tree in sched_entity
+    struct TaskGroupSchedEntityComparator {
+        bool operator()(const taskgroup::TGEntityPtr&, const taskgroup::TGEntityPtr&) const;
     };
-    using ResouceGroupSet = std::set<resourcegroup::RSEntryPtr, ResourceGroupSchedEntityComparator>;
+    using ResouceGroupSet = std::set<taskgroup::TGEntityPtr, TaskGroupSchedEntityComparator>;
     ResouceGroupSet _groups;
     std::condition_variable _wait_task;
     std::mutex _rs_mutex;
     bool _closed = false;
     int _total_cpu_share = 0;
-    // task执行阶段，可以和此rs迅速对比，退出执行。
-    std::atomic<resourcegroup::RSEntryPtr> _min_rs_entity = nullptr;
+    std::atomic<taskgroup::TGEntityPtr> _min_ts_entity = nullptr;
 };
 
 // Need consider NUMA architecture
@@ -169,6 +166,9 @@ public:
     Status push_back(PipelineTask* task) override;
 
     Status push_back(PipelineTask* task, size_t core_id) override;
+
+    // TODO pipeline update NormalWorkTaskQueue by time_spent.
+    // void update_statistics(PipelineTask* task, int64_t time_spent) override;
 
 private:
     PipelineTask* _steal_take(size_t core_id);

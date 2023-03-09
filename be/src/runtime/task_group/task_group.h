@@ -27,19 +27,21 @@ class PipelineTask;
 
 class QueryFragmentsCtx;
 
-namespace resourcegroup {
+namespace taskgroup {
 
-class ResourceGroup;
+class TaskGroup;
 
-class ResourceGroupEntry {
+class TaskGroupEntity {
 public:
-    explicit ResourceGroupEntry(resourcegroup::ResourceGroup* rs) : _rs(rs) {}
+    explicit TaskGroupEntity(taskgroup::TaskGroup* rs) : _rs(rs) {}
     void push_back(pipeline::PipelineTask* task);
     int64_t vruntime_ns() const { return _vruntime_ns; }
 
     pipeline::PipelineTask* take();
 
     void incr_runtime_ns(int64_t runtime_ns);
+
+    void adjust_vruntime_ns(int64_t vruntime_ns);
 
     size_t task_size() { return _queue.size(); }
 
@@ -48,7 +50,7 @@ public:
 private:
     // TODO rs poc 这里暂时不用多级反馈队列
     std::queue<pipeline::PipelineTask*> _queue;
-    resourcegroup::ResourceGroup* _rs;
+    taskgroup::TaskGroup* _rs;
     int64_t _vruntime_ns = 0;
 //    std::mutex _work_size_mutex;
 
@@ -57,18 +59,13 @@ private:
 //    int _num_tasks = 0;
 };
 
-using RSEntryPtr = ResourceGroupEntry*;
+using TGEntityPtr = TaskGroupEntity*;
 
-class ResourceGroup {
+class TaskGroup {
 public:
-    ResourceGroup(uint64_t id, std::string name, int cpu_share);
+    TaskGroup(uint64_t id, std::string name, int cpu_share);
 
-    // TODO rs
-    Status check_big_query(const QueryFragmentsCtx& query_context) { return Status::OK(); }
-
-//    void adjust_ns(int64_t runtime_ns) { _vruntime_ns += runtime_ns / _cpu_share; }
-
-    ResourceGroupEntry* task_entity() { return &_task_entry; }
+    TaskGroupEntity* task_entity() { return &_task_entry; }
 
     int cpu_share() const { return _cpu_share; }
     uint64_t id() const { return _id; }
@@ -77,10 +74,10 @@ private:
     uint64_t _id;
     std::string _name;
     int _cpu_share;
-    ResourceGroupEntry _task_entry;
+    TaskGroupEntity _task_entry;
 };
 
-using ResourceGroupPtr = std::shared_ptr<ResourceGroup>;
+using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 
 } // namespace resourcegroup
 } // namespace doris

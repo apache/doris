@@ -215,7 +215,7 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 void TaskScheduler::_do_work(size_t index) {
     const auto& marker = _markers[index];
     while (*marker) {
-        auto task = _task_queue->take(index);
+        auto* task = _task_queue->take(index);
         if (!task) {
             continue;
         }
@@ -226,7 +226,7 @@ void TaskScheduler::_do_work(size_t index) {
         bool canceled = fragment_ctx->is_canceled();
 
         int64_t time_spent = 0;
-        SCOPED_RAW_TIMER(&time_spent); // 后定义的先析构
+        SCOPED_RAW_TIMER(&time_spent);
 
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {

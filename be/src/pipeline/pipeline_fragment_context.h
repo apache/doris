@@ -110,7 +110,7 @@ public:
         return _exec_status;
     }
 
-    resourcegroup::ResourceGroup* get_rs_group() { return _query_ctx->get_rs_group(); }
+    taskgroup::TaskGroup* get_task_group() { return _query_ctx->get_task_group(); }
 
 private:
     Status _create_sink(const TDataSink& t_data_sink);

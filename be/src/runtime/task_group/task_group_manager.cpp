@@ -15,33 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "resource_group_manager.h"
+#include "task_group_manager.h"
 
-namespace doris::resourcegroup {
+namespace doris::taskgroup {
 
-ResourceGroupManager::ResourceGroupManager() {
-    _create_default_rs_group();
-    _create_poc_rs_group();
+TaskGroupManager::TaskGroupManager() {
+    _create_default_task_group();
+    _create_poc_task_group();
 }
-ResourceGroupManager::~ResourceGroupManager() = default;
+TaskGroupManager::~TaskGroupManager() = default;
 
-ResourceGroupPtr ResourceGroupManager::get_or_create_resource_group(uint64_t id) {
+TaskGroupPtr TaskGroupManager::get_or_create_task_group(uint64_t id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_resource_groups.count(id)) {
-        return _resource_groups[id];
+    if (_task_groups.count(id)) {
+        return _task_groups[id];
     } else {
-        return _resource_groups[DEFAULT_RG_ID];
+        return _task_groups[DEFAULT_RG_ID];
     }
 }
 
-void ResourceGroupManager::_create_default_rs_group() {
-    _resource_groups[DEFAULT_RG_ID] =
-            std::make_shared<ResourceGroup>(DEFAULT_RG_ID, "default_rs", DEFAULT_CPU_SHARE);
+void TaskGroupManager::_create_default_task_group() {
+    _task_groups[DEFAULT_RG_ID] =
+            std::make_shared<TaskGroup>(DEFAULT_RG_ID, "default_rs", DEFAULT_CPU_SHARE);
 }
 
-void ResourceGroupManager::_create_poc_rs_group() {
-    _resource_groups[POC_RG_ID] =
-            std::make_shared<ResourceGroup>(POC_RG_ID, "poc_rs", POC_RG_CPU_SHARE);
+void TaskGroupManager::_create_poc_task_group() {
+    _task_groups[POC_RG_ID] =
+            std::make_shared<TaskGroup>(POC_RG_ID, "poc_rs", POC_RG_CPU_SHARE);
 }
 
 }

@@ -161,12 +161,17 @@ Status ExecEnv::init_pipeline_task_scheduler() {
         executors_size = CpuInfo::num_cores();
     }
 
-    // 支持rs queue
-    auto t_queue = std::make_shared<pipeline::ResourceGroupTaskQueue>(executors_size);
-
+    // TODO pipeline task group combie two blocked schedulers.
+    auto t_queue = std::make_shared<pipeline::NormalTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
     _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
+
+    auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
+    auto tg_b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(tg_queue);
+    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue);
+    RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
+
     return Status::OK();
 }
 
@@ -341,7 +346,9 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_load_path_mgr);
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_pipeline_task_scheduler);
+    SAFE_DELETE(_pipeline_task_group_scheduler);
     SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);

@@ -19,15 +19,15 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "resource_group.h"
+#include "task_group.h"
 
-namespace doris::resourcegroup {
+namespace doris::taskgroup {
 
-class ResourceGroupManager {
-    DECLARE_SINGLETON(ResourceGroupManager)
+class TaskGroupManager {
+    DECLARE_SINGLETON(TaskGroupManager)
 public:
     // TODO rs poc 根据id选rs group,目前还不能创建
-    ResourceGroupPtr get_or_create_resource_group(uint64_t id);
+    TaskGroupPtr get_or_create_task_group(uint64_t id);
 
     static constexpr uint64_t DEFAULT_RG_ID = 0;
     static constexpr int DEFAULT_CPU_SHARE = 64;
@@ -36,12 +36,12 @@ public:
     static constexpr int POC_RG_CPU_SHARE = 128;
 
 private:
-    void _create_default_rs_group();
+    void _create_default_task_group();
     // TODO rs poc
-    void _create_poc_rs_group();
+    void _create_poc_task_group();
 
     std::shared_mutex _group_mutex;
-    std::unordered_map<uint64_t, ResourceGroupPtr> _resource_groups;
+    std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
 };
 
 }

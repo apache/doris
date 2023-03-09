@@ -132,8 +132,6 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
     Defer defer {[&]() {
-//        LOG(INFO) << "llj test defer execute update_statistics " << pipeline_id() << " "
-//                  << time_spent;
         _task_queue->update_statistics(this, time_spent);
     }};
     // The status must be runnable
@@ -204,8 +202,6 @@ Status PipelineTask::finalize() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     Defer defer {[&]() {
-//        LOG(INFO) << "llj test defer finalize update_statistics " << pipeline_id() << " "
-//                  << _finalize_timer;
         _task_queue->update_statistics(this, _finalize_timer->value());
     }};
     SCOPED_TIMER(_finalize_timer);
@@ -219,8 +215,6 @@ Status PipelineTask::try_close() {
 Status PipelineTask::close() {
     int64_t close_ns = 0;
     Defer defer {[&]() {
-//        LOG(INFO) << "llj test defer close update_statistics " << pipeline_id() << " "
-//                  << close_ns;
         _task_queue->update_statistics(this, close_ns);
     }};
     Status s;
@@ -289,8 +283,8 @@ std::string PipelineTask::debug_string() const {
     return fmt::to_string(debug_string_buffer);
 }
 
-resourcegroup::ResourceGroup* PipelineTask::get_rs_group() {
-    return _fragment_context->get_rs_group();
+taskgroup::TaskGroup* PipelineTask::get_task_group() {
+    return _fragment_context->get_task_group();
 }
 
 } // namespace doris::pipeline

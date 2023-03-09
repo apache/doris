@@ -44,7 +44,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
-#include "runtime/resource_group/resource_group_manager.h"
+#include "runtime/task_group/task_group_manager.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
@@ -673,20 +673,17 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             fragments_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
-        // 如果设置了group就用group，如果没设置就用default group。
-        int ts = params.query_options.query_timeout;
-        resourcegroup::ResourceGroupPtr rg;
-        if (ts > 200) {
-            rg = resourcegroup::ResourceGroupManager::instance()
-                         ->get_or_create_resource_group(1);
-        } else {
-            rg = resourcegroup::ResourceGroupManager::instance()
-                         ->get_or_create_resource_group(0);
+        // TODO pipeline task group
+        if (params.query_options.enable_pipeline_engine) {
+            int ts = params.query_options.query_timeout;
+            taskgroup::TaskGroupPtr rg;
+            int ts_id = 0;
+            if (ts > 200) {
+                ts_id = 1;
+            }
+            rg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(ts_id);
+            fragments_ctx->set_task_group(rg);
         }
-//        LOG(INFO) << "llj test query_id: " << print_id(fragments_ctx->query_id)
-//                  << " ts: " << ts
-//                  << " rs group share: " << rg->cpu_share();
-        fragments_ctx->set_rs_group(rg);
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
