@@ -245,7 +245,7 @@ public:
         return Status::OK();
     }
     //NOTE: value_str intentionally copy here
-    Status add_value_str(InvertedIndexQueryOp op, const std::string& value_str, int precision,
+    Status add_value_str(InvertedIndexQueryOp op, std::string value_str, int precision,
                          int scale) {
         CppType value;
         from_string(value_str, value, precision, scale);
