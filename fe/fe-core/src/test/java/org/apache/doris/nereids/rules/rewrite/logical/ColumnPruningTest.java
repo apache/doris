@@ -295,10 +295,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
     public void pruneAggregateOutput() {
         PlanChecker.from(connectContext)
                 .analyze("select id from (select id, sum(age) from student group by id)a")
-//                .customRewrite(new ColumnPruning())
-                .applyTopDown(new ColumnPruningBak())
+                .customRewrite(new ColumnPruning())
                 .matchesFromRoot(
-                        logicalFilter(
+                        logicalProject(
                             logicalSubQueryAlias(
                                 logicalAggregate(
                                     logicalProject(

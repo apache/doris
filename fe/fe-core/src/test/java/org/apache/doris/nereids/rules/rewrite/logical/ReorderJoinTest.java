@@ -83,15 +83,25 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                         .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
                         .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
                         .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
-                        .build(),
-                new LogicalPlanBuilder(scan1)
-                        .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
-                        .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
-                        .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                         .build()
         );
-
         check(plans);
+
+        LogicalPlan plan2 = new LogicalPlanBuilder(scan1)
+                .joinEmptyOn(scan3, JoinType.CROSS_JOIN)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+                .rewrite()
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalJoin(
+                                logicalJoin().whenNot(join -> join.getJoinType().isCrossJoin()),
+                                logicalProject(logicalOlapScan())
+                        ).whenNot(join -> join.getJoinType().isCrossJoin())
+                );
     }
 
     @Test
@@ -116,7 +126,7 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 .rewrite()
                 .matchesFromRoot(
                         rightSemiLogicalJoin(
-                                leafPlan(),
+                                logicalProject(logicalOlapScan()),
                                 innerLogicalJoin()
                         )
                 );

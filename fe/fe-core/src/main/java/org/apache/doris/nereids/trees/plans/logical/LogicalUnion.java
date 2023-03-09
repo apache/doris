@@ -32,7 +32,7 @@ import java.util.Optional;
 /**
  * Logical Union.
  */
-public class LogicalUnion extends LogicalSetOperation {
+public class LogicalUnion extends LogicalSetOperation implements OutputPrunable {
 
     // When the union is DISTINCT, an additional LogicalAggregation needs to be created,
     // so add this flag to judge whether agg has been created to avoid repeated creation

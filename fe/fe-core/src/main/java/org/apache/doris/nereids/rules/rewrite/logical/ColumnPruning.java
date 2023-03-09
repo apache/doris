@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
-import org.apache.doris.nereids.trees.plans.logical.OutputSavePoint;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -38,8 +38,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * ColumnPruning.
@@ -68,13 +69,17 @@ import java.util.stream.Collectors;
 public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        // skip prune root, but prune children of root
-        return pruneChildren(plan);
+        return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
     }
 
     @Override
     public Plan visit(Plan plan, PruneContext context) {
-        if (!(plan instanceof OutputSavePoint)) {
+        if (plan instanceof OutputPrunable) {
+            // the case 1 in the class comment
+            OutputPrunable outputPrunable = (OutputPrunable) plan;
+            plan = pruneOutput(plan, outputPrunable.getOutputs(), outputPrunable::pruneOutputs, context);
+            return pruneChildren(plan);
+        } else {
             // e.g.
             //
             //       project(a)
@@ -91,15 +96,40 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
             return pruneChildren(plan, context.requiredSlots);
         }
+    }
 
-        // the case 1 in the class comment
-        if (plan instanceof OutputPrunable) {
-            OutputPrunable outputPrunable = (OutputPrunable) plan;
-            plan = pruneOutput(plan, outputPrunable.getOutputs(), outputPrunable::pruneOutputs, context);
-            return pruneChildren(plan);
+
+    // union can not be pruned by the common logic, we must override visit method to write special code.
+    @Override
+    public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
+        LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
+        List<Slot> originOutput = union.getOutput();
+        Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
+        Set<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
+                .filter(index -> prunedOutput.contains(originOutput.get(index)))
+                .boxed()
+                .collect(ImmutableSet.toImmutableSet());
+
+        AtomicBoolean changed = new AtomicBoolean(false);
+        List<Plan> prunedChildren = prunedOutputUnion.children().stream()
+                .map(child -> {
+                    List<Slot> childOutput = child.getOutput();
+                    Set<Slot> prunedChildOutput = prunedOutputIndexes.stream()
+                            .map(childOutput::get)
+                            .collect(ImmutableSet.toImmutableSet());
+                    Plan prunedChild = child.accept(this, new PruneContext(prunedChildOutput, prunedOutputUnion));
+                    if (prunedChild != child) {
+                        changed.set(true);
+                    }
+                    return prunedChild;
+                })
+                .collect(ImmutableList.toImmutableList());
+
+        if (!changed.get()) {
+            return prunedOutputUnion;
         }
 
-        return pruneChildren(plan);
+        return prunedOutputUnion.withChildren(prunedChildren);
     }
 
     public static final <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
@@ -117,11 +147,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .collect(ImmutableList.toImmutableList());
 
         if (prunedOutputs.isEmpty()) {
-            Slot minimumColumn = ExpressionUtils.selectMinimumColumn(
-                    originOutput.stream()
-                            .map(NamedExpression::toSlot)
-                            .collect(Collectors.toList())
-            );
+            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(originOutput);
             prunedOutputs = ImmutableList.of(minimumColumn);
         }
 

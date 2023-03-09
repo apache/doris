@@ -85,9 +85,4 @@ public class LogicalExcept extends LogicalSetOperation {
     public LogicalExcept withNewChildren(List<Plan> children) {
         return withChildren(children);
     }
-
-    @Override
-    public LogicalExcept pruneOutputs(List<NamedExpression> prunedOutputs) {
-        return withNewOutputs(prunedOutputs);
-    }
 }
