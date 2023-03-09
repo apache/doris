@@ -137,8 +137,8 @@ public:
         if (datatype->is_nullable()) {
             datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
-        DCHECK(is_map(datatype))
-                << "first argument for function: " << name << " should be DataTypeMap";
+        DCHECK(is_map(datatype)) << "first argument for function: " << name
+                                 << " should be DataTypeMap";
         return std::make_shared<DataTypeInt64>();
     }
 
@@ -150,8 +150,7 @@ public:
         // const UInt8* map_null_map = nullptr;
         if (left_column->is_nullable()) {
             auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column =
-                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
             // map_null_map = nullable_column->get_null_map_column().get_data().data();
         } else {
             map_column = check_and_get_column<ColumnMap>(*left_column.get());
@@ -195,8 +194,8 @@ public:
         if (datatype->is_nullable()) {
             datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
-        DCHECK(is_map(datatype))
-                << "first argument for function: " << name << " should be DataTypeMap";
+        DCHECK(is_map(datatype)) << "first argument for function: " << name
+                                 << " should be DataTypeMap";
         return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
     }
 
@@ -210,8 +209,7 @@ public:
         ColumnPtr nullmap_column = nullptr;
         if (left_column->is_nullable()) {
             auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column =
-                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
             nullmap_column = nullable_column->get_null_map_column_ptr();
         } else {
             map_column = check_and_get_column<ColumnMap>(*left_column.get());
@@ -225,37 +223,34 @@ public:
         if (datatype->is_nullable()) {
             datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
-        const auto datatype_map =
-                static_cast<const DataTypeMap*>(datatype.get());
+        const auto datatype_map = static_cast<const DataTypeMap*>(datatype.get());
         if constexpr (is_key) {
             const auto& array_column = map_column->get_keys_ptr();
             const auto datatype_array =
-                std::make_shared<DataTypeArray>(datatype_map->get_key_type());
+                    std::make_shared<DataTypeArray>(datatype_map->get_key_type());
             if (nullmap_column) {
                 block.get_by_position(arguments[0]) = {
-                    ColumnNullable::create(array_column, nullmap_column),
-                    make_nullable(datatype_array),
-                    block.get_by_position(arguments[0]).name + ".keys"};
+                        ColumnNullable::create(array_column, nullmap_column),
+                        make_nullable(datatype_array),
+                        block.get_by_position(arguments[0]).name + ".keys"};
             } else {
                 block.get_by_position(arguments[0]) = {
-                    array_column,
-                    datatype_array,
-                    block.get_by_position(arguments[0]).name + ".keys"};
+                        array_column, datatype_array,
+                        block.get_by_position(arguments[0]).name + ".keys"};
             }
         } else {
             const auto& array_column = map_column->get_values_ptr();
             const auto datatype_array =
-                std::make_shared<DataTypeArray>(datatype_map->get_value_type());
+                    std::make_shared<DataTypeArray>(datatype_map->get_value_type());
             if (nullmap_column) {
                 block.get_by_position(arguments[0]) = {
-                    ColumnNullable::create(array_column, nullmap_column),
-                    make_nullable(datatype_array),
-                    block.get_by_position(arguments[0]).name + ".values"};
+                        ColumnNullable::create(array_column, nullmap_column),
+                        make_nullable(datatype_array),
+                        block.get_by_position(arguments[0]).name + ".values"};
             } else {
                 block.get_by_position(arguments[0]) = {
-                    array_column,
-                    datatype_array,
-                    block.get_by_position(arguments[0]).name + ".values"};
+                        array_column, datatype_array,
+                        block.get_by_position(arguments[0]).name + ".values"};
             }
         }
 
@@ -350,8 +345,8 @@ public:
         if (datatype->is_nullable()) {
             datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
-        DCHECK(is_map(datatype))
-                << "first argument for function: " << name << " should be DataTypeMap";
+        DCHECK(is_map(datatype)) << "first argument for function: " << name
+                                 << " should be DataTypeMap";
         const auto datatype_map = static_cast<const DataTypeMap*>(datatype.get());
         if (is_key) {
             return std::make_shared<DataTypeArray>(datatype_map->get_key_type());
@@ -367,8 +362,7 @@ public:
         const ColumnMap* map_column = nullptr;
         if (left_column->is_nullable()) {
             auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column =
-                    check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
         } else {
             map_column = check_and_get_column<ColumnMap>(*left_column.get());
         }
