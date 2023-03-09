@@ -49,6 +49,8 @@ suite("test_current_timestamp") {
     qt_insert_into """ select count(*) from ${tableName} where to_date(dt_4) = to_date(dt_5); """
     qt_insert_into """ select count(*) from ${tableName} where to_date(dt_6) = to_date(dt_7); """
 
+    sql """select now()"""
+
     // test stream load.
     streamLoad {
         table "${tableName}"
@@ -64,4 +66,6 @@ suite("test_current_timestamp") {
     qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_2) = to_date(dt_3); """
     qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_4) = to_date(dt_5); """
     qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_6) = to_date(dt_7); """
+
+    sql """select now()"""
  }

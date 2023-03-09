@@ -939,7 +939,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
-                && children.size() == 3) {
+                && (children.size() == 2 || children.size() == 3)) {
             String blockEncryptionMode = "";
             Set<String> aesModes = new HashSet<>(Arrays.asList(
                     "AES_128_ECB",
@@ -985,6 +985,12 @@ public class FunctionCallExpr extends Expr {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
 
                     }
+                    if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
+                            && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
+                            && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'aes_encrypt' or 'aes_decrypt'");
+                    }
                 }
                 if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                         || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
@@ -994,6 +1000,10 @@ public class FunctionCallExpr extends Expr {
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
 
+                    }
+                    if (children.size() == 2) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'sm4_encrypt' or 'sm4_decrypt'");
                     }
                 }
             }
@@ -1012,7 +1022,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
-                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")) {
+                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1072,7 +1083,8 @@ public class FunctionCallExpr extends Expr {
      * @throws AnalysisException
      */
     public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
-        fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        fn = new Function(getBuiltinFunction(fnName.getFunction(), new Type[0],
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
         fn.setReturnType(type);
         this.type = type;
         for (int i = 0; i < children.size(); ++i) {
@@ -1489,9 +1501,11 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_compact")
                 || fnName.getFunction().equalsIgnoreCase("array_slice")
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
+                || fnName.getFunction().equalsIgnoreCase("array_popfront")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
-                || fnName.getFunction().equalsIgnoreCase("array_except")) {
+                || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }

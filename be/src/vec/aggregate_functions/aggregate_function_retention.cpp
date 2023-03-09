@@ -26,10 +26,11 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_retention(const std::string& name,
                                                          const DataTypes& argument_types,
                                                          const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionRetention>(argument_types);
+    return AggregateFunctionPtr(creator_without_type::create<AggregateFunctionRetention>(
+            result_is_nullable, argument_types));
 }
 
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("retention", create_aggregate_function_retention, false);
+    factory.register_function_both("retention", create_aggregate_function_retention);
 }
 } // namespace doris::vectorized

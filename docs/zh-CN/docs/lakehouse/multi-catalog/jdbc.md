@@ -75,6 +75,8 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 | Database | Schema |
 | Table | Table |
 
+> Doris通过sql语句`select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` 来获得PG user能够访问的所有schema并将其映射为Doris的database
+
 3. Oracle
 
 <version since="1.2.2"></version>

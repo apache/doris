@@ -200,7 +200,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         chars.resize(buffer_size);                                                                 \
         offsets.resize(num_rows);                                                                  \
         *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());                 \
@@ -211,7 +211,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                                        nullptr);                                                   \
         while (jni_ctx->output_intermediate_state_ptr->row_idx < num_rows) {                       \
             increase_buffer_size++;                                                                \
-            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
+            buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);               \
             chars.resize(buffer_size);                                                             \
             *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());             \
             jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                     \
@@ -232,7 +232,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         auto data_column = array_nested_nullable.get_nested_column_ptr();                          \
         auto& offset_column = array_col->get_offsets_column();                                     \
         int increase_buffer_size = 0;                                                              \
-        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
         offset_column.resize(num_rows);                                                            \
         *(jni_ctx->output_offsets_ptr) =                                                           \
                 reinterpret_cast<int64_t>(offset_column.get_raw_data().data);                      \
@@ -263,6 +263,8 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                 *(jni_ctx->output_array_null_ptr) =                                                \
                         reinterpret_cast<int64_t>(null_map_data.data());                           \
                 *(jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(chars.data());         \
+                *(jni_ctx->output_array_string_offsets_ptr) =                                      \
+                        reinterpret_cast<int64_t>(offsets.data());                                 \
                 jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                 \
                 env->CallNonvirtualVoidMethodA(jni_ctx->executor, executor_cl_,                    \
                                                executor_evaluate_id_, nullptr);                    \

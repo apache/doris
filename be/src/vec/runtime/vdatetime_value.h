@@ -32,7 +32,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-class DateTimeValue;
 
 namespace vectorized {
 

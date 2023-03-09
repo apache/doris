@@ -1218,6 +1218,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 ExpressionUtils.EMPTY_CONDITION,
                                 ExpressionUtils.EMPTY_CONDITION,
                                 JoinHint.NONE,
+                                Optional.empty(),
                                 left,
                                 right);
                 left = withJoinRelations(left, relation);
@@ -1481,6 +1482,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION),
                         joinHint,
+                        Optional.empty(),
                         last,
                         plan(join.relationPrimary()));
             } else {

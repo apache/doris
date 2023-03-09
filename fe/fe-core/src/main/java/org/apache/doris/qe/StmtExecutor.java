@@ -101,6 +101,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -441,6 +442,10 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        if (sessionVariable.enableProfile && sessionVariable.isEnableNereidsPlanner()) {
+            ConnectContext.get().setStatsErrorEstimator(new StatsErrorEstimator());
+        }
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
@@ -590,7 +595,7 @@ public class StmtExecutor implements ProfileWriter {
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
-                        queryType = "Insert";
+                        queryType = "Load";
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail: {}", t.getMessage());
@@ -638,7 +643,6 @@ public class StmtExecutor implements ProfileWriter {
         } finally {
             // revert Session Value
             try {
-                SessionVariable sessionVariable = context.getSessionVariable();
                 VariableMgr.revertSessionValue(sessionVariable);
                 // origin value init
                 sessionVariable.setIsSingleSetVar(false);
