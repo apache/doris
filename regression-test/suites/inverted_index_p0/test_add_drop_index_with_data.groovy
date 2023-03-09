@@ -188,7 +188,7 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     assertEquals(select_result[0][1], "name2")
     assertEquals(select_result[0][2], "desc 2")
 
-    // drop idx_id index
+    // drop idx_name index
     sql "drop index idx_name on ${indexTbName1}"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
@@ -234,4 +234,62 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     assertEquals(select_result[0][0], 2)
     assertEquals(select_result[0][1], "name2")
     assertEquals(select_result[0][2], "desc 2")
+
+    // alter table add multiple index
+    select_result = sql """
+                        ALTER TABLE ${indexTbName1}
+                            ADD INDEX idx_id (id) USING INVERTED,
+                            ADD INDEX idx_name (name) USING INVERTED;
+                    """
+    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    show_result = sql "show index from ${indexTbName1}"
+    logger.info("show index from " + indexTbName1 + " result: " + show_result)
+    assertEquals(show_result.size(), 3)
+
+    // query rows where name match 'name1'
+    select_result = sql "select * from ${indexTbName1} where name match 'name1'"
+    assertEquals(select_result.size(), 1)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc 1")
+
+    // query rows where name match 'name2'
+    select_result = sql "select * from ${indexTbName1} where name match 'name2'"
+    assertEquals(select_result.size(), 1)
+    assertEquals(select_result[0][0], 2)
+    assertEquals(select_result[0][1], "name2")
+    assertEquals(select_result[0][2], "desc 2")
+
+
+    // alter table drop multiple index
+    select_result = sql """
+                        ALTER TABLE ${indexTbName1}
+                            DROP INDEX idx_id,
+                            DROP INDEX idx_name,
+                            DROP INDEX idx_desc;
+                    """
+    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    show_result = sql "show index from ${indexTbName1}"
+    logger.info("show index from " + indexTbName1 + " result: " + show_result)
+    assertEquals(show_result.size(), 0)
+
+    // query rows where name match 'name1', should fail without index
+    success = false
+    try {
+        sql "select * from ${indexTbName1} where name match 'name1'"
+        success = true
+    } catch(Exception ex) {
+        logger.info("sql exception: " + ex)
+    }
+    assertEquals(success, false)
+
+    // query rows where description match 'desc', should fail without index
+    success = false
+    try {
+        sql "select * from ${indexTbName1} where description match 'desc'"
+        success = true
+    } catch(Exception ex) {
+        logger.info("sql exception: " + ex)
+    }
+    assertEquals(success, false)
 }
