@@ -31,7 +31,6 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
-  aggregate_functions/aggregate_function_null.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
