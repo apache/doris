@@ -1623,6 +1623,7 @@ public class Coordinator {
                 bucketShuffleJoinController.computeInstanceParam(fragment.getFragmentId(),
                         parallelExecInstanceNum, params);
             } else {
+                params.sharedScanOpt = true;
                 // case A
                 for (Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : fragmentExecParamsMap.get(
                         fragment.getFragmentId()).scanRangeAssignment.entrySet()) {
@@ -1631,13 +1632,22 @@ public class Coordinator {
 
                     for (Integer planNodeId : value.keySet()) {
                         List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
-                        int expectedInstanceNum = 1;
-                        if (parallelExecInstanceNum > 1) {
-                            //the scan instance num should not larger than the tablets num
-                            expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                        List<List<TScanRangeParams>> perInstanceScanRanges = Lists.newArrayList();
+                        if (!enablePipelineEngine) {
+                            int expectedInstanceNum = 1;
+                            if (parallelExecInstanceNum > 1) {
+                                //the scan instance num should not larger than the tablets num
+                                expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                            }
+                            perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
+                                    expectedInstanceNum);
+                        } else {
+                            int expectedInstanceNum = Math.min(parallelExecInstanceNum,
+                                    leftMostNode.getNumInstances());
+                            for (int j = 0; j < Math.max(expectedInstanceNum, 1); j++) {
+                                perInstanceScanRanges.add(perNodeScanRanges);
+                            }
                         }
-                        List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
-                                expectedInstanceNum);
 
                         LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
 
@@ -3035,6 +3045,8 @@ public class Coordinator {
         public List<FInstanceExecParam> instanceExecParams = Lists.newArrayList();
         public FragmentScanRangeAssignment scanRangeAssignment = new FragmentScanRangeAssignment();
 
+        public boolean sharedScanOpt = false;
+
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
         }
@@ -3126,6 +3138,7 @@ public class Coordinator {
                             fragment.isTransferQueryStatisticsWithEveryBatch());
                     params.setFragment(fragment.toThrift());
                     params.setLocalParams(Lists.newArrayList());
+                    params.setSharedScanOpt(sharedScanOpt);
                     res.put(instanceExecParam.host, params);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
