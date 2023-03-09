@@ -33,65 +33,65 @@ public:
 
     explicit BitmapExprCalculation(const char* src) { deserialize(src); }
 
-    void bitmap_calculation_init(std::string& inputStr) {
-        _polish = reversePolish(inputStr);
-        std::string bitmapKey;
+    void bitmap_calculation_init(std::string& input_str) {
+        _polish = reverse_polish(input_str);
+        std::string bitmap_key;
         for (int i = 0; i < _polish.length(); i++) {
             char c = _polish.at(i);
             if (c != '&' && c != '|' && c != '^' && c != '-' && c != ' ' && c != '\\') {
-                bitmapKey += c;
+                bitmap_key += c;
             } else if (i != 0 && _polish.at(i - 1) == '\\') {
-                bitmapKey += c;
+                bitmap_key += c;
             } else if (c == '\\') {
                 continue;
             } else {
-                if (bitmapKey.length() > 0) {
-                    add_key(bitmapKey);
-                    bitmapKey.clear();
+                if (bitmap_key.length() > 0) {
+                    add_key(bitmap_key);
+                    bitmap_key.clear();
                 }
             }
         }
-        if (bitmapKey.length() > 0) {
-            add_key(bitmapKey);
-            bitmapKey.clear();
+        if (bitmap_key.length() > 0) {
+            add_key(bitmap_key);
+            bitmap_key.clear();
         }
     }
 
     BitmapValue bitmap_calculate() {
         std::stack<BitmapValue> values;
-        std::string bitmapKey;
+        std::string bitmap_key;
         for (int i = 0; i < _polish.length(); i++) {
             char c = _polish.at(i);
             if (c == ' ') {
-                if (bitmapKey.length() > 0) {
-                    values.push(_bitmaps[bitmapKey]);
-                    bitmapKey.clear();
+                if (bitmap_key.length() > 0) {
+                    values.push(_bitmaps[bitmap_key]);
+                    bitmap_key.clear();
                 }
             } else if (c != '&' && c != '|' && c != '^' && c != '-' && c != '\\') {
-                bitmapKey += c;
+                bitmap_key += c;
             } else if (i != 0 && _polish.at(i - 1) == '\\') {
-                bitmapKey += c;
+                bitmap_key += c;
             } else if (c == '\\') {
                 continue;
             } else {
-                if (bitmapKey.length() > 0) {
-                    values.push(_bitmaps[bitmapKey]);
-                    bitmapKey.clear();
+                if (bitmap_key.length() > 0) {
+                    values.push(_bitmaps[bitmap_key]);
+                    bitmap_key.clear();
                 }
                 if (values.size() >= 2) {
-                    BitmapValue opA = values.top();
+                    BitmapValue op_a = values.top();
                     values.pop();
-                    BitmapValue opB = values.top();
+                    BitmapValue op_b = values.top();
                     values.pop();
-                    BitmapValue calResult;
-                    bitmapCalculate(opA, opB, c, calResult);
-                    values.push(calResult);
+                    BitmapValue cal_result;
+                    bitmap_calculate(op_a, op_b, c, cal_result);
+                    values.push(cal_result);
                 }
             }
         }
         BitmapValue result;
-        if (bitmapKey.length() > 0) {
-            result |= _bitmaps[bitmapKey];
+        if (bitmap_key.length() > 0) {
+            result |= _bitmaps[bitmap_key];
         } else if (!values.empty()) {
             result |= values.top();
         }
@@ -107,7 +107,7 @@ public:
     }
 
 private:
-    int priority(char c) {
+    constexpr int priority(char c) {
         switch (c) {
         case '&':
             return 1;
@@ -123,7 +123,7 @@ private:
     }
 
     template <class T>
-    std::string printStack(std::stack<T> stack) {
+    std::string print_stack(const std::stack<T>& stack) {
         std::string result;
         while (!stack.empty()) {
             result = stack.top() + result;
@@ -132,81 +132,81 @@ private:
         return result;
     }
 
-    std::string reversePolish(std::string inputStr) {
+    std::string reverse_polish(const std::string& input_str) {
         std::stack<char> polish;
-        std::stack<char> opStack;
-        bool lastIsChar = false;
-        for (int i = 0; i < inputStr.length(); i++) {
-            char curChar = inputStr.at(i);
-            if (curChar != '&' && curChar != '|' && curChar != '^' && curChar != '-' &&
-                curChar != '(' && curChar != ')' && curChar != ' ' && curChar != '\t') {
-                if (!lastIsChar) {
+        std::stack<char> op_stack;
+        bool last_is_char = false;
+        for (int i = 0; i < input_str.length(); i++) {
+            char cur_char = input_str.at(i);
+            if (cur_char != '&' && cur_char != '|' && cur_char != '^' && cur_char != '-' &&
+                cur_char != '(' && cur_char != ')' && cur_char != ' ' && cur_char != '\t') {
+                if (!last_is_char) {
                     polish.push(' ');
                 }
-                polish.push(curChar);
-                lastIsChar = true;
+                polish.push(cur_char);
+                last_is_char = true;
                 continue;
-            } else if (i != 0 && inputStr.at(i - 1) == '\\') {
-                polish.push(curChar);
-                lastIsChar = true;
+            } else if (i != 0 && input_str.at(i - 1) == '\\') {
+                polish.push(cur_char);
+                last_is_char = true;
                 continue;
-            } else if (curChar == ' ' || curChar == '\t') {
-                lastIsChar = false;
+            } else if (cur_char == ' ' || cur_char == '\t') {
+                last_is_char = false;
                 continue;
-            } else if (curChar == '(') {
-                opStack.push(curChar);
-            } else if (!opStack.empty() && curChar == ')') {
-                while (!opStack.empty() && opStack.top() != '(') {
-                    polish.push(opStack.top());
-                    opStack.pop();
+            } else if (cur_char == '(') {
+                op_stack.push(cur_char);
+            } else if (!op_stack.empty() && cur_char == ')') {
+                while (!op_stack.empty() && op_stack.top() != '(') {
+                    polish.push(op_stack.top());
+                    op_stack.pop();
                 }
-                opStack.pop();
+                op_stack.pop();
             } else {
-                if (!opStack.empty() && opStack.top() == '(') {
-                    opStack.push(curChar);
+                if (!op_stack.empty() && op_stack.top() == '(') {
+                    op_stack.push(cur_char);
                 } else {
-                    if (!opStack.empty() && priority(curChar) > priority(opStack.top())) {
-                        opStack.push(curChar);
+                    if (!op_stack.empty() && priority(cur_char) > priority(op_stack.top())) {
+                        op_stack.push(cur_char);
                     } else {
-                        while (!opStack.empty()) {
-                            if (opStack.top() == '(') {
+                        while (!op_stack.empty()) {
+                            if (op_stack.top() == '(') {
                                 break;
                             }
-                            if (priority(curChar) <= priority(opStack.top())) {
-                                polish.push(opStack.top());
-                                opStack.pop();
+                            if (priority(cur_char) <= priority(op_stack.top())) {
+                                polish.push(op_stack.top());
+                                op_stack.pop();
                             } else {
                                 break;
                             }
                         }
-                        opStack.push(curChar);
+                        op_stack.push(cur_char);
                     }
                 }
             }
-            lastIsChar = false;
+            last_is_char = false;
         }
 
-        while (!opStack.empty()) {
-            polish.push(opStack.top());
-            opStack.pop();
+        while (!op_stack.empty()) {
+            polish.push(op_stack.top());
+            op_stack.pop();
         }
-        return printStack(polish);
+        return print_stack(polish);
     }
 
-    void bitmapCalculate(BitmapValue& opA, BitmapValue& opB, char op, BitmapValue& result) {
-        result |= opB;
+    void bitmap_calculate(BitmapValue& op_a, BitmapValue& op_b, char op, BitmapValue& result) {
+        result |= op_b;
         switch (op) {
         case '&':
-            result &= opA;
+            result &= op_a;
             break;
         case '|':
-            result |= opA;
+            result |= op_a;
             break;
         case '-':
-            result -= opA;
+            result -= op_a;
             break;
         case '^':
-            result ^= opA;
+            result ^= op_a;
             break;
         }
     }

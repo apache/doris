@@ -84,7 +84,7 @@ inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 
 template <>
 inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
-    *(int32_t*)dest = v.size();
+    *(uint32_t*)dest = v.size();
     dest += 4;
     memcpy(dest, v.c_str(), v.size());
     dest += v.size();

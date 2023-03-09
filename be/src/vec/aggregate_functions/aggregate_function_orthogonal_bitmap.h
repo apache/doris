@@ -271,7 +271,7 @@ public:
     }
 
 private:
-    Int64 result = 0;
+    int64_t result = 0;
 };
 
 template <typename T>
