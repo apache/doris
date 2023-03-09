@@ -37,7 +37,7 @@ prometheus监控采集接口
 ## Query parameters
 
 * `type`
-    输出方式，选填，有以下取值：
+    输出方式，选填，默认全部输出，另有以下取值：
     - `core`: 只输出核心采集项
     - `json`: 以json格式输出
 

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "触发Compaction",
-    "language": "zh-CN"
+    "title": "Manually Trigger Compaction",
+    "language": "en"
 }
 ---
 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 触发Compaction
+# Manually Trigger Compaction
 
 ## Request
 
@@ -34,25 +34,25 @@ under the License.
 
 ## Description
 
-用于手动触发 Compaction 以及状态查询。
+Used to manually trigger the comparison and show status.
 
 ## Query parameters
 
 * `tablet_id`
-    - tablet的id
+    - ID of the tablet
 
 * `compact_type`
-    - 取值为`base`或`cumulative`
+    - The value is `base` or `cumulative`
 
 ## Request body
 
-无
+None
 
 ## Response
 
-### 触发Compaction
+### Trigger Compaction
 
-若 tablet 不存在，返回 JSON 格式的错误：
+If the tablet does not exist, an error in JSON format is returned:
 
 ```
 {
@@ -61,7 +61,7 @@ under the License.
 }
 ```
 
-若 compaction 执行任务触发失败时，返回 JSON 格式的错误：
+If the tablet exists and the tablet is not running, JSON format is returned:
 
 ```
 {
@@ -70,7 +70,7 @@ under the License.
 }
 ```
 
-若 compaction 执行触发成功时，则返回 JSON 格式的结果:
+If the tablet exists and the tablet is running, JSON format is returned:
 
 ```
 {
@@ -79,23 +79,21 @@ under the License.
 }
 ```
 
-结果说明：
+Explanation of results:
 
-* status：触发任务状态，当成功触发时为Success；当因某些原因（比如，没有获取到合适的版本）时，返回Fail。
-* msg：给出具体的成功或失败的信息。
+* status: Trigger task status, when it is successfully triggered, it is Success; when for some reason (for example, the appropriate version is not obtained), it returns Fail.
+* msg: Give specific success or failure information.
 
-### 查询状态
+### Show Status
 
-若 tablet 不存在，返回 JSON 格式：
-
+If the tablet does not exist, an error in JSON format is returned:
 ```
 {
     "status": "Fail",
     "msg": "Tablet not found"
 }
 ```
-
-若 tablet 存在并且 tablet 不在正在执行 compaction，返回 JSON 格式：
+If the tablet exists and the tablet is not running, JSON format is returned:
 
 ```
 {
@@ -108,8 +106,7 @@ under the License.
 }
 ```
 
-若 tablet 存在并且 tablet 正在执行 compaction，返回 JSON 格式：
-
+If the tablet exists and the tablet is running, JSON format is returned:
 ```
 {
     "status" : "Success",
@@ -121,9 +118,9 @@ under the License.
 }
 ```
 
-结果说明：
+Explanation of results:
 
-* run_status：获取当前手动 compaction 任务执行状态
+* run_status: Get the current manual compaction task execution status.
 
 ### Examples
 

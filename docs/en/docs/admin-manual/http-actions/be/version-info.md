@@ -1,7 +1,7 @@
 ---
 {
-    "title": "查询tablet信息",
-    "language": "zh-CN"
+    "title": "Be Version Info",
+    "language": "en"
 }
 ---
 
@@ -24,57 +24,52 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 查询tablet信息
+# Be Version Info
 
 ## Request
 
-`GET /tablets_page?limit={int}`
+`GET /api/be_version_info`
 
 ## Description
 
-获取特定BE节点上指定数量的tablet的tablet id和schema hash信息
+Provide BE version info
 
 ## Query parameters
 
-* `limit`
-    返回的tablet数量，选填，默认1000个，可以有以下取值：
-    - `all`： 返回全部tablet
-    - 正整数： 返回相应数量的tablet
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
     {
-    msg: "OK",
-    code: 0,
-    data: {
-        host: "10.38.157.107",
-        tablets: [
-            {
-                tablet_id: 11119,
-                schema_hash: 714349777
-            },
-
-                ...
-
-            {
-                tablet_id: 11063,
-                schema_hash: 714349777
+        "msg":"success",
+        "code":0,
+        "data":{
+            "beVersionInfo":{
+                "dorisBuildVersionPrefix":"doris",
+                "dorisBuildVersionMajor":0,
+                "dorisBuildVersionMinor":0,
+                "dorisBuildVersionPatch":0,
+                "dorisBuildVersionRcVersion":"trunk",
+                "dorisBuildVersion":"doris-0.0.0-trunk",
+                "dorisBuildHash":"git://4b7b503d1cb3/data/doris/doris/be/../@a04f9814fe5a09c0d9e9399fe71cc4d765f8bff1",
+                "dorisBuildShortHash":"a04f981",
+                "dorisBuildTime":"Fri, 09 Sep 2022 07:57:02 UTC",
+                "dorisBuildInfo":"root@4b7b503d1cb3"
             }
-        ]
-    },
-    count: 30
-}
+        },
+        "count":0
+    }
     ```
 ## Examples
 
 
     ```
-    curl http://127.0.0.1:8040/api/tablets_json?limit=123
-
+    curl http://127.0.0.1:8040/api/be_version_info
+    
     ```
 

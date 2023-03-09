@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "View Tablet Info",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,55 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# View Tablet Info
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /tablets_json?limit={int}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+View Tablet Info, including ID and schema hash.
 
 ## Query parameters
 
-* `tablet_id`
-    table的id
-
-* `start_version`
-    起始版本
-
-* `end_version`
-    终止版本       
-
+* `limit`
+    Number of tablets output，Optional with default 1000. Take `all` to output all tablets.
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
     {
     msg: "OK",
-    code: 0
+    code: 0,
+    data: {
+        host: "10.38.157.107",
+        tablets: [
+            {
+                tablet_id: 11119,
+                schema_hash: 714349777
+            },
+
+                ...
+
+            {
+                tablet_id: 11063,
+                schema_hash: 714349777
+            }
+        ]
+    },
+    count: 30
 }
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl http://127.0.0.1:8040/api/tablets_json?limit=all
 
     ```
 

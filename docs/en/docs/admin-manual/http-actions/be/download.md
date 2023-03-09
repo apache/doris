@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "Download Log about Load Error",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# Download Log about Load Error
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/_load_error_log?token={string}&file={string}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+Download log file about load error
 
 ## Query parameters
 
-* `tablet_id`
-    table的id
+* `file`
+    Path of log
 
-* `start_version`
-    起始版本
-
-* `end_version`
-    终止版本       
-
+* `token`
+    token         
 
 ## Request body
 
-无
+None
 
 ## Response
 
-    ```
-    {
-    msg: "OK",
-    code: 0
-}
-    ```
+    File of log
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl "http://127.0.0.1:8040/api/_load_error_log?file=a&token=1"
     ```
 

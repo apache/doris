@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "Config of BE",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,57 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# Config of BE
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/show_config`
+`POST /api/update_config?{key}={val}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+Query and update the config of BE
 
 ## Query parameters
 
-* `tablet_id`
-    table的id
+* `persist`
+    Whether to persist. Optional with default `false`.
 
-* `start_version`
-    起始版本
+* `key`
+    Config item name
 
-* `end_version`
-    终止版本       
-
+* `val`
+    Config item value        
 
 ## Request body
 
-无
+None
 
 ## Response
 
+### Query
+
+    ```
+    [["agent_task_trace_threshold_sec","int32_t","2","true"], ...]
+    ```
+
+### Update
     ```
     {
-    msg: "OK",
-    code: 0
-}
+        "status": "OK",
+        "msg": ""
+    }
     ```
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl http://127.0.0.1:8040/api/show_config
+    ```
+    
+    ```
+    curl -X POST "http://127.0.0.1:8040/api/update_config?agent_task_trace_threshold_sec=2&persist=true"
+    
     ```
 

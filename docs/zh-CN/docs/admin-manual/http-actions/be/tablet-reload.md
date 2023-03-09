@@ -37,7 +37,7 @@ under the License.
 ## Query parameters
 
 * `tablet_id`
-    需要恢复的table的id
+    需要重加载的table的id
 
 * `schema_hash`
     schema hash      

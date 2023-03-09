@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "Check Alive",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# Check Alive
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/health`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+Provided for the monitoring service to Check whether the BE is alive，Be will respond if alive.
 
 ## Query parameters
 
-* `tablet_id`
-    table的id
-
-* `start_version`
-    起始版本
-
-* `end_version`
-    终止版本       
-
+None   
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
-    {
-    msg: "OK",
-    code: 0
-}
+    {"status": "OK","msg": "To Be Added"}
     ```
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl http://127.0.0.1:8040/api/health
     ```
 

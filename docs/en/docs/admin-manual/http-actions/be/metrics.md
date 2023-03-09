@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "Metrics",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,44 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# Metrics
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /metrics?type={enum}&with_tablet={bool}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+Provided for prometheus
 
 ## Query parameters
 
-* `tablet_id`
-    table的id
+* `type`
+    Output style, Optional with default `all` and the following values:
+    - `core`: Only core items
+    - `json`: Json format
 
-* `start_version`
-    起始版本
-
-* `end_version`
-    终止版本       
-
+* `with_tablet`
+    Whether to output tablet-related items，Optional with default `false`.
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
-    {
-    msg: "OK",
-    code: 0
-}
+    doris_be__max_network_receive_bytes_rate LONG 60757
+    doris_be__max_network_send_bytes_rate LONG 16232
+    doris_be_process_thread_num LONG 1120
+    doris_be_process_fd_num_used LONG 336
+    ，，，
+
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+        curl "http://127.0.0.1:8040/metrics?type=json&with_tablet=true"
     ```
 

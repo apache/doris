@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "Reset Stub Cache",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,44 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# Reset Stub Cache
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/reset_rpc_channel/{endpoints}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+Reset the connection cache of brpc
 
-## Query parameters
+## Path parameters
 
-* `tablet_id`
-    table的id
-
-* `start_version`
-    起始版本
-
-* `end_version`
-    终止版本       
-
+* `endpoints`
+    - `all`: clear all caches
+    - `host1:port1,host2:port2`: clear cache of the specified target
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
     {
-    msg: "OK",
-    code: 0
-}
+        "msg":"success",
+        "code":0,
+        "data": "no cached channel.",
+        "count":0
+    }
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl http://127.0.0.1:8040/api/reset_rpc_channel/all
+    ```
+    
+    ```
+    curl http://127.0.0.1:8040/api/reset_rpc_channel/1.1.1.1:8080,2.2.2.2:8080
     ```
 

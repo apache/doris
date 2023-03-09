@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "View Meta",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,50 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# View Meta
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/meta/header/{tablet_id}?byte_to_base64={bool}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+View meta of a tablet
+
+## Path parameters
+
+* `tablet_id`
+    ID of the tablet
 
 ## Query parameters
 
-* `tablet_id`
-    table的id
-
-* `start_version`
-    起始版本
-
-* `end_version`
-    终止版本       
-
+* `byte_to_base64`
+    Whether to encode by base64. Optional with default `false`.
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
-    {
-    msg: "OK",
-    code: 0
-}
+        {
+        "table_id": 148107,
+        "partition_id": 148104,
+        "tablet_id": 148193,
+        "schema_hash": 2090621954,
+        "shard_id": 38,
+        "creation_time": 1673253868,
+        "cumulative_layer_point": -1,
+        "tablet_state": "PB_RUNNING",
+        ...
+    }
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl "http://127.0.0.1:8040/api/meta/header/148193&byte_to_base64=true"
 
     ```
 

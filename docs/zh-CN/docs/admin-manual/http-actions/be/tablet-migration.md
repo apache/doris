@@ -37,7 +37,6 @@ under the License.
 ## Query parameters
 
 * `goal`
-    操作类型，只可取：
     - `run`：提交迁移任务
     - `status`：查询任务的执行状态
 

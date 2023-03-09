@@ -29,7 +29,7 @@ under the License.
 ## Request
 
 `GET /api/show_config`
-`GET /api/update_config?{key}={val}`
+`POST /api/update_config?{key}={val}`
 
 ## Description
 

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "填充坏副本",
-    "language": "zh-CN"
+    "title": "Checksum",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,41 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 填充坏副本
+# Checksum
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/checksum?tablet_id={int}&version={int}&schema_hash={int}`
 
 ## Description
 
-该功能用于使用一个空的rowset填充损坏的副本。
+Checksum
 
 ## Query parameters
 
 * `tablet_id`
-    table的id
+    ID of the tablet to be checked
 
-* `start_version`
-    起始版本
+* `version`
+    Version of the tablet to be verified 
 
-* `end_version`
-    终止版本       
-
+* `schema_hash`
+    Schema hash
 
 ## Request body
 
-无
+None
 
 ## Response
 
     ```
-    {
-    msg: "OK",
-    code: 0
-}
+    1843743562
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl "http://127.0.0.1:8040/api/checksum?tablet_id=1&version=1&schema_hash=-1"
+    
     ```
 
