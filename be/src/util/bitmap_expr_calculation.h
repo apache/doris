@@ -57,7 +57,6 @@ public:
         }
     }
 
-    // 计算表达式的值
     BitmapValue bitmap_calculate() {
         std::stack<BitmapValue> values;
         std::string bitmapKey;
@@ -139,7 +138,6 @@ private:
         bool lastIsChar = false;
         for (int i = 0; i < inputStr.length(); i++) {
             char curChar = inputStr.at(i);
-            // 如果是字符串
             if (curChar != '&' && curChar != '|' && curChar != '^' && curChar != '-' &&
                 curChar != '(' && curChar != ')' && curChar != ' ' && curChar != '\t') {
                 if (!lastIsChar) {
@@ -149,18 +147,15 @@ private:
                 lastIsChar = true;
                 continue;
             }
-            // 转义字符
             else if (i != 0 && inputStr.at(i - 1) == '\\') {
                 polish.push(curChar);
                 lastIsChar = true;
                 continue;
             }
-            // 为空格
             else if (curChar == ' ' || curChar == '\t') {
                 lastIsChar = false;
                 continue;
             }
-            // 否则为操作符
             else if (curChar == '(') {
                 opStack.push(curChar);
             } else if (!opStack.empty() && curChar == ')') {
@@ -201,8 +196,6 @@ private:
         return printStack(polish);
     }
 
-    // the bitmap cross and contrast operation 
-    // because the data is on the stack so the first operand is opB and the second operand is opA
     void bitmapCalculate(BitmapValue& opA, BitmapValue& opB, char op, BitmapValue& result) {
         result |= opB;
         switch (op) {
