@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -121,6 +123,11 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
         return from(join);
+    }
+
+    public LogicalPlanBuilder sort(List<OrderKey> orderKeys) {
+        LogicalSort<LogicalPlan> sortPlan = new LogicalSort<>(orderKeys, this.plan);
+        return from(sortPlan);
     }
 
     public LogicalPlanBuilder limit(long limit, long offset) {
