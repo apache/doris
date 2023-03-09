@@ -79,7 +79,7 @@ public class MetadataScanNode extends ScanNode {
 
     @Override
     public boolean needToCheckColumnPriv() {
-        return super.needToCheckColumnPriv();
+        return false;
     }
 
     private void buildScanRanges() {

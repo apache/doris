@@ -168,7 +168,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
 
 Status VMetaScanner::_fetch_iceberg_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "VMetaScanner::_fetch_iceberg_metadata";
-    if (meta_scan_range.__isset.iceberg_params) {
+    if (!meta_scan_range.__isset.iceberg_params) {
         return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
     }
     // create request
