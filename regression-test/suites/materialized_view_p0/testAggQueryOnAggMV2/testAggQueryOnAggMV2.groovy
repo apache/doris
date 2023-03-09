@@ -33,13 +33,13 @@ suite ("testAggQueryOnAggMV2") {
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
-    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
 
     explain {
         sql("select deptno, sum(salary) from emps group by deptno ;")
         contains "(emps)"
     }
-    qt_select_emps_mv "select sum(salary), deptno from emps group by deptno ;"
+    qt_select_emps_mv "select deptno, sum(salary) from emps group by deptno ;"
 
     createMV("create materialized view emps_mv as select deptno, sum(salary) from emps group by deptno ;")
 
