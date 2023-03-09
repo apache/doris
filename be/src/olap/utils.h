@@ -106,9 +106,7 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-// 计算adler32的包装函数
-// 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
-#define ADLER32_INIT adler32(0L, Z_NULL, 0)
+uint32_t olap_adler32_init();
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
 // 获取系统当前时间，并将时间转换为字符串
