@@ -132,7 +132,9 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
     Defer defer {[&]() {
-        _task_queue->update_statistics(this, time_spent);
+        if (_task_queue) {
+            _task_queue->update_statistics(this, time_spent);
+        }
     }};
     // The status must be runnable
     *eos = false;
@@ -202,7 +204,9 @@ Status PipelineTask::finalize() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     Defer defer {[&]() {
-        _task_queue->update_statistics(this, _finalize_timer->value());
+        if (_task_queue) {
+            _task_queue->update_statistics(this, time_spent);
+        }
     }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
@@ -215,7 +219,9 @@ Status PipelineTask::try_close() {
 Status PipelineTask::close() {
     int64_t close_ns = 0;
     Defer defer {[&]() {
-        _task_queue->update_statistics(this, close_ns);
+        if (_task_queue) {
+            _task_queue->update_statistics(this, time_spent);
+        }
     }};
     Status s;
     {
