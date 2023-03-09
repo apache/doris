@@ -26,6 +26,7 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -57,6 +58,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
     public static final String RESOURCE_VARIABLE = "resource_group";
@@ -169,6 +171,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
+    public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
 
@@ -192,6 +195,8 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
+
+    public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
@@ -234,6 +239,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
 
+    public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
+
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
@@ -252,6 +259,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
 
+    // support unicode in label, table, column, common name check
+    public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
+
     public static final String REPEAT_MAX_NUM = "repeat_max_num";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
@@ -259,10 +269,22 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
-    public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
+    public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
+
+    public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
+    public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
+
+    public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
+
+    // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
+    public static final String USE_FIX_REPLICA = "use_fix_replica";
+
+    public static final String DRY_RUN_QUERY = "dry_run_query";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -291,6 +313,9 @@ public class SessionVariable implements Serializable, Writable {
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
     public int queryTimeoutS = 300;
+
+    @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
+    public int insertTimeoutS = 14400;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
@@ -399,7 +424,7 @@ public class SessionVariable implements Serializable, Writable {
     public int codegenLevel = 0;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE)
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
     public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
@@ -483,6 +508,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_RPC_OPT_FOR_PIPELINE)
+    public boolean enableRpcOptForPipeline = true;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
 
@@ -553,7 +581,16 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = true;
+    private boolean enableDPHypOptimizer = false;
+
+    /**
+     * This variable is used to select n-th optimized plan in memo.
+     * It can allow us select different plans for the same SQL statement
+     * and these plans can be used to evaluate the cost model.
+     */
+    @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
+    private int nthOptimizedPlan = 1;
+
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -604,7 +641,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSingleReplicaInsert = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
-    public boolean enableFunctionPushdown;
+    public boolean enableFunctionPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
     public boolean enableLocalExchange = true;
@@ -626,6 +663,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
     public boolean skipDeleteSign = false;
+
+    /**
+     * For debug purpose, skip delete bitmap when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
+    public boolean skipDeleteBitmap = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -663,7 +706,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    public boolean enableUnicodeNameSupport = false;
+
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
+
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
@@ -681,8 +728,8 @@ public class SessionVariable implements Serializable, Writable {
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
     @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
     public boolean enableTwoPhaseReadOpt = true;
-    @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
-    public long twoPhaseReadLimitThreshold = 512;
+    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -692,6 +739,26 @@ public class SessionVariable implements Serializable, Writable {
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
     public boolean enableFileCache = true;
+
+    // Whether drop table when create table as select insert data appear error.
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
+    public boolean dropTableIfCtasFailed = true;
+
+    @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER)
+    public int maxTableCountUseCascadesJoinReorder = 10;
+
+    // If this is true, the result of `show roles` will return all user default role
+    @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
+    public boolean showUserDefaultRole = false;
+
+    // Default value is -1, which means not fix replica
+    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
+    public int useFixReplica = -1;
+
+    // If set to true, all query will be executed without returning result
+    @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
+    public boolean dryRunQuery = false;
+
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -727,14 +794,25 @@ public class SessionVariable implements Serializable, Writable {
         }
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
-            // this.enablePipelineEngine = true;
+            this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
         } else {
-            // this.enablePipelineEngine = false;
+            this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
         }
+
+        if (Config.fuzzy_test_type.equals("p0")) {
+            if (Config.pull_request_id % 2 == 1) {
+                this.batchSize = 4064;
+            } else {
+                this.batchSize = 50;
+            }
+        }
+
+        // set random 1, 10, 100, 1000, 10000
+        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -814,6 +892,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
+    }
+
+    public int getInsertTimeoutS() {
+        return insertTimeoutS;
+    }
+
+    public void setInsertTimeoutS(int insertTimeoutS) {
+        this.insertTimeoutS = insertTimeoutS;
     }
 
     public boolean enableProfile() {
@@ -1193,6 +1279,10 @@ public class SessionVariable implements Serializable, Writable {
         return runtimeFilterType;
     }
 
+    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) == type.getValue();
+    }
+
     public void setRuntimeFilterType(int runtimeFilterType) {
         this.runtimeFilterType = runtimeFilterType;
     }
@@ -1215,6 +1305,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean enablePipelineEngine() {
         return enablePipelineEngine;
+    }
+
+    public boolean enableRpcOptForPipeline() {
+        return enableRpcOptForPipeline;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
@@ -1364,6 +1458,10 @@ public class SessionVariable implements Serializable, Writable {
         return isEnableNereidsPlanner() && enableDPHypOptimizer;
     }
 
+    public int getNthOptimizedPlan() {
+        return nthOptimizedPlan;
+    }
+
     public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
         this.enableDPHypOptimizer = enableDPHypOptimizer;
     }
@@ -1422,6 +1520,18 @@ public class SessionVariable implements Serializable, Writable {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
+    public boolean isEnableUnicodeNameSupport() {
+        return enableUnicodeNameSupport;
+    }
+
+    public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
+        this.enableUnicodeNameSupport = enableUnicodeNameSupport;
+    }
+
+    public boolean isDropTableIfCtasFailed() {
+        return dropTableIfCtasFailed;
+    }
+
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
         long value = Long.valueOf(externalSortBytesThreshold);
         if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
@@ -1436,6 +1546,21 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableFileCache(boolean enableFileCache) {
         this.enableFileCache = enableFileCache;
+    }
+
+    public int getMaxTableCountUseCascadesJoinReorder() {
+        return this.maxTableCountUseCascadesJoinReorder;
+    }
+
+    public void setMaxTableCountUseCascadesJoinReorder(int maxTableCountUseCascadesJoinReorder) {
+        this.maxTableCountUseCascadesJoinReorder =
+                maxTableCountUseCascadesJoinReorder < MIN_JOIN_REORDER_TABLE_COUNT
+                        ? MIN_JOIN_REORDER_TABLE_COUNT
+                        : maxTableCountUseCascadesJoinReorder;
+    }
+
+    public boolean isShowUserDefaultRole() {
+        return showUserDefaultRole;
     }
 
     /**
@@ -1493,6 +1618,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
+        tResult.setSkipDeleteBitmap(skipDeleteBitmap);
+
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
@@ -1501,6 +1628,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        if (dryRunQuery) {
+            tResult.setDryRunQuery(true);
+        }
 
         return tResult;
     }
@@ -1669,6 +1800,9 @@ public class SessionVariable implements Serializable, Writable {
         }
         if (queryOptions.isSetQueryTimeout()) {
             setQueryTimeoutS(queryOptions.getQueryTimeout());
+        }
+        if (queryOptions.isSetInsertTimeout()) {
+            setInsertTimeoutS(queryOptions.getInsertTimeout());
         }
     }
 

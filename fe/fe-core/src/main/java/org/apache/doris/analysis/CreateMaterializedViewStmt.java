@@ -104,6 +104,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         this.isReplay = isReplay;
     }
 
+    public boolean isReplay() {
+        return isReplay;
+    }
+
     public String getMVName() {
         return mvName;
     }
@@ -154,6 +158,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     + selectStmt.getHavingPred().toSql());
         }
         analyzeOrderByClause();
+        analyzeGroupByClause();
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
@@ -204,7 +209,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();
                 functionCallExpr.collect(SlotRef.class, slots);
-                Preconditions.checkArgument(slots.size() == 1);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -236,6 +240,39 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         dbName = tableName.getDb();
     }
 
+    private void analyzeGroupByClause() throws AnalysisException {
+        if (selectStmt.getGroupByClause() == null) {
+            return;
+        }
+        List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
+        List<FunctionCallExpr> aggregateExprs = selectStmt.getAggInfo().getAggregateExprs();
+        List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
+        for (Expr expr : selectExprs) {
+            boolean match = false;
+            String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            for (Expr groupExpr : groupingExprs) {
+                String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+                if (lhs.equalsIgnoreCase(rhs)) {
+                    match = true;
+                    break;
+                }
+            }
+            if (!match) {
+                for (Expr groupExpr : aggregateExprs) {
+                    String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
+                    if (lhs.equalsIgnoreCase(rhs)) {
+                        match = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!match) {
+                throw new AnalysisException("The select expr " + lhs + " not in grouping or aggregate columns");
+            }
+        }
+    }
+
     private void analyzeOrderByClause() throws AnalysisException {
         if (selectStmt.getOrderByElements() == null) {
             supplyOrderColumn();
@@ -264,7 +301,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             if (slotRef.getColumnName() == null) {
                 throw new AnalysisException("slotRef.getColumnName() is null");
             }
-            if (!MaterializedIndexMeta.matchColumnName(mvColumnItem.getName(), slotRef.getColumnName())) {
+            if (!MaterializedIndexMeta.matchColumnName(mvColumnBreaker(mvColumnItem.getName()),
+                    slotRef.getColumnName())) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
                         + "the order of columns in select list, " + mvColumnItem.getName() + " vs "
                         + slotRef.getColumnName());
@@ -415,7 +453,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (SelectListItem selectListItem : selectList.getItems()) {
             Expr selectListItemExpr = selectListItem.getExpr();
             Expr expr = selectListItemExpr;
-            String name = MaterializedIndexMeta.normalizeName(expr.toSql());
+            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
@@ -490,6 +528,39 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
         }
         return name;
+    }
+
+    public static String oldmvColumnBreaker(String name) {
+        if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
+            // mv_count_k2 -> k2
+            name = name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length());
+            for (String prefix : FN_NAME_TO_PATTERN.keySet()) {
+                if (name.startsWith(prefix)) {
+                    return name.substring(prefix.length() + 1);
+                }
+            }
+        }
+        if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
+            // mv_k2 -> k2
+            return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
+        }
+        return name;
+    }
+
+    private static boolean mvMatch(String name, String prefix) {
+        return MaterializedIndexMeta.normalizeName(name).startsWith(prefix);
+    }
+
+    public static boolean isMVColumn(String name) {
+        return isMVColumnAggregate(name) || isMVColumnNormal(name);
+    }
+
+    public static boolean isMVColumnAggregate(String name) {
+        return mvMatch(name, MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public static boolean isMVColumnNormal(String name) {
+        return mvMatch(name, MATERIALIZED_VIEW_NAME_PREFIX);
     }
 
     @Override

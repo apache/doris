@@ -17,35 +17,16 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
 class PlanUtilsTest {
-
-    @Test
-    void projectOrSelf() {
-        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        Plan self = PlanUtils.projectOrSelf(Lists.newArrayList(), scan);
-        Assertions.assertSame(scan, self);
-
-        NamedExpression slot = scan.getOutput().get(0);
-        List<NamedExpression> projects = Lists.newArrayList();
-        projects.add(slot);
-        Plan project = PlanUtils.projectOrSelf(projects, scan);
-        Assertions.assertTrue(project instanceof LogicalProject);
-    }
-
     @Test
     void filterOrSelf() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);

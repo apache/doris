@@ -26,11 +26,14 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
+import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
 import org.apache.doris.nereids.jobs.scheduler.JobPool;
 import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
+import org.apache.doris.nereids.jobs.scheduler.ScheduleContext;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
@@ -38,12 +41,14 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -57,12 +62,20 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 
 /**
  * Context used in memo.
  */
-public class CascadesContext {
-    private final Memo memo;
+public class CascadesContext implements ScheduleContext, PlanSource {
+    // in analyze/rewrite stage, the plan will storage in this field
+    private Plan plan;
+
+    private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
+
+    // in optimize stage, the plan will storage in the memo
+    private Memo memo;
+
     private final StatementContext statementContext;
 
     private CTEContext cteContext;
@@ -76,8 +89,13 @@ public class CascadesContext {
 
     private List<Table> tables = null;
 
-    public CascadesContext(Memo memo, StatementContext statementContext, PhysicalProperties requestProperties) {
-        this(memo, statementContext, new CTEContext(), requestProperties);
+    private boolean isRewriteRoot;
+
+    private Optional<Scope> outerScope = Optional.empty();
+
+    public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
+            PhysicalProperties requestProperties) {
+        this(plan, memo, statementContext, new CTEContext(), requestProperties);
     }
 
     /**
@@ -86,8 +104,9 @@ public class CascadesContext {
      * @param memo {@link Memo} reference
      * @param statementContext {@link StatementContext} reference
      */
-    public CascadesContext(Memo memo, StatementContext statementContext,
+    public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             CTEContext cteContext, PhysicalProperties requireProperties) {
+        this.plan = plan;
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
@@ -99,19 +118,30 @@ public class CascadesContext {
         this.cteContext = cteContext;
     }
 
-    public static CascadesContext newContext(StatementContext statementContext,
+    public static CascadesContext newMemoContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
-        return new CascadesContext(new Memo(initPlan), statementContext, requireProperties);
+        return new CascadesContext(initPlan, new Memo(initPlan), statementContext, requireProperties);
+    }
+
+    public static CascadesContext newRewriteContext(StatementContext statementContext,
+            Plan initPlan, PhysicalProperties requireProperties) {
+        return new CascadesContext(initPlan, null, statementContext, requireProperties);
+    }
+
+    public static CascadesContext newRewriteContext(StatementContext statementContext,
+            Plan initPlan, CTEContext cteContext) {
+        return new CascadesContext(initPlan, null, statementContext, cteContext, PhysicalProperties.ANY);
+    }
+
+    public void toMemo() {
+        this.memo = new Memo(plan);
     }
 
     public NereidsAnalyzer newAnalyzer() {
         return new NereidsAnalyzer(this);
     }
 
-    public NereidsAnalyzer newAnalyzer(Optional<Scope> outerScope) {
-        return new NereidsAnalyzer(this, outerScope);
-    }
-
+    @Override
     public void pushJob(Job job) {
         jobPool.push(job);
     }
@@ -136,6 +166,7 @@ public class CascadesContext {
         this.ruleSet = ruleSet;
     }
 
+    @Override
     public JobPool getJobPool() {
         return jobPool;
     }
@@ -163,6 +194,23 @@ public class CascadesContext {
     public CascadesContext setJobContext(PhysicalProperties physicalProperties) {
         this.currentJobContext = new JobContext(this, physicalProperties, Double.MAX_VALUE);
         return this;
+    }
+
+    public Plan getRewritePlan() {
+        return plan;
+    }
+
+    public void setRewritePlan(Plan plan) {
+        this.plan = plan;
+    }
+
+    public Optional<RootRewriteJobContext> getCurrentRootRewriteJobContext() {
+        return currentRootRewriteJobContext;
+    }
+
+    public void setCurrentRootRewriteJobContext(
+            RootRewriteJobContext currentRootRewriteJobContext) {
+        this.currentRootRewriteJobContext = Optional.ofNullable(currentRootRewriteJobContext);
     }
 
     public void setSubqueryExprIsAnalyzed(SubqueryExpr subqueryExpr, boolean isAnalyzed) {
@@ -201,12 +249,35 @@ public class CascadesContext {
         return execute(new RewriteTopDownJob(memo.getRoot(), rules, currentJobContext));
     }
 
+    public CascadesContext topDownRewrite(CustomRewriter customRewriter) {
+        CustomRewriteJob customRewriteJob = new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE);
+        customRewriteJob.execute(currentJobContext);
+        toMemo();
+        return this;
+    }
+
     public CTEContext getCteContext() {
         return cteContext;
     }
 
     public void setCteContext(CTEContext cteContext) {
         this.cteContext = cteContext;
+    }
+
+    public void setIsRewriteRoot(boolean isRewriteRoot) {
+        this.isRewriteRoot = isRewriteRoot;
+    }
+
+    public boolean isRewriteRoot() {
+        return isRewriteRoot;
+    }
+
+    public Optional<Scope> getOuterScope() {
+        return outerScope;
+    }
+
+    public void setOuterScope(@Nullable Scope outerScope) {
+        this.outerScope = Optional.ofNullable(outerScope);
     }
 
     private CascadesContext execute(Job job) {

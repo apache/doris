@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -68,7 +69,6 @@ public class ImplementationTest {
     public PhysicalPlan executeImplementationRule(LogicalPlan plan) {
         Rule rule = rulesMap.get(plan.getClass().getName());
         List<Plan> transform = rule.transform(plan, cascadesContext);
-        Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof PhysicalPlan);
         return (PhysicalPlan) transform.get(0);
     }
@@ -109,7 +109,7 @@ public class ImplementationTest {
     public void toPhysicalLimitTest() {
         int limit = 10;
         int offset = 100;
-        LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(limit, offset, groupPlan);
+        LogicalLimit<? extends Plan> logicalLimit = new LogicalLimit<>(limit, offset, LimitPhase.LOCAL, groupPlan);
         PhysicalPlan physicalPlan = executeImplementationRule(logicalLimit);
         Assertions.assertEquals(PlanType.PHYSICAL_LIMIT, physicalPlan.getType());
         PhysicalLimit<GroupPlan> physicalLimit = (PhysicalLimit<GroupPlan>) physicalPlan;

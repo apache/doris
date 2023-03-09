@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.ScanNode;
@@ -53,7 +53,7 @@ import java.util.stream.Collectors;
  * Tests ported from {@link org.apache.doris.planner.MaterializedViewFunctionTest}
  */
 @Disabled("Disabled until nereids support advanced mv")
-public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements PatternMatchSupported {
+public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoPatternMatchSupported {
 
     private static final String EMPS_TABLE_NAME = "emps";
     private static final String EMPS_MV_NAME = "emps_mv";
@@ -642,7 +642,7 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
         // don't use rollup k1_v1
         addRollup("alter table agg_table add rollup k1_v1(k1, v1)");
         // use rollup only_keys
-        addRollup("alter table agg_table add rollup only_keys (k1, k2) properties ('replication_num' = '1')");
+        addRollup("alter table agg_table add rollup only_keys (k2, k1) properties ('replication_num' = '1')");
 
         String query = "select k1, k2 from agg_table;";
         // todo: `preagg` should be ture when rollup could be used.
@@ -716,11 +716,11 @@ public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implement
 
     @Test
     public void testUniqueTableInQuery() throws Exception {
-        String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 int) UNIQUE KEY (k1) "
+        String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
         createTable(uniqueTable);
-        String createK1MV = "create materialized view only_k1 as select k1 from " + TEST_TABLE_NAME + " group by "
-                + "k1;";
+        String createK1MV = "create materialized view only_k1 as select k2 from " + TEST_TABLE_NAME + " group by "
+                + "k2;";
         createMv(createK1MV);
         String query = "select * from " + TEST_TABLE_NAME + ";";
         singleTableTest(query, TEST_TABLE_NAME, false);

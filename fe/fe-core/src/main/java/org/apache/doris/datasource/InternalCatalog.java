@@ -146,7 +146,7 @@ import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -210,7 +210,7 @@ import java.util.stream.Collectors;
  */
 public class InternalCatalog implements CatalogIf<Database> {
     public static final String INTERNAL_CATALOG_NAME = "internal";
-    public static final long INTERNAL_DS_ID = 0L;
+    public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
@@ -228,7 +228,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @Override
     public long getId() {
-        return INTERNAL_DS_ID;
+        return INTERNAL_CATALOG_ID;
     }
 
     @Override
@@ -260,6 +260,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (fullName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
                 String clusterName = ClusterNamespace.getClusterNameFromFullName(dbName);
                 fullName = ClusterNamespace.getFullName(clusterName, fullName.toLowerCase());
+                // If the fullname is not valid, ClusterNamespace.getFullName may return null
+                // and fullNameToDb.get(fullName) may throw null pointer exception
+                if (fullName == null) {
+                    return null;
+                }
                 return fullNameToDb.get(fullName);
             }
         }
@@ -270,6 +275,16 @@ public class InternalCatalog implements CatalogIf<Database> {
     @Override
     public Database getDbNullable(long dbId) {
         return idToDb.get(dbId);
+    }
+
+    public TableName getTableNameByTableId(Long tableId) {
+        for (Database db : fullNameToDb.values()) {
+            Table table = db.getTableNullable(tableId);
+            if (table != null) {
+                return new TableName("", db.getFullName(), table.getName());
+            }
+        }
+        return null;
     }
 
     @Override
@@ -296,7 +311,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         // to see which thread held this lock for long time.
                         Thread owner = lock.getOwner();
                         if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                            // There are many catalog timeout during regression test
+                            // And this timeout should not happen very often, so it could be info log
+                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                         }
                     }
 
@@ -1224,6 +1241,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (resultType.isDecimalV3()) {
                     typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
                             ((ScalarType) resultType).getScalarScale()));
+                } else if (resultType.isNull()) {
+                    // if typeDef is NULL_TYPE, be will core when executing CTAS expression,
+                    // we change it to tinyint nullable.
+                    typeDef = TypeDef.create(PrimitiveType.TINYINT);
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
@@ -1342,6 +1363,26 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             Map<String, String> properties = singlePartitionDesc.getProperties();
+
+            /*
+             * sql: alter table test_tbl add  partition  xxx values less than ('xxx') properties('mutable' = 'false');
+             *
+             * sql_parser.cup definition:
+             * AddPartitionClause:
+             *      KW_ADD ... single_partition_desc:desc opt_distribution:distribution opt_properties:properties)
+             * SinglePartitionDesc:
+             *      single_partition_desc ::= KW_PARTITION ... ident:partName KW_VALUES KW_LESS KW_THAN
+             *                       partition_key_desc:desc opt_key_value_map:properties)
+             *
+             * If there is no opt_distribution definition, the properties in SQL is ambiguous to JCUP. It can bind
+             * properties to AddPartitionClause(`opt_properties`) or SinglePartitionDesc(`opt_key_value_map`).
+             * And JCUP choose to bind to AddPartitionClause, so we should add properties of AddPartitionClause to
+             * SinglePartitionDesc's properties here.
+             */
+            if (null != addPartitionClause.getProperties()) {
+                properties.putAll(addPartitionClause.getProperties());
+            }
+
             // partition properties should inherit table properties
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && !properties.containsKey(
@@ -1358,6 +1399,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
+            }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
+                        olapTable.isDynamicSchema().toString());
             }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
@@ -1438,7 +1483,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
                     olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(), idGeneratorBuffer,
-                    olapTable.disableAutoCompaction(), olapTable.storeRowColumn());
+                    olapTable.disableAutoCompaction(), olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1505,12 +1550,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             partitionInfo.getItem(partitionId).getItems(), ListPartitionItem.DUMMY_ITEM, dataProperty,
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                            isTempPartition);
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
                 } else if (partitionInfo.getType() == PartitionType.LIST) {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             RangePartitionItem.DUMMY_ITEM, partitionInfo.getItem(partitionId), dataProperty,
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                            isTempPartition);
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
                 }
                 Env.getCurrentEnv().getEditLog().logAddPartition(info);
 
@@ -1547,7 +1592,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             partitionInfo.unprotectHandleNewSinglePartitionDesc(partition.getId(), info.isTempPartition(),
-                    partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory());
+                    partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory(), info.isMutable());
 
             if (!Env.isCheckpointThread()) {
                 // add to inverted index
@@ -1671,7 +1716,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
             IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction,
-            boolean storeRowColumn) throws DdlException {
+            boolean storeRowColumn, boolean isDynamicSchema) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1733,7 +1778,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
                             dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
-                            disableAutoCompaction, storeRowColumn);
+                            disableAutoCompaction, storeRowColumn, isDynamicSchema);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
@@ -1960,9 +2005,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setStoreRowColumn(storeRowColumn);
 
+        // set dynamic schema
+        boolean isDynamicSchema = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, false);
+        olapTable.setIsDynamicSchema(isDynamicSchema);
+
+        boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
+
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()
+                && !Strings.isNullOrEmpty(storagePolicy)) {
+            throw new AnalysisException(
+                    "Can not create UNIQUE KEY table that enables Merge-On-write"
+                    + " with storage policy(" + storagePolicy + ")");
+        }
         olapTable.setStoragePolicy(storagePolicy);
 
         TTabletType tabletType;
@@ -1991,6 +2049,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.setReplicaAllocation(partitionId, replicaAlloc);
             partitionInfo.setIsInMemory(partitionId, isInMemory);
             partitionInfo.setTabletType(partitionId, tabletType);
+            partitionInfo.setIsMutable(partitionId, isMutable);
         }
 
         // check colocation properties
@@ -2132,7 +2191,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                        idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn);
+                        idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn, isDynamicSchema);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -2180,6 +2239,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                     // use partition storage policy if it exist.
                     String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
+                    if (olapTable.getEnableUniqueKeyMergeOnWrite()
+                            && !Strings.isNullOrEmpty(partionStoragePolicy)) {
+                        throw new AnalysisException(
+                                "Can not create UNIQUE KEY table that enables Merge-On-write"
+                                + " with storage policy(" + partionStoragePolicy + ")");
+                    }
                     if (!partionStoragePolicy.equals("")) {
                         storagePolicy = partionStoragePolicy;
                     }
@@ -2191,7 +2256,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn);
+                            idGeneratorBuffer, olapTable.disableAutoCompaction(), storeRowColumn, isDynamicSchema);
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -2596,7 +2661,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getStoragePolicy(), idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                        olapTable.storeRowColumn());
+                        olapTable.storeRowColumn(), olapTable.isDynamicSchema());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {
@@ -2786,7 +2851,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // create super user for this cluster
-        UserIdentity adminUser = new UserIdentity(PaloAuth.ADMIN_USER, "%");
+        UserIdentity adminUser = new UserIdentity(Auth.ADMIN_USER, "%");
         try {
             adminUser.analyze(stmt.getClusterName());
         } catch (AnalysisException e) {
@@ -2960,7 +3025,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Long id : decomBackendIds) {
                     final Backend backend = Env.getCurrentSystemInfo().getBackend(id);
                     hostPortList.add(
-                            new StringBuilder().append(backend.getHost()).append(":").append(backend.getHeartbeatPort())
+                            new StringBuilder().append(backend.getIp()).append(":").append(backend.getHeartbeatPort())
                                     .toString());
                 }
 
@@ -3334,12 +3399,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         // make sure one host hold only one backend.
         Set<String> beHost = Sets.newHashSet();
         for (Backend be : defaultClusterBackends) {
-            if (beHost.contains(be.getHost())) {
+            if (beHost.contains(be.getIp())) {
                 // we can not handle this situation automatically.
-                LOG.error("found more than one backends in same host: {}", be.getHost());
+                LOG.error("found more than one backends in same host: {}", be.getIp());
                 System.exit(-1);
             } else {
-                beHost.add(be.getHost());
+                beHost.add(be.getIp());
             }
         }
 

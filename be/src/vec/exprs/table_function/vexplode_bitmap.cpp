@@ -27,13 +27,6 @@ VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
     _fn_name = "vexplode_bitmap";
 }
 
-VExplodeBitmapTableFunction::~VExplodeBitmapTableFunction() {
-    if (_cur_iter != nullptr) {
-        delete _cur_iter;
-        _cur_iter = nullptr;
-    }
-}
-
 Status VExplodeBitmapTableFunction::process_init(vectorized::Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << "VExplodeNumbersTableFunction must be have 1 children but have "
@@ -84,11 +77,7 @@ Status VExplodeBitmapTableFunction::get_value(void** output) {
 
 void VExplodeBitmapTableFunction::_reset_iterator() {
     DCHECK(_cur_bitmap->cardinality() > 0) << _cur_bitmap->cardinality();
-    if (_cur_iter != nullptr) {
-        delete _cur_iter;
-        _cur_iter = nullptr;
-    }
-    _cur_iter = new BitmapValueIterator(*_cur_bitmap);
+    _cur_iter.reset(new BitmapValueIterator(*_cur_bitmap));
     _cur_value = **_cur_iter;
     _cur_offset = 0;
 }

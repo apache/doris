@@ -24,9 +24,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -66,9 +66,9 @@ public class RecoverTableStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                 ConnectContext.get(), dbTblName.getDb(), dbTblName.getTbl(), PrivPredicate.of(
-                        PrivBitSet.of(PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV, PaloPrivilege.ADMIN_PRIV),
+                        PrivBitSet.of(Privilege.ALTER_PRIV, Privilege.CREATE_PRIV, Privilege.ADMIN_PRIV),
                         Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
                                                 ConnectContext.get().getQualifiedUser(),

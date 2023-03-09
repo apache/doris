@@ -73,12 +73,6 @@ ThreadPoolBuilder& ThreadPoolBuilder::set_max_queue_size(int max_queue_size) {
     return *this;
 }
 
-Status ThreadPoolBuilder::build(std::unique_ptr<ThreadPool>* pool) const {
-    pool->reset(new ThreadPool(*this));
-    RETURN_IF_ERROR((*pool)->init());
-    return Status::OK();
-}
-
 ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode,
                                  int max_concurrency)
         : _mode(mode),
@@ -145,7 +139,7 @@ void ThreadPoolToken::shutdown() {
             break;
         }
         transition(State::QUIESCING);
-        FALLTHROUGH_INTENDED;
+        [[fallthrough]];
     case State::QUIESCING:
         // The token is already quiescing. Just wait for a worker thread to
         // switch it to QUIESCED.

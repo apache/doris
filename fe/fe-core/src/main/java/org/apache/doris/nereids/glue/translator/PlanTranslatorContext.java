@@ -29,6 +29,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -77,6 +78,11 @@ public class PlanTranslatorContext {
 
     private final IdentityHashMap<PlanFragment, PhysicalHashAggregate> firstAggInFragment
             = new IdentityHashMap<>();
+
+    private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
+    private TupleDescriptor bufferedTupleForWindow = null;
+
+    private List<MarkJoinSlotReference> outputMarkJoinSlot = Lists.newArrayList();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -148,6 +154,18 @@ public class PlanTranslatorContext {
         firstAggInFragment.put(planFragment, aggregate);
     }
 
+    public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {
+        return bufferedSlotRefForWindow;
+    }
+
+    public TupleDescriptor getBufferedTupleForWindow() {
+        return bufferedTupleForWindow;
+    }
+
+    public void setBufferedTupleForWindow(TupleDescriptor bufferedTupleForWindow) {
+        this.bufferedTupleForWindow = bufferedTupleForWindow;
+    }
+
     /**
      * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
@@ -194,5 +212,13 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    public void setOutputMarkJoinSlot(MarkJoinSlotReference markJoinSlotReference) {
+        outputMarkJoinSlot.add(markJoinSlotReference);
+    }
+
+    public List<MarkJoinSlotReference> getOutputMarkJoinSlot() {
+        return outputMarkJoinSlot;
     }
 }

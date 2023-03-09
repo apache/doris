@@ -24,6 +24,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
@@ -113,6 +114,10 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
+    }
+
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
     [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
@@ -154,6 +159,11 @@ public:
 
     bool is_fixed_and_contiguous() const override { return true; }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+    }
+
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {
@@ -166,6 +176,10 @@ public:
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
+        LOG(FATAL) << "filter not supported in ColumnDictionary";
+    }
+
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
         LOG(FATAL) << "filter not supported in ColumnDictionary";
     }
 
@@ -185,6 +199,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
+    }
+
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not implemented";
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {

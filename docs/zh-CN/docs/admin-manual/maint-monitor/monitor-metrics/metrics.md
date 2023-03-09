@@ -236,8 +236,9 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_local_file_reader_total`| | Num| 打开的 `LocalFileReader` 的累计计数 | |
 |`doris_be_local_file_open_reading`| | Num | 当前打开的 `LocalFileReader` 个数 | |
 |`doris_be_local_file_writer_total`| | Num | 打开的 `LocalFileWriter` 的累计计数。| |
-|`doris_be_mem_consumption`| | 字节 | 指定模块的当前内存开销。如 {type="compaction"} 表示 compaction 模块的当前总内存开销 | FIXME: 需要重新梳理|
-|`doris_be_memory_allocated_bytes`| | 字节 | 采集自 TcMalloc 的 `generic.total_physical_bytes` 属性。表示 TcMalloc 占用的虚拟内存的大小，并不代表实际的物理内存占用。 | 可能会比实际物理内存大 | P0 |
+|`doris_be_mem_consumption`| | 字节 | 指定模块的当前内存开销。如 {type="compaction"} 表示 compaction 模块的当前总内存开销。 | 值取自相同 type 的 MemTracker。FIXME |
+|`doris_be_memory_allocated_bytes`| | 字节 | BE 进程物理内存大小，取自 `/proc/self/status/VmRSS` | | P0 |
+|`doris_be_memory_jemalloc`| | 字节 | Jemalloc stats, 取自 `je_mallctl`。 | 含义参考：https://jemalloc.net/jemalloc.3.html | P0 |
 |`doris_be_memory_pool_bytes_total`| | 字节| 所有 MemPool 当前占用的内存大小。统计值，不代表真实内存使用。| |
 |`doris_be_memtable_flush_duration_us`| | 微秒 | memtable写入磁盘的耗时累计值 | 通过斜率可以观测写入延迟 | P0 |
 |`doris_be_memtable_flush_total`| | Num | memtable写入磁盘的个数累计值| 通过斜率可以计算写入文件的频率 | P0 |
@@ -295,6 +296,14 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_load_bytes`| | 字节|通过 tablet sink 发送的数量累计 | 可观测导入数据量 | P0 |
 |`doris_be_load_rows`| | Num | 通过 tablet sink 发送的行数累计| 可观测导入数据量 | P0 |
 |`fragment_thread_pool_queue_size`| | Num | 当前查询执行线程池等待队列的长度 | 如果大于零，则说明查询线程已耗尽，查询会出现堆积 | P0 |
+|`doris_be_all_rowsets_num`| | Num | 当前所有 rowset 的个数 | | P0 |
+|`doris_be_all_segments_num`| | Num | 当前所有 segment 的个数 | | P0 |
+|`doris_be_heavy_work_max_threads`| | Num | brpc heavy线程池线程个数| | p0 |
+|`doris_be_light_work_max_threads`| | Num | brpc light线程池线程个数| | p0 | 
+|`doris_be_heavy_work_pool_queue_size`| | Num | brpc heavy线程池队列最大长度,超过则阻塞提交work| | p0 |
+|`doris_be_light_work_pool_queue_size`| | Num | brpc light线程池队列最大长度,超过则阻塞提交work| | p0 |
+|`doris_be_heavy_work_active_threads`| | Num | brpc heavy线程池活跃线程数| | p0 |
+|`doris_be_light_work_active_threads`| | Num | brpc light线程池活跃线程数| | p0 |
 
 ### 机器监控
 

@@ -95,6 +95,33 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     DCHECK(status.ok());
 }
 
+RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
+                           const TUniqueId& query_id, const TQueryOptions& query_options,
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+        : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+          _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
+          _data_stream_recvrs_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _query_id(query_id),
+          _is_cancelled(false),
+          _per_fragment_instance_idx(0),
+          _num_rows_load_total(0),
+          _num_rows_load_filtered(0),
+          _num_rows_load_unselected(0),
+          _num_print_error_rows(0),
+          _num_bytes_load_total(0),
+          _normal_row_number(0),
+          _error_row_number(0),
+          _error_log_file(nullptr) {
+    if (pipeline_params.__isset.runtime_filter_params) {
+        _runtime_filter_mgr->set_runtime_filter_params(pipeline_params.runtime_filter_params);
+    }
+    Status status =
+            init(pipeline_params.fragment_instance_id, query_options, query_globals, exec_env);
+    DCHECK(status.ok());
+}
+
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
           _obj_pool(new ObjectPool()),

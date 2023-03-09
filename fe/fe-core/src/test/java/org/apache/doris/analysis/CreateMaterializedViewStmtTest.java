@@ -174,7 +174,7 @@ public class CreateMaterializedViewStmtTest {
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
-        } catch (IllegalArgumentException e) {
+        } catch (AnalysisException e) {
             System.out.print(e.getMessage());
         }
     }
@@ -320,7 +320,6 @@ public class CreateMaterializedViewStmtTest {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
         } catch (Exception e) {
-            e.printStackTrace();
             System.out.print(e.getMessage());
         }
     }
@@ -562,6 +561,8 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.toSql();
                 result = columnName4;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -575,22 +576,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertTrue(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(null, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertTrue(mvColumn3.isKey());
             Assert.assertFalse(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(null, mvColumn3.getAggregationType());
             MVColumnItem mvColumn4 = mvColumns.get(4);
             Assert.assertFalse(mvColumn4.isKey());
@@ -665,6 +666,8 @@ public class CreateMaterializedViewStmtTest {
                 result = 4;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -678,22 +681,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertTrue(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(null, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertFalse(mvColumn3.isKey());
             Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -763,6 +766,8 @@ public class CreateMaterializedViewStmtTest {
                 result = true;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -776,22 +781,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertFalse(mvColumn2.isKey());
             Assert.assertTrue(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertFalse(mvColumn3.isKey());
             Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -861,6 +866,8 @@ public class CreateMaterializedViewStmtTest {
                 result = PrimitiveType.VARCHAR;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -874,22 +881,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertTrue(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(null, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertFalse(mvColumn3.isKey());
             Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -965,6 +972,8 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 slotRef1.getType().getPrimitiveType();
                 result = PrimitiveType.VARCHAR;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -978,7 +987,7 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -1041,6 +1050,8 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 slotRef2.getColumnName();
                 result = columnName2;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -1053,12 +1064,12 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertFalse(mvColumn2.isKey());
@@ -1095,6 +1106,8 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getWhereClause();
                 result = null;
                 selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getGroupByClause();
                 result = null;
                 selectStmt.getLimit();
                 result = -1;

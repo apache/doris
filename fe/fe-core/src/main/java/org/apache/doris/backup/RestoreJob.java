@@ -782,9 +782,9 @@ public class RestoreJob extends AbstractJob {
             }
             AgentTaskExecutor.submit(batchTask);
 
-            // estimate timeout, at most 10 min
+            // estimate timeout
             long timeout = Config.tablet_create_timeout_second * 1000L * batchTask.getTaskNum();
-            timeout = Math.min(10 * 60 * 1000, timeout);
+            timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
             try {
                 LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
                         batchTask.getTaskNum(), timeout);
@@ -824,7 +824,8 @@ public class RestoreJob extends AbstractJob {
                         }
                         localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
                                 remoteDataProperty, restoreReplicaAlloc,
-                                remotePartitionInfo.getIsInMemory(remotePartId));
+                                remotePartitionInfo.getIsInMemory(remotePartId),
+                                remotePartitionInfo.getIsMutable(remotePartId));
                     }
                     localTbl.addPartition(restoredPart);
                 } finally {
@@ -1006,7 +1007,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
                             localTbl.disableAutoCompaction(),
-                            localTbl.storeRowColumn());
+                            localTbl.storeRowColumn(),
+                            localTbl.isDynamicSchema());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1168,7 +1170,8 @@ public class RestoreJob extends AbstractJob {
             }
             localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
                     remoteDataProperty, restoreReplicaAlloc,
-                    remotePartitionInfo.getIsInMemory(remotePartId));
+                    remotePartitionInfo.getIsInMemory(remotePartId),
+                    remotePartitionInfo.getIsMutable(remotePartId));
             localTbl.addPartition(restorePart);
 
             // modify tablet inverted index
@@ -1461,7 +1464,7 @@ public class RestoreJob extends AbstractJob {
 
         // set all restored partition version and version hash
         // set all tables' state to NORMAL
-        setTableStateToNormal(db, true);
+        setTableStateToNormal(db, true, isReplay);
         for (long tblId : restoredVersionInfo.rowKeySet()) {
             Table tbl = db.getTableNullable(tblId);
             if (tbl == null) {
@@ -1629,7 +1632,7 @@ public class RestoreJob extends AbstractJob {
         Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
-            setTableStateToNormal(db, false);
+            setTableStateToNormal(db, false, isReplay);
 
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
@@ -1706,7 +1709,7 @@ public class RestoreJob extends AbstractJob {
         LOG.info("finished to cancel restore job. is replay: {}. {}", isReplay, this);
     }
 
-    private void setTableStateToNormal(Database db, boolean committed) {
+    private void setTableStateToNormal(Database db, boolean committed, boolean isReplay) {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
@@ -1740,7 +1743,7 @@ public class RestoreJob extends AbstractJob {
                 }
                 if (committed && reserveDynamicPartitionEnable) {
                     if (DynamicPartitionUtil.isDynamicPartitionTable(tbl)) {
-                        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTbl, false);
+                        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTbl, isReplay);
                         Env.getCurrentEnv().getDynamicPartitionScheduler().createOrUpdateRuntimeInfo(tbl.getId(),
                                 DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
                     }

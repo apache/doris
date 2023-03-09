@@ -24,34 +24,74 @@ under the License.
 
 ## AES_ENCRYPT
 
+### Name
+
+AES_ENCRYPT
+
 ### description
-encryption of data using the official AES
+
+Encryption of data using the OpenSSL. This function is consistent with the `AES_ENCRYPT` function in MySQL. Using AES_128_ECB algorithm by default, and the padding mode is PKCS7.
+Reference: https://dev.mysql.com/doc/refman/8.0/en/encryption-functions.html#function_aes-decrypt
+
 #### Syntax
 
-`VARCHAR AES_ENCRYPT(str,key_str[,init_vector])`
+```
+AES_ENCRYPT(str,key_str[,init_vector])
+```
+
+#### Arguments
+
+- `str`: Content to be encrypted
+- `key_str`: Secret key
+- `init_vector`: Initialization Vector. The default value for the block_encryption_mode system variable is aes ecb mode, which does not require an initialization vector. The alternative permitted block encryption modes CBC, CFB1, CFB8, CFB128, and OFB all require an initialization vector.
+
+#### Return Type
+
+VARCHAR(*)
+
+#### Remarks
+
+The AES_ENCRYPT function is not used the user secret key directly, but will be further processed. The specific steps are as follows:
+1. Determine the number of bytes of the SECRET KEY according to the encryption algorithm used. For example, if you using AES_128_ECB, then the number of bytes of SECRET KEY are `128 / 8 = 16`(if using AES_256_ECB, then SECRET KEY length are `128 / 8 = 32`);
+2. Then XOR the `i` bit and the `16*k+i` bit of the SECRET KEY entered by the user. If the length of the SECRET KEY less than 16 bytes, 0 will be padded;
+3. Finally, use the newly generated key for encryption;
 
 ### example
 
+```sql
+select to_base64(aes_encrypt('text','F3229A0B371ED2D9441B830D21A390C3'));
 ```
-MySQL > select to_base64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));
+
+The results are consistent with those executed in MySQL.
+
+```text
 +--------------------------------+
 | to_base64(aes_encrypt('text')) |
 +--------------------------------+
 | wr2JEDVXzL9+2XtRhgIloA==       |
 +--------------------------------+
-1 row in set (0.010 sec)
+1 row in set (0.01 sec)
+```
 
-MySQL> set block_encryption_mode="AES_256_CBC";
-Query OK, 0 rows affected (0.006 sec)
+If you want to change other encryption algorithms, you can:
 
-MySQL > select to_base64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', '0123456789'));
+```sql
+set block_encryption_mode="AES_256_CBC";
+select to_base64(aes_encrypt('text','F3229A0B371ED2D9441B830D21A390C3', '0123456789'));
+```
+
+Here is the result:
+
+```text
 +-----------------------------------------------------+
 | to_base64(aes_encrypt('text', '***', '0123456789')) |
 +-----------------------------------------------------+
 | tsmK1HzbpnEdR2//WhO+MA==                            |
 +-----------------------------------------------------+
-1 row in set (0.011 sec)
+1 row in set (0.01 sec)
 ```
+
+For more information about `block_encryption_mode`, see also [variables](../../../advanced/variables.md).
 
 ### keywords
 
@@ -59,35 +99,67 @@ MySQL > select to_base64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', 
 
 ## AES_DECRYPT
 
-### description
-decryption of data using the official AES 
+### Name
+
+AES_DECRYPT
+
+### Description
+
+Decryption of data using the OpenSSL. This function is consistent with the `AES_DECRYPT` function in MySQL. Using AES_128_ECB algorithm by default, and the padding mode is PKCS7.
+
 #### Syntax
 
-`VARCHAR AES_DECRYPT(str,key_str[,init_vector])`
+```
+AES_DECRYPT(str,key_str[,init_vector])
+```
+
+#### Arguments
+
+- `str`: Content that encrypted
+- `key_str`: Secret key
+- `init_vector`: Initialization Vector
+
+#### Return Type
+
+VARCHAR(*)
 
 ### example
 
+```sql
+select aes_decrypt(from_base64('wr2JEDVXzL9+2XtRhgIloA=='),'F3229A0B371ED2D9441B830D21A390C3');
 ```
-MySQL > select AES_DECRYPT(FROM_BASE64('wr2JEDVXzL9+2XtRhgIloA=='),'F3229A0B371ED2D9441B830D21A390C3');
+
+The results are consistent with those executed in MySQL.
+
+```text
 +------------------------------------------------------+
 | aes_decrypt(from_base64('wr2JEDVXzL9+2XtRhgIloA==')) |
 +------------------------------------------------------+
 | text                                                 |
 +------------------------------------------------------+
-1 row in set (0.012 sec)
+1 row in set (0.01 sec)
+```
 
-MySQL> set block_encryption_mode="AES_256_CBC";
-Query OK, 0 rows affected (0.006 sec)
+If you want to change other encryption algorithms, you can:
 
-MySQL > select AES_DECRYPT(FROM_BASE64('tsmK1HzbpnEdR2//WhO+MA=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');
+```sql
+set block_encryption_mode="AES_256_CBC";
+select aes_decrypt(from_base64('tsmK1HzbpnEdR2//WhO+MA=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');
+```
+
+Here is the result:
+
+```text
 +---------------------------------------------------------------------------+
 | aes_decrypt(from_base64('tsmK1HzbpnEdR2//WhO+MA=='), '***', '0123456789') |
 +---------------------------------------------------------------------------+
 | text                                                                      |
 +---------------------------------------------------------------------------+
-1 row in set (0.012 sec)
+1 row in set (0.01 sec)
 ```
+
+For more information about `block_encryption_mode`, see also [variables](../../../advanced/variables.md).
 
 ### keywords
 
-    AES_ENCRYPT, AES_DECRYPT
+    AES_DECRYPT

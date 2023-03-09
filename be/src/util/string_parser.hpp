@@ -242,6 +242,7 @@ inline T StringParser::string_to_int_internal(const char* s, int len, ParseResul
     case '-':
         negative = true;
         max_val = StringParser::numeric_limits<T>(false) + 1;
+        [[fallthrough]];
     case '+':
         ++i;
     }
@@ -345,6 +346,7 @@ inline T StringParser::string_to_int_internal(const char* s, int len, int base,
     case '-':
         negative = true;
         max_val = StringParser::numeric_limits<T>(false) + 1;
+        [[fallthrough]];
     case '+':
         i = 1;
     }
@@ -568,6 +570,7 @@ inline T StringParser::string_to_decimal(const char* s, int len, int type_precis
         switch (*s) {
         case '-':
             is_negative = true;
+            [[fallthrough]];
         case '+':
             ++s;
             --len;

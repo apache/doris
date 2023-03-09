@@ -25,13 +25,17 @@
 # It contains all the meta data that describes the function.
 
 # The format is:
-#   [sql aliases], <return_type>, [<args>], <backend symbol>, <nullable mode>
+#   [sql aliases], <return_type>, [<args>], <nullable mode>, [template_types]
 #
 # 'sql aliases' are the function names that can be used from sql. There must be at least
 # one per function.
 #
 # 'nullable mode' reflects whether the return value of the function is null. See @Function.NullableMode
 # for the specific mode and meaning.
+#
+# 'template_types' is for template function just like C++. It is optional list.
+# eg. [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+#     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
 visible_functions = [
     # Bit and Byte functions
@@ -99,6 +103,9 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
 
+    # map element
+    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -136,7 +143,6 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'ALWAYS_NULLABLE'],
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-
 
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_BOOLEAN'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_TINYINT'], ''],
@@ -392,6 +398,42 @@ visible_functions = [
     [['array_union'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], ''],
     [['array_union'], 'ARRAY_STRING',    ['ARRAY_STRING', 'ARRAY_STRING'], ''],
 
+    [['array_apply'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'VARCHAR', 'BOOLEAN'],  ''],
+    [['array_apply'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'VARCHAR', 'TINYINT'],  ''],
+    [['array_apply'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'VARCHAR', 'SMALLINT'], ''],
+    [['array_apply'], 'ARRAY_INT',      ['ARRAY_INT', 'VARCHAR', 'INT'], ''],
+    [['array_apply'], 'ARRAY_BIGINT',   ['ARRAY_BIGINT', 'VARCHAR', 'BIGINT'],   ''],
+    [['array_apply'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT', 'VARCHAR', 'ARRAY_LARGEINT'], ''],
+    [['array_apply'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT', 'VARCHAR', 'FLOAT'],  ''],
+    [['array_apply'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE', 'VARCHAR', 'DOUBLE'], ''],
+    [['array_apply'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'VARCHAR', 'DECIMALV2'], ''],
+    [['array_apply'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32', 'VARCHAR', 'DECIMAL32'], ''],
+    [['array_apply'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64', 'VARCHAR', 'DECIMAL64'], ''],
+    [['array_apply'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', 'VARCHAR', 'DECIMAL128'], ''],
+    [['array_apply'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME', 'VARCHAR', 'DATETIME'], ''],
+    [['array_apply'], 'ARRAY_DATE',      ['ARRAY_DATE', 'DATE', 'DATE'], ''],
+    [['array_apply'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', 'VARCHAR', 'DATETIMEV2'], ''],
+    [['array_apply'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', 'VARCHAR', 'DATEV2'], ''],
+
+    [['array_concat'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', '...'],  ''],
+    [['array_concat'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', '...'],  ''],
+    [['array_concat'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', '...'], ''],
+    [['array_concat'], 'ARRAY_INT',      ['ARRAY_INT', '...'], ''],
+    [['array_concat'], 'ARRAY_BIGINT',   ['ARRAY_BIGINT', '...'],   ''],
+    [['array_concat'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT', '...'], ''],
+    [['array_concat'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT', '...'],  ''],
+    [['array_concat'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', '...'], ''],
+    [['array_concat'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME', '...'], ''],
+    [['array_concat'], 'ARRAY_DATE',      ['ARRAY_DATE', '...'], ''],
+    [['array_concat'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', '...'], ''],
+    [['array_concat'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', '...'], ''],
+    [['array_concat'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', '...'], ''],
+    [['array_concat'], 'ARRAY_STRING',    ['ARRAY_STRING', '...'], ''],
+
     [['array_except'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  ''],
     [['array_except'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  ''],
     [['array_except'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], ''],
@@ -504,6 +546,25 @@ visible_functions = [
     [['array_popback'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_popback'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popback'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
+
+    [['array_popfront'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], ''],
+    [['array_popfront'], 'ARRAY_TINYINT', ['ARRAY_TINYINT'], ''],
+    [['array_popfront'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT'], ''],
+    [['array_popfront'], 'ARRAY_INT', ['ARRAY_INT'], ''],
+    [['array_popfront'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], ''],
+    [['array_popfront'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT'], ''],
+    [['array_popfront'], 'ARRAY_DATETIME', ['ARRAY_DATETIME'], ''],
+    [['array_popfront'], 'ARRAY_DATE', ['ARRAY_DATE'], ''],
+    [['array_popfront'], 'ARRAY_DATETIMEV2', ['ARRAY_DATETIMEV2'], ''],
+    [['array_popfront'], 'ARRAY_DATEV2', ['ARRAY_DATEV2'], ''],
+    [['array_popfront'], 'ARRAY_FLOAT', ['ARRAY_FLOAT'], ''],
+    [['array_popfront'], 'ARRAY_DOUBLE', ['ARRAY_DOUBLE'], ''],
+    [['array_popfront'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], ''],
+    [['array_popfront'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32'], ''],
+    [['array_popfront'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64'], ''],
+    [['array_popfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
+    [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
+    [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
 
     [['array_with_constant'], 'ARRAY_BOOLEAN', ['BIGINT', 'BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
     [['array_with_constant'], 'ARRAY_TINYINT', ['BIGINT', 'TINYINT'], 'ALWAYS_NOT_NULLABLE'],
@@ -911,30 +972,6 @@ visible_functions = [
     [['day_ceil'], 'DATEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
     [['day_ceil'], 'DATEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
     [['day_ceil'], 'DATEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['hour_floor'], 'DATETIMEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
-    [['hour_floor'], 'DATETIMEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['hour_floor'], 'DATETIMEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
-    [['hour_floor'], 'DATETIMEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['hour_ceil'], 'DATETIMEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
-    [['hour_ceil'], 'DATETIMEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['hour_ceil'], 'DATETIMEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
-    [['hour_ceil'], 'DATETIMEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['minute_floor'], 'DATETIMEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
-    [['minute_floor'], 'DATETIMEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['minute_floor'], 'DATETIMEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
-    [['minute_floor'], 'DATETIMEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['minute_ceil'], 'DATETIMEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
-    [['minute_ceil'], 'DATETIMEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['minute_ceil'], 'DATETIMEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
-    [['minute_ceil'], 'DATETIMEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['second_floor'], 'DATETIMEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
-    [['second_floor'], 'DATETIMEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['second_floor'], 'DATETIMEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
-    [['second_floor'], 'DATETIMEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['second_ceil'], 'DATETIMEV2', ['DATEV2'], 'ALWAYS_NULLABLE'],
-    [['second_ceil'], 'DATETIMEV2', ['DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-    [['second_ceil'], 'DATETIMEV2', ['DATEV2', 'INT'], 'ALWAYS_NULLABLE'],
-    [['second_ceil'], 'DATETIMEV2', ['DATEV2', 'INT', 'DATEV2'], 'ALWAYS_NULLABLE'],
 
     # Math builtin functions
     [['pi'], 'DOUBLE', [], 'ALWAYS_NOT_NULLABLE'],
@@ -1056,7 +1093,10 @@ visible_functions = [
     [['least'], 'LARGEINT', ['LARGEINT', '...'], ''],
     [['least'], 'FLOAT', ['FLOAT', '...'], ''],
     [['least'], 'DOUBLE', ['DOUBLE', '...'], ''],
+    [['least'], 'DATE', ['DATE', '...'], ''],
+    [['least'], 'DATEV2', ['DATEV2', '...'], ''],
     [['least'], 'DATETIME', ['DATETIME', '...'], ''],
+    [['least'], 'DATETIMEV2', ['DATETIMEV2', '...'], ''],
     [['least'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
     [['least'], 'DECIMAL32', ['DECIMAL32', '...'], ''],
     [['least'], 'DECIMAL64', ['DECIMAL64', '...'], ''],
@@ -1075,6 +1115,8 @@ visible_functions = [
     [['greatest'], 'DECIMAL32', ['DECIMAL32', '...'], ''],
     [['greatest'], 'DECIMAL64', ['DECIMAL64', '...'], ''],
     [['greatest'], 'DECIMAL128', ['DECIMAL128', '...'], ''],
+    [['greatest'], 'DATE', ['DATE', '...'], ''],
+    [['greatest'], 'DATEV2', ['DATEV2', '...'], ''],
     [['greatest'], 'DATETIME', ['DATETIME', '...'], ''],
     [['greatest'], 'DATETIMEV2', ['DATETIMEV2', '...'], ''],
     [['greatest'], 'VARCHAR', ['VARCHAR', '...'], ''],
@@ -1184,7 +1226,32 @@ visible_functions = [
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], 'CUSTOM'],
     [['coalesce'], 'STRING', ['STRING', '...'], 'CUSTOM'],
 
+    # esquery's first arg is suitable for all types
+    [['esquery'], 'BOOLEAN', ['BOOLEAN', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['TINYINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['SMALLINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['INT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['BIGINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['LARGEINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['FLOAT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DOUBLE', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATE', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATETIME', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['CHAR', 'VARCHAR'], ''],
     [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMALV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL32', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL64', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL128', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['TIME', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATEV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATETIMEV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['ARRAY', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['MAP', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'], ''],
 
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
@@ -1385,6 +1452,7 @@ visible_functions = [
     [['json_array'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_quote'], 'VARCHAR', ['VARCHAR'], ''],
+    [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
 
     #hll function
     [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
@@ -1434,7 +1502,7 @@ visible_functions = [
     [['bitmap_and_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP','...'], ''],
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
-    [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'], ''],
+    [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['bitmap_to_array'], 'ARRAY_BIGINT', ['BITMAP'], ''],
     # quantile_function
     [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], ''],
@@ -1449,21 +1517,21 @@ visible_functions = [
     [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], ''],
 
     # aes and base64 function
-    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['from_base64'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['aes_encrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['aes_decrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['from_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
@@ -1518,6 +1586,45 @@ visible_functions = [
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE'],
 
     [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
+
+    [['non_nullable'], 'BOOLEAN', ['BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'TINYINT', ['TINYINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'SMALLINT', ['SMALLINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'INT', ['INT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'BIGINT', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'LARGEINT', ['LARGEINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'FLOAT', ['FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DOUBLE', ['DOUBLE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATE', ['DATE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATEV2', ['DATEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATETIME', ['DATETIME'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATETIMEV2', ['DATETIMEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMALV2', ['DECIMALV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMAL32', ['DECIMAL32'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMAL64', ['DECIMAL64'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMAL128', ['DECIMAL128'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'BITMAP', ['BITMAP'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'JSONB', ['JSONB'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_TINYINT', ['ARRAY_TINYINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_INT', ['ARRAY_INT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATETIME', ['ARRAY_DATETIME'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATE', ['ARRAY_DATE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATETIMEV2', ['ARRAY_DATETIMEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATEV2', ['ARRAY_DATEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_FLOAT', ['ARRAY_FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DOUBLE', ['ARRAY_DOUBLE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_STRING', ['ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE']
 ]
 
 # Except the following functions, other function will directly return

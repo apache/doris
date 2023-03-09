@@ -47,7 +47,6 @@ class ExternalScanContextMgr;
 class FragmentMgr;
 class ResultCache;
 class LoadPathMgr;
-class LoadStreamMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
@@ -125,6 +124,9 @@ public:
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
+    ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
+    ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+
     void set_serial_download_cache_thread_token() {
         _serial_download_cache_thread_token =
                 download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
@@ -156,7 +158,6 @@ public:
         return _function_client_cache;
     }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
-    LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
@@ -217,6 +218,10 @@ private:
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
+    // Pool used by fragment manager to send profile or status to FE coordinator
+    std::unique_ptr<ThreadPool> _send_report_thread_pool;
+    // Pool used by join node to build hash table
+    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
@@ -230,7 +235,6 @@ private:
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
-    LoadStreamMgr* _load_stream_mgr = nullptr;
     NewLoadStreamMgr* _new_load_stream_mgr = nullptr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;

@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -258,7 +259,7 @@ public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     String get_name() const override { return Data::name(); }
 

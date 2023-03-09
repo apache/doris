@@ -186,6 +186,15 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
     }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in PredicateColumnType";
+    }
+
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported in PredicateColumnType";
+    }
+
     void insert_string_value(const char* data_ptr, size_t length) {
         StringRef sv((char*)data_ptr, length);
         data.push_back_without_reserve(sv);
@@ -424,6 +433,10 @@ public:
         LOG(FATAL) << "filter not supported in PredicateColumnType";
     }
 
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in PredicateColumnType";
+    }
+
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in PredicateColumnType";
     }
@@ -444,6 +457,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
+    }
+
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {

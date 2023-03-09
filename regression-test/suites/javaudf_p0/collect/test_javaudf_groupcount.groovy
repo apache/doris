@@ -51,8 +51,8 @@ suite("test_javaudf_groupcount") {
 
         qt_select """ SELECT group_count(col_1) as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION group_count(string); """
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS group_count(string);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

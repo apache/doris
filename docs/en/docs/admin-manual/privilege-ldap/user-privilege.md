@@ -50,18 +50,62 @@ Doris's new privilege management system refers to Mysql's privilege management m
 
 	User attributes include, but are not limited to, the maximum number of user connections, import cluster configuration, and so on.
 
+## Permission framework
+
+Doris permission design is based on RBAC (Role-Based Access Control) permission management model. Users are associated with roles, roles and permissions, and users are associated with permissions indirectly through roles.
+
+When a role is deleted, the user automatically loses all permissions of the role.
+
+When a user and a role are disassociated, the user automatically loses all permissions of the role.
+
+When the role's permissions are added or deleted, the user's permissions will also change.
+
+```
+┌────────┐        ┌────────┐         ┌────────┐
+│  user1 ├────┬───►  role1 ├────┬────►  priv1 │
+└────────┘    │   └────────┘    │    └────────┘
+              │                 │
+              │                 │
+              │   ┌────────┐    │
+              │   │  role2 ├────┤
+┌────────┐    │   └────────┘    │    ┌────────┐
+│  user2 ├────┘                 │  ┌─►  priv2 │
+└────────┘                      │  │ └────────┘
+                  ┌────────┐    │  │
+           ┌──────►  role3 ├────┘  │
+           │      └────────┘       │
+           │                       │
+           │                       │
+┌────────┐ │      ┌────────┐       │ ┌────────┐
+│  userN ├─┴──────►  roleN ├───────┴─►  privN │
+└────────┘        └────────┘         └────────┘
+```
+
+As shown in the figure above:
+
+Both user1 and user2 have priv1 permissions through role1.
+
+UserN has priv1 permissions through role3, priv2 and privN permissions through roleN, so userN has priv1, priv2 and privN permissions at the same time.
+
+In order to facilitate user operation, users can be authorized directly. In the underlying implementation, a default role dedicated to the user is created for each user. When authorizing a user, it is actually authorizing the user's default role.
+
+The default role cannot be deleted or assigned to others. When a user is deleted, the default role will also be deleted automatically.
+
 ## Supported operations
 
-1. Create users: CREATE USER
-2. Delete users: DROP USER
-3. Authorization: GRANT
-4. Withdrawal: REVOKE
-5. Create role: CREATE ROLE
-6. Delete Roles: DROP ROLE
-7. View current user privileges: SHOW GRANTS
-8. View all user privilegesSHOW ALL GRANTS;
-9. View the created roles: SHOW ROLES
-10. View user attributes: SHOW PROPERTY
+1. Create users: [CREATE USER](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-USER.md)
+2. Alter users: [ALTER USER](../../sql-manual/sql-reference/Account-Management-Statements/ALTER-USER.md)
+3. Delete users: [DROP USER](../../sql-manual/sql-reference/Account-Management-Statements/DROP-USER.md)
+4. Authorization/Assign roles: [GRANT](../../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)
+5. Withdrawal/REVOKE roles: [REVOKE](../../sql-manual/sql-reference/Account-Management-Statements/REVOKE.md)
+6. Create role: [CREATE ROLE](../../sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE.md)
+7. Delete roles: [DROP ROLE](../../sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE.md)
+8. View current user privileges: [SHOW GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+9. View all user privileges: [SHOW ALL GRANTS](../../sql-manual/sql-reference/Show-Statements/SHOW-GRANTS.md)
+10. View the created roles: [SHOW ROLES](../../sql-manual/sql-reference/Show-Statements/SHOW-ROLES.md)
+11. Set user properties: [SET PROPERTY](../../sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY.md)
+12. View user properties: [SHOW PROPERTY](../../sql-manual/sql-reference/Show-Statements/SHOW-PROPERTY.md)
+13. Change password ：[SET PASSWORD](../../sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD.md)
 
 For detailed help with the above commands, you can use help + command to get help after connecting Doris through the MySQL client. For example `HELP CREATE USER`.
 

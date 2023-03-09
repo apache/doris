@@ -228,7 +228,7 @@ public class MultiLoadMgr {
                 throw new DdlException("Unknown multiLabel(" + multiLabel + ")");
             }
             Backend backend = Env.getCurrentSystemInfo().getBackend(desc.getBackendId());
-            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+            return new TNetworkAddress(backend.getIp(), backend.getHttpPort());
         } finally {
             lock.writeLock().unlock();
         }
@@ -346,7 +346,15 @@ public class MultiLoadMgr {
             Map<String, String> brokerProperties = Maps.newHashMap();
             brokerProperties.put(BrokerDesc.MULTI_LOAD_BROKER_BACKEND_KEY, backendId.toString());
             BrokerDesc brokerDesc = new BrokerDesc(BrokerDesc.MULTI_LOAD_BROKER, brokerProperties);
-            LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties);
+
+            String comment = "multi load";
+            if (properties.containsKey(LoadStmt.KEY_COMMENT)) {
+                comment = properties.get(LoadStmt.KEY_COMMENT);
+                properties.remove(LoadStmt.KEY_COMMENT);
+            }
+
+            properties.remove(LoadStmt.KEY_COMMENT);
+            LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties, comment);
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
             loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
@@ -490,7 +498,7 @@ public class MultiLoadMgr {
             if (backend == null) {
                 throw new DdlException("Backend [" + backendId + "] not found. ");
             }
-            dataDescription.setBeAddr(new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort()));
+            dataDescription.setBeAddr(new TNetworkAddress(backend.getIp(), backend.getHeartbeatPort()));
             dataDescription.setFileSize(fileSizes);
             dataDescription.setBackendId(backendId);
             dataDescription.setJsonPaths(jsonPaths);

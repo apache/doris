@@ -21,12 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
@@ -49,8 +50,6 @@ public class LoadStmtTest {
     private List<DataDescription> dataDescriptions;
     private Analyzer analyzer;
 
-    @Mocked
-    private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -80,7 +79,8 @@ public class LoadStmtTest {
 
     @Test
     public void testNormal(@Injectable DataDescription desc, @Mocked Env env,
-            @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
+            @Injectable ResourceMgr resourceMgr, @Injectable AccessControllerManager accessManager)
+            throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
         String resourceName = "spark0";
@@ -103,14 +103,14 @@ public class LoadStmtTest {
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
                 result = resource;
-                env.getAuth();
-                result = auth;
-                auth.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
                 result = true;
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
         Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
@@ -121,7 +121,7 @@ public class LoadStmtTest {
 
         // test ResourceDesc
         stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
-                            new ResourceDesc(resourceName, null), null);
+                            new ResourceDesc(resourceName, null), null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals(EtlJobType.SPARK, stmt.getResourceDesc().getEtlJobType());
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
@@ -137,7 +137,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null, "");
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
@@ -220,7 +220,22 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap());
+        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap(), "");
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException ae) {
+            Assert.assertEquals("errCode = 2, detailMessage = Load local data from fe local is not enabled."
+                    + " If you want to use it, plz set the `mysql_load_server_secure_path` for FE to be a right path.",
+                    ae.getMessage());
+        }
+        Config.mysql_load_server_secure_path = "/root";
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException ae) {
+            Assert.assertEquals("errCode = 2, detailMessage = Local file should be under the secure path of FE.",
+                    ae.getMessage());
+        }
+        Config.mysql_load_server_secure_path = "/";
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getLabel().getDbName());
         Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());

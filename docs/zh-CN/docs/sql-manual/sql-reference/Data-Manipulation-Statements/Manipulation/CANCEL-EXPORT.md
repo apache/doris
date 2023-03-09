@@ -28,11 +28,9 @@ under the License.
 
 ### Name
 
-<version since="dev">
+<version since="1.2.2"></version>
 
 CANCEL EXPORT
-
-</version>
 
 ### Description
 

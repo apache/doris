@@ -47,6 +47,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
@@ -64,7 +65,6 @@ import org.apache.doris.rewrite.RewriteInPredicateRule;
 import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
-import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
@@ -297,8 +297,8 @@ public class Analyzer {
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
-    // a tuple is outer/semi joined, etc. Remove the maps in favor of making
-    // them properties of the tuple descriptor itself.
+    //  a tuple is outer/semi joined, etc. Remove the maps in favor of making
+    //  them properties of the tuple descriptor itself.
     private static class GlobalState {
         private final DescriptorTable descTbl = new DescriptorTable();
         private final Env env;
@@ -398,6 +398,8 @@ public class Analyzer {
 
         private final Set<TupleId> markTupleIdsNotProcessed = Sets.newHashSet();
 
+        private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -414,6 +416,7 @@ public class Analyzer {
             rules.add(RewriteImplicitCastRule.INSTANCE);
             rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
+            rules.add(EraseRedundantCastExpr.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
             rules.add(RewriteDateLiteralRule.INSTANCE);
@@ -427,13 +430,12 @@ public class Analyzer {
             exprRewriter = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
-            mvRewriteRules.add(ExprToSlotRefRule.INSTANCE);
+            mvRewriteRules.add(new ExprToSlotRefRule());
             mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmapOrHLLRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmap.INSTANCE);
             mvRewriteRules.add(NDVToHll.INSTANCE);
             mvRewriteRules.add(HLLHashToSlotRefRule.INSTANCE);
-            mvRewriteRules.add(CountFieldToSum.INSTANCE);
             mvExprRewriter = new ExprRewriter(mvRewriteRules);
 
             // context maybe null. eg, for StreamLoadPlanner.
@@ -1206,6 +1208,16 @@ public class Analyzer {
         }
     }
 
+    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
+        markConstantConjunct(e, false);
+        Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
+        exprSet.add(e);
+    }
+
+    public Set<Expr> findMigrateFailedConjuncts(InlineViewRef inlineViewRef) {
+        return globalState.migrateFailedConjuncts.get(inlineViewRef);
+    }
+
     /**
      * register expr id
      * @param expr
@@ -1362,7 +1374,8 @@ public class Analyzer {
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -1839,7 +1852,8 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                final Expr newConjunct = conjunct.getResultValue();
+                Expr newConjunct = conjunct.getResultValue(true);
+                newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
                     if (newConjunct instanceof BoolLiteral) {
@@ -2091,7 +2105,9 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = ScalarType.getDefaultDateType(Type.DATETIME);
+                compatibleType = exprs.get(0).getType().isDateOrDateTime()
+                        ? Type.DATETIME : exprs.get(0).getType().isDatetimeV2()
+                        ? exprs.get(0).getType() : Type.DATETIMEV2;
             }
         }
         // Add implicit casts if necessary.
@@ -2403,7 +2419,7 @@ public class Analyzer {
 
         if (tids.size() > 1 || globalState.ojClauseByConjunct.containsKey(e.getId())
                 || globalState.outerJoinedTupleIds.containsKey(e.getId()) && whereClauseConjuncts.contains(e.getId())
-                ||  globalState.conjunctsByOjClause.containsKey(e.getId())) {
+                || globalState.conjunctsByOjClause.containsKey(e.getId())) {
             return true;
         }
 

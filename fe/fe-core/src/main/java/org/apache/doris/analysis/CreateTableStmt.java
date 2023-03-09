@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -42,6 +43,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -53,6 +55,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -140,7 +143,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null);
+                distributionDesc, properties, extProperties, comment, null, false);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -155,7 +158,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, ops);
+                distributionDesc, properties, extProperties, comment, ops, false);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -169,7 +172,8 @@ public class CreateTableStmt extends DdlStmt {
             DistributionDesc distributionDesc,
             Map<String, String> properties,
             Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList) {
+            String comment, List<AlterClause> rollupAlterClauseList,
+            boolean isDynamicSchema) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -186,6 +190,12 @@ public class CreateTableStmt extends DdlStmt {
         this.keysDesc = keysDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
+        if (isDynamicSchema) {
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
+        }
         this.properties = properties;
         this.extProperties = extProperties;
         this.isExternal = isExternal;
@@ -299,7 +309,7 @@ public class CreateTableStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
@@ -314,7 +324,12 @@ public class CreateTableStmt extends DdlStmt {
             enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
             enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
         }
-
+        //pre-block creation with column type ALL
+        for (ColumnDef columnDef : columnDefs) {
+            if (Objects.equals(columnDef.getType(), Type.ALL)) {
+                throw new AnalysisException("Disable to create table with `ALL` type columns.");
+            }
+        }
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -357,7 +372,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
                             break;
                         }
-                        if (columnDef.getType().isCollectionType()) {
+                        if (columnDef.getType().isComplexType()) {
                             break;
                         }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -370,7 +385,7 @@ public class CreateTableStmt extends DdlStmt {
                     // So the float and double could not be the first column in OLAP table.
                     if (keysColumnNames.isEmpty()) {
                         throw new AnalysisException("The olap table first column could not be float, double, string"
-                                + " or array, please use decimal or varchar instead.");
+                                + " or array, struct, map, please use decimal or varchar instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
@@ -420,6 +435,14 @@ public class CreateTableStmt extends DdlStmt {
         }
         if (enableStoreRowColumn) {
             columnDefs.add(ColumnDef.newRowStoreColumnDef());
+        }
+        if (Config.enable_hidden_version_column_by_default && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.NONE));
+            } else {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
+            }
         }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";

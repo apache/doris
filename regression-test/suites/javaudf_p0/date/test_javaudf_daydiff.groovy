@@ -52,8 +52,9 @@ suite("test_javaudf_daydiff") {
 
         qt_select """ SELECT day_diff(col_1, col_2)  as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION day_diff(string, string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS day_diff(string, string);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

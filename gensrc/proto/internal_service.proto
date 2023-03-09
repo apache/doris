@@ -192,6 +192,7 @@ message PTabletWriterCancelResult {
 enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
+    VERSION_3 = 3;  // multi TPipelineFragmentParams in request
 };
 
 message PExecPlanFragmentRequest {
@@ -275,6 +276,7 @@ enum PCacheStatus {
     INVALID_KEY_RANGE = 6;
     DATA_OVERDUE = 7;
     EMPTY_DATA = 8;
+    CANCELED = 9;
 };
 
 enum CacheType {
@@ -383,6 +385,7 @@ message PDataRow {
 message PSendDataRequest {
     required PUniqueId fragment_instance_id = 1;
     repeated PDataRow data = 2;
+    optional PUniqueId load_id = 3; // load_id == query_id in fragment exec
 }
 
 message PSendDataResult {
@@ -391,6 +394,7 @@ message PSendDataResult {
 
 message PCommitRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional PUniqueId load_id = 2;
 }
 
 message PCommitResult {
@@ -399,6 +403,7 @@ message PCommitResult {
 
 message PRollbackRequest {
     required PUniqueId fragment_instance_id = 1;
+    optional PUniqueId load_id = 2;
 }
 
 message PRollbackResult {

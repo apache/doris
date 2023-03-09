@@ -34,6 +34,10 @@ public:
     virtual Status batch_upload(const std::vector<Path>& local_paths,
                                 const std::vector<Path>& dest_paths) = 0;
 
+    virtual Status batch_delete(const std::vector<Path>& paths) {
+        return Status::NotSupported("batch_delete");
+    }
+
     virtual Status connect() = 0;
 
     Status open_file(const Path& path, const FileReaderOptions& reader_options,

@@ -56,6 +56,7 @@ enum TPlanNodeType {
   DATA_GEN_SCAN_NODE,
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
+  TEST_EXTERNAL_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -325,6 +326,8 @@ struct TFileScanRangeParams {
     17: optional TTableFormatFileDesc table_format_params
     // For csv query task, same the column index in file, order by dest_tuple
     18: optional list<i32> column_idxs
+    // Map of slot to its position in table schema. Only for Hive external table.
+    19: optional map<string, i32> slot_name_to_schema_pos
 }
 
 struct TFileRangeDesc {
@@ -427,7 +430,6 @@ struct TJdbcScanNode {
   3: optional string query_string
   4: optional Types.TOdbcTableType table_type
 }
-
 
 struct TBrokerScanNode {
     1: required Types.TTupleId tuple_id
@@ -535,6 +537,11 @@ struct TMetaScanNode {
   4: optional string table
 }
 
+struct TTestExternalScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+}
+
 struct TSortInfo {
   1: required list<Exprs.TExpr> ordering_exprs
   2: required list<bool> is_asc_order
@@ -574,6 +581,8 @@ struct TOlapScanNode {
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt
   13: optional bool use_topn_opt
+  14: optional list<Descriptors.TOlapTableIndex> indexes_desc
+  15: optional set<i32> output_column_unique_ids
 }
 
 struct TEqJoinCondition {
@@ -1057,6 +1066,7 @@ struct TPlanNode {
   44: optional TFileScanNode file_scan_node
   45: optional TJdbcScanNode jdbc_scan_node
   46: optional TNestedLoopJoinNode nested_loop_join_node
+  47: optional TTestExternalScanNode test_external_scan_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

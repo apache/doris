@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.datasets.ssb;
 
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSupported {
+public class SSBJoinReorderTest extends SSBTestBase implements MemoPatternMatchSupported {
     @Test
     public void q4_1() {
         test(

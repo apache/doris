@@ -115,13 +115,6 @@ option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
 
-# Check gcc
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
-        message(FATAL_ERROR "Need GCC version at least 11.1")
-    endif()
-endif()
-
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -450,31 +443,11 @@ endif()
 include(CheckFunctionExists)
 check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 
-# compiler flags that are common across debug/release builds
-#  -Wall: Enable all warnings.
-#    integers
-#  -pthread: enable multithreaded malloc
-#  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
-#  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -g -Wall -Wextra -pthread -Werror")
-# TODO: resolve and remove those wno
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-sign-compare")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
-# Enable the cpu and heap profile of brpc
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
-
-if (RECORD_COMPILER_SWITCHES)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -frecord-gcc-switches")
-endif()
-
 function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     if (CUSTUM_LINKER_COMMAND STREQUAL "ld")
         execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=${LINKER_COMMAND} -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
         if ("${LD_VERSION}" MATCHES ${LINKER_NAME})
-            message("Linker ${LINKER_NAME} is available, change linker to ${LINKER_NAME}")
+            message(STATUS "Linker ${LINKER_NAME} is available, change linker to ${LINKER_NAME}")
             set(CUSTUM_LINKER_COMMAND "${LINKER_COMMAND}" PARENT_SCOPE)
         endif()
     endif()
@@ -489,16 +462,47 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 17)
+
+add_compile_options(-g
+                    -Wall
+                    -Wextra
+                    -Werror
+                    -pthread
+                    -fstrict-aliasing
+                    -fno-omit-frame-pointer)
+
+add_compile_options(-Wno-unused-parameter
+                    -Wno-sign-compare
+                    -Wno-array-bounds)
+
 if (COMPILER_GCC)
-    add_compile_options(-fdiagnostics-color=always -Wno-array-bounds -Wno-stringop-overread)
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
+        message(FATAL_ERROR "Need GCC version at least 11.1")
+    endif()
+
+    add_compile_options(-fdiagnostics-color=always)
 endif ()
 
 if (COMPILER_CLANG)
-    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info -Wpedantic)
-    add_compile_options(-Wno-zero-length-array -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments -Wno-vla-extension -Wno-c++20-designator -Wno-gnu-label-as-value -Wno-embedded-directive -Wno-array-bounds)
-    if(MAKE_TEST STREQUAL "OFF")
-        add_compile_options(-Qunused-arguments)
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
+        message(FATAL_ERROR "Need Clang version at least 13")
     endif()
+
+    add_compile_options(-fcolor-diagnostics 
+                        -Wpedantic
+                        -Wunused-template
+                        -Wunused-private-field
+                        -Wunused-property-ivar
+                        -Wunused-member-function
+                        -Wunused-macros)
+    add_compile_options(-Wno-zero-length-array
+                        -Wno-variadic-macros
+                        -Wno-gnu-zero-variadic-macro-arguments
+                        -Wno-vla-extension
+                        -Wno-c++20-designator
+                        -Wno-embedded-directive)
     if (USE_LIBCPP)
         add_compile_options(-stdlib=libc++)
         if (NOT OS_MACOSX)
@@ -510,23 +514,34 @@ if (COMPILER_CLANG)
     endif()
 endif ()
 
-# https://github.com/boostorg/uuid/issues/92
-# We need to avoid using SYS_getrandom system calls
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
+add_compile_options(-D__STDC_FORMAT_MACROS
+                    -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG
+                    -DBOOST_SYSTEM_NO_DEPRECATED
+                    -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1
+                    -DBRPC_ENABLE_CPU_PROFILER
+                    -DS2_USE_GFLAGS
+                    -DS2_USE_GLOG)
+
+# Thrift requires these two definitions for some types that we use
+add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
+
+if (RECORD_COMPILER_SWITCHES)
+    add_compile_options(-frecord-gcc-switches)
+endif()
+
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+    add_compile_options(-msse4.2)
     if (USE_AVX2)
-        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
+        add_compile_options(-mavx2)
     endif()
 endif()
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
 if (WITH_MYSQL)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
+    add_compile_options(-DDORIS_WITH_MYSQL)
 endif()
 
 if (WITH_LZO)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
+    add_compile_options(-DDORIS_WITH_LZO)
 endif()
 
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
@@ -534,13 +549,13 @@ endif()
 # Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
 # which will bring about a 2% performance improvement, which may be useful in performance POC.
 if (USE_MEM_TRACKER)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
+    add_compile_options(-DUSE_MEM_TRACKER)
 endif()
 
 # Compile with jemalloc.
 # Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
+    add_compile_options(-DUSE_JEMALLOC)
 endif()
 
 # Use Bthread to separate computation and IO
@@ -555,18 +570,14 @@ endif()
 # to control the main memory consumers, including HashTable, LRU Cache elimination strategy,
 # ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
 if (STRICT_MEMORY_USE)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DSTRICT_MEMORY_USE")
+    add_compile_options(-DSTRICT_MEMORY_USE)
 endif()
 if (ENABLE_STACKTRACE)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_STACKTRACE")
-endif()
-
-if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
+    add_compile_options(-DENABLE_STACKTRACE)
 endif()
 
 if (USE_DWARF)
-    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
+    add_compile_options(-gdwarf-5)
 endif()
 
 # For CMAKE_BUILD_TYPE=Debug
@@ -614,10 +625,7 @@ endif()
 # Add flags that are common across build types
 set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
-message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
-
-# Thrift requires these two definitions for some types that we use
-add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
+set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
@@ -811,8 +819,6 @@ endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
-message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
-
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
 if (NOT OS_MACOSX)
@@ -899,23 +905,37 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_END_GROUP}
 )
 
-if (NOT MAKE_TEST)
-    message(STATUS "Link Flags: ${DORIS_LINK_LIBS}")
-else()
-    message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
-endif()
-
 # Only build static libs
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
+    add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
     if (NOT OS_MACOSX)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
     endif()
     add_definitions(-DBE_TEST)
+    if (ARCH_ARM)
+        add_compile_options(-ffp-contract=off)
+    endif()
 endif ()
+
+get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)
+get_directory_property(COMPILER_DEFINES COMPILE_DEFINITIONS)
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "CXX Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "C Standard: ${CMAKE_C_STANDARD}")
+message(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
+message(STATUS "C Flags: ${CMAKE_C_FLAGS}")
+message(STATUS "CC Flags: ${CMAKE_CC_FLAGS}")
+message(STATUS "Compiler Options: ${COMPILER_FLAGS}")
+message(STATUS "Compiler Definitions: ${COMPILER_DEFINES}")
+message(STATUS "Doris Dependencies: ${DORIS_DEPENDENCIES}")
+if (NOT MAKE_TEST)
+    message(STATUS "Link Flags: ${DORIS_LINK_LIBS}")
+else()
+    message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
+endif()
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)

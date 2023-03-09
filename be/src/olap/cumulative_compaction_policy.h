@@ -54,9 +54,7 @@ public:
     /// param all_rowsets, all rowsets in tablet.
     /// param current_cumulative_point, current cumulative point value.
     /// return score, the result score after calculate.
-    virtual void calc_cumulative_compaction_score(
-            Tablet* tablet, TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
-            int64_t current_cumulative_point, uint32_t* score) = 0;
+    virtual uint32_t calc_cumulative_compaction_score(Tablet* tablet) = 0;
 
     /// Pick input rowsets from candidate rowsets for compaction. This function is pure virtual function.
     /// Its implementation depends on concrete compaction policy.
@@ -142,10 +140,7 @@ public:
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(Tablet* tablet, TabletState state,
-                                          const std::vector<RowsetMetaSharedPtr>& all_rowsets,
-                                          int64_t current_cumulative_point,
-                                          uint32_t* score) override;
+    uint32_t calc_cumulative_compaction_score(Tablet* tablet) override;
 
     std::string name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
 

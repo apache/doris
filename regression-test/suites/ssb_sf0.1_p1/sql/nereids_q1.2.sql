@@ -1,5 +1,3 @@
-SET enable_nereids_planner=TRUE;
-SET enable_fallback_to_original_planner=FALSE;
 -- Licensed to the Apache Software Foundation (ASF) under one
 -- or more contributor license agreements.  See the NOTICE file
 -- distributed with this work for additional information
@@ -16,6 +14,10 @@ SET enable_fallback_to_original_planner=FALSE;
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
+
+SET enable_nereids_planner=true;
+SET enable_vectorized_engine=true;
+SET enable_fallback_to_original_planner=false;
 
 SELECT SUM(lo_extendedprice*lo_discount) AS
 REVENUE

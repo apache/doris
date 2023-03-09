@@ -37,7 +37,12 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.hive</groupId>
+            <artifactId>hive-serde</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
+            <classifier>core</classifier>
             <version>${hive.version}</version>
             <exclusions>
                 <exclusion>
@@ -57,6 +62,10 @@ under the License.
                     <groupId>org.apache.calcite.avatica</groupId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-serde</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.httpcomponents/httpclient -->
         <dependency>

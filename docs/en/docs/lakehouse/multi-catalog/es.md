@@ -50,16 +50,17 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 
 ### Parameter Description
 
-| Parameter         | Required or Not | Default Value | Description                                                  |
-| ----------------- | --------------- | ------------- | ------------------------------------------------------------ |
-| `hosts`           | Yes             |               | ES address, can be one or multiple addresses, or the load balancer address of ES |
-| `user`            | No              | Empty         | ES username                                                  |
-| `password`        | No              | Empty         | Password of the corresponding user                           |
-| `doc_value_scan`  | No              | true          | Whether to obtain value of the target field by ES/Lucene columnar storage |
-| `keyword_sniff`   | No              | true          | Whether to sniff the text.fields in ES based on keyword; If this is set to false, the system will perform matching after tokenization. |
+| Parameter         | Required or Not | Default Value | Description                                                                                                                                       |
+| ----------------- | --------------- | ------------- |---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `hosts`           | Yes             |               | ES address, can be one or multiple addresses, or the load balancer address of ES                                                                  |
+| `user`            | No              | Empty         | ES username                                                                                                                                       |
+| `password`        | No              | Empty         | Password of the corresponding user                                                                                                                |
+| `doc_value_scan`  | No              | true          | Whether to obtain value of the target field by ES/Lucene columnar storage                                                                         |
+| `keyword_sniff`   | No              | true          | Whether to sniff the text.fields in ES based on keyword; If this is set to false, the system will perform matching after tokenization.            |
 | `nodes_discovery` | No              | true          | Whether to enable ES node discovery, set to true by default; set to false in network isolation environments and only connected to specified nodes |
-| `ssl`             | No              | false         | Whether to enable HTTPS access mode for ES, currently follows a "Trust All" method in FE/BE |
-| `mapping_es_id`   | No              | false         | Whether to map the  `_id`  field in the ES index             |
+| `ssl`             | No              | false         | Whether to enable HTTPS access mode for ES, currently follows a "Trust All" method in FE/BE                                                       |
+| `mapping_es_id`   | No              | false         | Whether to map the  `_id`  field in the ES index                                                                                                  |
+| `like_push_down`  | No              | true          | Whether to transform like to wildcard push down to es, this increases the cpu consumption of the es.                                              |
 
 > 1. In terms of authentication, only HTTP Basic authentication is supported and it requires the user to have read privilege for the index and paths including `/_cluster/state/` and `_nodes/http` ; if you have not enabled security authentication for the cluster, you don't need to set the  `user` and `password`.
 >
@@ -67,27 +68,93 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 
 ## Column Type Mapping
 
-| ES Type       | Doris Type  | Comment |
-| ------------- | ----------- | ------- |
-| null          | null        |         |
-| boolean       | boolean     |         |
-| byte          | tinyint     |         |
-| short         | smallint    |         |
-| integer       | int         |         |
-| long          | bigint      |         |
-| unsigned_long | largeint    |         |
-| float         | float       |         |
-| half_float    | float       |         |
-| double        | double      |         |
-| scaled_float  | double      |         |
-| date          | date        |         |
-| keyword       | string      |         |
-| text          | string      |         |
-| ip            | string      |         |
-| nested        | string      |         |
-| object        | string      |         |
-| other         | unsupported |         |
+| ES Type       | Doris Type  | Comment                                                                 |
+| ------------- | ----------- |-------------------------------------------------------------------------|
+| null          | null        |                                                                         |
+| boolean       | boolean     |                                                                         |
+| byte          | tinyint     |                                                                         |
+| short         | smallint    |                                                                         |
+| integer       | int         |                                                                         |
+| long          | bigint      |                                                                         |
+| unsigned_long | largeint    |                                                                         |
+| float         | float       |                                                                         |
+| half_float    | float       |                                                                         |
+| double        | double      |                                                                         |
+| scaled_float  | double      |                                                                         |
+| date          | date        | Only support default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis format |
+| keyword       | string      |                                                                         |
+| text          | string      |                                                                         |
+| ip            | string      |                                                                         |
+| nested        | string      |                                                                         |
+| object        | string      |                                                                         |
+| other         | unsupported |                                                                         |
 
+<version since="dev">
+### Array Type
+
+Elasticsearch does not have an explicit array type, but one of its fields can contain 
+[0 or more values](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html).
+To indicate that a field is an array type, a specific `doris` structural annotation can be added to the 
+[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-meta-field.html) section of the index mapping.
+For Elasticsearch 6.x and before release, please refer [_meta](https://www.elastic.co/guide/en/elasticsearch/reference/6.8/mapping-meta-field.html).
+
+For example, suppose there is an index `doc` containing the following data structure.
+
+```json
+{
+  "array_int_field": [1, 2, 3, 4],
+  "array_string_field": ["doris", "is", "the", "best"],
+  "id_field": "id-xxx-xxx",
+  "timestamp_field": "2022-11-12T12:08:56Z",
+  "array_object_field": [
+    {
+      "name": "xxx",
+      "age": 18
+    }
+  ]
+}
+```
+
+The array fields of this structure can be defined by using the following command to add the field property definition 
+to the `_meta.doris` property of the target index mapping.
+
+```bash
+# ES 7.x and above
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type:application/json' -d '
+{
+    "_meta": {
+        "doris":{
+            "array_fields":[
+                "array_int_field",
+                "array_string_field",
+                "array_object_field"
+            ]
+        }
+    }
+}'
+
+# ES 6.x and before
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/json' -d '
+{
+    "_doc": {
+        "_meta": {
+            "doris":{
+                "array_fields":[
+                    "array_int_field",
+                    "array_string_field",
+                    "array_object_field"
+                ]
+            }
+    }
+    }
+}
+'
+
+```
+
+`array_fields`：Used to indicate a field that is an array type.
+
+</version>
 ## Best Practice
 
 ### Predicate Pushdown

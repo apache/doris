@@ -31,27 +31,41 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The planner is responsible for turning parse trees into plan fragments that can be shipped off to backends for
@@ -163,6 +177,8 @@ public class OriginalPlanner extends Planner {
             insertStmt.prepareExpressions();
         }
 
+        checkColumnPrivileges(singleNodePlan);
+
         // TODO chenhao16 , no used materialization work
         // compute referenced slots before calling computeMemLayout()
         //analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
@@ -253,6 +269,10 @@ public class OriginalPlanner extends Planner {
 
         pushDownResultFileSink(analyzer);
 
+        if (VectorizedUtil.isVectorized()) {
+            pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
+        }
+
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (queryStmt.getSortInfo() != null || selectStmt.getAggInfo() != null) {
@@ -278,8 +298,78 @@ public class OriginalPlanner extends Planner {
                 }
             } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
-                injectRowIdColumnSlot();
+                if (singleNodePlan instanceof SortNode
+                        && singleNodePlan.getChildren().size() == 1
+                        && ((SortNode) singleNodePlan).getChild(0) instanceof OlapScanNode) {
+                    // Double check this plan to ensure it's a general topn query
+                    injectRowIdColumnSlot();
+                } else {
+                    // This is not a general topn query, rollback needMaterialize flag
+                    for (SlotDescriptor slot : analyzer.getDescTbl().getSlotDescs().values()) {
+                        slot.setNeedMaterialize(true);
+                    }
+                }
             }
+        }
+    }
+
+    private void checkColumnPrivileges(PlanNode singleNodePlan) throws UserException {
+        if (ConnectContext.get() == null) {
+            return;
+        }
+        // 1. collect all columns from all scan nodes
+        List<ScanNode> scanNodes = Lists.newArrayList();
+        singleNodePlan.collect((PlanNode planNode) -> planNode instanceof ScanNode, scanNodes);
+        // catalog : <db.table : column>
+        Map<String, HashMultimap<TableName, String>> ctlToTableColumnMap = Maps.newHashMap();
+        for (ScanNode scanNode : scanNodes) {
+            if (!scanNode.needToCheckColumnPriv()) {
+                continue;
+            }
+            TupleDescriptor tupleDesc = scanNode.getTupleDesc();
+            TableIf table = tupleDesc.getTable();
+            if (table == null) {
+                continue;
+            }
+            TableName tableName = getFullQualifiedTableNameFromTable(table);
+            for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
+                if (!slotDesc.isMaterialized()) {
+                    continue;
+                }
+                Column column = slotDesc.getColumn();
+                if (column == null) {
+                    continue;
+                }
+                HashMultimap<TableName, String> tableColumnMap = ctlToTableColumnMap.get(tableName.getCtl());
+                if (tableColumnMap == null) {
+                    tableColumnMap = HashMultimap.create();
+                    ctlToTableColumnMap.put(tableName.getCtl(), tableColumnMap);
+                }
+                tableColumnMap.put(tableName, column.getName());
+                LOG.debug("collect column {} in {}", column.getName(), tableName);
+            }
+        }
+        // 2. check privs
+        // TODO: only support SELECT_PRIV now
+        PrivPredicate wanted = PrivPredicate.SELECT;
+        for (Map.Entry<String, HashMultimap<TableName, String>> entry : ctlToTableColumnMap.entrySet()) {
+            Env.getCurrentEnv().getAccessManager().checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(),
+                    entry.getKey(), entry.getValue(), wanted);
+        }
+    }
+
+    private TableName getFullQualifiedTableNameFromTable(TableIf table) throws AnalysisException {
+        if (table instanceof Table) {
+            String dbName = ClusterNamespace.getNameFromFullName(((Table) table).getQualifiedDbName());
+            if (Strings.isNullOrEmpty(dbName)) {
+                throw new AnalysisException("failed to get db name from table " + table.getName());
+            }
+            return new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, table.getName());
+        } else if (table instanceof ExternalTable) {
+            ExternalTable extTable = (ExternalTable) table;
+            return new TableName(extTable.getCatalog().getName(), extTable.getDbName(), extTable.getName());
+        } else {
+            throw new AnalysisException("table " + table.getName() + " is not internal or external table instance");
         }
     }
 
@@ -437,6 +527,72 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
+     * outputColumnUniqueIds contain columns in OrderByExprs and outputExprs,
+     * push output column unique id set to olap scan.
+     *
+     * when query to storage layer, there are need read raw data
+     * for columns which in outputColumnUniqueIds
+     *
+     * for example:
+     * select A from tb where B = 1 and C > 'hello' order by B;
+     *
+     * column unique id for `A` and `B` will put into outputColumnUniqueIds.
+     *
+    */
+    private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
+        Set<Integer> outputColumnUniqueIds =  new HashSet<>();
+        ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
+        for (Expr expr : outputExprs) {
+            if (expr instanceof SlotRef) {
+                if (((SlotRef) expr).getColumn() != null) {
+                    outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
+                }
+            }
+        }
+
+        for (PlanFragment fragment : fragments) {
+            PlanNode node = fragment.getPlanRoot();
+            PlanNode parent = null;
+            while (node.getChildren().size() != 0) {
+                for (PlanNode childNode : node.getChildren()) {
+                    List<SlotId> outputSlotIds = childNode.getOutputSlotIds();
+                    if (outputSlotIds != null) {
+                        for (SlotId sid : outputSlotIds) {
+                            SlotDescriptor slotDesc = analyzer.getSlotDesc(sid);
+                            outputColumnUniqueIds.add(slotDesc.getUniqueId());
+                        }
+                    }
+                }
+                // OlapScanNode is the last node.
+                // So, just get the two node and check if they are SortNode and OlapScan.
+                parent = node;
+                node = node.getChildren().get(0);
+            }
+
+            if (parent instanceof SortNode) {
+                SortNode sortNode = (SortNode) parent;
+                List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
+                if (orderingExprs != null) {
+                    for (Expr expr : orderingExprs) {
+                        if (expr instanceof SlotRef) {
+                            if (((SlotRef) expr).getColumn() != null) {
+                                outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!(node instanceof OlapScanNode)) {
+                continue;
+            }
+
+            OlapScanNode scanNode = (OlapScanNode) node;
+            scanNode.setOutputColumnUniqueIds(outputColumnUniqueIds);
+        }
+    }
+
+    /**
      * optimize for topn query like: SELECT * FROM t1 WHERE a>100 ORDER BY b,c LIMIT 100
      * the pre-requirement is as follows:
      * 1. only contains SortNode + OlapScanNode
@@ -448,6 +604,8 @@ public class OriginalPlanner extends Planner {
             SortNode sortNode = (SortNode) node;
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
+                    && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
+                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getMaterializedOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getMaterializedOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()

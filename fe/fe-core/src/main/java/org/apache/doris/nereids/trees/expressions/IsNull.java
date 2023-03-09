@@ -60,7 +60,7 @@ public class IsNull extends Expression implements UnaryExpression {
 
     @Override
     public String toString() {
-        return toSql();
+        return child().toString() + " IS NULL";
     }
 
     @Override

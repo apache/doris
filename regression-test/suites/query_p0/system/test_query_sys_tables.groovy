@@ -195,4 +195,78 @@ suite("test_query_sys_tables", "query,p0") {
     """
     sql("use information_schema")
     qt_views("select TABLE_NAME, VIEW_DEFINITION from views where TABLE_SCHEMA = '${dbName1}'")
+
+    // test a large amount of data
+    def dbPrefix = "db_query_sys_tables_with_lots_of_tables_"
+    def tablePrefix = "tb_query_sys_tables_with_lots_of_tables_"
+
+    // create lots of dbs and tables to make rows in `information_schema.columns`
+    for (int i = 1; i <= 10; i++) {
+        def dbName = dbPrefix + i.toString()
+        sql "CREATE DATABASE IF NOT EXISTS `${dbName}`"
+        sql "USE `${dbName}`"
+        for (int j = 1; j <= 1000; j++) {
+            def tableName = tablePrefix + j.toString();
+            sql """
+                CREATE TABLE IF NOT EXISTS `${tableName}` (
+                `aaa` varchar(170) NOT NULL COMMENT "",
+                `bbb` varchar(100) NOT NULL COMMENT "",
+                `ccc` varchar(170) NULL COMMENT "",
+                `ddd` varchar(120) NULL COMMENT "",
+                `eee` varchar(120) NULL COMMENT "",
+                `fff` varchar(130) NULL COMMENT "",
+                `ggg` varchar(170) NULL COMMENT "",
+                `hhh` varchar(170) NULL COMMENT "",
+                `jjj` varchar(170) NULL COMMENT "",
+                `kkk` varchar(170) NULL COMMENT "",
+                `lll` varchar(170) NULL COMMENT "",
+                `mmm` varchar(170) NULL COMMENT "",
+                `nnn` varchar(70) NULL COMMENT "",
+                `ooo` varchar(140) NULL COMMENT "",
+                `ppp` varchar(70) NULL COMMENT "",
+                `qqq` varchar(130) NULL COMMENT "",
+                `rrr` bigint(20) NULL COMMENT "",
+                `sss` bigint(20) NULL COMMENT "",
+                `ttt` decimal(24, 2) NULL COMMENT "",
+                `uuu` decimal(24, 2) NULL COMMENT "",
+                `vvv` decimal(24, 2) NULL COMMENT "",
+                `www` varchar(50) NULL COMMENT "",
+                `xxx` varchar(190) NULL COMMENT "",
+                `yyy` varchar(190) NULL COMMENT "",
+                `zzz` varchar(100) NULL COMMENT "",
+                `aa` bigint(20) NULL COMMENT "",
+                `bb` bigint(20) NULL COMMENT "",
+                `cc` bigint(20) NULL COMMENT "",
+                `dd` varchar(60) NULL COMMENT "",
+                `ee` varchar(60) NULL COMMENT "",
+                `ff` varchar(60) NULL COMMENT "",
+                `gg` varchar(50) NULL COMMENT "",
+                `hh` bigint(20) NULL COMMENT "",
+                `ii` bigint(20) NULL COMMENT ""
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`aaa`)
+                COMMENT "OLAP"
+                DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+                )
+            """
+        }
+    }
+
+    for (int i = 1; i <= 10; i++) {
+        def dbName = dbPrefix + i.toString()
+        sql "USE information_schema"
+        qt_sql "SELECT COUNT(*) FROM `columns` WHERE TABLE_SCHEMA='${dbName}'"
+    }
+
+    sql "USE information_schema"
+    qt_sql "SELECT COLUMN_KEY FROM `columns` WHERE TABLE_SCHEMA='db_query_sys_tables_with_lots_of_tables_1' and TABLE_NAME='tb_query_sys_tables_with_lots_of_tables_1' and COLUMN_NAME='aaa'"
+
+    for (int i = 1; i <= 10; i++) {
+        def dbName = dbPrefix + i.toString()
+        sql "DROP DATABASE `${dbName}`"
+    }
 }

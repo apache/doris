@@ -53,73 +53,73 @@ suite("test_aggregate_histogram") {
     """
 
     sql """
-        INSERT INTO ${tableName} values 
-            (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+        INSERT INTO ${tableName} values
+            (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL, 'not null'),
-            (1, false, 10, 20, 30, 4444444444444, 55555555555, 0.1, 0.222, 3333.33, 4444.44, 'c', 'varchar1', 'string1', 
+            (1, false, 10, 20, 30, 4444444444444, 55555555555, 0.1, 0.222, 3333.33, 4444.44, 'c', 'varchar1', 'string1',
             '2022-12-01', '2022-12-01', '2022-12-01 22:23:23', '2022-12-01 22:23:24.999999', 'not null')
     """
 
     sql """
-        INSERT INTO ${tableName} values 
-            (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+        INSERT INTO ${tableName} values
+            (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL, 'not null'),
-            (1, false, 11, 21, 33, 4444444444444, 55555555555, 0.1, 0.222, 3333.33, 4444.44, 'c', 'varchar1', 'string1', 
+            (1, false, 11, 21, 33, 4444444444444, 55555555555, 0.1, 0.222, 3333.33, 4444.44, 'c', 'varchar1', 'string1',
             '2022-12-01', '2022-12-01', '2022-12-01 22:23:23', '2022-12-01 22:23:24.999999', 'not null')
     """
 
     sql """
-        INSERT INTO ${tableName} values 
-            (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+        INSERT INTO ${tableName} values
+            (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL, 'not null'),
-            (1, true, 11, 12, 13, 1444444444444, 1555555555, 1.1, 1.222, 13333.33, 14444.44, 'd', 'varchar2', 'string2', 
+            (1, true, 11, 12, 13, 1444444444444, 1555555555, 1.1, 1.222, 13333.33, 14444.44, 'd', 'varchar2', 'string2',
             '2022-12-02', '2022-12-02', '2022-12-02 22:23:23', '2022-12-02 22:23:24.999999', 'not null')
     """
 
     sql """
-        INSERT INTO ${tableName} values 
-            (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+        INSERT INTO ${tableName} values
+            (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL, 'not null'),
-            (2, false, 21, 22, 23, 2444444444444, 255555555, 2.1, 2.222, 23333.33, 24444.44, 'f', 'varchar3', 'string3', 
+            (2, false, 21, 22, 23, 2444444444444, 255555555, 2.1, 2.222, 23333.33, 24444.44, 'f', 'varchar3', 'string3',
             '2022-12-03', '2022-12-03', '2022-12-03 22:23:23', '2022-12-03 22:23:24.999999', 'not null')
     """
 
     sql """
-        INSERT INTO ${tableName} values 
-            (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+        INSERT INTO ${tableName} values
+            (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL, 'not null'),
-            (2, true, 31, 32, 33, 3444444444444, 3555555555, 3.1, 3.222, 33333.33, 34444.44, 'l', 'varchar3', 'string3', 
+            (2, true, 31, 32, 33, 3444444444444, 3555555555, 3.1, 3.222, 33333.33, 34444.44, 'l', 'varchar3', 'string3',
             '2022-12-03', '2022-12-03', '2022-12-03 22:23:23', '2022-12-03 22:23:24.999999', 'not null')
     """
 
     sql """
-        INSERT INTO ${tableName} values 
-            (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+        INSERT INTO ${tableName} values
+            (2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
             NULL, NULL, NULL, NULL, 'not null'),
-            (2, false, 10, 20, 30, 944444444444, 9555555555, 9.1, 9.222, 93333.33, 94444.44, 'p', 'varchar9', 'string9', 
+            (2, false, 10, 20, 30, 944444444444, 9555555555, 9.1, 9.222, 93333.33, 94444.44, 'p', 'varchar9', 'string9',
             '2022-12-09', '2022-12-09', '2022-12-09 22:23:23', '2022-12-09 22:23:24.999999', 'not null')
     """
 
     // Test without GROUP BY
     qt_select """
         SELECT
-            histogram(c_bool, 1.0, 1), 
-            histogram(c_tinyint, 1.0, 1), 
-            histogram(c_smallint, 1.0, 1), 
-            histogram(c_bigint, 1.0, 1), 
-            histogram(c_largeint, 1.0, 1), 
-            histogram(c_float, 1.0, 1), 
-            histogram(c_double, 1.0, 1), 
-            histogram(c_decimal, 1.0, 1), 
-            histogram(c_decimalv3, 1.0, 1), 
-            histogram(c_char, 1.0, 1), 
-            histogram(c_varchar, 1.0, 1), 
-            histogram(c_string, 1.0, 1), 
-            histogram(c_date, 1.0, 1), 
-            histogram(c_datev2, 1.0, 1), 
-            histogram(c_date_time, 1.0, 1), 
-            histogram(c_date_timev2, 1.0, 1), 
-            histogram(c_string_not_null, 1.0, 1)
+            histogram(c_bool, 2),
+            histogram(c_tinyint, 2),
+            histogram(c_smallint, 2),
+            histogram(c_bigint, 2),
+            histogram(c_largeint, 2),
+            histogram(c_float, 2),
+            histogram(c_double, 2),
+            histogram(c_decimal, 2),
+            histogram(c_decimalv3, 2),
+            histogram(c_char, 2),
+            histogram(c_varchar, 2),
+            histogram(c_string, 2),
+            histogram(c_date, 2),
+            histogram(c_datev2, 2),
+            histogram(c_date_time, 2),
+            histogram(c_date_timev2, 2),
+            histogram(c_string_not_null, 2)
         FROM
             ${tableName}
     """
@@ -127,24 +127,24 @@ suite("test_aggregate_histogram") {
     // Test with GROUP BY
     qt_select """
         SELECT
-            c_id, 
-            hist(c_bool, 1.0, 1), 
-            hist(c_tinyint, 1.0, 1), 
-            hist(c_smallint, 1.0, 1), 
-            hist(c_bigint, 1.0, 1), 
-            hist(c_largeint, 1.0, 1), 
-            hist(c_float, 1.0, 1), 
-            hist(c_double, 1.0, 1), 
-            hist(c_decimal, 1.0, 1), 
-            hist(c_decimalv3, 1.0, 1), 
-            hist(c_char, 1.0, 1), 
-            hist(c_varchar, 1.0, 1), 
-            hist(c_string, 1.0, 1), 
-            hist(c_date, 1.0, 1), 
-            hist(c_datev2, 1.0, 1), 
-            hist(c_date_time, 1.0, 1), 
-            hist(c_date_timev2, 1.0, 1), 
-            hist(c_string_not_null, 1.0, 1)
+            c_id,
+            hist(c_bool, 2),
+            hist(c_tinyint, 2),
+            hist(c_smallint, 2),
+            hist(c_bigint, 2),
+            hist(c_largeint, 2),
+            hist(c_float, 2),
+            hist(c_double, 2),
+            hist(c_decimal, 2),
+            hist(c_decimalv3, 2),
+            hist(c_char, 2),
+            hist(c_varchar, 2),
+            hist(c_string, 2),
+            hist(c_date, 2),
+            hist(c_datev2, 2),
+            hist(c_date_time, 2),
+            hist(c_date_timev2, 2),
+            hist(c_string_not_null, 2)
         FROM
             ${tableName}
         GROUP BY
@@ -156,24 +156,24 @@ suite("test_aggregate_histogram") {
     sql """
         CREATE TABLE ${tableCTAS1} PROPERTIES("replication_num" = "1") AS
         SELECT
-            1, 
-            hist(c_bool, 1.0, 2), 
-            hist(c_tinyint, 1.0, 2), 
-            hist(c_smallint, 1.0, 2), 
-            hist(c_bigint, 1.0, 2), 
-            hist(c_largeint, 1.0, 2), 
-            hist(c_float, 1.0, 2), 
-            hist(c_double, 1.0, 2), 
-            hist(c_decimal, 1.0, 2), 
-            hist(c_decimalv3, 1.0, 2), 
-            hist(c_char, 1.0, 2), 
-            hist(c_varchar, 1.0, 2), 
-            hist(c_string, 1.0, 2), 
-            hist(c_date, 1.0, 2), 
-            hist(c_datev2, 1.0, 2), 
-            hist(c_date_time, 1.0, 2), 
-            hist(c_date_timev2, 1.0, 2), 
-            hist(c_string_not_null, 1.0, 2)
+            1,
+            hist(c_bool, 2),
+            hist(c_tinyint, 2),
+            hist(c_smallint, 2),
+            hist(c_bigint, 2),
+            hist(c_largeint, 2),
+            hist(c_float, 2),
+            hist(c_double, 2),
+            hist(c_decimal, 2),
+            hist(c_decimalv3, 2),
+            hist(c_char, 2),
+            hist(c_varchar, 2),
+            hist(c_string, 2),
+            hist(c_date, 2),
+            hist(c_datev2, 2),
+            hist(c_date_time, 2),
+            hist(c_date_timev2, 2),
+            hist(c_string_not_null, 2)
         FROM
             ${tableName}
     """
@@ -181,24 +181,24 @@ suite("test_aggregate_histogram") {
     sql """
         CREATE TABLE ${tableCTAS2} PROPERTIES("replication_num" = "1") AS
         SELECT
-            1, 
-            hist(c_bool, 1.0, 1), 
-            hist(c_tinyint, 1.0, 1), 
-            hist(c_smallint, 1.0, 1), 
-            hist(c_bigint, 1.0, 1), 
-            hist(c_largeint, 1.0, 1), 
-            hist(c_float, 1.0, 1), 
-            hist(c_double, 1.0, 1), 
-            hist(c_decimal, 1.0, 1), 
-            hist(c_decimalv3, 1.0, 1), 
-            hist(c_char, 1.0, 1), 
-            hist(c_varchar, 1.0, 1), 
-            hist(c_string, 1.0, 1), 
-            hist(c_date, 1.0, 1), 
-            hist(c_datev2, 1.0, 1), 
-            hist(c_date_time, 1.0, 1), 
-            hist(c_date_timev2, 1.0, 1), 
-            hist(c_string_not_null, 1.0, 1)
+            1,
+            hist(c_bool, 2),
+            hist(c_tinyint, 2),
+            hist(c_smallint, 2),
+            hist(c_bigint, 2),
+            hist(c_largeint, 2),
+            hist(c_float, 2),
+            hist(c_double, 2),
+            hist(c_decimal, 2),
+            hist(c_decimalv3, 2),
+            hist(c_char, 2),
+            hist(c_varchar, 2),
+            hist(c_string, 2),
+            hist(c_date, 2),
+            hist(c_datev2, 2),
+            hist(c_date_time, 2),
+            hist(c_date_timev2, 2),
+            hist(c_string_not_null, 2)
         FROM
             ${tableName}
     """
@@ -206,7 +206,7 @@ suite("test_aggregate_histogram") {
     qt_select "SELECT * from ${tableCTAS1}"
     qt_select "SELECT * from ${tableCTAS2}"
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql "DROP TABLE IF EXISTS ${tableCTAS1}"
-    sql "DROP TABLE IF EXISTS ${tableCTAS2}"
+//     sql "DROP TABLE IF EXISTS ${tableName}"
+//     sql "DROP TABLE IF EXISTS ${tableCTAS1}"
+//     sql "DROP TABLE IF EXISTS ${tableCTAS2}"
 }

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
@@ -37,9 +38,28 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 class SlotBinder extends SubExprAnalyzer {
+    /*
+    bounded={table.a, a}
+    unbound=a
+    if enableExactMatch, 'a' is bound to bounded 'a',
+    if not enableExactMatch, 'a' is ambiguous
+    in order to be compatible to original planner,
+    exact match mode is not enabled for having clause
+    but enabled for order by clause
+    TODO after remove original planner, always enable exact match mode.
+     */
+    private boolean enableExactMatch;
+    private final boolean bindSlotInOuterScope;
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
+        this(scope, cascadesContext, true, true);
+    }
+
+    public SlotBinder(Scope scope, CascadesContext cascadesContext,
+            boolean enableExactMatch, boolean bindSlotInOuterScope) {
         super(scope, cascadesContext);
+        this.enableExactMatch = enableExactMatch;
+        this.bindSlotInOuterScope = bindSlotInOuterScope;
     }
 
     public Expression bind(Expression expression) {
@@ -50,12 +70,15 @@ class SlotBinder extends SubExprAnalyzer {
     public Expression visitUnboundAlias(UnboundAlias unboundAlias, CascadesContext context) {
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
+            collectColumnNames(unboundAlias.getAlias().get());
             return new Alias(child, unboundAlias.getAlias().get());
         }
         if (child instanceof NamedExpression) {
+            collectColumnNames(((NamedExpression) child).getName());
             return new Alias(child, ((NamedExpression) child).getName());
         } else {
             // TODO: resolve aliases
+            collectColumnNames(child.toSql());
             return new Alias(child, child.toSql());
         }
     }
@@ -65,7 +88,7 @@ class SlotBinder extends SubExprAnalyzer {
         Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
         // Currently only looking for symbols on the previous level.
-        if (!foundInThisScope && getScope().getOuterScope().isPresent()) {
+        if (bindSlotInOuterScope && !foundInThisScope && getScope().getOuterScope().isPresent()) {
             boundedOpt = Optional.of(bindSlot(unboundSlot,
                     getScope()
                             .getOuterScope()
@@ -79,26 +102,29 @@ class SlotBinder extends SubExprAnalyzer {
                 // if unbound finally, check will throw exception
                 return unboundSlot;
             case 1:
-                if (!foundInThisScope) {
+                if (!foundInThisScope
+                        && !getScope().getOuterScope().get().getCorrelatedSlots().contains(bounded.get(0))) {
                     getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                 }
                 return bounded.get(0);
             default:
-                // select t1.k k, t2.k
-                // from t1 join t2 order by k
-                //
-                // 't1.k k' is denoted by alias_k, its full name is 'k'
-                // 'order by k' is denoted as order_k, it full name is 'k'
-                // 't2.k' in select list, its full name is 't2.k'
-                //
-                // order_k can be bound on alias_k and t2.k
-                // alias_k is exactly matched, since its full name is exactly match full name of order_k
-                // t2.k is not exactly matched, since t2.k's full name is larger than order_k
-                List<Slot> exactMatch = bounded.stream()
-                        .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
-                        .collect(Collectors.toList());
-                if (exactMatch.size() == 1) {
-                    return exactMatch.get(0);
+                if (enableExactMatch) {
+                    // select t1.k k, t2.k
+                    // from t1 join t2 order by k
+                    //
+                    // 't1.k k' is denoted by alias_k, its full name is 'k'
+                    // 'order by k' is denoted as order_k, it full name is 'k'
+                    // 't2.k' in select list, its full name is 't2.k'
+                    //
+                    // order_k can be bound on alias_k and t2.k
+                    // alias_k is exactly matched, since its full name is exactly match full name of order_k
+                    // t2.k is not exactly matched, since t2.k's full name is larger than order_k
+                    List<Slot> exactMatch = bounded.stream()
+                            .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
+                            .collect(Collectors.toList());
+                    if (exactMatch.size() == 1) {
+                        return exactMatch.get(0);
+                    }
                 }
                 throw new AnalysisException(String.format("%s is ambiguous: %s.",
                         unboundSlot.toSql(),
@@ -196,5 +222,12 @@ class SlotBinder extends SubExprAnalyzer {
             throw new AnalysisException("Not supported name: "
                     + StringUtils.join(nameParts, "."));
         }).collect(Collectors.toList());
+    }
+
+    private void collectColumnNames(String columnName) {
+        Preconditions.checkNotNull(getCascadesContext());
+        if (!getCascadesContext().getStatementContext().getColumnNames().add(columnName)) {
+            throw new AnalysisException("Collect column name failed, columnName : " + columnName);
+        }
     }
 }

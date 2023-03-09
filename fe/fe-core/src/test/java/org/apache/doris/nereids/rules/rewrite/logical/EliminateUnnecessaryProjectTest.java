@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,11 +32,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 /**
  * test ELIMINATE_UNNECESSARY_PROJECT rule.
@@ -66,11 +62,10 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
                 .build();
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
-        cascadesContext.topDownRewrite(rules);
+        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
 
         Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual.child(0) instanceof LogicalOlapScan);
+        Assertions.assertTrue(actual.child(0) instanceof LogicalProject);
     }
 
     @Test
@@ -80,8 +75,7 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
                 .build();
 
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
-        cascadesContext.topDownRewrite(rules);
+        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
 
         Plan actual = cascadesContext.getMemo().copyOut();
         Assertions.assertTrue(actual instanceof LogicalOlapScan);
@@ -89,13 +83,12 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
 
     @Test
     public void testNotEliminateTopProjectWhenOutputNotEquals() {
-        LogicalPlan unnecessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+        LogicalPlan necessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .project(ImmutableList.of(1, 0))
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
-        cascadesContext.topDownRewrite(rules);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(necessaryProject);
+        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
 
         Plan actual = cascadesContext.getMemo().copyOut();
         Assertions.assertTrue(actual instanceof LogicalProject);
@@ -109,8 +102,7 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
                 .project(ImmutableList.of(1, 0))
                 .build();
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
-        cascadesContext.topDownRewrite(rules);
+        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
 
         Plan actual = cascadesContext.getMemo().copyOut();
         Assertions.assertTrue(actual instanceof LogicalEmptyRelation);

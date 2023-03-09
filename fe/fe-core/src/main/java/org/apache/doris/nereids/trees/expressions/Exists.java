@@ -77,15 +77,11 @@ public class Exists extends SubqueryExpr implements LeafExpression {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
+        if (!super.equals(o)) {
             return false;
         }
         Exists other = (Exists) o;
-        return Objects.equals(this.queryPlan, other.getQueryPlan())
-                && Objects.equals(this.isNot, other.isNot());
+        return this.isNot == other.isNot;
     }
 
     @Override

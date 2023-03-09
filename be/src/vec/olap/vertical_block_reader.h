@@ -42,7 +42,11 @@ public:
     Status init(const ReaderParams& read_params) override;
 
     Status next_block_with_aggregation(Block* block, bool* eof) override {
-        return (this->*_next_block_func)(block, eof);
+        auto res = (this->*_next_block_func)(block, eof);
+        if (UNLIKELY(res.is_io_error())) {
+            _tablet->increase_io_error_times();
+        }
+        return res;
     }
 
     uint64_t merged_rows() const override {
@@ -65,7 +69,7 @@ private:
     Status _init_collect_iter(const ReaderParams& read_params);
 
     Status _get_segment_iterators(const ReaderParams& read_params,
-                                  std::vector<RowwiseIterator*>* segment_iters,
+                                  std::vector<RowwiseIteratorUPtr>* segment_iters,
                                   std::vector<bool>* iterator_init_flag,
                                   std::vector<RowsetId>* rowset_ids);
 

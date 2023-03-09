@@ -102,7 +102,7 @@ public class ChannelDescription implements Writable {
         }
 
         // check target table auth
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, targetTable,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, targetTable,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),

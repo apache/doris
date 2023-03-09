@@ -62,12 +62,14 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
     status = index_searcher_cache->insert(fs, kTestDir, file_name_2);
     EXPECT_EQ(Status::OK(), status);
 
+    OlapReaderStatistics stats;
+
     // lookup after insert
     {
         // case 1: lookup exist entry
         InvertedIndexCacheHandle inverted_index_cache_handle;
         status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_1,
-                                                          &inverted_index_cache_handle);
+                                                          &inverted_index_cache_handle, &stats);
         EXPECT_EQ(Status::OK(), status);
 
         auto cache_value_1 =
@@ -76,7 +78,7 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         EXPECT_GE(UnixMillis(), cache_value_1->last_visit_time);
 
         status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_2,
-                                                          &inverted_index_cache_handle);
+                                                          &inverted_index_cache_handle, &stats);
         EXPECT_EQ(Status::OK(), status);
 
         auto cache_value_2 =
@@ -92,8 +94,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // use cache
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
-            status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_1,
-                                                              &inverted_index_cache_handle_1);
+            status = index_searcher_cache->get_index_searcher(
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
         }
@@ -101,8 +103,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // lookup again
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
-            status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_1,
-                                                              &inverted_index_cache_handle_1);
+            status = index_searcher_cache->get_index_searcher(
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
 
@@ -114,15 +116,15 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
 
         // not use cache
         InvertedIndexCacheHandle inverted_index_cache_handle_2;
-        status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_2,
-                                                          &inverted_index_cache_handle_2, false);
+        status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats, false);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_TRUE(inverted_index_cache_handle_2.owned);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._cache);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._handle);
 
         status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_2,
-                                                          &inverted_index_cache_handle_2);
+                                                          &inverted_index_cache_handle_2, &stats);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_FALSE(inverted_index_cache_handle_2.owned);
         auto cache_value_use_cache_2 =
@@ -134,7 +136,7 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
     delete index_searcher_cache;
 }
 
-TEST_F(InvertedIndexSearcherCacheTest, evict) {
+TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     InvertedIndexSearcherCache* index_searcher_cache =
             new InvertedIndexSearcherCache(kCacheSize, 1);
     // no need evict
@@ -194,6 +196,99 @@ TEST_F(InvertedIndexSearcherCacheTest, evict) {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_3
         EXPECT_TRUE(index_searcher_cache->_lookup(key_3, &cache_handle));
+        // lookup key_4
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_4, &cache_handle));
+    }
+
+    delete index_searcher_cache;
+}
+
+TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
+    InvertedIndexSearcherCache* index_searcher_cache =
+            new InvertedIndexSearcherCache(kCacheSize, 1);
+    // no need evict
+    std::string file_name_1 = "test_1.idx";
+    InvertedIndexSearcherCache::CacheKey key_1(file_name_1);
+    IndexCacheValuePtr cache_value_1 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+    cache_value_1->size = 20;
+    cache_value_1->index_searcher = nullptr;
+    cache_value_1->last_visit_time = 10;
+    index_searcher_cache->_cache->release(
+            index_searcher_cache->_insert(key_1, cache_value_1.release()));
+
+    // no need evict
+    std::string file_name_2 = "test_2.idx";
+    InvertedIndexSearcherCache::CacheKey key_2(file_name_2);
+    IndexCacheValuePtr cache_value_2 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+    cache_value_2->size = 50;
+    cache_value_2->index_searcher = nullptr;
+    cache_value_2->last_visit_time = 20;
+    index_searcher_cache->_cache->release(
+            index_searcher_cache->_insert(key_2, cache_value_2.release()));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_1
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_1, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_2
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_2, &cache_handle));
+    }
+
+    // should evict {key_1, cache_value_1}
+    std::string file_name_3 = "test_3.idx";
+    InvertedIndexSearcherCache::CacheKey key_3(file_name_3);
+    IndexCacheValuePtr cache_value_3 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+    cache_value_3->size = 80;
+    cache_value_3->index_searcher = nullptr;
+    cache_value_3->last_visit_time = 30;
+    index_searcher_cache->_cache->release(
+            index_searcher_cache->_insert(key_3, cache_value_3.release()));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_1
+        EXPECT_FALSE(index_searcher_cache->_lookup(key_1, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_2
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_2, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_3
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_3, &cache_handle));
+    }
+
+    // should evict {key_2, cache_value_2}
+    std::string file_name_4 = "test_4.idx";
+    InvertedIndexSearcherCache::CacheKey key_4(file_name_4);
+    IndexCacheValuePtr cache_value_4 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
+    cache_value_4->size = 100;
+    cache_value_4->index_searcher = nullptr;
+    cache_value_4->last_visit_time = 40;
+    index_searcher_cache->_cache->release(
+            index_searcher_cache->_insert(key_4, cache_value_4.release()));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_1
+        EXPECT_FALSE(index_searcher_cache->_lookup(key_1, &cache_handle));
+        // lookup key_2
+        EXPECT_FALSE(index_searcher_cache->_lookup(key_2, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
+        // lookup key_3
+        EXPECT_TRUE(index_searcher_cache->_lookup(key_3, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
         // lookup key_4
         EXPECT_TRUE(index_searcher_cache->_lookup(key_4, &cache_handle));
     }

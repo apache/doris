@@ -43,6 +43,10 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     protected final Map<String, ColumnRange> columnNameToRange;
     // used for single column partition
     protected RangeMap<ColumnBound, UniqueId> singleColumnRangeMap = null;
+    // Flag to indicate if this pruner is for hive partition or not.
+    protected boolean isHive = false;
+    // currently only used for list partition
+    private Map.Entry<Long, PartitionItem> defaultPartition;
 
     public PartitionPrunerV2Base(Map<Long, PartitionItem> idToPartitionItem,
             List<Column> partitionColumns,
@@ -50,6 +54,7 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
         this.idToPartitionItem = idToPartitionItem;
         this.partitionColumns = partitionColumns;
         this.columnNameToRange = columnNameToRange;
+        findDefaultPartition(idToPartitionItem);
     }
 
     // pass singleColumnRangeMap from outside
@@ -61,6 +66,35 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
         this.partitionColumns = partitionColumns;
         this.columnNameToRange = columnNameToRange;
         this.singleColumnRangeMap = singleColumnRangeMap;
+        findDefaultPartition(idToPartitionItem);
+    }
+
+    private Collection<Long> handleDefaultPartition(Collection<Long> result) {
+        if (this.defaultPartition != null) {
+            Set<Long> r = result.stream().collect(Collectors.toSet());
+            r.add(this.defaultPartition.getKey());
+            return r;
+        }
+        return result;
+    }
+
+    private void findDefaultPartition(Map<Long, PartitionItem> idToPartitionItem) {
+        this.defaultPartition = idToPartitionItem.entrySet().stream()
+                                .filter(entry -> (entry.getValue().isDefaultPartition()))
+                                .findAny()
+                                .orElse(null);
+    }
+
+    public PartitionPrunerV2Base(Map<Long, PartitionItem> idToPartitionItem,
+                                 List<Column> partitionColumns,
+                                 Map<String, ColumnRange> columnNameToRange,
+                                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
+                                 boolean isHive) {
+        this.idToPartitionItem = idToPartitionItem;
+        this.partitionColumns = partitionColumns;
+        this.columnNameToRange = columnNameToRange;
+        this.singleColumnRangeMap = singleColumnRangeMap;
+        this.isHive = isHive;
     }
 
     @Override
@@ -75,13 +109,16 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
             }
         }
 
+        Collection<Long> result;
         if (partitionColumns.size() == 1) {
-            return pruneSingleColumnPartition(columnToFilters);
+            result = pruneSingleColumnPartition(columnToFilters);
         } else if (partitionColumns.size() > 1) {
-            return pruneMultipleColumnPartition(columnToFilters);
+            result = pruneMultipleColumnPartition(columnToFilters);
         } else {
-            return Lists.newArrayList();
+            result = Lists.newArrayList();
         }
+
+        return handleDefaultPartition(result);
     }
 
     abstract void genSingleColumnRangeMap();
@@ -119,7 +156,7 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
         FinalFilters finalFilters = columnToFilters.get(partitionColumns.get(0));
         switch (finalFilters.type) {
             case CONSTANT_FALSE_FILTERS:
-                return Collections.emptyList();
+                return Collections.emptySet();
             case HAVE_FILTERS:
                 genSingleColumnRangeMap();
                 Preconditions.checkNotNull(singleColumnRangeMap);

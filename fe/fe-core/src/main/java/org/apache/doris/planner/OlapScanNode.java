@@ -28,6 +28,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
@@ -38,6 +39,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -54,6 +56,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
@@ -64,6 +67,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOlapScanNode;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -153,6 +157,7 @@ public class OlapScanNode extends ScanNode {
     private long totalBytes = 0;
 
     private SortInfo sortInfo = null;
+    private Set<Integer> outputColumnUniqueIds = new HashSet<>();
 
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
@@ -184,6 +189,12 @@ public class OlapScanNode extends ScanNode {
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
+        // use for Nereids to generate uniqueId set for inverted index to avoid scan unnecessary big size column
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (slotDescriptor.getColumn() != null) {
+                outputColumnUniqueIds.add(slotDescriptor.getColumn().getUniqueId());
+            }
+        }
     }
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
@@ -318,6 +329,10 @@ public class OlapScanNode extends ScanNode {
         this.selectedIndexId = olapTable.getBaseIndexId();
     }
 
+    public long getSelectedIndexId() {
+        return selectedIndexId;
+    }
+
     /**
      * This method is mainly used to update scan range info in OlapScanNode by the
      * new materialized selector.
@@ -423,7 +438,7 @@ public class OlapScanNode extends ScanNode {
                 mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
             }
             if (mvColumn == null) {
-                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateColumnType: Do not found mvColumn " + baseColumn.getName());
             }
 
             if (mvColumn.getType() != baseColumn.getType()) {
@@ -450,7 +465,7 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             if (mvColumn == null) {
-                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
             }
             slotDescriptor.setColumn(mvColumn);
         }
@@ -462,13 +477,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS
-                || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
-                        && olapTable.getEnableUniqueKeyMergeOnWrite())) {
-            return true;
-        } else {
-            return false;
-        }
+        return olapTable.isDupKeysOrMergeOnWrite();
     }
 
     @Override
@@ -683,7 +692,20 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
-            Collections.shuffle(replicas);
+            int useFixReplica = -1;
+            if (ConnectContext.get() != null) {
+                useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
+            }
+            if (useFixReplica == -1) {
+                Collections.shuffle(replicas);
+            } else {
+                LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
+                // sort by replica id
+                replicas.sort(Replica.ID_COMPARATOR);
+                Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
+                replicas.clear();
+                replicas.add(replica);
+            }
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
@@ -708,7 +730,7 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
-                String ip = backend.getHost();
+                String ip = backend.getIp();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
                 scanRangeLocation.setBackendId(replica.getBackendId());
@@ -809,6 +831,10 @@ public class OlapScanNode extends ScanNode {
         long start = System.currentTimeMillis();
         computeTabletInfo();
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
+    }
+
+    public void setOutputColumnUniqueIds(Set<Integer> outputColumnUniqueIds) {
+        this.outputColumnUniqueIds = outputColumnUniqueIds;
     }
 
     /**
@@ -940,6 +966,12 @@ public class OlapScanNode extends ScanNode {
      * Check Parent sort node can push down to child olap scan.
      */
     public boolean checkPushSort(SortNode sortNode) {
+        // Ensure limit is less then threshold
+        if (sortNode.getLimit() <= 0
+                || sortNode.getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+            return false;
+        }
+
         // Ensure all isAscOrder is same, ande length != 0.
         // Can't be zorder.
         if (sortNode.getSortInfo().getIsAscOrder().stream().distinct().count() != 1
@@ -989,6 +1021,7 @@ public class OlapScanNode extends ScanNode {
         scanBackendIds.clear();
         scanTabletIds.clear();
         result.clear();
+        bucketSeq2locations.clear();
         try {
             getScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1093,6 +1126,7 @@ public class OlapScanNode extends ScanNode {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
+        List<TOlapTableIndex> indexDesc = Lists.newArrayList();
 
         if (selectedIndexId != -1) {
             for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
@@ -1106,9 +1140,15 @@ public class OlapScanNode extends ScanNode {
             }
         }
 
+        for (Index index : olapTable.getIndexes()) {
+            TOlapTableIndex tIndex = index.toThrift();
+            indexDesc.add(tIndex);
+        }
+
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
+        msg.olap_scan_node.setIndexesDesc(indexDesc);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
@@ -1132,6 +1172,10 @@ public class OlapScanNode extends ScanNode {
 
         if (pushDownAggNoGroupingOp != null) {
             msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        }
+
+        if (outputColumnUniqueIds != null) {
+            msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
         }
     }
 
@@ -1312,12 +1356,13 @@ public class OlapScanNode extends ScanNode {
         return olapTable.getIndexNameById(selectedIndexId);
     }
 
-    public void finalizeForNerieds() {
+    @Override
+    public void finalizeForNereids() {
         computeNumNodes();
-        computeStatsForNerieds();
+        computeStatsForNereids();
     }
 
-    private void computeStatsForNerieds() {
+    private void computeStatsForNereids() {
         if (cardinality > 0 && avgRowSize <= 0) {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
             capCardinalityAtLimit();
@@ -1325,5 +1370,16 @@ public class OlapScanNode extends ScanNode {
         // when node scan has no data, cardinality should be 0 instead of a invalid
         // value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
+    }
+
+    @Override
+    public void updateRequiredSlots(PlanTranslatorContext context,
+            Set<SlotId> requiredByProjectSlotIdSet) {
+        outputColumnUniqueIds.clear();
+        for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+            if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
+                outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+            }
+        }
     }
 }

@@ -25,11 +25,12 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -64,14 +65,14 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    private final Map<PhysicalHashJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
+    private final Map<AbstractPhysicalJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
 
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
     // you can see disjoint set data structure to learn the processing detailed.
     private final Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = Maps.newHashMap();
 
-    private final Map<Slot, OlapScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
+    private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
     private final SessionVariable sessionVariable;
@@ -128,11 +129,11 @@ public class RuntimeFilterContext {
         return aliasTransferMap;
     }
 
-    public Map<Slot, OlapScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
+    public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
         return scanNodeOfLegacyRuntimeFilterTarget;
     }
 
-    public List<RuntimeFilter> getRuntimeFilterOnHashJoinNode(PhysicalHashJoin join) {
+    public List<RuntimeFilter> getRuntimeFilterOnHashJoinNode(AbstractPhysicalJoin join) {
         return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptyList());
     }
 
@@ -185,11 +186,11 @@ public class RuntimeFilterContext {
         return targetNullCount;
     }
 
-    public void addJoinToTargetMap(PhysicalHashJoin join, ExprId exprId) {
+    public void addJoinToTargetMap(AbstractPhysicalJoin join, ExprId exprId) {
         joinToTargetExprId.computeIfAbsent(join, k -> Lists.newArrayList()).add(exprId);
     }
 
-    public List<ExprId> getTargetExprIdByFilterJoin(PhysicalHashJoin join) {
+    public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
         return joinToTargetExprId.get(join);
     }
 }

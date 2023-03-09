@@ -83,7 +83,7 @@ Here we provide 3 ways to solve this problem:
 
 3. Manually migrate data using the API
 
-   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
+   Doris provides [HTTP API](../admin-manual/http-actions/be/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
 
 ### Q5. How to read FE/BE logs correctly?
 
@@ -285,7 +285,7 @@ In doris 1.0 onwards, openssl has been upgraded to 1.1 and is built into the dor
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../ecosystem/external-table/odbc-of-doris.md).
+The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1.1. Or use a lower version of ODBC connector, e.g. [Connector/ODBC 5.3.14](https://dev.mysql.com/downloads/connector/odbc/5.3.html). For details, see the [ODBC exterior documentation](../lakehouse/external-table/odbc.md).
 
 You can verify the version of openssl used by MySQL ODBC Driver by
 

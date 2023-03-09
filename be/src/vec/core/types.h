@@ -82,6 +82,9 @@ enum class TypeIndex {
     FixedLengthObject,
     JSONB,
     Decimal128I,
+    Map,
+    Struct,
+    VARIANT,
 };
 
 struct Consted {
@@ -244,6 +247,10 @@ struct TypeId<Float32> {
 template <>
 struct TypeId<Float64> {
     static constexpr const TypeIndex value = TypeIndex::Float64;
+};
+template <>
+struct TypeId<String> {
+    static constexpr const TypeIndex value = TypeIndex::String;
 };
 
 /// Not a data type in database, defined just for convenience.
@@ -571,6 +578,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Array";
     case TypeIndex::Tuple:
         return "Tuple";
+    case TypeIndex::Map:
+        return "Map";
     case TypeIndex::Set:
         return "Set";
     case TypeIndex::Interval:
@@ -583,6 +592,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "AggregateFunction";
     case TypeIndex::LowCardinality:
         return "LowCardinality";
+    case TypeIndex::VARIANT:
+        return "Variant";
     case TypeIndex::BitMap:
         return TypeName<BitmapValue>::get();
     case TypeIndex::HLL:
@@ -591,6 +602,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "FixedLengthObject";
     case TypeIndex::JSONB:
         return "JSONB";
+    case TypeIndex::Struct:
+        return "Struct";
     }
 
     __builtin_unreachable();
@@ -607,6 +620,15 @@ struct std::hash<doris::vectorized::Decimal<T>> {
 template <>
 struct std::hash<doris::vectorized::Decimal128> {
     size_t operator()(const doris::vectorized::Decimal128& x) const {
+        return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
+               std::hash<doris::vectorized::Int64>()(
+                       x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
+    }
+};
+
+template <>
+struct std::hash<doris::vectorized::Decimal128I> {
+    size_t operator()(const doris::vectorized::Decimal<doris::vectorized::Int128I>& x) const {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
                        x.value & std::numeric_limits<doris::vectorized::UInt64>::max());

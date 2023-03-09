@@ -36,6 +36,10 @@ Status ScannerContext::init() {
     // should find a more reasonable value.
     _max_thread_num =
             std::min(config::doris_scanner_thread_pool_thread_num / 4, (int32_t)_scanners.size());
+    // For select * from table limit 10; should just use one thread.
+    if (_parent->should_run_serial()) {
+        _max_thread_num = 1;
+    }
 
     // 2. Calculate how many blocks need to be preallocated.
     // The calculation logic is as follows:
@@ -55,10 +59,10 @@ Status ScannerContext::init() {
     // So use _output_tuple_desc;
     int64_t free_blocks_memory_usage = 0;
     for (int i = 0; i < pre_alloc_block_count; ++i) {
-        auto block = new vectorized::Block(_output_tuple_desc->slots(), real_block_size,
-                                           true /*ignore invalid slots*/);
+        auto block = std::make_unique<vectorized::Block>(
+                _output_tuple_desc->slots(), real_block_size, true /*ignore invalid slots*/);
         free_blocks_memory_usage += block->allocated_bytes();
-        _free_blocks.emplace_back(block);
+        _free_blocks.emplace_back(std::move(block));
     }
     _parent->_free_blocks_memory_usage->add(free_blocks_memory_usage);
 
@@ -81,38 +85,39 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
-vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
+vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block) {
     {
         std::lock_guard l(_free_blocks_lock);
         if (!_free_blocks.empty()) {
-            auto block = _free_blocks.back();
+            auto block = std::move(_free_blocks.back());
             _free_blocks.pop_back();
             _parent->_free_blocks_memory_usage->add(-block->allocated_bytes());
             return block;
         }
     }
-    *get_free_block = false;
+    *has_free_block = false;
 
     COUNTER_UPDATE(_parent->_newly_create_free_blocks_num, 1);
-    return new vectorized::Block(_real_tuple_desc->slots(), _state->batch_size(),
-                                 true /*ignore invalid slots*/);
+    return std::make_unique<vectorized::Block>(_real_tuple_desc->slots(), _state->batch_size(),
+                                               true /*ignore invalid slots*/);
 }
 
-void ScannerContext::return_free_block(vectorized::Block* block) {
+void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block) {
     block->clear_column_data();
     _parent->_free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard l(_free_blocks_lock);
-    _free_blocks.emplace_back(block);
+    _free_blocks.emplace_back(std::move(block));
 }
 
-void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::Block*>& blocks) {
+void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {
     std::lock_guard l(_transfer_lock);
     auto old_bytes_in_queue = _cur_bytes_in_queue;
-    _blocks_queue.insert(_blocks_queue.end(), blocks.begin(), blocks.end());
-    _update_block_queue_empty();
-    for (auto b : blocks) {
+    for (auto& b : blocks) {
         _cur_bytes_in_queue += b->allocated_bytes();
+        _blocks_queue.push_back(std::move(b));
     }
+    blocks.clear();
+    _update_block_queue_empty();
     _blocks_queue_added_cv.notify_one();
     _parent->_queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);
 }
@@ -122,7 +127,7 @@ bool ScannerContext::empty_in_queue() {
     return _blocks_queue.empty();
 }
 
-Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos, bool wait) {
+Status ScannerContext::get_block_from_queue(vectorized::BlockUPtr* block, bool* eos, bool wait) {
     std::unique_lock l(_transfer_lock);
     // Normally, the scanner scheduler will schedule ctx.
     // But when the amount of data in the blocks queue exceeds the upper limit,
@@ -152,7 +157,7 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
     }
 
     if (!_blocks_queue.empty()) {
-        *block = _blocks_queue.front();
+        *block = std::move(_blocks_queue.front());
         _blocks_queue.pop_front();
         _update_block_queue_empty();
         auto block_bytes = (*block)->allocated_bytes();
@@ -238,11 +243,8 @@ void ScannerContext::clear_and_join() {
 
     COUNTER_SET(_parent->_scanner_sched_counter, _num_scanner_scheduling);
     COUNTER_SET(_parent->_scanner_ctx_sched_counter, _num_ctx_scheduling);
-
-    std::for_each(_blocks_queue.begin(), _blocks_queue.end(),
-                  std::default_delete<vectorized::Block>());
-    std::for_each(_free_blocks.begin(), _free_blocks.end(),
-                  std::default_delete<vectorized::Block>());
+    _blocks_queue.clear();
+    _free_blocks.clear();
 
     return;
 }

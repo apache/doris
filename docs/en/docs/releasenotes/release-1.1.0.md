@@ -48,7 +48,7 @@ In order to ensure the maintainability of the code structure and reduce the addi
 
 For normal upgrade operations, you can perform rolling upgrades according to the cluster upgrade documentation on the official website.
 
-[https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/upgrade)
+[https://doris.apache.org//docs/admin-manual/cluster-management/upgrade](https://doris.apache.org//docs/admin-manual/cluster-management/upgrade)
 
 ## Features
 
@@ -56,7 +56,7 @@ For normal upgrade operations, you can perform rolling upgrades according to the
 
 In some scenarios (such as log data analysis), users may not be able to find a suitable bucket key to avoid data skew, so the system needs to provide additional distribution methods to solve the problem.
 
-Therefore, when creating a table you can set `DISTRIBUTED BY random BUCKET number`to use random distribution, the data will be randomly written to a single tablet when importing to reduce the data fanout during the loading process. And reduce resource overhead and improve system stability.
+Therefore, when creating a table you can set `DISTRIBUTED BY random BUCKETS number`to use random distribution, the data will be randomly written to a single tablet when importing to reduce the data fanout during the loading process. And reduce resource overhead and improve system stability.
 
 ### Support for creating Iceberg external tables[experimental]
 
@@ -98,9 +98,9 @@ On all 22 SQLs in the TPC-H test data set, version 1.1 is better than version 0.
 
 **Performance test report**
 
-[https://doris.apache.org/zh-CN/docs/benchmark/ssb](https://doris.apache.org/zh-CN/docs/benchmark/ssb)
+[https://doris.apache.org//docs/benchmark/ssb](https://doris.apache.org//docs/benchmark/ssb)
 
-[https://doris.apache.org/zh-CN/docs/benchmark/tpch](https://doris.apache.org/zh-CN/docs/benchmark/tpch)
+[https://doris.apache.org//docs/benchmark/tpch](https://doris.apache.org//docs/benchmark/tpch)
 
 ### Compaction logic optimization and real-time guarantee
 

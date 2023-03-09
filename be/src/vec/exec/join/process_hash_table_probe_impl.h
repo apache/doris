@@ -392,8 +392,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                   JoinOpType != TJoinOp::RIGHT_ANTI_JOIN) {
         SCOPED_TIMER(_probe_side_output_timer);
-        probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                 last_probe_index, probe_size, all_match_one, false);
+        RETURN_IF_CATCH_BAD_ALLOC(
+                probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
+                                         last_probe_index, probe_size, all_match_one, false));
     }
 
     output_block->swap(mutable_block.to_block());
@@ -578,6 +579,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                 ++current_offset;
                                 visited_map.emplace_back(&it->visited);
                             }
+                            ++probe_index;
                         } else {
                             auto multi_match_last_offset = current_offset;
                             auto it = mapped.begin();
@@ -663,8 +665,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         }
         {
             SCOPED_TIMER(_probe_side_output_timer);
-            probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                     last_probe_index, probe_size, all_match_one, true);
+            RETURN_IF_CATCH_BAD_ALLOC(probe_side_output_column(
+                    mcol, _join_node->_left_output_slot_flags, current_offset, last_probe_index,
+                    probe_size, all_match_one, true));
         }
         auto num_cols = mutable_block.columns();
         output_block->swap(mutable_block.to_block());

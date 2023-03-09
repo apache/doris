@@ -53,7 +53,7 @@ void PipelineTask::_init_profile() {
 
 Status PipelineTask::prepare(RuntimeState* state) {
     DCHECK(_sink);
-    DCHECK(_cur_state == NOT_READY);
+    DCHECK(_cur_state == PipelineTaskState::NOT_READY);
     _init_profile();
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
@@ -80,7 +80,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     _block.reset(new doris::vectorized::Block());
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
-    set_state(RUNNABLE);
+    set_state(PipelineTaskState::RUNNABLE);
     _prepared = true;
     return Status::OK();
 }
@@ -133,32 +133,32 @@ Status PipelineTask::execute(bool* eos) {
             SCOPED_RAW_TIMER(&time_spent);
             auto st = open();
             if (st.is_blocked_by_rf()) {
-                set_state(BLOCKED_FOR_RF);
+                set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
             }
             RETURN_IF_ERROR(st);
         }
         if (has_dependency()) {
-            set_state(BLOCKED_FOR_DEPENDENCY);
+            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
             return Status::OK();
         }
         if (!_source->can_read()) {
-            set_state(BLOCKED_FOR_SOURCE);
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
         if (!_sink->can_write()) {
-            set_state(BLOCKED_FOR_SINK);
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
     }
 
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
-            set_state(BLOCKED_FOR_SOURCE);
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
         if (!_sink->can_write()) {
-            set_state(BLOCKED_FOR_SINK);
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
         if (time_spent > THREAD_TIME_SLICE) {
@@ -232,20 +232,20 @@ void PipelineTask::set_state(PipelineTaskState state) {
     if (_cur_state == state) {
         return;
     }
-    if (_cur_state == BLOCKED_FOR_SOURCE) {
-        if (state == RUNNABLE) {
+    if (_cur_state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+        if (state == PipelineTaskState::RUNNABLE) {
             _wait_source_watcher.stop();
         }
-    } else if (_cur_state == BLOCKED_FOR_SINK) {
-        if (state == RUNNABLE) {
+    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_SINK) {
+        if (state == PipelineTaskState::RUNNABLE) {
             _wait_sink_watcher.stop();
         }
-    } else if (_cur_state == RUNNABLE) {
+    } else if (_cur_state == PipelineTaskState::RUNNABLE) {
         COUNTER_UPDATE(_block_counts, 1);
-        if (state == BLOCKED_FOR_SOURCE) {
+        if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
             _wait_source_watcher.start();
             COUNTER_UPDATE(_block_by_source_counts, 1);
-        } else if (state == BLOCKED_FOR_SINK) {
+        } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         }

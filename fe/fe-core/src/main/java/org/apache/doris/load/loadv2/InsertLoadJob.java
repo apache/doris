@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -50,7 +51,8 @@ public class InsertLoadJob extends LoadJob {
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
+            long createTimestamp, String failMsg, String trackingUrl,
+            UserIdentity userInfo) throws MetaNotFoundException {
         super(EtlJobType.INSERT, dbId, label);
         this.tableId = tableId;
         this.transactionId = transactionId;
@@ -67,6 +69,7 @@ public class InsertLoadJob extends LoadJob {
         }
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
+        this.userInfo = userInfo;
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {

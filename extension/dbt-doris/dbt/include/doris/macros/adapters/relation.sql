@@ -17,7 +17,7 @@
 
 {% macro doris__engine() -%}
     {% set label = 'ENGINE' %}
-    {% set engine = config.get('engine', 'OLAP', validator=validation.any[basestring]) %}
+    {% set engine = config.get('engine', 'OLAP') %}
     {{ label }} = {{ engine }}
 {%- endmacro %}
 
@@ -92,8 +92,12 @@
 {%- endmacro%}
 
 {% macro doris__drop_relation(relation) -%}
+    {% set relation_type = relation.type %}
+    {% if relation_type is none %}
+        {% set relation_type = 'table' %}
+    {% endif %}
     {% call statement('drop_relation', auto_begin=False) %}
-    drop {{ relation.type }} if exists {{ relation }}
+    drop {{ relation_type }} if exists {{ relation }}
     {% endcall %}
 {%- endmacro %}
 
@@ -111,13 +115,18 @@
     {% if to_relation.is_view %}
     {% set results = run_query('show create view ' + from_relation.render() ) %}
     create view {{ to_relation }} as {{ results[0]['Create View'].replace(from_relation.table, to_relation.table).split('AS',1)[1] }}
-    drop view if exists {{ from_relation }};
     {% else %}
     alter table {{ from_relation }} rename {{ to_relation.table }}
     {% endif %}
   {% endcall %}
-{%- endmacro %}
 
+  {% if to_relation.is_view %}
+    {% call statement('rename_relation_end_drop_old') %}
+      drop view if exists {{ from_relation }}
+    {% endcall %}
+  {% endif %}
+
+  {%- endmacro %}
 
 {% macro doris__timestimp_id() -%}
  {{ return( (modules.datetime.datetime.now() ~ "").replace('-','').replace(':','').replace('.','').replace(' ','') ) }}
@@ -130,4 +139,24 @@
   {% else %}
     WITH LABEL dbt_doris_label_{{ lable_suffix_id }}
   {% endif %}  
+{%- endmacro %}
+
+{% macro doris__get_or_create_relation(database, schema, identifier, type) %}
+  {%- set target_relation = adapter.get_relation(database=database, schema=schema, identifier=identifier) %}
+  
+  {% if target_relation %}
+    {% do return([true, target_relation]) %}
+  {% endif %}
+  
+  {%- set new_relation = api.Relation.create(
+      database=none,
+      schema=schema,
+      identifier=identifier,
+      type=type
+  ) -%}
+  {% do return([false, new_relation]) %}
+{% endmacro %}
+
+{% macro catalog_source(catalog,database,table) -%}
+  `{{catalog}}`.`{{database}}`.`{{table}}` 
 {%- endmacro %}

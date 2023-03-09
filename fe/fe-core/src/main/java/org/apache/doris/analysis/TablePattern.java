@@ -25,7 +25,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 

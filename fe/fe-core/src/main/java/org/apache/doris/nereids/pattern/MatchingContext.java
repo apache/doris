@@ -49,4 +49,8 @@ public class MatchingContext<TYPE extends Plan> {
         this.connectContext = cascadesContext.getConnectContext();
         this.cteContext = cascadesContext.getCteContext();
     }
+
+    public boolean isRewriteRoot() {
+        return cascadesContext.isRewriteRoot();
+    }
 }

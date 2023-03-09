@@ -41,7 +41,7 @@ class WindowFunctionRowNumber final
         : public IAggregateFunctionDataHelper<RowNumberData, WindowFunctionRowNumber> {
 public:
     WindowFunctionRowNumber(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "row_number"; }
 
@@ -79,7 +79,7 @@ struct RankData {
 class WindowFunctionRank final : public IAggregateFunctionDataHelper<RankData, WindowFunctionRank> {
 public:
     WindowFunctionRank(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "rank"; }
 
@@ -123,7 +123,7 @@ class WindowFunctionDenseRank final
         : public IAggregateFunctionDataHelper<DenseRankData, WindowFunctionDenseRank> {
 public:
     WindowFunctionDenseRank(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "dense_rank"; }
 
@@ -164,8 +164,8 @@ struct NTileData {
 class WindowFunctionNTile final
         : public IAggregateFunctionDataHelper<NTileData, WindowFunctionNTile> {
 public:
-    WindowFunctionNTile(const DataTypes& argument_types_, const Array& parameters)
-            : IAggregateFunctionDataHelper(argument_types_, parameters) {}
+    WindowFunctionNTile(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "ntile"; }
 
@@ -274,6 +274,8 @@ public:
                 const auto* nullable_column = assert_cast<const ColumnNullable*>(column);
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
+                } else {
+                    _default_value.set_value(nullable_column->get_nested_column_ptr(), 0);
                 }
             } else {
                 _default_value.set_value(column, 0);
@@ -336,7 +338,7 @@ struct WindowFunctionFirstImpl : Data {
         if (this->has_set_value()) {
             return;
         }
-        if (frame_start < frame_end &&
+        if (frame_start <= frame_end &&
             frame_end <= partition_start) { //rewrite last_value when under partition
             this->set_is_null();            //so no need more judge
             return;
@@ -352,7 +354,7 @@ template <typename Data>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if ((frame_start < frame_end) &&
+        if ((frame_start <= frame_end) &&
             ((frame_end <= partition_start) ||
              (frame_start >= partition_end))) { //beyond or under partition, set null
             this->set_is_null();
@@ -370,7 +372,7 @@ class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
 public:
     WindowFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types, {}),
+            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types),
               _argument_type(argument_types[0]) {}
 
     String get_name() const override { return Data::name(); }

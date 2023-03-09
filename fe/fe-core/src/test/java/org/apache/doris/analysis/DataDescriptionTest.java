@@ -26,8 +26,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
@@ -48,7 +48,7 @@ import java.util.Map;
 public class DataDescriptionTest {
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -64,7 +64,7 @@ public class DataDescriptionTest {
 
     @Before
     public void setUp() throws AnalysisException {
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new Expectations() {
             {
@@ -392,10 +392,10 @@ public class DataDescriptionTest {
                         Lists.newArrayList(predicate), properties);
         String db = desc.analyzeFullDbName(null, analyzer);
         Assert.assertEquals("default_cluster:testDb", db);
-        Assert.assertEquals("testDb", desc.getDbName());
+        Assert.assertEquals("default_cluster:testDb", desc.getDbName());
         db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
         Assert.assertEquals("testCluster:testDb1", db);
-        Assert.assertEquals("testDb1", desc.getDbName());
+        Assert.assertEquals("testCluster:testDb1", desc.getDbName());
 
         desc.analyze("testDb1");
         Assert.assertEquals(1, desc.getFilePaths().size());

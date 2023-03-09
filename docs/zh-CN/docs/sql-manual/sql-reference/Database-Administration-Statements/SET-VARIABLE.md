@@ -58,6 +58,8 @@ SET variable_assignment [, variable_assignment] ...
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
+<version since="dev"></version>
+- `insert_timeout`
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`

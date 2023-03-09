@@ -21,11 +21,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class TablePrivEntry extends DbPrivEntry {
@@ -38,13 +36,12 @@ public class TablePrivEntry extends DbPrivEntry {
     protected TablePrivEntry() {
     }
 
-    private TablePrivEntry(PatternMatcher userPattern, String user,
-                           PatternMatcher hostPattern, String origHost,
-                           PatternMatcher ctlPattern, String origCtl,
-                           PatternMatcher dbPattern, String origDb,
-                           PatternMatcher tblPattern, String origTbl,
-                           boolean isDomain, PrivBitSet privSet) {
-        super(userPattern, user, hostPattern, origHost, ctlPattern, origCtl, dbPattern, origDb, isDomain, privSet);
+    private TablePrivEntry(
+            PatternMatcher ctlPattern, String origCtl,
+            PatternMatcher dbPattern, String origDb,
+            PatternMatcher tblPattern, String origTbl,
+            PrivBitSet privSet) {
+        super(ctlPattern, origCtl, dbPattern, origDb, privSet);
         this.tblPattern = tblPattern;
         this.origTbl = origTbl;
         if (origTbl.equals(ANY_TBL)) {
@@ -52,14 +49,11 @@ public class TablePrivEntry extends DbPrivEntry {
         }
     }
 
-    public static TablePrivEntry create(String user, String host,
+    public static TablePrivEntry create(
             String ctl, String db, String tbl,
-            boolean isDomain, PrivBitSet privs) throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
-                CaseSensibility.HOST.getCaseSensibility());
+            PrivBitSet privs) throws AnalysisException {
         PatternMatcher dbPattern = PatternMatcher.createFlatPattern(
                 db, CaseSensibility.DATABASE.getCaseSensibility(), db.equals(ANY_DB));
-        PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
         PatternMatcher ctlPattern = PatternMatcher.createFlatPattern(
                 ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));
 
@@ -70,8 +64,8 @@ public class TablePrivEntry extends DbPrivEntry {
             throw new AnalysisException("Table privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new TablePrivEntry(userPattern, user, hostPattern, host,
-                ctlPattern, ctl, dbPattern, db, tblPattern, tbl, isDomain, privs);
+        return new TablePrivEntry(
+                ctlPattern, ctl, dbPattern, db, tblPattern, tbl, privs);
     }
 
     public PatternMatcher getTblPattern() {
@@ -93,11 +87,10 @@ public class TablePrivEntry extends DbPrivEntry {
         }
 
         TablePrivEntry otherEntry = (TablePrivEntry) other;
-        return compareAssist(origUser, otherEntry.origUser,
-                             origHost, otherEntry.origHost,
-                             origCtl, otherEntry.origCtl,
-                             origDb, otherEntry.origDb,
-                             origTbl, otherEntry.origTbl);
+        return compareAssist(
+                origCtl, otherEntry.origCtl,
+                origDb, otherEntry.origDb,
+                origTbl, otherEntry.origTbl);
     }
 
     @Override
@@ -107,32 +100,17 @@ public class TablePrivEntry extends DbPrivEntry {
         }
 
         TablePrivEntry otherEntry = (TablePrivEntry) other;
-        return origUser.equals(otherEntry.origUser) && origHost.equals(otherEntry.origHost)
-                && origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb)
-                && origTbl.equals(otherEntry.origTbl) && isDomain == otherEntry.isDomain;
+        return origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb)
+                && origTbl.equals(otherEntry.origTbl);
     }
 
     @Override
     public String toString() {
-        return String.format("table privilege. user: %s, host: %s, "
-                        + "ctl: %s, db: %s, tbl: %s, priv: %s, set by resolver: %b",
-                origUser, origHost, origCtl, origDb, origTbl, privSet.toString(), isSetByDomainResolver);
+        return String.format("table privilege.ctl: %s, db: %s, tbl: %s, priv: %s", origCtl, origDb, origTbl,
+                privSet.toString());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = TablePrivEntry.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-        super.write(out);
-
-        Text.writeString(out, origTbl);
-
-        isClassNameWrote = false;
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -130,6 +130,10 @@ private:
 
     void load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
 
+    Status write_file_cache_version() const;
+
+    std::string read_file_cache_version() const;
+
     FileBlocks split_range_into_cells(const Key& key, const TUniqueId& query_id, bool is_persistent,
                                       size_t offset, size_t size, FileBlock::State state,
                                       std::lock_guard<std::mutex>& cache_lock);

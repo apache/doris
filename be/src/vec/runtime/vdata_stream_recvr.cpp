@@ -82,9 +82,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
     _received_first_batch = true;
 
     DCHECK(!_block_queue.empty());
-    BlockUPtr next_block = std::move(_block_queue.front());
-    auto block_byte_size = block->allocated_bytes();
-    _recvr->_num_buffered_bytes -= block_byte_size;
+    auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _recvr->_blocks_memory_usage->add(-block_byte_size);
     _block_queue.pop_front();
     _update_block_queue_empty();
@@ -156,9 +154,8 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-    _recvr->_blocks_memory_usage->add(block_byte_size);
 
-    _block_queue.emplace_back(std::move(block));
+    _block_queue.emplace_back(std::move(block), block_byte_size);
     _update_block_queue_empty();
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
@@ -168,7 +165,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
-    _recvr->_num_buffered_bytes += block_byte_size;
+    _recvr->_blocks_memory_usage->add(block_byte_size);
     _data_arrival_cv.notify_one();
 }
 
@@ -199,20 +196,18 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
     materialize_block_inplace(*nblock);
 
-    size_t block_size = nblock->bytes();
-
+    size_t block_mem_size = nblock->allocated_bytes();
     std::unique_lock<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
     COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_bytes_received);
-    _recvr->_blocks_memory_usage->add(nblock->allocated_bytes());
 
-    _block_queue.emplace_back(std::move(nblock));
+    _block_queue.emplace_back(std::move(nblock), block_mem_size);
     _update_block_queue_empty();
     _data_arrival_cv.notify_one();
 
-    if (_recvr->exceeds_limit(block_size)) {
+    if (_recvr->exceeds_limit(block_mem_size)) {
         // yiguolei
         // It is too tricky here, if the running thread is bthread then the tid may be wrong.
         std::thread::id tid = std::this_thread::get_id();
@@ -227,7 +222,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         iter->second->wait(l);
     }
 
-    _recvr->_num_buffered_bytes += block_size;
+    _recvr->_blocks_memory_usage->add(block_mem_size);
 }
 
 void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
@@ -304,7 +299,6 @@ VDataStreamRecvr::VDataStreamRecvr(
           _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),
-          _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()) {

@@ -67,7 +67,7 @@ public class ShowEncryptKeysStmt extends ShowStmt {
         }
 
         // must check after analyze dbName, for case dbName is null.
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }

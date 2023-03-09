@@ -338,7 +338,7 @@ Status FullSorter::_do_sort() {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows() < _limit) {
+        if (_state->num_rows() < _offset + _limit) {
             _state->add_sorted_block(desc_block);
             // if it's spilled, sorted_block is not added into sorted block vector,
             // so it's should not be added to _block_priority_queue, since

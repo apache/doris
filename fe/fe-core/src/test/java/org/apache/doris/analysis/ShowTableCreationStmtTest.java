@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Mocked;
@@ -31,14 +31,14 @@ public class ShowTableCreationStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 

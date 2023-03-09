@@ -56,6 +56,8 @@ class ColumnWriter;
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+using KeySetPtr = std::shared_ptr<std::unordered_set<std::string>>;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
@@ -73,10 +75,11 @@ public:
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
-    Status init();
+    Status init(const vectorized::Block* block = nullptr);
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
+                const vectorized::Block* block = nullptr);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -104,10 +107,18 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    KeySetPtr get_key_set() { return _key_set; }
+
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
+    void clear();
+
 private:
+    Status _create_writers_with_dynamic_block(
+            const vectorized::Block* block,
+            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
+    Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();
@@ -122,15 +133,17 @@ private:
     void _maybe_invalid_row_cache(const std::string& key);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
-    // for unique-key merge on write and segment min_max key
+    // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
+    // used for unique-key with merge on write
+    void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+                            string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-
-    void clear();
+    bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
 
 private:
     uint32_t _segment_id;
@@ -153,8 +166,11 @@ private:
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
+    const KeyCoder* _seq_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
+    // used to check if there's duplicate key in aggregate key and unique key data model
+    KeySetPtr _key_set;
 
     std::vector<uint32_t> _column_ids;
     bool _has_key = true;

@@ -58,7 +58,6 @@ public:
     const io::FileSystemSPtr& fs() const { return _fs; }
 
     bool is_used() const { return _is_used; }
-    void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
     bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 

@@ -55,7 +55,7 @@ public class AlterPolicyStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
@@ -101,7 +101,7 @@ public class AlterPolicyStmt extends DdlStmt {
             hasCooldownTtl = true;
             // support 1h, 1hour to 3600s
             properties.put(StoragePolicy.COOLDOWN_TTL, String.valueOf(
-                    StoragePolicy.getMsByCooldownTtl(properties.get(StoragePolicy.COOLDOWN_TTL)) / 1000));
+                    StoragePolicy.getSecondsByCooldownTtl(properties.get(StoragePolicy.COOLDOWN_TTL))));
         }
 
         if (hasCooldownDatetime && hasCooldownTtl) {

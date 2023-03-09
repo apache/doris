@@ -21,6 +21,7 @@
 
 #include "table_format_reader.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr.h"
@@ -118,6 +119,7 @@ private:
 
     IOContext* _io_ctx;
     bool _has_schema_change = false;
+    bool _has_iceberg_schema = false;
 };
 } // namespace vectorized
 } // namespace doris

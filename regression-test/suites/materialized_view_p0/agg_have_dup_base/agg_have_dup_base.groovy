@@ -69,4 +69,10 @@ suite ("agg_have_dup_base") {
         contains "(k12s3m)"
     }
     qt_select_mv "select k1,max(k2) from d_table group by k1 order by k1;"
+
+    explain {
+        sql("select unix_timestamp(k1) tmp,sum(k2) from d_table group by tmp;")
+        contains "(k12s3m)"
+    }
+    qt_select_mv "select unix_timestamp(k1) tmp,sum(k2) from d_table group by tmp order by tmp;"
 }

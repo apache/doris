@@ -320,6 +320,43 @@ suite("test_window_fn") {
 
     sql "DROP TABLE IF EXISTS ${tbName1};"
     sql "DROP TABLE IF EXISTS ${tbName2};"
+
+    sql """ DROP TABLE IF EXISTS example_window_tb """
+    sql """
+        CREATE TABLE IF NOT EXISTS example_window_tb (
+        u_id int NULL COMMENT "",
+        u_city varchar(20) NULL COMMENT "",
+        u_salary int NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`u_id`, `u_city`, `u_salary`)
+        COMMENT ""
+        DISTRIBUTED BY HASH(`u_id`, `u_city`, `u_salary`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+    );
+    """
+
+    sql """
+        INSERT INTO example_window_tb(u_id, u_city, u_salary) VALUES
+        ('1',  'gz', 30000),
+        ('2',  'gz', 25000),
+        ('3',  'gz', 17000),
+        ('4',  'gz', 32000),
+        ('5',  'sz', 40000),
+        ('6',  'sz', 27000),
+        ('7',  'sz', 27000),
+        ('8',  'sz', 33000);
+     """
+
+    qt_sql_window_last_value """
+        select u_id, u_city, u_salary,
+        last_value(u_salary) over (partition by u_city order by u_id rows between unbounded preceding and 1 preceding) last_value_test
+        from example_window_tb;
+    """
+
+    sql "DROP TABLE IF EXISTS example_window_tb;"
 }
 
 

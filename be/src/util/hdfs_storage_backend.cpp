@@ -17,9 +17,12 @@
 
 #include "util/hdfs_storage_backend.h"
 
-#include "io/hdfs_file_reader.h"
+#include "io/file_factory.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_options.h"
 #include "io/hdfs_writer.h"
 #include "olap/file_helper.h"
+#include "olap/iterators.h"
 #include "util/hdfs_util.h"
 
 namespace doris {
@@ -34,9 +37,16 @@ namespace doris {
 static const std::string hdfs_file_prefix = "hdfs://";
 
 HDFSStorageBackend::HDFSStorageBackend(const std::map<std::string, std::string>& prop)
-        : _properties(prop), _builder(createHDFSBuilder(_properties)) {
-    _hdfs_fs = HDFSHandle::instance().create_hdfs_fs(_builder);
-    DCHECK(_hdfs_fs) << "init hdfs client error.";
+        : _properties(prop) {
+    HDFSCommonBuilder builder;
+    Status st = createHDFSBuilder(_properties, &builder);
+    if (st.ok()) {
+        _hdfs_fs = HDFSHandle::instance().create_hdfs_fs(builder);
+        DCHECK(_hdfs_fs) << "init hdfs client error.";
+    }
+    // if createHDFSBuilder failed, _hdfs_fs will be null.
+    // and CHECK_HDFS_CLIENT will return error.
+    // TODO: refacotr StorageBackend, unify into File system
 }
 
 HDFSStorageBackend::~HDFSStorageBackend() {
@@ -162,8 +172,18 @@ Status HDFSStorageBackend::list(const std::string& remote_path, bool contain_md5
 
 Status HDFSStorageBackend::download(const std::string& remote, const std::string& local) {
     // 1. open remote file for read
-    std::unique_ptr<HdfsFileReader> hdfs_reader(new HdfsFileReader(_properties, remote, 0));
-    RETURN_IF_ERROR(hdfs_reader->open());
+    std::shared_ptr<io::FileSystem> file_system;
+    io::FileReaderSPtr hdfs_reader = nullptr;
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
+    IOContext io_ctx;
+    if (config::enable_file_cache && io_ctx.enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    }
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
+    THdfsParams hdfs_params = parse_properties(_properties);
+    RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, remote, &file_system, &hdfs_reader,
+                                                    reader_options, &io_ctx));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local)) {
@@ -181,50 +201,57 @@ Status HDFSStorageBackend::download(const std::string& remote, const std::string
     // 4. read remote and write to local
     LOG(INFO) << "read remote file: " << remote << " to local: " << local;
     constexpr size_t buf_sz = 1024 * 1024;
-    char read_buf[buf_sz];
+    std::unique_ptr<char[]> read_buf(new char[buf_sz]);
     size_t write_offset = 0;
-    bool eof = false;
-    while (!eof) {
-        int64_t read_len = 0;
-        RETURN_IF_ERROR(
-                hdfs_reader->read(reinterpret_cast<uint8_t*>(read_buf), buf_sz, &read_len, &eof));
-        if (eof) {
-            continue;
+    size_t cur_offset = 0;
+    while (true) {
+        size_t read_len = 0;
+        Slice file_slice(read_buf.get(), buf_sz);
+        RETURN_IF_ERROR(hdfs_reader->read_at(cur_offset, file_slice, io_ctx, &read_len));
+        cur_offset += read_len;
+        if (read_len == 0) {
+            break;
         }
 
-        if (read_len > 0) {
-            ost = file_handler.pwrite(read_buf, read_len, write_offset);
-            if (!ost.ok()) {
-                return Status::InternalError("failed to write file: " + local);
-            }
-
-            write_offset += read_len;
+        ost = file_handler.pwrite(read_buf.get(), read_len, write_offset);
+        if (!ost.ok()) {
+            return Status::InternalError("failed to write file: " + local);
         }
+        write_offset += read_len;
     }
 
     return Status::OK();
 }
 
 Status HDFSStorageBackend::direct_download(const std::string& remote, std::string* content) {
-    std::unique_ptr<HdfsFileReader> hdfs_reader(new HdfsFileReader(_properties, remote, 0));
-    RETURN_IF_ERROR(hdfs_reader->open());
+    std::shared_ptr<io::FileSystem> file_system;
+    io::FileReaderSPtr hdfs_reader = nullptr;
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
+    IOContext io_ctx;
+    if (config::enable_file_cache && io_ctx.enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    }
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
+    THdfsParams hdfs_params = parse_properties(_properties);
+    RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, remote, &file_system, &hdfs_reader,
+                                                    reader_options, &io_ctx));
+
     constexpr size_t buf_sz = 1024 * 1024;
-    char read_buf[buf_sz];
+    std::unique_ptr<char[]> read_buf(new char[buf_sz]);
     size_t write_offset = 0;
-    bool eof = false;
-    while (!eof) {
-        int64_t read_len = 0;
-        RETURN_IF_ERROR(
-                hdfs_reader->read(reinterpret_cast<uint8_t*>(read_buf), buf_sz, &read_len, &eof));
-
-        if (eof) {
-            continue;
+    size_t cur_offset = 0;
+    while (true) {
+        size_t read_len = 0;
+        Slice file_slice(read_buf.get(), buf_sz);
+        RETURN_IF_ERROR(hdfs_reader->read_at(cur_offset, file_slice, io_ctx, &read_len));
+        cur_offset += read_len;
+        if (read_len == 0) {
+            break;
         }
 
-        if (read_len > 0) {
-            content->insert(write_offset, read_buf, read_len);
-            write_offset += read_len;
-        }
+        content->insert(write_offset, read_buf.get(), read_len);
+        write_offset += read_len;
     }
     return Status::OK();
 }

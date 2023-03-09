@@ -34,6 +34,7 @@ class Schema;
 
 struct PredicateParams {
     std::string value;
+    bool marked_by_runtime_filter = false;
 };
 
 enum class PredicateType {
@@ -107,6 +108,10 @@ struct PredicateTypeTraits {
 
     static constexpr bool is_list(PredicateType type) {
         return (type == PredicateType::IN_LIST || type == PredicateType::NOT_IN_LIST);
+    }
+
+    static constexpr bool is_equal_or_list(PredicateType type) {
+        return (type == PredicateType::EQ || type == PredicateType::IN_LIST);
     }
 
     static constexpr bool is_comparison(PredicateType type) {

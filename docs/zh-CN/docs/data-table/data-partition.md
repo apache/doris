@@ -112,7 +112,8 @@ PARTITION BY LIST(`city`)
 (
     PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
     PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
-    PARTITION `p_jp` VALUES IN ("Tokyo")
+    PARTITION `p_jp` VALUES IN ("Tokyo"),
+    PARTITION `default`
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES
@@ -284,6 +285,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_cn: ("Beijing", "Shanghai", "Hong Kong")
        p_usa: ("New York", "San Francisco")
        p_jp: ("Tokyo")
+       default
        ```
 
      - 当我们增加一个分区 p_uk VALUES IN ("London")，分区结果如下：
@@ -293,6 +295,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_usa: ("New York", "San Francisco")
        p_jp: ("Tokyo")
        p_uk: ("London")
+       default
        ```
 
      - 当我们删除分区 p_jp，分区结果如下：
@@ -301,6 +304,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_cn: ("Beijing", "Shanghai", "Hong Kong")
        p_usa: ("New York", "San Francisco")
        p_uk: ("London")
+       default
        ```
 
    List分区也支持**多列分区**，示例如下：
@@ -310,29 +314,33 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    (
        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
        PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
-       PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
+       PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai")),
+       PARTITION `default`
    )
    ```
    
    在以上示例中，我们指定 `id`(INT 类型) 和 `city`(VARCHAR 类型) 作为分区列。以上示例最终得到的分区如下：
    
-   ```
+   ```text
    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+   * default:
    ```
    
    当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
    
-   ```
+   ```text
    * 数据  --->  分区
    * 1, Beijing     ---> p1_city
    * 1, Shanghai    ---> p1_city
    * 2, Shanghai    ---> p2_city
    * 3, Beijing     ---> p3_city
-   * 1, Tianjin     ---> 无法导入
-   * 4, Beijing     ---> 无法导入
+   * 1, Tianjin     ---> 无法导入,但在存在默认分区时会导入进默认分区
+   * 4, Beijing     ---> 无法导入,但在存在默认分区时会导入进默认分区
    ```
+
+   List分区支持默认分区,当用户指定默认分区时,所有不满足其他分区条件约束的数据都会存放到默认分区.在查询存在默认分区的表时会默认查询默认分区的数据，默认分区**可能会拖慢查询速度**.
 
 2. **Bucket**
 

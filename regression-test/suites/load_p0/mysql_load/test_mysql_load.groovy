@@ -60,7 +60,7 @@ suite("test_mysql_load", "p0") {
         PARTITION (partition_a, partition_b, partition_c, partition_d)
         COLUMNS TERMINATED BY '\t'
         (k1, k2, v2, v10, v11)
-        PROPERTIES ("auth" = "root:", "strict_mode"="true");
+        PROPERTIES ("strict_mode"="true");
     """
 
     sql "sync"
@@ -79,9 +79,9 @@ suite("test_mysql_load", "p0") {
             PARTITION (partition_a, partition_b, partition_c, partition_d)
             COLUMNS TERMINATED BY '\t'
             (k1, k2, v2, v10, v11)
-            PROPERTIES ("auth" = "root:", "strict_mode"="true");
+            PROPERTIES ("strict_mode"="true");
         """
-        exception "errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows"
+        exception "too many filtered rows"
     }
 
     // test_line_delimiter
@@ -110,8 +110,7 @@ suite("test_mysql_load", "p0") {
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY '|'
         LINES TERMINATED BY 'weizuo'
-        (id, value)
-        PROPERTIES ("auth" = "root:");
+        (id, value);
     """
 
     sql "sync"
@@ -152,8 +151,7 @@ suite("test_mysql_load", "p0") {
         INTO TABLE ${tableName2}
         COLUMNS TERMINATED BY '\t'
         (col)
-        SET (k1=year(col),k2=month(col),k3=month(col),k4=day(col),k5=7.7,k6="a",k10=date(col),k11=FROM_UNIXTIME(2019,"%Y-%m-%dT%H:%i:%s"),k7="k7",k8=month(col),k9=day(col))
-        PROPERTIES ("auth" = "root:");
+        SET (k1=year(col),k2=month(col),k3=month(col),k4=day(col),k5=7.7,k6="a",k10=date(col),k11=FROM_UNIXTIME(2019,"%Y-%m-%dT%H:%i:%s"),k7="k7",k8=month(col),k9=day(col));
     """
 
     order_qt_sql1 " SELECT * FROM ${tableName2}"

@@ -1,7 +1,7 @@
 ---
 {
-"title": "TOPN",
-"language": "zh-CN"
+    "title": "TOPN",
+    "language": "en"
 }
 ---
 
@@ -28,17 +28,16 @@ under the License.
 ### description
 #### Syntax
 
-`histogram(expr[, DOUBLE sample_rate, INT max_bucket_num])`
+`histogram(expr[, INT num_buckets])`
 
 The histogram function is used to describe the distribution of the data. It uses an "equal height" bucking strategy, and divides the data into buckets according to the value of the data. It describes each bucket with some simple data, such as the number of values that fall in the bucket. It is mainly used by the optimizer to estimate the range query.
 
 The result of the function returns an empty or Json string.
 
 Parameter description：
-- sample_rate：Optional. The proportion of sample data used to generate the histogram. The default is 0.2.
-- max_bucket_num：Optional. Limit the number of histogram buckets. The default value is 128.
+- num_buckets：Optional. Limit the number of histogram buckets. The default value is 128.
 
-Alias function: `hist(expr[, DOUBLE sample_rate, INT max_bucket_num])`
+Alias function: `hist(expr[, INT num_buckets])`
 
 ### notice
 
@@ -51,14 +50,14 @@ MySQL [test]> SELECT histogram(c_float) FROM histogram_test;
 +-------------------------------------------------------------------------------------------------------------------------------------+
 | histogram(`c_float`)                                                                                                                |
 +-------------------------------------------------------------------------------------------------------------------------------------+
-| {"sample_rate":0.2,"max_bucket_num":128,"bucket_num":3,"buckets":[{"lower":"0.1","upper":"0.1","count":1,"pre_sum":0,"ndv":1},...]} |
+| {"num_buckets":3,"buckets":[{"lower":"0.1","upper":"0.1","count":1,"pre_sum":0,"ndv":1},...]} |
 +-------------------------------------------------------------------------------------------------------------------------------------+
 
-MySQL [test]> SELECT histogram(c_string, 0.5, 2) FROM histogram_test;
+MySQL [test]> SELECT histogram(c_string, 2) FROM histogram_test;
 +-------------------------------------------------------------------------------------------------------------------------------------+
 | histogram(`c_string`)                                                                                                               |
 +-------------------------------------------------------------------------------------------------------------------------------------+
-| {"sample_rate":0.5,"max_bucket_num":2,"bucket_num":2,"buckets":[{"lower":"str1","upper":"str7","count":4,"pre_sum":0,"ndv":3},...]} |
+| {"num_buckets":2,"buckets":[{"lower":"str1","upper":"str7","count":4,"pre_sum":0,"ndv":3},...]} |
 +-------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -66,9 +65,7 @@ Query result description：
 
 ```
 {
-    "sample_rate": 0.2, 
-    "max_bucket_num": 128, 
-    "bucket_num": 3, 
+    "num_buckets": 3, 
     "buckets": [
         {
             "lower": "0.1", 
@@ -96,9 +93,7 @@ Query result description：
 ```
 
 Field description：
-- sample_rate：Rate of sampling
-- max_bucket_num：Limit the maximum number of buckets
-- bucket_num：The actual number of buckets
+- num_buckets：The number of buckets
 - buckets：All buckets
     - lower：Upper bound of the bucket
     - upper：Lower bound of the bucket
