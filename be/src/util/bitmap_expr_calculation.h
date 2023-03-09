@@ -146,17 +146,14 @@ private:
                 polish.push(curChar);
                 lastIsChar = true;
                 continue;
-            }
-            else if (i != 0 && inputStr.at(i - 1) == '\\') {
+            } else if (i != 0 && inputStr.at(i - 1) == '\\') {
                 polish.push(curChar);
                 lastIsChar = true;
                 continue;
-            }
-            else if (curChar == ' ' || curChar == '\t') {
+            } else if (curChar == ' ' || curChar == '\t') {
                 lastIsChar = false;
                 continue;
-            }
-            else if (curChar == '(') {
+            } else if (curChar == '(') {
                 opStack.push(curChar);
             } else if (!opStack.empty() && curChar == ')') {
                 while (!opStack.empty() && opStack.top() != '(') {
