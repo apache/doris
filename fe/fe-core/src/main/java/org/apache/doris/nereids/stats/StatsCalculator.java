@@ -666,6 +666,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                     }
                     return Pair.of(expr.toSlot().getExprId(), value);
                 }).collect(Collectors.toMap(Pair::key, Pair::value));
+        columnStatisticMap.putAll(childColumnStats);
         return new StatsDeriveResult(stats.getRowCount(), columnStatisticMap);
     }
 }
