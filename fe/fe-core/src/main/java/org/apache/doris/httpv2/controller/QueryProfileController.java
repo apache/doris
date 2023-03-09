@@ -45,7 +45,7 @@ public class QueryProfileController extends BaseController {
 
     private static final String ID = "id";
     private static final String DETAIL_COL = "Detail";
-    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Insert");
+    private static final Set<String> QUERY_ID_TYPES = ImmutableSet.of("Query", "Load");
 
     @RequestMapping(path = "/query_profile/{" + ID + "}", method = RequestMethod.GET)
     public Object profile(@PathVariable(value = ID) String id) {

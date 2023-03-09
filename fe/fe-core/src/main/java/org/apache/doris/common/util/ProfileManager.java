@@ -163,8 +163,8 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
-        String key = isQueryProfile(profile) ? element.infoStrings.get(ProfileManager.QUERY_ID)
-                : element.infoStrings.get(ProfileManager.JOB_ID);
+        // 'insert into' does have job_id, put all profiles key with query_id
+        String key = element.infoStrings.get(ProfileManager.QUERY_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
         if (Strings.isNullOrEmpty(key)) {
@@ -348,9 +348,5 @@ public class ProfileManager {
         } finally {
             readLock.unlock();
         }
-    }
-
-    public boolean isQueryProfile(RuntimeProfile profile) {
-        return "Query".equals(profile.getName());
     }
 }
