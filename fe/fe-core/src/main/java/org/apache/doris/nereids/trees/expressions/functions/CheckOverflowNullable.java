@@ -15,24 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
+import org.apache.doris.qe.ConnectContext;
 
-public class DecimalV2TypeTest {
-
-    @Test
-    public void testWiderDecimal() {
-        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(14, 5),
-                DecimalV2Type.widerDecimalV2Type(
-                        DecimalV2Type.createDecimalV2Type(12, 3),
-                        DecimalV2Type.createDecimalV2Type(10, 5)));
-    }
-
-    @Test
-    public void testConstructor() {
-        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(38, 38),
-                DecimalV2Type.createDecimalV2Type(39, 39));
+/**
+ * if session variable check_overflow_for_decimal set to true, the expression's return always nullable
+ */
+public interface CheckOverflowNullable extends PropagateNullable {
+    @Override
+    default boolean nullable() {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+            return true;
+        } else {
+            return PropagateNullable.super.nullable();
+        }
     }
 }

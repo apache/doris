@@ -21,7 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.analysis.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -65,11 +65,13 @@ public abstract class ExpressionRewriteTestHelper {
 
     protected void assertRewrite(String expression, Expression expectedExpression) {
         Expression needRewriteExpression = PARSER.parseExpression(expression);
+        needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
     protected void assertRewrite(Expression expression, Expression expectedExpression) {
+        expression = typeCoercion(expression);
         Expression rewrittenExpression = executor.rewrite(expression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -102,7 +104,7 @@ public abstract class ExpressionRewriteTestHelper {
     }
 
     private Expression typeCoercion(Expression expression) {
-        return TypeCoercion.INSTANCE.visit(expression, null);
+        return FunctionBinder.INSTANCE.bind(expression, null);
     }
 
     private DataType getType(char t) {
@@ -116,7 +118,7 @@ public abstract class ExpressionRewriteTestHelper {
             case 'S':
                 return StringType.INSTANCE;
             case 'V':
-                return VarcharType.INSTANCE;
+                return VarcharType.SYSTEM_DEFAULT;
             case 'B':
                 return BooleanType.INSTANCE;
             default:
