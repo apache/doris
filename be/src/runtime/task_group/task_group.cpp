@@ -35,7 +35,7 @@ void TaskGroupEntity::incr_runtime_ns(int64_t runtime_ns)  {
     _vruntime_ns += v_time;
 }
 
-void adjust_vruntime_ns(int64_t vruntime_ns) {
+void TaskGroupEntity::adjust_vruntime_ns(int64_t vruntime_ns) {
     _vruntime_ns = vruntime_ns;
 }
 
