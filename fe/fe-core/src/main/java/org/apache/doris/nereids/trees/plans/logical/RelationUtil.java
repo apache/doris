@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -31,12 +31,12 @@ public class RelationUtil {
     // for test only
     private static StatementContext statementContext = new StatementContext();
 
-    public static RelationId newRelationId() {
+    public static ObjectId newRelationId() {
         // this branch is for test only
         if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextRelationId();
+            return statementContext.getNextObjectId();
         }
-        return ConnectContext.get().getStatementContext().getNextRelationId();
+        return ConnectContext.get().getStatementContext().getNextObjectId();
     }
 
     /**

@@ -61,7 +61,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalDistribute",
+        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]",
                 "distributionSpec", distributionSpec,
                 "stats", statsDeriveResult
         );

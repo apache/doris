@@ -37,7 +37,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
@@ -149,7 +149,7 @@ public class PruneOlapScanTabletTest {
 
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
                 ImmutableSet.of(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
+                new LogicalOlapScan(ObjectId.createGenerator().getNextId(), olapTable));
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());
 

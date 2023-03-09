@@ -24,9 +24,9 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -45,14 +45,14 @@ import java.util.Optional;
  */
 public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRowRelation {
 
-    private final RelationId id;
+    private final ObjectId id;
     private final List<NamedExpression> projects;
 
-    public UnboundOneRowRelation(RelationId id, List<NamedExpression> projects) {
+    public UnboundOneRowRelation(ObjectId id, List<NamedExpression> projects) {
         this(id, projects, Optional.empty(), Optional.empty());
     }
 
-    private UnboundOneRowRelation(RelationId id,
+    private UnboundOneRowRelation(ObjectId id,
                                   List<NamedExpression> projects,
                                   Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
@@ -63,7 +63,7 @@ public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRo
         this.projects = ImmutableList.copyOf(projects);
     }
 
-    public RelationId getId() {
+    public ObjectId getId() {
         return id;
     }
 
