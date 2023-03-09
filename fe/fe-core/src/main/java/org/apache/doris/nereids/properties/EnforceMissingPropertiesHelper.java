@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -38,16 +39,16 @@ public class EnforceMissingPropertiesHelper {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(EnforcerEvent.class, EventChannel.LOG)));
     private final JobContext context;
     private final GroupExpression groupExpression;
-    private double curTotalCost;
+    private Cost curTotalCost;
 
     public EnforceMissingPropertiesHelper(JobContext context, GroupExpression groupExpression,
-            double curTotalCost) {
+            Cost curTotalCost) {
         this.context = context;
         this.groupExpression = groupExpression;
         this.curTotalCost = curTotalCost;
     }
 
-    public double getCurTotalCost() {
+    public Cost getCurTotalCost() {
         return curTotalCost;
     }
 
@@ -83,7 +84,8 @@ public class EnforceMissingPropertiesHelper {
      */
     private PhysicalProperties enforceDistributionButMeetSort(PhysicalProperties output, PhysicalProperties request) {
         groupExpression.getOwnerGroup()
-                .replaceBestPlanProperty(output, PhysicalProperties.ANY, groupExpression.getCostByProperties(output));
+                .replaceBestPlanProperty(
+                        output, PhysicalProperties.ANY, groupExpression.getCostValueByProperties(output));
         return enforceSortAndDistribution(output, request);
     }
 
@@ -149,8 +151,10 @@ public class EnforceMissingPropertiesHelper {
         context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
         ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
                 oldOutputProperty, newOutputProperty));
-        curTotalCost += CostCalculator.calculateCost(enforcer);
-
+        curTotalCost = CostCalculator.addChildCost(enforcer.getPlan(),
+                CostCalculator.calculateCost(enforcer),
+                curTotalCost,
+                0);
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(oldOutputProperty), curTotalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
