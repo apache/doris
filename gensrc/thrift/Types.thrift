@@ -658,7 +658,8 @@ enum TSortType {
 }
 
 enum TMetadataType {
-  ICEBERG
+  ICEBERG,
+  BACKENDS
 }
 
 enum TIcebergQueryType {

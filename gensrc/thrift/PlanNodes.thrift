@@ -385,9 +385,14 @@ struct TIcebergMetadataParams {
   4: optional string table
 }
 
+struct TBackendsMetadataParams {
+  1: optional string cluster_name
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params
+  3: optional TBackendsMetadataParams backends_params
 }
 
 // Specification of an individual data range which is held in its entirety

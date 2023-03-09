@@ -51,6 +51,8 @@ public abstract class TableValuedFunctionIf {
                 return new HdfsTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
                 return new IcebergTableValuedFunction(params);
+            case BackendsTableValuedFunction.NAME:
+                return new BackendsTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
