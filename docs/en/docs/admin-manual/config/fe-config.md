@@ -2020,7 +2020,7 @@ The data size threshold used to judge whether replica is too large
 
 #### `schedule_slot_num_per_path`
 
-Default：2
+Default：8
 
 the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
 

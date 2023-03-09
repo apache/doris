@@ -2020,7 +2020,7 @@ BE副本数的平衡阈值。
 
 #### `schedule_slot_num_per_path`
 
-默认值：2
+默认值：8
 
 tablet 调度程序中每个路径的默认 slot 数量
 

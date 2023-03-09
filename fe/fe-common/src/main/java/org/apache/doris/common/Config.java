@@ -1134,7 +1134,7 @@ public class Config extends ConfigBase {
      * the default slot number per path in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
-    @ConfField public static int schedule_slot_num_per_path = 2;
+    @ConfField public static int schedule_slot_num_per_path = 8;
 
     /**
      * Deprecated after 0.10
