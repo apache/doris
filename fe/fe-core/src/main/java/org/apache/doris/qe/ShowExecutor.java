@@ -2033,7 +2033,7 @@ public class ShowExecutor {
         ShowLoadProfileStmt.PathType pathType = showStmt.getPathType();
         List<List<String>> rows = Lists.newArrayList();
         switch (pathType) {
-            case JOB_IDS:
+            case QUERY_IDS:
                 rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.LOAD);
                 break;
             case TASK_IDS: {
