@@ -1395,7 +1395,9 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(args.length - 1, i);
-                if (fnName.getFunction().equalsIgnoreCase("money_format")
+                if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
+                        .equalsIgnoreCase("histogram")
+                        || fnName.getFunction().equalsIgnoreCase("hist"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                     continue;
                 } else if (fnName.getFunction().equalsIgnoreCase("array")
