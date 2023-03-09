@@ -201,23 +201,20 @@ private:
         return printStack(polish);
     }
 
-    // bitmap交并差运算 因为数据是放在堆栈中 所以前一个操作数是opB 后一个操作数是opA
+    // the bitmap cross and contrast operation 
+    // because the data is on the stack so the first operand is opB and the second operand is opA
     void bitmapCalculate(BitmapValue& opA, BitmapValue& opB, char op, BitmapValue& result) {
         result |= opB;
         switch (op) {
-        // 交集计算
         case '&':
             result &= opA;
             break;
-        // 并集计算
         case '|':
             result |= opA;
             break;
-        // 差集计算
         case '-':
             result -= opA;
             break;
-        // 异或计算
         case '^':
             result ^= opA;
             break;

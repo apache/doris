@@ -84,10 +84,10 @@ inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 
 template <>
 inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
-    *(int32_t*)dest = v.length();
+    *(int32_t*)dest = v.size();
     dest += 4;
-    memcpy(dest, v.data(), v.length());
-    dest += v.length();
+    memcpy(dest, v.c_str(), v.size());
+    dest += v.size();
     return dest;
 }
 // write_to end
@@ -109,7 +109,7 @@ inline int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
 
 template <>
 inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
-    return v.length() + 4;
+    return v.size() + 4;
 }
 // serialize_size end
 
