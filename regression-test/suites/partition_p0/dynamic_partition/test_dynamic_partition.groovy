@@ -19,17 +19,17 @@ suite("test_dynamic_partition") {
     // todo: test dynamic partition
     sql "drop table if exists dy_par"
     sql """
-        CREATE TABLE IF NOT EXISTS dy_par ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
-        AGGREGATE KEY(k1,k2) 
-        PARTITION BY RANGE(k1) ( ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 3 
-        PROPERTIES (  
-            "dynamic_partition.enable"="true", 
-            "dynamic_partition.end"="3", 
-            "dynamic_partition.buckets"="10", 
-            "dynamic_partition.start"="-3", 
-            "dynamic_partition.prefix"="p", 
-            "dynamic_partition.time_unit"="DAY", 
+        CREATE TABLE IF NOT EXISTS dy_par ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
+        AGGREGATE KEY(k1,k2)
+        PARTITION BY RANGE(k1) ( )
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+            "dynamic_partition.enable"="true",
+            "dynamic_partition.end"="3",
+            "dynamic_partition.buckets"="10",
+            "dynamic_partition.start"="-3",
+            "dynamic_partition.prefix"="p",
+            "dynamic_partition.time_unit"="DAY",
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
@@ -41,17 +41,17 @@ suite("test_dynamic_partition") {
     sql "drop table if exists dy_par_bad"
     test {
         sql """
-        CREATE TABLE IF NOT EXISTS dy_par_bad ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
-        AGGREGATE KEY(k1,k2) 
-        PARTITION BY RANGE(k1) ( ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 3 
-        PROPERTIES (  
-            "dynamic_partition.enable"="true", 
-            "dynamic_partition.end"="3", 
-            "dynamic_partition.buckets"="10", 
-            "dynamic_partition.start"="-3", 
-            "dynamic_partition.prefix"="p", 
-            "dynamic_partition.time_unit"="DAY", 
+        CREATE TABLE IF NOT EXISTS dy_par_bad ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
+        AGGREGATE KEY(k1,k2)
+        PARTITION BY RANGE(k1) ( )
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+            "dynamic_partition.enable"="true",
+            "dynamic_partition.end"="3",
+            "dynamic_partition.buckets"="10",
+            "dynamic_partition.start"="-3",
+            "dynamic_partition.prefix"="p",
+            "dynamic_partition.time_unit"="DAY",
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.not_exist_tag: 1")
         """

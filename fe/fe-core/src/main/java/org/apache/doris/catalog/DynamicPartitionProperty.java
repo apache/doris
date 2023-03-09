@@ -49,6 +49,7 @@ public class DynamicPartitionProperty {
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
     public static final String STORAGE_POLICY = "dynamic_partition.storage_policy";
     public static final String STORAGE_MEDIUM = "dynamic_partition.storage_medium";
+    public static final String TIME_SOURCE = "dynamic_partition.time_source";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
@@ -60,6 +61,7 @@ public class DynamicPartitionProperty {
 
     private boolean enable;
     private String timeUnit;
+    private TimeSource timeSource;
     private int start;
     private int end;
     private String prefix;
@@ -83,6 +85,7 @@ public class DynamicPartitionProperty {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
+            this.timeSource = TimeSourceFactory.get(properties.getOrDefault(TIME_SOURCE, ""));
             this.tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
             // In order to compatible dynamic add partition version
             this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
@@ -199,6 +202,10 @@ public class DynamicPartitionProperty {
         return tz;
     }
 
+    public TimeSource getTimeSource() {
+        return timeSource;
+    }
+
     public ReplicaAllocation getReplicaAllocation() {
         return replicaAlloc;
     }
@@ -218,6 +225,7 @@ public class DynamicPartitionProperty {
         ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\""
                 + ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\""
+                + ",\n\"" + TIME_SOURCE + "\" = \"" + timeSource + "\""
                 + ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\""
                 + ",\n\"" + START + "\" = \"" + start + "\""
                 + ",\n\"" + END + "\" = \"" + end + "\""

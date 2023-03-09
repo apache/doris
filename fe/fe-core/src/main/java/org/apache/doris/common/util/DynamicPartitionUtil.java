@@ -30,6 +30,8 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.TimeSource;
+import org.apache.doris.catalog.TimeSourceFactory;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -97,6 +99,12 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
                     + TimeUnit.HOUR.toString() + " when type of partition column "
                     + partitionColumn.getDisplayName() + " is Integer");
+        }
+    }
+
+    public static void checkTimeSource(String timeSource) throws DdlException {
+        if (!TimeSourceFactory.checkTimeSourceExist(timeSource)) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_TIME_SOURCE, timeSource);
         }
     }
 
@@ -298,7 +306,7 @@ public class DynamicPartitionUtil {
     }
 
     private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods,
-            String timeUnit) throws DdlException {
+                                                           String timeUnit) throws DdlException {
         if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY);
         }
@@ -399,7 +407,7 @@ public class DynamicPartitionUtil {
     // Check if all requried properties has been set.
     // And also check all optional properties, if not set, set them to default value.
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties,
-            PartitionInfo partitionInfo) throws DdlException {
+                                                               PartitionInfo partitionInfo) throws DdlException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
@@ -407,6 +415,7 @@ public class DynamicPartitionUtil {
             throw new DdlException("Dynamic partition only support single-column range partition");
         }
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
+        String timeSource = properties.get(DynamicPartitionProperty.TIME_SOURCE);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
         String start = properties.get(DynamicPartitionProperty.START);
         String timeZone = properties.get(DynamicPartitionProperty.TIME_ZONE);
@@ -417,8 +426,10 @@ public class DynamicPartitionUtil {
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
 
+        // check exist dynamic partition properties
         if (!(Strings.isNullOrEmpty(enable)
                 && Strings.isNullOrEmpty(timeUnit)
+                && Strings.isNullOrEmpty(timeSource)
                 && Strings.isNullOrEmpty(timeZone)
                 && Strings.isNullOrEmpty(prefix)
                 && Strings.isNullOrEmpty(start)
@@ -432,6 +443,9 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(timeUnit)) {
                 throw new DdlException("Must assign dynamic_partition.time_unit properties");
+            }
+            if (Strings.isNullOrEmpty(timeSource)) {
+                properties.put(DynamicPartitionProperty.TIME_SOURCE, "");
             }
             if (Strings.isNullOrEmpty(prefix)) {
                 throw new DdlException("Must assign dynamic_partition.prefix properties");
@@ -484,15 +498,24 @@ public class DynamicPartitionUtil {
 
     // Analyze all properties to check their validation
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties,
-            OlapTable olapTable, Database db) throws UserException {
+                                                              OlapTable olapTable, Database db) throws UserException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
+
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
             String timeUnitValue = properties.get(DynamicPartitionProperty.TIME_UNIT);
             checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
             properties.remove(DynamicPartitionProperty.TIME_UNIT);
             analyzedProperties.put(DynamicPartitionProperty.TIME_UNIT, timeUnitValue);
         }
+
+        if (properties.containsKey(DynamicPartitionProperty.TIME_SOURCE)) {
+            String timeSourceValue = properties.get(DynamicPartitionProperty.TIME_SOURCE);
+            checkTimeSource(timeSourceValue);
+            properties.remove(DynamicPartitionProperty.TIME_SOURCE);
+            analyzedProperties.put(DynamicPartitionProperty.TIME_SOURCE, timeSourceValue);
+        }
+
         if (properties.containsKey(DynamicPartitionProperty.PREFIX)) {
             String prefixValue = properties.get(DynamicPartitionProperty.PREFIX);
             checkPrefix(prefixValue);
@@ -674,7 +697,7 @@ public class DynamicPartitionUtil {
      * properties should be checked before call this method
      */
     public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties,
-            Database db) throws UserException {
+                                                           Database db) throws UserException {
         if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
             Map<String, String> dynamicPartitionProperties =
                     DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db);
@@ -702,7 +725,9 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static String getFormattedPartitionName(TimeZone tz, String formattedDateStr, String timeUnit) {
+    public static String getFormattedPartitionName(TimeZone tz, TimeSource timeSource, String formattedDateStr,
+                                                   String timeUnit) {
+        formattedDateStr = timeSource.formatDateStr(formattedDateStr);
         formattedDateStr = formattedDateStr.replace("-", "").replace(":", "").replace(" ", "");
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
             return formattedDateStr.substring(0, 8);
@@ -734,20 +759,21 @@ public class DynamicPartitionUtil {
     // TODO: support YEAR
     public static String getPartitionRangeString(DynamicPartitionProperty property, ZonedDateTime current,
                                                  int offset, String format) {
+        TimeSource timeSource = property.getTimeSource();
         String timeUnit = property.getTimeUnit();
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return getPartitionRangeOfDay(current, offset, format);
+            return getPartitionRangeOfDay(current, timeSource, offset, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
+            return getPartitionRangeOfWeek(current, timeSource, offset, property.getStartOfWeek(), format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return getPartitionRangeOfHour(current, offset, format);
+            return getPartitionRangeOfHour(current, timeSource, offset, format);
         } else { // MONTH
-            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
+            return getPartitionRangeOfMonth(current, timeSource, offset, property.getStartOfMonth(), format);
         }
     }
 
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
-            String time, String format) throws AnalysisException {
+                                                        String time, String format) throws AnalysisException {
         ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
         Date date = null;
         Timestamp timestamp = null;
@@ -762,7 +788,8 @@ public class DynamicPartitionUtil {
         }
         timestamp = new Timestamp(date.getTime());
         return getFormattedTimeWithoutMinuteSecond(
-                ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+                ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), dynamicPartitionProperty.getTimeSource(),
+                format);
     }
 
     /**
@@ -776,8 +803,9 @@ public class DynamicPartitionUtil {
      * Today is 2020-05-24 00, offset = 1
      * It will return 2020-05-24 01:00:00
      */
-    public static String getPartitionRangeOfHour(ZonedDateTime current, int offset, String format) {
-        return getFormattedTimeWithoutMinuteSecond(current.plusHours(offset), format);
+    public static String getPartitionRangeOfHour(ZonedDateTime current, TimeSource timeSource, int offset,
+                                                 String format) {
+        return getFormattedTimeWithoutMinuteSecond(current.plusHours(offset), timeSource, format);
     }
 
     /**
@@ -789,8 +817,9 @@ public class DynamicPartitionUtil {
      * Today is 2020-05-24, offset = -1
      * It will return 2020-05-23
      */
-    private static String getPartitionRangeOfDay(ZonedDateTime current, int offset, String format) {
-        return getFormattedTimeWithoutHourMinuteSecond(current.plusDays(offset), format);
+    private static String getPartitionRangeOfDay(ZonedDateTime current, TimeSource timeSource, int offset,
+                                                 String format) {
+        return getFormattedTimeWithoutHourMinuteSecond(current.plusDays(offset), timeSource, format);
     }
 
     /**
@@ -803,15 +832,16 @@ public class DynamicPartitionUtil {
      * Today is 2020-05-24, offset = -1, startOf.dayOfWeek = 3
      * It will return 2020-05-20  (Wednesday of last week)
      */
-    private static String getPartitionRangeOfWeek(ZonedDateTime current, int offset,
-            StartOfDate startOf, String format) {
+    private static String getPartitionRangeOfWeek(ZonedDateTime current, TimeSource timeSource, int offset,
+                                                  StartOfDate startOf, String format) {
         Preconditions.checkArgument(startOf.isStartOfWeek());
         // 1. get the offset week
         ZonedDateTime offsetWeek = current.plusWeeks(offset);
+
         // 2. get the date of `startOf` week
         int day = offsetWeek.getDayOfWeek().getValue();
         ZonedDateTime resultTime = offsetWeek.plusDays(startOf.dayOfWeek - day);
-        return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
+        return getFormattedTimeWithoutHourMinuteSecond(resultTime, timeSource, format);
     }
 
     /**
@@ -824,8 +854,8 @@ public class DynamicPartitionUtil {
      * Today is 2020-05-24, offset = 1, startOf.month = 3
      * It will return 2020-06-03
      */
-    private static String getPartitionRangeOfMonth(ZonedDateTime current,
-            int offset, StartOfDate startOf, String format) {
+    private static String getPartitionRangeOfMonth(ZonedDateTime current, TimeSource timeSource,
+                                                   int offset, StartOfDate startOf, String format) {
         Preconditions.checkArgument(startOf.isStartOfMonth());
         // 1. Get the offset date.
         int realOffset = offset;
@@ -836,17 +866,19 @@ public class DynamicPartitionUtil {
             realOffset -= 1;
         }
         ZonedDateTime resultTime = current.plusMonths(realOffset).withDayOfMonth(startOf.day);
-        return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
+        return getFormattedTimeWithoutHourMinuteSecond(resultTime, timeSource, format);
     }
 
-    private static String getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime zonedDateTime, String format) {
+    private static String getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime zonedDateTime, TimeSource timeSource,
+                                                                  String format) {
         ZonedDateTime timeWithoutHourMinuteSecond = zonedDateTime.withHour(0).withMinute(0).withSecond(0);
-        return DateTimeFormatter.ofPattern(format).format(timeWithoutHourMinuteSecond);
+        return timeSource.formatZonedDate(timeWithoutHourMinuteSecond, format);
     }
 
-    private static String getFormattedTimeWithoutMinuteSecond(ZonedDateTime zonedDateTime, String format) {
+    private static String getFormattedTimeWithoutMinuteSecond(ZonedDateTime zonedDateTime, TimeSource timeSource,
+                                                              String format) {
         ZonedDateTime timeWithoutMinuteSecond = zonedDateTime.withMinute(0).withSecond(0);
-        return DateTimeFormatter.ofPattern(format).format(timeWithoutMinuteSecond);
+        return timeSource.formatZonedDate(timeWithoutMinuteSecond, format);
     }
 
     /**

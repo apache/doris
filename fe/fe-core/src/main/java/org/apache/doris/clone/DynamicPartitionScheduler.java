@@ -220,7 +220,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
-            Column partitionColumn, String partitionFormat) {
+                                                                Column partitionColumn, String partitionFormat) {
         ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
@@ -308,6 +308,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             String partitionName = dynamicPartitionProperty.getPrefix()
                     + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
+                    dynamicPartitionProperty.getTimeSource(),
                     prevBorder, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
@@ -343,7 +344,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      * @param offset
      */
     private void setStorageMediumProperty(HashMap<String, String> partitionProperties,
-            DynamicPartitionProperty property, ZonedDateTime now, int hotPartitionNum, int offset) {
+                                          DynamicPartitionProperty property, ZonedDateTime now, int hotPartitionNum,
+                                          int offset) {
         if ((hotPartitionNum <= 0 || offset + hotPartitionNum <= 0) && !property.getStorageMedium()
                 .equalsIgnoreCase("ssd")) {
             return;
@@ -360,8 +362,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void setStoragePolicyProperty(HashMap<String, String> partitionProperties,
-            DynamicPartitionProperty property, ZonedDateTime now, int offset,
-            String storagePolicyName) {
+                                          DynamicPartitionProperty property, ZonedDateTime now, int offset,
+                                          String storagePolicyName) {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicyName);
         String baseTime = DynamicPartitionUtil.getPartitionRangeString(
                 property, now, offset, DynamicPartitionUtil.DATETIME_FORMAT);
@@ -369,7 +371,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
-            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
+                                               String partitionFormat, String lowerBorderOfReservedHistory,
+                                               String upperBorderOfReservedHistory) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
         PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
         PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
@@ -393,7 +396,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      * 2. get DropPartitionClause of partitions which range are before this reserved range.
      */
     private ArrayList<DropPartitionClause> getDropPartitionClause(Database db, OlapTable olapTable,
-            Column partitionColumn, String partitionFormat) throws DdlException {
+                                                                  Column partitionColumn, String partitionFormat)
+            throws DdlException {
         ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         if (dynamicPartitionProperty.getStart() == DynamicPartitionProperty.MIN_START_OFFSET) {
