@@ -2624,18 +2624,21 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
                                        delete_bitmap, cur_version - 1, true));
 
     // Check the delete_bitmap correctness.
-    DeleteBitmap rs_bm(tablet_id());
-    delete_bitmap->subset({rowset->rowset_id(), 0, 0}, {rowset->rowset_id(), UINT32_MAX, INT64_MAX},
-                          &rs_bm);
-    auto num_rows = rowset->num_rows();
-    auto bitmap_cardinality = rs_bm.cardinality();
-    std::string err_msg = fmt::format(
-            "The delete bitmap of unique key table may not correct, expect num unique keys: {}, "
-            "now the num_rows: {}, delete bitmap cardinality: {}, num sgements: {}",
-            load_info->num_keys, num_rows, bitmap_cardinality, rowset->num_segments());
-    DCHECK_EQ(load_info->num_keys, num_rows - bitmap_cardinality) << err_msg;
-    if (load_info->num_keys != num_rows - bitmap_cardinality) {
-        return Status::InternalError(err_msg);
+    if (load_info->num_keys != 0) {
+        DeleteBitmap rs_bm(tablet_id());
+        delete_bitmap->subset({rowset->rowset_id(), 0, 0},
+                              {rowset->rowset_id(), UINT32_MAX, INT64_MAX}, &rs_bm);
+        auto num_rows = rowset->num_rows();
+        auto bitmap_cardinality = rs_bm.cardinality();
+        std::string err_msg = fmt::format(
+                "The delete bitmap of unique key table may not correct, expect num unique keys:"
+                "{}, "
+                "now the num_rows: {}, delete bitmap cardinality: {}, num sgements: {}",
+                load_info->num_keys, num_rows, bitmap_cardinality, rowset->num_segments());
+        DCHECK_EQ(load_info->num_keys, num_rows - bitmap_cardinality) << err_msg;
+        if (load_info->num_keys != num_rows - bitmap_cardinality) {
+            return Status::InternalError(err_msg);
+        }
     }
 
     // update version without write lock, compaction and publish_txn
