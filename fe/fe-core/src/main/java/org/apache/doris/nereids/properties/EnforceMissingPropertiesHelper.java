@@ -89,7 +89,8 @@ public class EnforceMissingPropertiesHelper {
 
     private PhysicalProperties enforceGlobalSort(PhysicalProperties oldOutputProperty, PhysicalProperties required) {
         // keep consistent in DistributionSpec with the oldOutputProperty
-        PhysicalProperties newOutputProperty = new PhysicalProperties(required.getOrderSpec());
+        PhysicalProperties newOutputProperty = new PhysicalProperties(
+                oldOutputProperty.getDistributionSpec(), required.getOrderSpec());
         GroupExpression enforcer = required.getOrderSpec().addGlobalQuickSortEnforcer(groupExpression.getOwnerGroup());
 
         addEnforcerUpdateCost(enforcer, oldOutputProperty, newOutputProperty);
@@ -128,7 +129,9 @@ public class EnforceMissingPropertiesHelper {
             PhysicalProperties requiredProperty) {
         PhysicalProperties enforcedProperty;
         if (requiredProperty.getDistributionSpec().equals(new DistributionSpecGather())) {
-            enforcedProperty = enforceGlobalSort(outputProperty, requiredProperty);
+            enforcedProperty = enforceLocalSort(outputProperty, requiredProperty);
+            enforcedProperty = enforceDistribution(enforcedProperty, requiredProperty);
+            enforcedProperty = enforceGlobalSort(enforcedProperty, requiredProperty);
         } else {
             enforcedProperty = enforceDistribution(outputProperty, requiredProperty);
             enforcedProperty = enforceLocalSort(enforcedProperty, requiredProperty);

@@ -812,12 +812,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (partitionExprs.isEmpty() && orderByElements.isEmpty()) {
             if (inputPlanFragment.isPartitioned()) {
-                inputPlanFragment = createParentFragment(inputPlanFragment, DataPartition.UNPARTITIONED, context);
+                PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), analyticEvalNode,
+                        DataPartition.UNPARTITIONED);
+                context.addPlanFragment(parentFragment);
+                connectChildFragment(analyticEvalNode, 0, parentFragment, inputPlanFragment, context);
+                inputPlanFragment = parentFragment;
+            } else {
+                inputPlanFragment.addPlanRoot(analyticEvalNode);
             }
         } else {
             analyticEvalNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
+            inputPlanFragment.addPlanRoot(analyticEvalNode);
         }
-        addPlanRoot(inputPlanFragment, analyticEvalNode, physicalWindow);
         return inputPlanFragment;
     }
 
