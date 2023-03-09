@@ -110,4 +110,5 @@ void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactor
             "orthogonal_bitmap_expr_calculate_count",
             create_aggregate_function_orthogonal_bitmap_expr_calculate_count);
 }
+
 } // namespace doris::vectorized
