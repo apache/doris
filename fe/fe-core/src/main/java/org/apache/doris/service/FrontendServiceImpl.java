@@ -488,6 +488,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("result: {}", result);
         return result;
     }
+    @ExceptionLog
 
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {

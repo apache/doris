@@ -83,6 +83,7 @@ public class InsertLoadJob extends LoadJob {
                 .map(TableIf::getName).orElse(String.valueOf(tableId));
         return Sets.newHashSet(name);
     }
+    @ExceptionLog
 
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
