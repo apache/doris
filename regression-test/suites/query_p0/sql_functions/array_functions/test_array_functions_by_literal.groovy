@@ -245,7 +245,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_compact(['2015-03-13','2015-03-13'])"
     qt_sql "select array_compact(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3)), cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
     qt_sql "select array_compact(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2), cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
-    qt_sql "select array_compact(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), array(cast (222.222 as decimalv3(6,3)),cast (333.333 as decimalv3(6,3))))"
+    qt_sql "select array_compact(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3)),cast (333.333 as decimalv3(6,3))))"
 
     // array_apply
     qt_sql """select array_apply([1000000, 1000001, 1000002], '=', 1000002)"""
