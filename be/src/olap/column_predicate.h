@@ -194,7 +194,7 @@ public:
                ", opposite=" + (_opposite ? "true" : "false");
     }
 
-    std::shared_ptr<PredicateParams>predicate_params() const { return _predicate_params; }
+    std::shared_ptr<PredicateParams> predicate_params() const { return _predicate_params; }
 
     const std::string pred_type_string(PredicateType type) {
         switch (type) {
