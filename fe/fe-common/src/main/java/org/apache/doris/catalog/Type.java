@@ -302,6 +302,11 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.STRING);
     }
 
+    public boolean isVarcharOrStringType() {
+        return isScalarType(PrimitiveType.VARCHAR)
+                || isScalarType(PrimitiveType.STRING);
+    }
+
     public boolean isVarchar() {
         return isScalarType(PrimitiveType.VARCHAR);
     }
