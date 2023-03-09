@@ -721,17 +721,6 @@ Status VFileScanner::_init_expr_ctxes() {
     // If last slot is_variant from stream plan which indicate table is dynamic schema
     _is_dynamic_schema =
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
-    if (_is_dynamic_schema) {
-<<<<<<< HEAD
-        _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
-        _full_base_schema_view->db_name = _output_tuple_desc->table_desc()->database();
-        _full_base_schema_view->table_name = _output_tuple_desc->table_desc()->name();
-        _full_base_schema_view->table_id = _output_tuple_desc->table_desc()->table_id();
-=======
-        // should not resuse Block since Block conatains variant column
-        _src_block_mem_reuse = false;
->>>>>>> a955e85e33 ([Feature](Dynamic schema table) step1 support schema change expression)
-    }
     return Status::OK();
 }
 
