@@ -35,6 +35,7 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -55,7 +56,7 @@ import java.util.stream.IntStream;
  *                      |                                 ->                      |
  *    agg(groupBy=[k1], output=[sum(v1), sum(v2)]                  agg(groupBy=[k1], output=[sum(v1)])
  *
- * 2. add project for the project which prune children's output failed, e.g. the filter not record
+ * 2. add project for the plan which prune children's output failed, e.g. the filter not record
  *    the output, and we can not prune/shrink output field for the filter, so we should add project on filter.
  *
  *          agg(groupBy=[a])                              agg(groupBy=[a])
@@ -76,6 +77,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     public Plan visit(Plan plan, PruneContext context) {
         if (plan instanceof OutputPrunable) {
             // the case 1 in the class comment
+            // two steps: prune current output and prune children
             OutputPrunable outputPrunable = (OutputPrunable) plan;
             plan = pruneOutput(plan, outputPrunable.getOutputs(), outputPrunable::pruneOutputs, context);
             return pruneChildren(plan);
@@ -92,17 +94,18 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             //           v
             //       child plan
             //
-            // the filter is not OutputSavePoint, we should pass through the parent required slots
+            // the filter is not OutputPrunable, we should pass through the parent required slots
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
             return pruneChildren(plan, context.requiredSlots);
         }
     }
 
-
-    // union can not be pruned by the common logic, we must override visit method to write special code.
+    // union can not prune children by the common logic, we must override visit method to write special code.
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
         LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
+
+        // start prune children of union
         List<Slot> originOutput = union.getOutput();
         Set<Slot> prunedOutput = prunedOutputUnion.getOutputSet();
         Set<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
@@ -117,7 +120,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                     Set<Slot> prunedChildOutput = prunedOutputIndexes.stream()
                             .map(childOutput::get)
                             .collect(ImmutableSet.toImmutableSet());
-                    Plan prunedChild = child.accept(this, new PruneContext(prunedChildOutput, prunedOutputUnion));
+
+                    Plan prunedChild = doPruneChild(prunedOutputUnion, child, prunedChildOutput, childOutput);
                     if (prunedChild != child) {
                         changed.set(true);
                     }
@@ -174,24 +178,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                         .addAll(currentUsedSlots)
                         .build();
 
-        boolean isProject = plan instanceof LogicalProject;
         List<Plan> newChildren = new ArrayList<>();
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             Set<Slot> childOutputSet = child.getOutputSet();
             SetView<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
-            Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
-
-            // the case 2 in the class comment, prune child's output failed
-            if (!isProject && prunedChild.getOutputSet().size() > childRequiredSlots.size()) {
-                if (childRequiredSlots.isEmpty()) {
-                    Slot minimumColumn = ExpressionUtils.selectMinimumColumn(childOutputSet);
-                    prunedChild = new LogicalProject<>(ImmutableList.of(minimumColumn), prunedChild);
-                } else {
-                    prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
-                }
-            }
-
+            Plan prunedChild = doPruneChild(plan, child, childRequiredSlots, childOutputSet);
             if (prunedChild != child) {
                 hasNewChildren = true;
             }
@@ -200,10 +192,26 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
     }
 
+    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots, Collection<Slot> childOutputSet) {
+        boolean isProject = plan instanceof LogicalProject;
+        Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
+
+        // the case 2 in the class comment, prune child's output failed
+        if (!isProject && prunedChild.getOutputSet().size() > childRequiredSlots.size()) {
+            if (childRequiredSlots.isEmpty()) {
+                Slot minimumColumn = ExpressionUtils.selectMinimumColumn(childOutputSet);
+                prunedChild = new LogicalProject<>(ImmutableList.of(minimumColumn), prunedChild);
+            } else {
+                prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
+            }
+        }
+        return prunedChild;
+    }
+
     /** PruneContext */
     public static class PruneContext {
-        Set<Slot> requiredSlots;
-        Optional<Plan> parent;
+        public Set<Slot> requiredSlots;
+        public Optional<Plan> parent;
 
         public PruneContext(Set<Slot> requiredSlots, Plan parent) {
             this.requiredSlots = requiredSlots;
