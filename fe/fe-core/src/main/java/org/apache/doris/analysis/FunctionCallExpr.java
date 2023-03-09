@@ -1412,6 +1412,20 @@ public class FunctionCallExpr extends Expr {
                         || (children.get(0).getType().isDecimalV2()
                         && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
                     continue;
+                } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
+                .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                || fnName.getFunction().equalsIgnoreCase("array_overlap")
+                || fnName.getFunction().equalsIgnoreCase("array_union")
+                || fnName.getFunction().equalsIgnoreCase("array_intersect")
+                || fnName.getFunction().equalsIgnoreCase("array_compact")
+                || fnName.getFunction().equalsIgnoreCase("array_slice")
+                || fnName.getFunction().equalsIgnoreCase("array_popback")
+                || fnName.getFunction().equalsIgnoreCase("reverse")
+                || fnName.getFunction().equalsIgnoreCase("%element_slice%")
+                || fnName.getFunction().equalsIgnoreCase("array_except"))
+                && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())
+                && ((ArrayType) args[ix]).getItemType().isDecimalV3()) {
+            continue;
                 } else if (!argTypes[i].matchesType(args[ix]) && !(
                         argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
                         && (!fn.getReturnType().isDecimalV3()
