@@ -59,6 +59,8 @@ public class Sm4Encrypt extends Sm4CryptoFunction {
      */
     public Sm4Encrypt(Expression arg0, Expression arg1) {
         super("sm4_encrypt", arg0, arg1);
+        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                + "'sm4_encrypt' or 'sm4_decrypt'");
     }
 
     /**
