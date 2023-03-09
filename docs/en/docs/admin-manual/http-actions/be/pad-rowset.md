@@ -53,7 +53,7 @@ None
 ## Response
 
     ```
-        {
+    {
         msg: "OK",
         code: 0
     }

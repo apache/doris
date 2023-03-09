@@ -54,9 +54,9 @@ under the License.
 
     ```
     {
-    msg: "OK",
-    code: 0
-}
+        msg: "OK",
+        code: 0
+    }
     ```
 ## Examples
 

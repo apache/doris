@@ -47,26 +47,26 @@ None
 
     ```
     {
-    msg: "OK",
-    code: 0,
-    data: {
-        host: "10.38.157.107",
-        tablets: [
-            {
-                tablet_id: 11119,
-                schema_hash: 714349777
-            },
+        msg: "OK",
+        code: 0,
+        data: {
+            host: "10.38.157.107",
+            tablets: [
+                {
+                    tablet_id: 11119,
+                    schema_hash: 714349777
+                },
 
-                ...
+                    ...
 
-            {
-                tablet_id: 11063,
-                schema_hash: 714349777
-            }
-        ]
-    },
-    count: 30
-}
+                {
+                    tablet_id: 11063,
+                    schema_hash: 714349777
+                }
+            ]
+        },
+        count: 30
+    }
     ```
 ## Examples
 

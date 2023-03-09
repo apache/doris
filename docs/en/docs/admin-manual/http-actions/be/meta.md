@@ -51,7 +51,7 @@ None
 ## Response
 
     ```
-        {
+    {
         "table_id": 148107,
         "partition_id": 148104,
         "tablet_id": 148193,
