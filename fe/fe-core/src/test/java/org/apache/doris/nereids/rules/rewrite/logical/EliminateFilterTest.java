@@ -34,9 +34,12 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class EliminateFilterTest {
+/**
+ * Tests for {@link EliminateFilter}.
+ */
+class EliminateFilterTest {
     @Test
-    public void testEliminateFilterFalse() {
+    void testEliminateFilterFalse() {
         LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .filter(BooleanLiteral.FALSE)
                 .build();
@@ -50,12 +53,12 @@ public class EliminateFilterTest {
     }
 
     @Test
-    public void testEliminateFilterTrue() {
-        LogicalPlan filterFalse = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
+    void testEliminateFilterTrue() {
+        LogicalPlan filterTrue = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .filter(BooleanLiteral.TRUE)
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filterFalse);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(filterTrue);
         List<Rule> rules = Lists.newArrayList(new EliminateFilter().build());
         cascadesContext.topDownRewrite(rules);
 

@@ -39,11 +39,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * MergeConsecutiveFilter ut
+ * Tests for the elimination of {@link LogicalLimit}.
  */
-public class EliminateLimitTest {
+class EliminateLimitTest {
     @Test
-    public void testEliminateLimit() {
+    void testEliminateLimit() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalLimit<LogicalOlapScan> limit = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, scan);
 
@@ -56,10 +56,11 @@ public class EliminateLimitTest {
     }
 
     @Test
-    public void testLimitSort() {
+    void testLimitSort() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         LogicalLimit limit = new LogicalLimit<>(1, 1, LimitPhase.ORIGIN,
-                new LogicalSort<>(scan.getOutput().stream().map(c -> new OrderKey(c, true, true)).collect(Collectors.toList()),
+                new LogicalSort<>(
+                        scan.getOutput().stream().map(c -> new OrderKey(c, true, true)).collect(Collectors.toList()),
                         scan));
 
         Plan actual = PlanChecker.from(MemoTestUtils.createConnectContext(), limit)
