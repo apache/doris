@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.annotation.aspectj;
+package org.apache.doris.aspectj;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,17 +23,28 @@ import org.aspectj.lang.annotation.AfterThrowing;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
 @Aspect
 public class LogAspect {
 
     private static final Logger LOG = LogManager.getLogger(LogAspect.class);
 
     @Pointcut("@annotation(org.apache.doris.common.annotation.ExceptionLog)")
-    public void logPointCut() {
+    public void throwingLogPointCut() {
     }
 
-    @AfterThrowing(value = "logPointCut()", throwing = "e")
+    @AfterThrowing(value = "throwingLogPointCut()", throwing = "e")
     public void exceptionLog(Exception e)  {
         LOG.error(e.getMessage());
+        LOG.error(getStackTrace(e));
+    }
+
+    public static String getStackTrace(Throwable throwable) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        throwable.printStackTrace(pw);
+        return sw.toString();
     }
 }
