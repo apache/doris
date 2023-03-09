@@ -489,6 +489,42 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
         }
         buf_ret = buffer.push_string("]", strlen("]"));
         return buf_ret;
+    } else if (which.is_struct()) {
+        auto& column_struct = assert_cast<const ColumnStruct&>(*column);
+
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+
+        size_t tuple_size = column_struct.tuple_size();
+
+        int buf_ret = buffer.push_string("{", strlen("{"));
+        bool begin = true;
+        for (int i = 0; i < tuple_size; ++i) {
+            const auto& data = column_struct.get_column_ptr(i);
+            const auto& sub_type = assert_cast<const DataTypeStruct&>(*nested_type).get_element(i);
+
+            if (begin) {
+                begin = false;
+            } else {
+                buf_ret = buffer.push_string(", ", strlen(", "));
+            }
+
+            if (data->is_null_at(row_idx)) {
+                buf_ret = buffer.push_string("NULL", strlen("NULL"));
+            } else {
+                if (WhichDataType(remove_nullable(sub_type)).is_string()) {
+                    buf_ret = buffer.push_string("'", 1);
+                    buf_ret = _add_one_cell(data, row_idx, sub_type, buffer, scale);
+                    buf_ret = buffer.push_string("'", 1);
+                } else {
+                    buf_ret = _add_one_cell(data, row_idx, sub_type, buffer, scale);
+                }
+            }
+        }
+        buf_ret = buffer.push_string("}", strlen("}"));
+        return buf_ret;
     } else {
         LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
         return -1;

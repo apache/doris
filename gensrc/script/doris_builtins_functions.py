@@ -607,6 +607,9 @@ visible_functions = [
     [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+    
+    [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+
     # reverse function for string builtin
     [['reverse'], 'VARCHAR', ['VARCHAR'], ''],
     # reverse function support the longtext
