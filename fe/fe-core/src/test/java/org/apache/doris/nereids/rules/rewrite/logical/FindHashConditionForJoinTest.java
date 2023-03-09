@@ -41,6 +41,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * initial plan:
@@ -75,7 +76,7 @@ class FindHashConditionForJoinTest {
         Expression less = new LessThan(scoreId, studentId);
         List<Expression> expr = ImmutableList.of(eq1, eq2, eq3, or, less);
         LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
-                expr, JoinHint.NONE, student, score);
+                expr, JoinHint.NONE, Optional.empty(), student, score);
         CascadesContext context = MemoTestUtils.createCascadesContext(join);
         List<Rule> rules = Lists.newArrayList(new FindHashConditionForJoin().build());
 

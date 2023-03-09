@@ -127,8 +127,8 @@ public class HashJoinNode extends JoinNodeBase {
      */
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
             List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, List<Expr> srcToOutputList,
-            TupleDescriptor intermediateTuple, TupleDescriptor outputTuple) {
-        super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE, joinOp);
+            TupleDescriptor intermediateTuple, TupleDescriptor outputTuple, boolean isMarkJoin) {
+        super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE, joinOp, isMarkJoin);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
         tblRefIds.addAll(outer.getTblRefIds());
@@ -758,7 +758,6 @@ public class HashJoinNode extends JoinNodeBase {
         StringBuilder output =
                 new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
                         .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
-        output.append(detailPrefix).append("is mark: ").append(isMarkJoin()).append("\n");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
@@ -808,6 +807,9 @@ public class HashJoinNode extends JoinNodeBase {
                 output.append(slotId).append(" ");
             }
             output.append("\n");
+        }
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(detailPrefix).append("isMarkJoin: ").append(isMarkJoin()).append("\n");
         }
         return output.toString();
     }

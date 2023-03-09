@@ -21,7 +21,9 @@
 
 #include "common/config.h"
 #include "exec/olap_common.h"
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
@@ -29,38 +31,13 @@
 
 namespace doris::vectorized {
 
-class ORCFileInputStream : public orc::InputStream {
-public:
-    struct Statistics {
-        int64_t read_time = 0;
-        int64_t read_calls = 0;
-        int64_t read_bytes = 0;
-    };
-
-    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader)
-            : _file_name(file_name), _file_reader(file_reader) {}
-
-    ~ORCFileInputStream() override = default;
-
-    uint64_t getLength() const override { return _file_reader->size(); }
-
-    uint64_t getNaturalReadSize() const override { return config::orc_natural_read_size_mb << 20; }
-
-    void read(void* buf, uint64_t length, uint64_t offset) override;
-
-    const std::string& getName() const override { return _file_name; }
-
-    Statistics& statistics() { return _statistics; }
-
-private:
-    Statistics _statistics;
-    const std::string& _file_name;
-    io::FileReaderSPtr _file_reader;
-};
-
+class ORCFileInputStream;
 class OrcReader : public GenericReader {
 public:
     struct Statistics {
+        int64_t fs_read_time = 0;
+        int64_t fs_read_calls = 0;
+        int64_t fs_read_bytes = 0;
         int64_t column_read_time = 0;
         int64_t get_batch_time = 0;
         int64_t parse_meta_time = 0;
@@ -77,10 +54,6 @@ public:
               IOContext* io_ctx);
 
     ~OrcReader() override;
-    // for test
-    void set_file_reader(const std::string& file_name, io::FileReaderSPtr file_reader) {
-        _file_reader = new ORCFileInputStream(file_name, file_reader);
-    }
 
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
@@ -89,7 +62,7 @@ public:
 
     void close();
 
-    int64_t size() const { return _file_reader->getLength(); }
+    int64_t size() const;
 
     std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
@@ -109,6 +82,12 @@ private:
         RuntimeProfile::Counter* decode_value_time;
         RuntimeProfile::Counter* decode_null_map_time;
     };
+
+    // Create inner orc file,
+    // return EOF if file is empty
+    // return EROOR if encounter error.
+    Status _create_file_reader();
+
     void _init_profile();
     Status _init_read_columns();
     TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
@@ -116,6 +95,8 @@ private:
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    void _init_system_properties();
+    void _init_file_description();
     Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
@@ -251,14 +232,20 @@ private:
                                  size_t num_values);
 
     Status _fill_doris_array_offsets(const std::string& col_name,
-                                     const MutableColumnPtr& data_column, orc::ListVectorBatch* lvb,
-                                     size_t num_values, size_t* element_size);
+                                     ColumnArray::Offsets64& doris_offsets,
+                                     orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
+                                     size_t* element_size);
 
     std::string _get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
+    void _collect_profile_on_close();
+
+private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
@@ -277,7 +264,7 @@ private:
     // Flag for hive engine. True if the external table engine is Hive.
     bool _is_hive = false;
     std::vector<const orc::Type*> _col_orc_type;
-    ORCFileInputStream* _file_reader = nullptr;
+    std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
     bool _closed = false;
@@ -294,6 +281,29 @@ private:
 
     // only for decimal
     DecimalScaleParams _decimal_scale_params;
+};
+
+class ORCFileInputStream : public orc::InputStream {
+public:
+    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
+                       OrcReader::Statistics* statistics)
+            : _file_name(file_name), _file_reader(file_reader), _statistics(statistics) {}
+
+    ~ORCFileInputStream() override = default;
+
+    uint64_t getLength() const override { return _file_reader->size(); }
+
+    uint64_t getNaturalReadSize() const override { return config::orc_natural_read_size_mb << 20; }
+
+    void read(void* buf, uint64_t length, uint64_t offset) override;
+
+    const std::string& getName() const override { return _file_name; }
+
+private:
+    const std::string& _file_name;
+    io::FileReaderSPtr _file_reader;
+    // Owned by OrcReader
+    OrcReader::Statistics* _statistics;
 };
 
 } // namespace doris::vectorized

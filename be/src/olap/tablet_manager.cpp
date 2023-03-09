@@ -91,12 +91,6 @@ TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
-void TabletManager::add_tablet(const TabletSharedPtr& tablet) {
-    auto& tablet_map = _get_tablet_map(tablet->tablet_id());
-    std::lock_guard wlock(_get_tablets_shard_lock(tablet->tablet_id()));
-    tablet_map[tablet->tablet_id()] = tablet;
-}
-
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force) {
     Status res = Status::OK();
@@ -444,8 +438,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
     auto& shard = _get_tablets_shard(tablet_id);
     std::lock_guard wrlock(shard.lock);
     if (shard.tablets_under_clone.count(tablet_id) > 0) {
-        LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
-        return Status::Aborted("aborted");
+        return Status::Aborted("tablet {} is under clone, skip drop task", tablet_id);
     }
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, replica_id, false, is_drop_table_or_partition);
@@ -467,12 +460,9 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     // We should compare replica id to avoid dropping new cloned tablet.
     // Iff request replica id is 0, FE may be an older release, then we drop this tablet as before.
     if (to_drop_tablet->replica_id() != replica_id && replica_id != 0) {
-        LOG(WARNING) << "fail to drop tablet because replica id not match. "
-                     << "tablet_id=" << tablet_id << ", replica_id=" << to_drop_tablet->replica_id()
-                     << ", request replica_id=" << replica_id;
-        return Status::Aborted("aborted");
+        return Status::Aborted("replica_id not match({} vs {})", to_drop_tablet->replica_id(),
+                               replica_id);
     }
-
     _remove_tablet_from_partition(to_drop_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map.erase(tablet_id);
@@ -1025,10 +1015,10 @@ Status TabletManager::start_trash_sweep() {
     return Status::OK();
 } // start_trash_sweep
 
-void TabletManager::register_clone_tablet(int64_t tablet_id) {
+bool TabletManager::register_clone_tablet(int64_t tablet_id) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
     std::lock_guard<std::shared_mutex> wrlock(shard.lock);
-    shard.tablets_under_clone.insert(tablet_id);
+    return shard.tablets_under_clone.insert(tablet_id).second;
 }
 
 void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
@@ -1306,20 +1296,19 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
                 tablets_shard.tablet_map.begin(), tablets_shard.tablet_map.end(),
                 [&candidates](auto& tablet_pair) { candidates.emplace_back(tablet_pair.second); });
     }
-    std::for_each(
-            candidates.begin(), candidates.end(),
-            [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
-                const TabletSharedPtr& tablet = t.lock();
-                if (UNLIKELY(nullptr == tablet)) {
-                    return;
-                }
-                std::shared_lock rdlock(tablet->get_header_lock());
-                int64_t cooldown_timestamp = -1;
-                size_t file_size = -1;
-                if (skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-                    sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
-                }
-            });
+    auto get_cooldown_tablet = [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
+        const TabletSharedPtr& tablet = t.lock();
+        if (UNLIKELY(nullptr == tablet)) {
+            return;
+        }
+        std::shared_lock rdlock(tablet->get_header_lock());
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        if (!skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
+            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+        }
+    };
+    std::for_each(candidates.begin(), candidates.end(), get_cooldown_tablet);
 
     std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end());
 

@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
@@ -1010,6 +1013,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(length, context);
     }
 
+    default R visitLike(Like like, C context) {
+        return visitStringRegexPredicate(like, context);
+    }
+
     default R visitLn(Ln ln, C context) {
         return visitScalarFunction(ln, context);
     }
@@ -1188,6 +1195,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRandom(Random random, C context) {
         return visitScalarFunction(random, context);
+    }
+
+    default R visitRegexp(Regexp regexp, C context) {
+        return visitStringRegexPredicate(regexp, context);
     }
 
     default R visitRegexpExtract(RegexpExtract regexpExtract, C context) {
@@ -1384,6 +1395,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStrToDate(StrToDate strToDate, C context) {
         return visitScalarFunction(strToDate, context);
+    }
+
+    default R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
+        return visitScalarFunction(stringRegexPredicate, context);
     }
 
     default R visitSubBitmap(SubBitmap subBitmap, C context) {

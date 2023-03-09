@@ -18,13 +18,24 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.Set;
@@ -34,6 +45,9 @@ import java.util.stream.Collectors;
  * validator plan.
  */
 public class Validator extends PlanPostProcessor {
+
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
+            MapType.class, StructType.class, JsonType.class, ArrayType.class);
 
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
@@ -46,7 +60,7 @@ public class Validator extends PlanPostProcessor {
         // Set<Slot> childOutputSet = child.getOutputSet();
 
         child.accept(this, context);
-        return project;
+        return visit(project, context);
     }
 
     @Override
@@ -56,7 +70,10 @@ public class Validator extends PlanPostProcessor {
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        Preconditions.checkState(!(child instanceof PhysicalProject));
+        if (child instanceof PhysicalProject) {
+            throw new AnalysisException(
+                    "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
+        }
 
         // Check filter is from child output.
         Set<Slot> childOutputSet = child.getOutputSet();
@@ -64,10 +81,42 @@ public class Validator extends PlanPostProcessor {
                 .<Set<Slot>>map(expr -> expr.collect(Slot.class::isInstance))
                 .flatMap(Collection::stream).collect(Collectors.toSet());
         for (Slot slot : slotsUsedByFilter) {
-            Preconditions.checkState(childOutputSet.contains(slot));
+            Preconditions.checkState(childOutputSet.contains(slot)
+                    || slot instanceof MarkJoinSlotReference);
         }
 
         child.accept(this, context);
-        return filter;
+        return visit(filter, context);
+    }
+
+    @Override
+    public Plan visit(Plan plan, CascadesContext context) {
+        plan.getExpressions().forEach(ExpressionChecker.INSTANCE::check);
+        plan.children().forEach(child -> child.accept(this, context));
+        return plan;
+    }
+
+    private static class ExpressionChecker extends DefaultExpressionVisitor<Expression, Void> {
+        public static final ExpressionChecker INSTANCE = new ExpressionChecker();
+
+        public void check(Expression expression) {
+            expression.accept(this, null);
+        }
+
+        public Expression visit(Expression expr, Void unused) {
+            try {
+                checkTypes(expr.getDataType());
+            } catch (UnboundException ignored) {
+                return expr;
+            }
+            expr.children().forEach(child -> child.accept(this, null));
+            return expr;
+        }
+
+        private void checkTypes(DataType dataType) {
+            if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
+                throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
+            }
+        }
     }
 }

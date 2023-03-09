@@ -225,8 +225,7 @@ public class JdbcExecutor {
             if (op == TJdbcOperation.READ) {
                 conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
-                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY,
-                        ResultSet.FETCH_FORWARD);
+                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                 stmt.setFetchSize(batchSize);
                 batchSizeNum = batchSize;
             } else {
@@ -260,9 +259,9 @@ public class JdbcExecutor {
     }
 
     private void bigDecimalPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -279,9 +278,9 @@ public class JdbcExecutor {
     }
 
     private void integerPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -296,9 +295,9 @@ public class JdbcExecutor {
     }
 
     private void shortPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -315,19 +314,26 @@ public class JdbcExecutor {
     public void copyBatchTinyIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof BigDecimal) {
-            bigDecimalPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Integer) {
-            integerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Short) {
-            shortPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof BigDecimal) {
+            bigDecimalPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Integer) {
+            integerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Short) {
+            shortPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
     private void bigDecimalPutToShort(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -342,9 +348,9 @@ public class JdbcExecutor {
     }
 
     private void integerPutToShort(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -359,9 +365,9 @@ public class JdbcExecutor {
     }
 
     private void shortPutToShort(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -378,20 +384,27 @@ public class JdbcExecutor {
     public void copyBatchSmallIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof BigDecimal) {
-            bigDecimalPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Integer) {
-            integerPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Short) {
-            shortPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof BigDecimal) {
+            bigDecimalPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Integer) {
+            integerPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Short) {
+            shortPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
 
     private void bigDecimalPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -406,9 +419,9 @@ public class JdbcExecutor {
     }
 
     private void integerPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -425,17 +438,24 @@ public class JdbcExecutor {
     public void copyBatchIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof BigDecimal) {
-            bigDecimalPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Integer) {
-            integerPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof BigDecimal) {
+            bigDecimalPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Integer) {
+            integerPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
     private void bigDecimalPutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -450,9 +470,9 @@ public class JdbcExecutor {
     }
 
     private void longPutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -469,15 +489,22 @@ public class JdbcExecutor {
     public void copyBatchBigIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof BigDecimal) {
-            bigDecimalPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Long) {
-            longPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof BigDecimal) {
+            bigDecimalPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Long) {
+            longPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
     private void bigDecimalPutToBigInteger(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         BigInteger[] data = new BigInteger[numRows];
         for (int i = 0; i < numRows; i++) {
             if (column[i] == null) {
@@ -487,13 +514,13 @@ public class JdbcExecutor {
                 data[i] = ((BigDecimal) column[i]).toBigInteger();
             }
         }
-        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16, startRowForNullable);
     }
 
     private void bigIntegerPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable == true) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -528,10 +555,17 @@ public class JdbcExecutor {
     public void copyBatchLargeIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof BigDecimal) {
-            bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof BigInteger) {
-            bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof BigDecimal) {
+            bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof BigInteger) {
+            bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -554,9 +588,9 @@ public class JdbcExecutor {
     }
 
     private void bigDecimalPutToDouble(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -572,9 +606,9 @@ public class JdbcExecutor {
 
 
     private void doublePutToDouble(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -591,10 +625,17 @@ public class JdbcExecutor {
     public void copyBatchDoubleResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof BigDecimal) {
-            bigDecimalPutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Double) {
-            doublePutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof BigDecimal) {
+            bigDecimalPutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Double) {
+            doublePutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -614,9 +655,9 @@ public class JdbcExecutor {
     }
 
     private void localDatePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -637,9 +678,9 @@ public class JdbcExecutor {
     }
 
     private void datePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -662,17 +703,24 @@ public class JdbcExecutor {
     public void copyBatchDateResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof LocalDate) {
-            localDatePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Date) {
-            datePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof LocalDate) {
+            localDatePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Date) {
+            datePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
     private void localDatePutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -693,9 +741,9 @@ public class JdbcExecutor {
     }
 
     private void datePutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -716,10 +764,17 @@ public class JdbcExecutor {
     public void copyBatchDateV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof LocalDate) {
-            localDatePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof Date) {
-            datePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof LocalDate) {
+            localDatePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Date) {
+            datePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -748,9 +803,9 @@ public class JdbcExecutor {
     }
 
     private void localDateTimePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -773,9 +828,9 @@ public class JdbcExecutor {
     }
 
     private void timestampPutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -797,9 +852,9 @@ public class JdbcExecutor {
 
     private void oracleTimetampPutToLong(Object[] column, boolean isNullable, int numRows,
             long nullMapAddr,
-            long columnAddr) throws SQLException {
+            long columnAddr, int startRowForNullable) throws SQLException {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -822,19 +877,26 @@ public class JdbcExecutor {
     public void copyBatchDateTimeResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) throws SQLException {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof LocalDateTime) {
-            localDateTimePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof java.sql.Timestamp) {
-            timestampPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof oracle.sql.TIMESTAMP) {
-            oracleTimetampPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof LocalDateTime) {
+            localDateTimePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof java.sql.Timestamp) {
+            timestampPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof oracle.sql.TIMESTAMP) {
+            oracleTimetampPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
     private void localDateTimePutToLongV2(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -857,9 +919,9 @@ public class JdbcExecutor {
     }
 
     private void timestampPutToLongV2(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
+            long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -880,9 +942,9 @@ public class JdbcExecutor {
     }
 
     private void oracleTimetampPutToLongV2(Object[] column, boolean isNullable, int numRows,
-            long nullMapAddr, long columnAddr) throws SQLException {
+            long nullMapAddr, long columnAddr, int startRowForNullable) throws SQLException {
         if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
@@ -905,12 +967,19 @@ public class JdbcExecutor {
     public void copyBatchDateTimeV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) throws SQLException {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof LocalDateTime) {
-            localDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof java.sql.Timestamp) {
-            timestampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
-        } else if (column[0] instanceof oracle.sql.TIMESTAMP) {
-            oracleTimetampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof LocalDateTime) {
+            localDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof java.sql.Timestamp) {
+            timestampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof oracle.sql.TIMESTAMP) {
+            oracleTimetampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -943,6 +1012,8 @@ public class JdbcExecutor {
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
         if (isNullable == true) {
+            // Here can not loop from startRowForNullable,
+            // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     byteRes[i] = emptyBytes;
@@ -1010,7 +1081,14 @@ public class JdbcExecutor {
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         Object[] column = (Object[]) columnObj;
-        if (column[0] instanceof String) {
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof String) {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             //object like in pg type point, polygon, jsonb..... get object is org.postgresql.util.PGobject.....
@@ -1031,7 +1109,7 @@ public class JdbcExecutor {
                 data[i] = ((BigDecimal) column[i]).setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
             }
         }
-        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16, 0);
     }
 
     public void copyBatchDecimal32Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -1046,7 +1124,7 @@ public class JdbcExecutor {
                 data[i] = ((BigDecimal) column[i]).setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
             }
         }
-        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 4);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 4, 0);
     }
 
     public void copyBatchDecimal64Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -1061,7 +1139,7 @@ public class JdbcExecutor {
                 data[i] = ((BigDecimal) column[i]).setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
             }
         }
-        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 8);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 8, 0);
     }
 
     public void copyBatchDecimal128Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -1076,13 +1154,13 @@ public class JdbcExecutor {
                 data[i] = ((BigDecimal) column[i]).setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
             }
         }
-        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16, 0);
     }
 
     private void copyBatchDecimalResult(BigInteger[] column, boolean isNullable, int numRows,
-            long columnAddr, int typeLen) {
+            long columnAddr, int typeLen, int startRowForNullable) {
         if (isNullable == true) {
-            for (int i = 0; i < numRows; i++) {
+            for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] != null) {
                     byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
                     byte[] value = new byte[typeLen];
@@ -1110,5 +1188,17 @@ public class JdbcExecutor {
                         typeLen);
             }
         }
+    }
+
+    private int getFirstNotNullObject(Object[] column, int numRows, long nullMapAddr) {
+        int i = 0;
+        for (; i < numRows; ++i) {
+            if (null == column[i]) {
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                break;
+            }
+        }
+        return i;
     }
 }

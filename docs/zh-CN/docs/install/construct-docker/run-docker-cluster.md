@@ -212,6 +212,4 @@ sysctl -w vm.max_map_count=2000000
 
 然后 `exit` 退出，创建 Doris Docker 集群。
 
-## 未尽事项
 
-1. Compose Demo List 

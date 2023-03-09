@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -55,9 +56,12 @@ import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 
+import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,6 +80,7 @@ import java.util.stream.Stream;
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     private static final int MIN_BATCH_FETCH_PARTITION_NUM = 50;
+    public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
 
     private HMSExternalCatalog catalog;
 
@@ -203,7 +208,7 @@ public class HiveMetaStoreCache {
         for (String part : parts) {
             String[] kv = part.split("=");
             Preconditions.checkState(kv.length == 2, partitionName);
-            values.add(new PartitionValue(kv[1]));
+            values.add(new PartitionValue(kv[1], HIVE_DEFAULT_PARTITION.equals(kv[1])));
         }
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
@@ -230,8 +235,7 @@ public class HiveMetaStoreCache {
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             String finalLocation = convertToS3IfNecessary(key.location);
-            Configuration conf = getConfiguration();
-            JobConf jobConf = new JobConf(conf);
+            JobConf jobConf = getJobConf();
             // For Tez engine, it may generate subdirectories for "union" query.
             // So there may be files and directories in the table directory at the same time. eg:
             //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
@@ -243,8 +247,16 @@ public class HiveMetaStoreCache {
             jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
-                InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(conf, key.inputFormat, false);
-                InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
+                InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
+                InputSplit[] splits;
+                String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+                if (!Strings.isNullOrEmpty(remoteUser)) {
+                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
+                    splits = ugi.doAs(
+                            (PrivilegedExceptionAction<InputSplit[]>) () -> inputFormat.getSplits(jobConf, 0));
+                } else {
+                    splits = inputFormat.getSplits(jobConf, 0 /* use hdfs block size as default */);
+                }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
                 }
@@ -275,12 +287,12 @@ public class HiveMetaStoreCache {
         return location;
     }
 
-    private Configuration getConfiguration() {
+    private JobConf getJobConf() {
         Configuration configuration = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
             configuration.set(entry.getKey(), entry.getValue());
         }
-        return configuration;
+        return new JobConf(configuration);
     }
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {

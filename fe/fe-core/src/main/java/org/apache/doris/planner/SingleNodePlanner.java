@@ -68,6 +68,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TNullSide;
 import org.apache.doris.thrift.TPushAggOp;
 
@@ -204,7 +205,7 @@ public class SingleNodePlanner {
         // Set the output smap to resolve exprs referencing inline views within stmt.
         // Not needed for a UnionStmt because it materializes its input operands.
         if (stmt instanceof SelectStmt) {
-            node.setOutputSmap(((SelectStmt) stmt).getBaseTblSmap());
+            node.setOutputSmap(((SelectStmt) stmt).getBaseTblSmap(), analyzer);
         }
         return node;
     }
@@ -320,7 +321,7 @@ public class SingleNodePlanner {
             scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
             PlanNode node = createEmptyNode(root, stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
-            node.setOutputSmap(root.outputSmap);
+            node.setOutputSmap(root.outputSmap, analyzer);
             return node;
         }
 
@@ -407,7 +408,9 @@ public class SingleNodePlanner {
                 break;
             }
             List<Expr> allConjuncts = analyzer.getAllConjuncts(selectStmt.getTableRefs().get(0).getId());
-            if (allConjuncts != null) {
+            // planner will generate some conjuncts for analysis. These conjuncts are marked as aux expr.
+            // we skip these conjuncts when do pushAggOp
+            if (allConjuncts != null && allConjuncts.stream().noneMatch(Expr::isAuxExpr)) {
                 break;
             }
 
@@ -1149,7 +1152,7 @@ public class SingleNodePlanner {
             }
             final PlanNode emptySetNode = new EmptySetNode(ctx.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
-            emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
+            emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap(), analyzer);
             return createAggregationPlan(selectStmt, analyzer, emptySetNode);
         }
 
@@ -1314,8 +1317,10 @@ public class SingleNodePlanner {
     }
 
     public boolean selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer)
-            throws UserException {
+            throws UserException, MVSelectFailedException {
         boolean selectFailed = false;
+        boolean haveError = false;
+        String errorMsg = "select fail reason: ";
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             for (TableRef tableRef : selectStmt.getTableRefs()) {
@@ -1362,6 +1367,11 @@ public class SingleNodePlanner {
                             selectStmt.getAggInfo().updateTypeOfAggregateExprs();
                         }
                     } catch (Exception e) {
+                        if (haveError) {
+                            errorMsg += ",";
+                        }
+                        errorMsg += e.getMessage();
+                        haveError = true;
                         tupleSelectFailed = true;
                     }
                 }
@@ -1376,6 +1386,9 @@ public class SingleNodePlanner {
             for (SetOperationStmt.SetOperand unionOperand : unionStmt.getOperands()) {
                 selectFailed |= selectMaterializedView(unionOperand.getQueryStmt(), analyzer);
             }
+        }
+        if (haveError) {
+            throw new MVSelectFailedException(errorMsg);
         }
         return selectFailed;
     }
@@ -1588,7 +1601,7 @@ public class SingleNodePlanner {
                     // conjuncts into outer-joined inline views, so hasEmptyResultSet() cannot be
                     // true for an outer-joined inline view that has no table refs.
                     Preconditions.checkState(!analyzer.isOuterJoined(inlineViewRef.getId()));
-                    emptySetNode.setOutputSmap(inlineViewRef.getSmap());
+                    emptySetNode.setOutputSmap(inlineViewRef.getSmap(), analyzer);
                     return emptySetNode;
                 }
                 // Analysis should have generated a tuple id into which to materialize the exprs.
@@ -1605,7 +1618,7 @@ public class SingleNodePlanner {
                 unionNode.init(analyzer);
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
-                unionNode.setOutputSmap(inlineViewRef.getSmap());
+                unionNode.setOutputSmap(inlineViewRef.getSmap(), analyzer);
                 if (analyzer.isOuterJoined(inlineViewRef.getId())) {
                     List<Expr> nullableRhs;
                     if (analyzer.isOuterJoinedLeftSide(inlineViewRef.getId())) {
@@ -1615,7 +1628,8 @@ public class SingleNodePlanner {
                         nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
                             unionNode.getTupleIds(), TNullSide.RIGHT, analyzer);
                     }
-                    unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));
+                    unionNode.setOutputSmap(
+                            new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs), analyzer);
                 }
                 return unionNode;
             }
@@ -1646,7 +1660,7 @@ public class SingleNodePlanner {
             outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
         }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
-        rootNode.setOutputSmap(outputSmap);
+        rootNode.setOutputSmap(outputSmap, analyzer);
         if (rootNode instanceof UnionNode && ((UnionNode) rootNode).isConstantUnion()) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
         }
@@ -2101,6 +2115,7 @@ public class SingleNodePlanner {
             result.setJoinConjuncts(joinConjuncts);
             result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
             result.init(analyzer);
+            result.setOutputLeftSideOnly(innerRef.isInBitmap() && joinConjuncts.isEmpty());
             return result;
         }
 

@@ -48,7 +48,6 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
-    _reader_context.is_vec = true;
     _reader_context.is_vertical_compaction = true;
     for (auto& rs_reader : read_params.rs_readers) {
         // segment iterator will be inited here
@@ -82,13 +81,28 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
 }
 
 Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) {
-    // get segment iterators
-    std::vector<RowwiseIteratorUPtr> segment_iters;
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
-    RETURN_IF_ERROR(
-            _get_segment_iterators(read_params, &segment_iters, &iterator_init_flag, &rowset_ids));
-    CHECK(segment_iters.size() == iterator_init_flag.size());
+    std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = read_params.segment_iters_ptr;
+    std::vector<RowwiseIteratorUPtr> iter_ptr_vector;
+
+    if (!segment_iters_ptr) {
+        RETURN_IF_ERROR(_get_segment_iterators(read_params, &iter_ptr_vector, &iterator_init_flag,
+                                               &rowset_ids));
+        CHECK(iter_ptr_vector.size() == iterator_init_flag.size());
+        segment_iters_ptr = &iter_ptr_vector;
+    } else {
+        for (int i = 0; i < segment_iters_ptr->size(); ++i) {
+            iterator_init_flag.push_back(true);
+            RowsetId rowsetid;
+            rowset_ids.push_back(rowsetid); // TODO: _record_rowids need it
+        }
+        // TODO(zhangzhengyu): is it enough for a context?
+        _reader_context.reader_type = read_params.reader_type;
+        _reader_context.need_ordered_result = true; // TODO: should it be?
+        _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+        _reader_context.is_key_column_group = read_params.is_key_column_group;
+    }
 
     // build heap if key column iterator or build vertical merge iterator if value column
     auto ori_return_col_size = _return_columns.size();
@@ -98,10 +112,10 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
         _vcollect_iter = new_vertical_heap_merge_iterator(
-                std::move(segment_iters), iterator_init_flag, rowset_ids, ori_return_col_size,
+                std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids, ori_return_col_size,
                 read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
     } else {
-        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(segment_iters),
+        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
                                                           ori_return_col_size, _row_sources_buffer);
     }
     // init collect iterator
@@ -159,6 +173,9 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
+        if (status.is_io_error()) {
+            _tablet->increase_io_error_times();
+        }
         return status;
     }
 

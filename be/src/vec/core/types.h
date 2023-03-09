@@ -626,6 +626,15 @@ struct std::hash<doris::vectorized::Decimal128> {
     }
 };
 
+template <>
+struct std::hash<doris::vectorized::Decimal128I> {
+    size_t operator()(const doris::vectorized::Decimal<doris::vectorized::Int128I>& x) const {
+        return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
+               std::hash<doris::vectorized::Int64>()(
+                       x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
+    }
+};
+
 constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
     using TypeIndex = doris::vectorized::TypeIndex;
     switch (index) {

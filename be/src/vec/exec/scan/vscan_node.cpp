@@ -355,7 +355,6 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->mark_as_stale();
         _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
     }
     _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
@@ -418,9 +417,9 @@ Status VScanNode::_normalize_conjuncts() {
         switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \
-                                            slots[slot_idx]->type().precision,               \
-                                            slots[slot_idx]->type().scale);                  \
+        ColumnValueRange<TYPE_##NAME> range(                                                 \
+                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
+                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
         _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
         break;                                                                               \
     }
@@ -459,7 +458,6 @@ Status VScanNode::_normalize_conjuncts() {
             if (new_root) {
                 (*_vconjunct_ctx_ptr)->set_root(new_root);
             } else {
-                (*_vconjunct_ctx_ptr)->mark_as_stale();
                 _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                 _vconjunct_ctx_ptr.reset(nullptr);
             }
@@ -640,8 +638,8 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
     }
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
-        doris_udf::FunctionContext* fn_ctx = nullptr;
-        StringVal val;
+        doris::FunctionContext* fn_ctx = nullptr;
+        StringRef val;
         PushDownType temp_pdt;
         RETURN_IF_ERROR(_should_push_down_function_filter(
                 reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));
@@ -691,7 +689,7 @@ bool VScanNode::_is_predicate_acting_on_slot(
 Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
@@ -735,8 +733,8 @@ template <PrimitiveType T>
 Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                  PushDownType* pdt) {
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
-                                                                           slot->type().scale);
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+            slot->is_nullable(), slot->type().precision, slot->type().scale);
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -824,7 +822,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                                                          PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
-            range.column_name(), slot->type().precision, slot->type().scale);
+            range.column_name(), slot->is_nullable(), slot->type().precision, slot->type().scale);
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
@@ -925,14 +923,14 @@ Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_c
     if (TExprNodeType::FUNCTION_CALL == expr->node_type()) {
         if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name == "is_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
             *pdt = temp_pdt;
         } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
             *pdt = temp_pdt;
@@ -1130,7 +1128,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
 
         // create empty range as temp range, temp range should do intersection on range
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                slot->type().precision, slot->type().scale);
+                slot->is_nullable(), slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
         auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
@@ -1288,7 +1286,7 @@ Status VScanNode::_should_push_down_binary_predicate(
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {

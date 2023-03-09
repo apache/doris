@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -159,9 +160,6 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
-        trivialTypes.add(DECIMAL32);
-        trivialTypes.add(DECIMAL64);
-        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -197,6 +195,7 @@ public abstract class Type {
         mapSubTypes.add(CHAR);
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
+        mapSubTypes.add(NULL);
 
         structSubTypes = Lists.newArrayList();
         structSubTypes.add(BOOLEAN);
@@ -383,13 +382,13 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isObjectStored() || isComplexType();
+        return isObjectStored() || isComplexType() || isJsonbType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll, bitmap, array, map, struct column must use with specific function, and don't"
+            "Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't"
                     + " support filter or group by. please run 'help hll' or 'help bitmap' or 'help array'"
-                    + " or 'help map' or 'help struct' in your mysql client.";
+                    + " or 'help map' or 'help struct' or 'help jsonb' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
@@ -509,6 +508,25 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATEV2);
     }
 
+    public boolean isDateV2OrDateTimeV2() {
+        return isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+    }
+
+    public boolean hasTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize tempalte type in this type
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
+        if (hasTemplateType()) {
+            // throw exception by default, sub class should specialize tempalte type properly
+            throw new TypeException("specializeTemplateType not implemented");
+        } else {
+            return this;
+        }
+    }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
@@ -609,7 +627,7 @@ public abstract class Type {
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
-        } else if (targetType.isStructType() && sourceType.isStringType()) {
+        } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
@@ -1562,6 +1580,7 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
                         || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
+                        || t1 == PrimitiveType.TEMPLATE || t2 == PrimitiveType.TEMPLATE
                         || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED
                         || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT) {
                     continue;
@@ -1754,13 +1773,12 @@ public abstract class Type {
             case FLOAT:
             case DOUBLE:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case STRING:
             case HLL:
                 return Type.DOUBLE;
-            case TIMEV2:
-                return Type.DEFAULT_TIMEV2;
             case DECIMALV2:
                 return Type.DECIMALV2;
             case DECIMAL32:

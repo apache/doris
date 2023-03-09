@@ -130,19 +130,19 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
         if (analyse_result.empty()) {
             LOG(WARNING) << "invalid input query_str: " << search_str
                          << ", please check your query sql";
-            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>();
+            return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
         }
 
         roaring::Roaring query_match_bitmap;
         bool first = true;
-        for (auto token : analyse_result) {
+        for (auto token_ws : analyse_result) {
             roaring::Roaring* term_match_bitmap = nullptr;
 
             // try to get term bitmap match result from cache to avoid query index on cache hit
             auto cache = InvertedIndexQueryCache::instance();
             // use EQUAL_QUERY type here since cache is for each term/token
             InvertedIndexQueryCache::CacheKey cache_key {
-                    index_file_path, column_name, InvertedIndexQueryType::EQUAL_QUERY, token};
+                    index_file_path, column_name, InvertedIndexQueryType::EQUAL_QUERY, token_ws};
             InvertedIndexQueryCacheHandle cache_handle;
             if (cache->lookup(cache_key, &cache_handle)) {
                 stats->inverted_index_query_cache_hit++;
@@ -150,7 +150,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             } else {
                 stats->inverted_index_query_cache_miss++;
                 term_match_bitmap = new roaring::Roaring();
-                std::wstring token_ws = std::wstring(token.begin(), token.end());
                 // unique_ptr with custom deleter
                 std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
                         _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
@@ -166,9 +165,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 try {
                     SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
                     index_searcher->_search(
-                            query.get(), [&term_match_bitmap, stats](const int32_t docid,
-                                                                     const float_t /*score*/) {
-                                SCOPED_RAW_TIMER(&stats->inverted_index_searcher_bitmap_timer);
+                            query.get(),
+                            [&term_match_bitmap](const int32_t docid, const float_t /*score*/) {
                                 // docid equal to rowid in segment
                                 term_match_bitmap->add(docid);
                             });
@@ -198,6 +196,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 query_match_bitmap |= *term_match_bitmap;
                 break;
             }
+            case InvertedIndexQueryType::EQUAL_QUERY:
             case InvertedIndexQueryType::MATCH_ALL_QUERY: {
                 SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
                 query_match_bitmap &= *term_match_bitmap;
@@ -280,6 +279,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     }
 
     switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
     case InvertedIndexQueryType::EQUAL_QUERY: {
         query.reset(new lucene::search::TermQuery(term.get()));
         break;
@@ -301,12 +302,6 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         break;
     }
     default:
-        LOG(ERROR) << "invalid query type when query untokenized inverted index";
-        if (_is_match_query(query_type)) {
-            LOG(WARNING) << column_name << " is untokenized inverted index"
-                         << ", please use equal query instead of match query";
-            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-        }
         LOG(WARNING) << "invalid query type when query untokenized inverted index";
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -320,9 +315,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         index_searcher->_search(query.get(),
-                                [&result, stats](const int32_t docid, const float_t /*score*/) {
+                                [&result](const int32_t docid, const float_t /*score*/) {
                                     // docid equal to rowid in segment
-                                    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_bitmap_timer);
                                     result.add(docid);
                                 });
     } catch (const CLuceneError& e) {

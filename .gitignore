@@ -96,5 +96,6 @@ tools/single-node-cluster/fe*
 
 # be-ut
 data_test
+lru_cache_test
 
 /conf/log4j2-spring.xml

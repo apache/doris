@@ -25,7 +25,7 @@ suite("test_split_part") {
       where
           split_part("bCKHDX07at", "5.7.37", cast(name as int)) is not null;
     """
-    exception "[RUNTIME_ERROR]Argument at index 3 for function split_part must be constant"
+    exception "Argument at index 3 for function split_part must be constant"
   }
 
   qt_1 "select split_part(k8, '1', 1), k8, split_part(concat(k8, '12'), '1', 1) from test_query_db.test order by k8 limit 2;"

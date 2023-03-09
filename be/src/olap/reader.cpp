@@ -39,7 +39,7 @@ namespace doris {
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
-    if (UNLIKELY(version.first == -1)) {
+    if (UNLIKELY(version.first == -1 && is_segcompaction == false)) {
         LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
     }
 }
@@ -303,6 +303,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+                read_params.reader_type == READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == READER_BASE_COMPACTION ||
                 read_params.reader_type == READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == READER_ALTER_TABLE) &&
@@ -482,8 +483,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
-            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
+        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
             return true;
         }
 
@@ -577,12 +577,13 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<false>(function_filter._opposite, index, function_filter._fn_ctx,
-                                          function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
+    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+        read_params.reader_type == READER_SEGMENT_COMPACTION) {
         return Status::OK();
     }
     // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true

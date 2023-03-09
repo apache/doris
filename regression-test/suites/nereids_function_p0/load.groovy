@@ -70,7 +70,7 @@ suite("load") {
             `st_point_str` string null,
             `st_point_vc` varchar(50) null
         ) engine=olap
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
     """
 
@@ -123,7 +123,7 @@ suite("load") {
             `st_point_str` string not null,
             `st_point_vc` varchar(50) not null
         ) engine=olap
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
         properties("replication_num" = "1")
     """
     // ddl end
@@ -135,7 +135,7 @@ suite("load") {
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
-            kdt ,kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
+            kdt, kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
             kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kadtmv2, kachr, kavchr, kastr, kadcml,
             st_point_str, st_point_vc
             '''

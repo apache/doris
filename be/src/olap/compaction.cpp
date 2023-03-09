@@ -241,9 +241,6 @@ bool Compaction::handle_ordered_data_compaction() {
 Status Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
-    auto use_vectorized_compaction = config::enable_vectorized_compaction;
-    string merge_type = use_vectorized_compaction ? "v" : "";
-
     if (handle_ordered_data_compaction()) {
         RETURN_NOT_OK(modify_rowsets());
         TRACE("modify rowsets finished");
@@ -255,7 +252,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             _tablet->set_last_base_compaction_success_time(now);
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
-        LOG(INFO) << "succeed to do ordered data " << merge_type << compaction_name()
+        LOG(INFO) << "succeed to do ordered data " << compaction_name()
                   << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
                   << ", disk=" << _tablet->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
@@ -267,7 +264,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
     build_basic_info();
 
-    LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
+    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
     bool vertical_compaction = should_vertical_compaction();
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -286,21 +283,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     Status res;
-    if (use_vectorized_compaction) {
-        if (vertical_compaction) {
-            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                                 _input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &stats);
-        } else {
-            res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                         _input_rs_readers, _output_rs_writer.get(), &stats);
-        }
+    if (vertical_compaction) {
+        res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                             _input_rs_readers, _output_rs_writer.get(),
+                                             get_avg_segment_rows(), &stats);
     } else {
-        LOG(FATAL) << "Only support vectorized compaction";
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                     _input_rs_readers, _output_rs_writer.get(), &stats);
     }
 
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
                      << ", output_version=" << _output_version;
         return res;
@@ -351,9 +344,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     auto cumu_policy = _tablet->cumulative_compaction_policy();
     DCHECK(cumu_policy);
-    LOG(INFO) << "succeed to do " << merge_type << compaction_name()
-              << " is_vertical=" << vertical_compaction << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version
+    LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << vertical_compaction
+              << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
               << ", input_row_num=" << _input_row_num
@@ -434,11 +426,13 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
             if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-                std::string err_msg =
-                        "The merged rows is not equal to missed rows in rowid conversion";
-                DCHECK(stats != nullptr || stats->merged_rows == missed_rows) << err_msg;
+                std::string err_msg = fmt::format(
+                        "cumulative compaction: the merged rows({}) is not equal to missed "
+                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        stats->merged_rows, missed_rows, _tablet->tablet_id(), _tablet->table_id());
+                DCHECK(stats == nullptr || stats->merged_rows == missed_rows) << err_msg;
                 if (stats != nullptr && stats->merged_rows != missed_rows) {
-                    return Status::InternalError(err_msg);
+                    LOG(WARNING) << err_msg;
                 }
             }
 

@@ -68,7 +68,9 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
     SCOPED_ATTACH_TASK(_mem_tracker);
-    StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id);
+    if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
+        return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
+    }
     Status st = _do_clone();
     StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
     return st;
@@ -86,6 +88,13 @@ Status EngineCloneTask::_do_clone() {
     std::vector<Version> missed_versions;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
+        if (tablet->replica_id() != _clone_req.replica_id) {
+            // `tablet` may be a dropped replica in FE, e.g: BE1 migrates replica of tablet_1 to BE2,
+            // but before BE1 drop this replica, another new replica of tablet_1 is migrated to BE1.
+            // If we allow to clone success on dropped replica, replica id may never be consistent between FE and BE.
+            return Status::InternalError("replica_id not match({} vs {})", tablet->replica_id(),
+                                         _clone_req.replica_id);
+        }
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
             return Status::Error<TRY_LOCK_FAILED>();
@@ -101,15 +110,7 @@ Status EngineCloneTask::_do_clone() {
         // completed. Or remote be will just return header not the rowset files. clone will failed.
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
-                      << _clone_req.tablet_id << " req replica=" << _clone_req.replica_id;
-            if (_clone_req.replica_id != tablet->replica_id()) {
-                // update replica id to meet cooldown replica
-                tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
-                {
-                    std::shared_lock rlock(tablet->get_header_lock());
-                    tablet->save_meta();
-                }
-            }
+                      << _clone_req.tablet_id << " replica_id=" << _clone_req.replica_id;
             _set_tablet_info(is_new_tablet);
             return Status::OK();
         }
@@ -118,7 +119,7 @@ Status EngineCloneTask::_do_clone() {
                   << ", allow_incremental_clone=" << allow_incremental_clone
                   << ", signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
                   << ", committed_version=" << _clone_req.committed_version
-                  << ", req replica=" << _clone_req.replica_id;
+                  << ", replica_id=" << _clone_req.replica_id;
 
         // try to download missing version from src backend.
         // if tablet on src backend does not contains missing version, it will download all versions,
@@ -126,7 +127,6 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet->data_dir()), local_data_path,
                                                      &src_host, &src_file_path, missed_versions,
                                                      &allow_incremental_clone));
-
         RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
                                       allow_incremental_clone));
     } else {
@@ -308,6 +308,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_tablet_id(tablet_id);
     request.__set_schema_hash(schema_hash);
     request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
+    request.__set_version(_clone_req.committed_version);
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
     request.__isset.missing_version = (!missed_versions.empty());
@@ -563,39 +564,22 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                 << ", missed_versions_size=" << missed_versions.size();
 
     // check missing versions exist in clone src
-    std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
+    std::vector<RowsetSharedPtr> rowsets_to_clone;
     for (Version version : missed_versions) {
-        RowsetMetaSharedPtr rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(version);
+        auto rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(version);
         if (rs_meta == nullptr) {
             return Status::InternalError("missed version {} is not found in cloned tablet meta",
                                          version.to_string());
         }
-        rowsets_to_clone.push_back(rs_meta);
+        RowsetSharedPtr rs;
+        RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
+        rowsets_to_clone.push_back(std::move(rs));
     }
 
     /// clone_data to tablet
     /// For incremental clone, nothing will be deleted.
     /// So versions_to_delete is empty.
-    std::vector<Version> versions_to_delete;
-    return tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
-}
-
-// replace `origin_tablet` with Tablet created by `cloned_tablet_meta`.
-static Status full_clone(Tablet* origin_tablet, const TabletMetaSharedPtr& cloned_tablet_meta) {
-    // keep origin `replica_id` and `tablet_uid`
-    cloned_tablet_meta->set_replica_id(origin_tablet->replica_id());
-    cloned_tablet_meta->set_tablet_uid(origin_tablet->tablet_uid());
-    auto tablet = Tablet::create_tablet_from_meta(cloned_tablet_meta, origin_tablet->data_dir());
-    RETURN_IF_ERROR(tablet->init());
-    tablet->save_meta();
-    StorageEngine::instance()->tablet_manager()->add_tablet(tablet);
-    // reclaim local rowsets in origin tablet
-    tablet->traverse_rowsets([](auto& rs) {
-        if (rs->is_local()) {
-            StorageEngine::instance()->add_unused_rowset(rs);
-        }
-    });
-    return Status::OK();
+    return tablet->revise_tablet_meta(rowsets_to_clone, {}, true);
 }
 
 /// This method will do:
@@ -611,103 +595,48 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     // For example:
     // clone version is 8
     //
-    //      local tablet: [0-1] [2-5] [6-6] [7-7]
+    //      local tablet: [0-1] [2-5] [6-6] [7-7] [9-10]
     //      clone tablet: [0-1] [2-4] [5-6] [7-8]
     //
     // after compare, the version mark with "x" will be deleted
     //
-    //      local tablet: [0-1]  [2-5]x [6-6]x [7-7]x
-    //      clone tablet: [0-1]x [2-4]  [5-6]  [7-8]
+    //      local tablet: [0-1]x [2-5]x [6-6]x [7-7]x [9-10]
+    //      clone tablet: [0-1]  [2-4]  [5-6]  [7-8]
 
-    // All versions deleted from local tablet will be saved in versions_to_delete
-    // And these versions file will be deleted finally.
-    std::vector<Version> versions_to_delete;
-    std::vector<RowsetMetaSharedPtr> rs_metas_found_in_src;
-    for (auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
-        Version local_version(rs_meta->start_version(), rs_meta->end_version());
-        LOG(INFO) << "check local delta when full clone."
-                  << "tablet=" << tablet->full_name() << ", local_version=" << local_version;
-
+    std::vector<RowsetSharedPtr> to_delete;
+    std::vector<RowsetSharedPtr> to_add;
+    for (auto& [v, rs] : tablet->rowset_map()) {
         // if local version cross src latest, clone failed
         // if local version is : 0-0, 1-1, 2-10, 12-14, 15-15,16-16
         // cloned max version is 13-13, this clone is failed, because could not
         // fill local data by using cloned data.
         // It should not happen because if there is a hole, the following delta will not
         // do compaction.
-        if (local_version.first <= cloned_max_version.second &&
-            local_version.second > cloned_max_version.second) {
+        if (v.first <= cloned_max_version.second && v.second > cloned_max_version.second) {
             return Status::InternalError(
                     "version cross src latest. cloned_max_version={}, local_version={}",
-                    cloned_max_version.to_string(), local_version.to_string());
-        } else if (local_version.second <= cloned_max_version.second) {
-            // if local version smaller than src, check if existed in src, will not clone it
-            bool existed_in_src = false;
-
-            // if delta labeled with local_version is same with the specified version in clone header,
-            // there is no necessity to clone it.
-            for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
-                if (rs_meta->version().first == local_version.first &&
-                    rs_meta->version().second == local_version.second) {
-                    existed_in_src = true;
-                    break;
-                }
-            }
-
-            if (existed_in_src) {
-                cloned_tablet_meta->delete_rs_meta_by_version(local_version,
-                                                              &rs_metas_found_in_src);
-                LOG(INFO) << "version exist in local tablet, no need to clone. delete it from "
-                             "clone tablet"
-                          << ". tablet=" << tablet->full_name() << ", version='" << local_version;
-            } else {
-                versions_to_delete.push_back(local_version);
-                LOG(INFO) << "version not exist in local tablet. it will be replaced by other "
-                             "version. "
-                          << "delete it from local tablet. "
-                          << "tablet=" << tablet->full_name() << ","
-                          << ", version=" << local_version;
-            }
+                    cloned_max_version.second, v.to_string());
+        }
+        if (v.second <= cloned_max_version.second) {
+            to_delete.push_back(rs);
+        } else {
+            // cooldowned rowsets MUST be continuous, so rowsets whose version > missed version MUST be local rowset
+            DCHECK(rs->is_local());
         }
     }
-    std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
+
+    to_add.reserve(cloned_tablet_meta->all_rs_metas().size());
     for (auto& rs_meta : cloned_tablet_meta->all_rs_metas()) {
-        if (!rs_meta->is_local()) {
-            // MUST clone all cooldowned rowset if there is any cooldowned rowset to clone to ensure
-            // `cooldown_meta_id` is consistent with the cooldowned rowsets after clone.
-            LOG(INFO) << "clone cooldowned rowsets, tablet_id=" << tablet->tablet_id();
-            RETURN_IF_ERROR(full_clone(tablet, cloned_tablet_meta));
-        }
-        rowsets_to_clone.push_back(rs_meta);
-        LOG(INFO) << "version to be cloned from clone tablet to local tablet: "
-                  << tablet->full_name() << ", version=" << rs_meta->version();
+        RowsetSharedPtr rs;
+        RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
+        to_add.push_back(std::move(rs));
     }
-
-    // clone_data to tablet
-    // only replace rowset info, must not modify other info such as alter task info. for example
-    // 1. local tablet finished alter task
-    // 2. local tablet has error in push
-    // 3. local tablet cloned rowset from other nodes
-    // 4. if cleared alter task info, then push will not write to new tablet, the report info is error
-    Status clone_res = tablet->revise_tablet_meta(rowsets_to_clone, versions_to_delete);
-    // in previous step, copy all files from CLONE_DIR to tablet dir
-    // but some rowset is useless, so that remove them here
-    for (auto& rs_meta_ptr : rs_metas_found_in_src) {
-        RowsetSharedPtr rowset_to_remove;
-        auto s =
-                RowsetFactory::create_rowset(cloned_tablet_meta->tablet_schema(),
-                                             tablet->tablet_path(), rs_meta_ptr, &rowset_to_remove);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to init rowset to remove: "
-                         << rs_meta_ptr->rowset_id().to_string();
-            continue;
-        }
-        s = rowset_to_remove->remove();
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to remove rowset " << rs_meta_ptr->rowset_id().to_string()
-                         << ": " << s;
-        }
+    tablet->tablet_meta()->set_cooldown_meta_id(cloned_tablet_meta->cooldown_meta_id());
+    if (tablet->enable_unique_key_merge_on_write()) {
+        tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
     }
-    return clone_res;
+    return tablet->revise_tablet_meta(to_add, to_delete, false);
+    // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
 
 } // namespace doris

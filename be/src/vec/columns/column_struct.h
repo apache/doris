@@ -18,38 +18,6 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnTuple.h
 // and modified by Doris
 
-/********************************************************************************
-// doris/core/be/src/vec/core/field.h
-class Field;
-using FieldVector = std::vector<Field>;
-
-/// Array and Tuple use the same storage type -- FieldVector, but we declare
-/// distinct types for them, so that the caller can choose whether it wants to
-/// construct a Field of Array or a Tuple type. An alternative approach would be
-/// to construct both of these types from FieldVector, and have the caller
-/// specify the desired Field type explicitly.
-
-#define DEFINE_FIELD_VECTOR(X)          \
-    struct X : public FieldVector {     \
-        using FieldVector::FieldVector; \
-    }
-
-DEFINE_FIELD_VECTOR(Array);
-DEFINE_FIELD_VECTOR(Tuple);
-
-#undef DEFINE_FIELD_VECTOR
-
-// defination of some pointer
-using WrappedPtr = chameleon_ptr<Derived>;
-
-using Ptr = immutable_ptr<Derived>;
-using ColumnPtr = IColumn::Ptr;
-using Columns = std::vector<ColumnPtr>;
-using MutablePtr = mutable_ptr<Derived>;
-using MutableColumnPtr = IColumn::MutablePtr;
-using MutableColumns = std::vector<MutableColumnPtr>;
-****************************************************************************/
-
 #pragma once
 
 #include "vec/columns/column.h"
@@ -64,10 +32,6 @@ using MutableColumns = std::vector<MutableColumnPtr>;
 namespace doris::vectorized {
 
 /** Column, that is just group of few another columns.
-  *
-  * For constant Tuples, see ColumnConst.
-  * Mixed constant/non-constant columns is prohibited in tuple
-  *  for implementation simplicity.
   */
 class ColumnStruct final : public COWHelper<IColumn, ColumnStruct> {
 private:
@@ -123,10 +87,6 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
-    // const char * skip_serialized_in_arena(const char * pos) const override;
-    // void update_weak_hash32(WeakHash32 & hash) const override;
-    // void update_hash_fast(SipHash & hash) const override;
-
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 
@@ -146,67 +106,24 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
-
     size_t filter(const Filter& filter) override;
-
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-    // void expand(const Filter & mask, bool inverted) override;
-    // void gather(ColumnGathererStream & gatherer_stream) override;
-    // bool has_equal_values() const override;
-
-    // void compare_column(const IColumn& rhs, size_t rhs_row_num, PaddedPODArray<UInt64>* row_indexes,
-    //                     PaddedPODArray<Int8>& compare_results, int direction,
-    //                     int nan_direction_hint) const override;
-    // int compare_at_with_collation(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint,
-    //                               const Collator& collator) const override;
-
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
     }
     void get_extremes(Field& min, Field& max) const override;
-
-    // void get_permutation(IColumn::PermutationSortDirection direction,
-    //                      IColumn::PermutationSortStability stability, size_t limit,
-    //                      int nan_direction_hint, IColumn::Permutation& res) const override;
-    // void update_permutation(IColumn::PermutationSortDirection direction,
-    //                         IColumn::PermutationSortStability stability, size_t limit,
-    //                         int nan_direction_hint, IColumn::Permutation& res,
-    //                         EqualRanges& equal_ranges) const override;
-    // void get_permutation_with_collation(const Collator& collator,
-    //                                     IColumn::PermutationSortDirection direction,
-    //                                     IColumn::PermutationSortStability stability, size_t limit,
-    //                                     int nan_direction_hint,
-    //                                     IColumn::Permutation& res) const override;
-    // void update_permutation_with_collation(const Collator& collator,
-    //                                        IColumn::PermutationSortDirection direction,
-    //                                        IColumn::PermutationSortStability stability,
-    //                                        size_t limit, int nan_direction_hint,
-    //                                        IColumn::Permutation& res,
-    //                                        EqualRanges& equal_ranges) const override;
-
     void reserve(size_t n) override;
     size_t byte_size() const override;
-
-    // size_t byte_size_at(size_t n) const override;
-    // void ensure_ownership() override;
-
     size_t allocated_bytes() const override;
     void protect() override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
-
-    // void for_each_subcolumn_recursively(ColumnCallback callback) override;
-    // bool is_collation_supported() const override;
-    // ColumnPtr compress() const override;
-    // double get_ratio_of_default_rows(double sample_ratio) const override;
-    // void get_indices_of_nondefault_rows(Offsets & indices, size_t from, size_t limit) const override;
-    // void finalize() override;
-    // bool is_finalized() const override;
 
     size_t tuple_size() const { return columns.size(); }
 
@@ -224,20 +141,6 @@ public:
             col->clear();
         }
     }
-
-private:
-    int compare_at_impl(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const;
-
-    // void get_permutation_impl(IColumn::PermutationSortDirection direction,
-    //                           IColumn::PermutationSortStability stability, size_t limit,
-    //                           int nan_direction_hint, Permutation& res,
-    //                           const Collator* collator) const;
-
-    // void update_permutation_impl(IColumn::PermutationSortDirection direction,
-    //                              IColumn::PermutationSortStability stability, size_t limit,
-    //                              int nan_direction_hint, IColumn::Permutation& res,
-    //                              EqualRanges& equal_ranges,
-    //                              const Collator* collator = nullptr) const;
 };
 
 } // namespace doris::vectorized

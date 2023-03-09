@@ -121,7 +121,6 @@ public:
     int64_t partition_id() const;
     int64_t tablet_id() const;
     int64_t replica_id() const;
-    void set_replica_id(int64_t replica_id);
     int32_t schema_hash() const;
     int16_t shard_id() const;
     void set_shard_id(int32_t shard_id);
@@ -363,11 +362,21 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Merges the given segment delete bitmap into *this
+     *
+     * @param bmk
+     * @param segment_delete_bitmap
+     */
+    void merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap);
+
+    /**
      * Merges the given delete bitmap into *this
      *
      * @param other
      */
     void merge(const DeleteBitmap& other);
+
+    uint64_t cardinality();
 
     /**
      * Checks if the given row is marked deleted in bitmap with the condition:
@@ -436,10 +445,6 @@ inline int64_t TabletMeta::tablet_id() const {
 
 inline int64_t TabletMeta::replica_id() const {
     return _replica_id;
-}
-
-inline void TabletMeta::set_replica_id(int64_t replica_id) {
-    _replica_id = replica_id;
 }
 
 inline int32_t TabletMeta::schema_hash() const {

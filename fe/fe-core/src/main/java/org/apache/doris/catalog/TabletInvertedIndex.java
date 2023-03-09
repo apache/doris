@@ -190,10 +190,11 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownReplicaId()) {
+                            if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownTerm()) {
                                 handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
                                         cooldownConfToUpdate);
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
+                                replica.setCooldownTerm(backendTabletInfo.getCooldownTerm());
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -372,19 +373,21 @@ public class TabletInvertedIndex {
             return;
         }
 
-        // validate replica is active
+        // check cooldown replica is alive
         Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
         if (replicaMap.isEmpty()) {
             return;
         }
-        boolean replicaInvalid = true;
+        boolean replicaAlive = false;
         for (Replica replica : replicaMap.values()) {
             if (replica.getId() == cooldownConf.first) {
-                replicaInvalid = false;
+                if (replica.isAlive()) {
+                    replicaAlive = true;
+                }
                 break;
             }
         }
-        if (replicaInvalid) {
+        if (!replicaAlive) {
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
             synchronized (cooldownConfToUpdate) {
@@ -393,7 +396,7 @@ public class TabletInvertedIndex {
             return;
         }
 
-        if (cooldownConf.first != beTabletInfo.getCooldownReplicaId()) {
+        if (beTabletInfo.getCooldownTerm() < cooldownConf.second) {
             CooldownConf conf = new CooldownConf(beTabletInfo.tablet_id, cooldownConf.first, cooldownConf.second);
             synchronized (cooldownConfToPush) {
                 cooldownConfToPush.add(conf);

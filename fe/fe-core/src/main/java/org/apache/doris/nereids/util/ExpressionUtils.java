@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -344,16 +345,16 @@ public class ExpressionUtils {
     /**
      * infer notNulls slot from predicate
      */
-    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates) {
-        Literal nullLiteral = Literal.of(null);
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
         Set<Slot> notNullSlots = Sets.newHashSet();
         for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
+                Literal nullLiteral = new NullLiteral(slot.getDataType());
                 replaceMap.put(slot, nullLiteral);
                 Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
                         ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(null));
+                        new ExpressionRewriteContext(cascadesContext));
                 if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
                     notNullSlots.add(slot);
                 }
@@ -365,8 +366,8 @@ public class ExpressionUtils {
     /**
      * infer notNulls slot from predicate
      */
-    public static Set<Expression> inferNotNull(Set<Expression> predicates) {
-        return inferNotNullSlots(predicates).stream()
+    public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
+        return inferNotNullSlots(predicates, cascadesContext).stream()
                 .map(slot -> {
                     Not isNotNull = new Not(new IsNull(slot));
                     isNotNull.isGeneratedIsNotNull = true;
@@ -377,8 +378,9 @@ public class ExpressionUtils {
     /**
      * infer notNulls slot from predicate but these slots must be in the given slots.
      */
-    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots) {
-        return inferNotNullSlots(predicates).stream()
+    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
+            CascadesContext cascadesContext) {
+        return inferNotNullSlots(predicates, cascadesContext).stream()
                 .filter(slots::contains)
                 .map(slot -> {
                     Not isNotNull = new Not(new IsNull(slot));
@@ -407,6 +409,13 @@ public class ExpressionUtils {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(Collectors.toSet());
     }
 
     public static <E> List<E> collectAll(List<? extends Expression> expressions,

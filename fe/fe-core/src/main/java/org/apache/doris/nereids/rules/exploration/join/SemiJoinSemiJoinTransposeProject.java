@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -42,9 +41,9 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
 
     /*
      *        topSemi                   newTopSemi
-     *        /     \                   /        \
-     *    abProject  C               acProject    B
-     *      /            ──►          /
+     *        /     \                   /       \
+     *    aProject   C              aProject     B
+     *      |            ──►          |
      * bottomSemi                newBottomSemi
      *    /   \                     /   \
      *   A     B                   A     C
@@ -55,7 +54,8 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderUtils.checkProject(join.left()))
+                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject abProject = topSemi.left();
@@ -73,18 +73,17 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                                         }
                                     })
                     );
-                    LogicalJoin newBottomSemi = new LogicalJoin<>(topSemi.getJoinType(), topSemi.getHashJoinConjuncts(),
-                            topSemi.getOtherJoinConjuncts(), JoinHint.NONE, a, c,
-                            bottomSemi.getJoinReorderContext());
+                    LogicalJoin newBottomSemi = (LogicalJoin) topSemi.withChildren(a, c);
+                    newBottomSemi.getJoinReorderContext().copyFrom(bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
+
                     LogicalProject acProject = new LogicalProject<>(Lists.newArrayList(acProjects), newBottomSemi);
-                    LogicalJoin newTopSemi = new LogicalJoin<>(bottomSemi.getJoinType(),
-                            bottomSemi.getHashJoinConjuncts(), bottomSemi.getOtherJoinConjuncts(), JoinHint.NONE,
-                            acProject, b, topSemi.getJoinReorderContext());
+                    LogicalJoin newTopSemi = (LogicalJoin) bottomSemi.withChildren(acProject, b);
+                    newTopSemi.getJoinReorderContext().copyFrom(topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
                     return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE_PROJECT);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE_PROJECT);
     }
 
     public boolean typeChecker(LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin) {

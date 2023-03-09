@@ -44,10 +44,7 @@ Status VMetaScanner::open(RuntimeState* state) {
 
 Status VMetaScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
     VLOG_CRITICAL << "VMetaScanner::prepare";
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
-    }
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_scan_range.meta_scan_range.__isset.iceberg_params) {
         RETURN_IF_ERROR(_fetch_iceberg_metadata_batch());

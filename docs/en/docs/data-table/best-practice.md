@@ -180,4 +180,4 @@ Users can modify the Schema of an existing table through the Schema Change opera
 - Adding or modifying Bloom Filter
 - Adding or removing bitmap index
 
-For details, please refer to [Schema Change](../advanced/alter-table/schema-change)
+For details, please refer to [Schema Change](../advanced/alter-table/schema-change.md)

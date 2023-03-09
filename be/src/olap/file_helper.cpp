@@ -47,9 +47,7 @@ Status FileHandler::open(const string& file_name, int flag) {
         return Status::OK();
     }
 
-    if (!this->close()) {
-        return Status::Error<IO_ERROR>();
-    }
+    RETURN_IF_ERROR(this->close());
 
     _fd = ::open(file_name.c_str(), flag);
 
@@ -74,9 +72,7 @@ Status FileHandler::open_with_mode(const string& file_name, int flag, int mode) 
         return Status::OK();
     }
 
-    if (!this->close()) {
-        return Status::Error<IO_ERROR>();
-    }
+    RETURN_IF_ERROR(this->close());
 
     _fd = ::open(file_name.c_str(), flag, mode);
 
@@ -249,9 +245,7 @@ Status FileHandlerWithBuf::open(const string& file_name, const char* mode) {
         return Status::OK();
     }
 
-    if (!this->close()) {
-        return Status::Error<IO_ERROR>();
-    }
+    RETURN_IF_ERROR(this->close());
 
     _fp = ::fopen(file_name.c_str(), mode);
 

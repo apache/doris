@@ -101,7 +101,7 @@ public:
     std::vector<ColumnPredicate*> column_predicates;
     std::vector<ColumnPredicate*> column_predicates_except_leafnode_of_andnode;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
-    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
+    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
@@ -123,6 +123,7 @@ public:
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
+    Version version;
     int32_t tablet_id = 0;
 };
 

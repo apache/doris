@@ -858,7 +858,8 @@ build_librdkafka() {
     # PKG_CONFIG="pkg-config --static"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2 \
+        -lgssapi_krb5 -lkrb5 -lkrb5support -lk5crypto -lcom_err -lresolv" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
@@ -1602,6 +1603,16 @@ build_clucene() {
     cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
 }
 
+# hadoop_libs_x86
+build_hadoop_libs_x86() {
+    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
@@ -1666,5 +1677,9 @@ build_xxhash
 build_concurrentqueue
 build_fast_float
 build_clucene
+
+if [[ "$(uname -m)" == 'x86_64' ]]; then
+    build_hadoop_libs_x86
+fi
 
 echo "Finished to build all thirdparties"

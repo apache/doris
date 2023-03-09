@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
@@ -62,7 +63,7 @@ public class GraphSimplifier {
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
     private final HashMap<Long, StatsDeriveResult> cacheStats = new HashMap<>();
-    private final HashMap<Long, Double> cacheCost = new HashMap<>();
+    private final HashMap<Long, Cost> cacheCost = new HashMap<>();
 
     private final Stack<SimplificationStep> appliedSteps = new Stack<>();
     private final Stack<SimplificationStep> unAppliedSteps = new Stack<>();
@@ -81,7 +82,7 @@ public class GraphSimplifier {
         }
         for (Node node : graph.getNodes()) {
             cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
-            cacheCost.put(node.getNodeMap(), node.getGroup().getStatistics().getRowCount());
+            cacheCost.put(node.getNodeMap(), Cost.withRowCount(node.getRowCount()));
         }
         circleDetector = new CircleDetector(edgeSize);
 
@@ -382,26 +383,26 @@ public class GraphSimplifier {
 
     private SimplificationStep orderJoin(Pair<StatsDeriveResult, Edge> edge1Before2,
             Pair<StatsDeriveResult, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
-        double cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
+        Cost cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
                 cacheStats.get(edge1Before2.second.getLeft()),
                 cacheStats.get(edge1Before2.second.getRight()));
-        double cost2Before1 = calCost(edge2Before1.second, edge1Before2.first,
+        Cost cost2Before1 = calCost(edge2Before1.second, edge1Before2.first,
                 cacheStats.get(edge1Before2.second.getLeft()),
                 cacheStats.get(edge1Before2.second.getRight()));
         double benefit = Double.MAX_VALUE;
         SimplificationStep step;
         // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
-        if (cost1Before2 < cost2Before1) {
-            if (cost1Before2 != 0) {
-                benefit = cost2Before1 / cost1Before2;
+        if (cost1Before2.getValue() < cost2Before1.getValue()) {
+            if (cost1Before2.getValue() != 0) {
+                benefit = cost2Before1.getValue() / cost1Before2.getValue();
             }
             // choose edge1Before2
             step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, edge1Before2.second.getLeft(),
                     edge1Before2.second.getRight(), graph.getEdge(edgeIndex2).getLeft(),
                     graph.getEdge(edgeIndex2).getRight());
         } else {
-            if (cost2Before1 != 0) {
-                benefit = cost1Before2 / cost2Before1;
+            if (cost2Before1.getValue() != 0) {
+                benefit = cost1Before2.getValue() / cost2Before1.getValue();
             }
             // choose edge2Before1
             step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.second.getLeft(),
@@ -422,32 +423,39 @@ public class GraphSimplifier {
         return false;
     }
 
-    private double calCost(Edge edge, StatsDeriveResult stats,
+    private Cost calCost(Edge edge, StatsDeriveResult stats,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
         LogicalJoin join = edge.getJoin();
         PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
-        double cost = 0;
+        Cost cost = Cost.zero();
         if (JoinUtils.shouldNestedLoopJoin(join)) {
             PhysicalNestedLoopJoin nestedLoopJoin = new PhysicalNestedLoopJoin<>(
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
                     join.getOtherJoinConjuncts(),
+                    join.getMarkJoinSlotReference(),
                     join.getLogicalProperties(),
                     join.left(),
                     join.right());
             cost = CostCalculator.calculateCost(nestedLoopJoin, planContext);
+            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(edge.getLeft()), 0);
+            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(edge.getRight()), 1);
         } else {
             PhysicalHashJoin hashJoin = new PhysicalHashJoin<>(
                     join.getJoinType(),
                     join.getHashJoinConjuncts(),
                     join.getOtherJoinConjuncts(),
                     join.getHint(),
+                    join.getMarkJoinSlotReference(),
                     join.getLogicalProperties(),
                     join.left(),
                     join.right());
             cost = CostCalculator.calculateCost(hashJoin, planContext);
+            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(edge.getLeft()), 0);
+            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(edge.getRight()), 1);
         }
-        return cost + cacheCost.get(edge.getLeft()) + cacheCost.get(edge.getRight());
+
+        return cost;
     }
 
     /**

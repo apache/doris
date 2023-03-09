@@ -37,9 +37,11 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnMap>;
+    using COffsets = ColumnArray::ColumnOffsets;
 
-    static Ptr create(const ColumnPtr& keys, const ColumnPtr& values) {
-        return ColumnMap::create(keys->assume_mutable(), values->assume_mutable());
+    static Ptr create(const ColumnPtr& keys, const ColumnPtr& values, const ColumnPtr& offsets) {
+        return ColumnMap::create(keys->assume_mutable(), values->assume_mutable(),
+                                 offsets->assume_mutable());
     }
 
     template <typename... Args,
@@ -53,19 +55,21 @@ public:
     TypeIndex get_data_type() const override { return TypeIndex::Map; }
 
     void for_each_subcolumn(ColumnCallback callback) override {
-        callback(keys);
-        callback(values);
+        callback(keys_column);
+        callback(values_column);
+        callback(offsets_column);
     }
 
     void clear() override {
-        keys->clear();
-        values->clear();
+        keys_column->clear();
+        values_column->clear();
+        offsets_column->clear();
     }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
     bool can_be_inside_nullable() const override { return true; }
-    size_t size() const override { return keys->size(); }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
@@ -84,9 +88,8 @@ public:
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
-
     size_t filter(const Filter& filter) override;
-
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
@@ -117,38 +120,51 @@ public:
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "replace_column_data_default not implemented";
     }
-    void check_size() const;
-    ColumnArray::Offsets64& get_offsets() const;
+
+    ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
+        return assert_cast<COffsets&>(*offsets_column).get_data();
+    }
+    const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
+        return assert_cast<const COffsets&>(*offsets_column).get_data();
+    }
+    IColumn& get_offsets_column() { return *offsets_column; }
+    const IColumn& get_offsets_column() const { return *offsets_column; }
+
+    const ColumnPtr& get_offsets_ptr() const { return offsets_column; }
+    ColumnPtr& get_offsets_ptr() { return offsets_column; }
+
+    size_t size() const override { return get_offsets().size(); }
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;
 
     /******************** keys and values ***************/
-    const ColumnPtr& get_keys_ptr() const { return keys; }
-    ColumnPtr& get_keys_ptr() { return keys; }
+    const ColumnPtr& get_keys_ptr() const { return keys_column; }
+    ColumnPtr& get_keys_ptr() { return keys_column; }
 
-    const IColumn& get_keys() const { return *keys; }
-    IColumn& get_keys() { return *keys; }
+    const IColumn& get_keys() const { return *keys_column; }
+    IColumn& get_keys() { return *keys_column; }
 
-    const ColumnPtr& get_values_ptr() const { return values; }
-    ColumnPtr& get_values_ptr() { return values; }
+    const ColumnPtr& get_values_ptr() const { return values_column; }
+    ColumnPtr& get_values_ptr() { return values_column; }
 
-    const IColumn& get_values() const { return *values; }
-    IColumn& get_values() { return *values; }
+    const IColumn& get_values() const { return *values_column; }
+    IColumn& get_values() { return *values_column; }
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;
 
-    WrappedPtr keys;   // nullable
-    WrappedPtr values; // nullable
+    WrappedPtr keys_column;    // nullable
+    WrappedPtr values_column;  // nullable
+    WrappedPtr offsets_column; // offset
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
-    explicit ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values);
+    ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
 
     ColumnMap(const ColumnMap&) = default;
 };

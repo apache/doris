@@ -31,7 +31,6 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
-  aggregate_functions/aggregate_function_null.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -177,8 +176,11 @@ set(VEC_FILES
   functions/array/function_array_range.cpp
   functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
+  functions/array/function_array_popfront.cpp
   functions/array/function_array_constructor.cpp
   functions/array/function_array_with_constant.cpp
+  functions/array/function_array_apply.cpp
+  functions/array/function_array_concat.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

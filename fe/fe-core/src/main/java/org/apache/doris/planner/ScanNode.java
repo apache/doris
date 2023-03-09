@@ -30,11 +30,13 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -130,8 +132,8 @@ public abstract class ScanNode extends PlanNode {
      * In the projection process, some slots may be removed. So call this to update the slots info.
      * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
      */
-    public void updateRequiredSlots() throws UserException {
-        return;
+    public void updateRequiredSlots(PlanTranslatorContext context,
+            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
     // TODO(ML): move it into PrunerOptimizer

@@ -163,7 +163,8 @@ private:
                                                           roaring::Roaring* output_result);
     Status _apply_inverted_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                             roaring::Roaring* output_result);
-    bool _is_handle_predicate_by_fulltext(int32_t unique_id);
+    bool _column_has_fulltext_index(int32_t unique_id);
+    inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
     Status _execute_compound_fn(const std::string& function_name);
@@ -186,6 +187,7 @@ private:
                          vectorized::MutableColumns& column_block, size_t nrows);
     Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                   bool set_block_rowid);
+    void _replace_version_col(size_t num_rows);
     void _init_current_block(vectorized::Block* block,
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
@@ -218,7 +220,7 @@ private:
     void _update_max_row(const vectorized::Block* block);
 
     bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
-    bool _check_apply_by_inverted_index(ColumnPredicate* pred);
+    bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
 
     std::string _gen_predicate_result_sign(ColumnPredicate* predicate);
     std::string _gen_predicate_result_sign(ColumnPredicateInfo* predicate_info);

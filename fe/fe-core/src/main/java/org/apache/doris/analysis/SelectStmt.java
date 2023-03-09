@@ -469,7 +469,7 @@ public class SelectStmt extends QueryStmt {
                         tableRef.setOnClause(expr.trySubstitute(mvSMap, analyzer, false));
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 }
             }
         }
@@ -1321,9 +1321,9 @@ public class SelectStmt extends QueryStmt {
         // i) There is no GROUP-BY clause, and
         // ii) Other DISTINCT aggregates are present.
         ExprSubstitutionMap countAllMap = createCountAllMap(aggExprs, analyzer);
-        final ExprSubstitutionMap multiCountOrSumDistinctMap =
-                createSumOrCountMultiDistinctSMap(aggExprs, analyzer);
-        countAllMap = ExprSubstitutionMap.compose(multiCountOrSumDistinctMap, countAllMap, analyzer);
+        final ExprSubstitutionMap multiDistinctAggMap =
+                createMultiDistinctAggSMap(aggExprs, analyzer);
+        countAllMap = ExprSubstitutionMap.compose(multiDistinctAggMap, countAllMap, analyzer);
         List<Expr> substitutedAggs =
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
         // the resultExprs must substitute in the same way as aggExprs
@@ -1530,10 +1530,10 @@ public class SelectStmt extends QueryStmt {
     }
 
     /**
-     * Build smap count_distinct->multi_count_distinct sum_distinct->multi_count_distinct
+     * Build smap like: count_distinct->multi_count_distinct sum_distinct->multi_count_distinct
      * assumes that select list and having clause have been analyzed.
      */
-    private ExprSubstitutionMap createSumOrCountMultiDistinctSMap(
+    private ExprSubstitutionMap createMultiDistinctAggSMap(
             ArrayList<FunctionCallExpr> aggExprs, Analyzer analyzer) throws AnalysisException {
         final List<FunctionCallExpr> distinctExprs = Lists.newArrayList();
         for (FunctionCallExpr aggExpr : aggExprs) {
@@ -1565,6 +1565,11 @@ public class SelectStmt extends QueryStmt {
                 final FunctionCallExpr countExpr = new FunctionCallExpr("MULTI_DISTINCT_COUNT",
                         new FunctionParams(inputExpr.isDistinct(), countInputExpr));
                 replaceExpr = new ArithmeticExpr(ArithmeticExpr.Operator.DIVIDE, sumExpr, countExpr);
+            } else if (functionName.equalsIgnoreCase("GROUP_CONCAT")) {
+                final List<Expr> groupConcatInputExprs = inputExpr.getChildren();
+                replaceExpr = new FunctionCallExpr(new FunctionName("MULTI_DISTINCT_GROUP_CONCAT"),
+                        new FunctionParams(inputExpr.isDistinct(), groupConcatInputExprs),
+                        inputExpr.getOrderByElements());
             } else {
                 throw new AnalysisException(inputExpr.getFnName() + " can't support multi distinct.");
             }
@@ -2158,7 +2163,7 @@ public class SelectStmt extends QueryStmt {
             strBuilder.append("DISTINCT ");
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList) {
+        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList || resultExprs.isEmpty()) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
                 strBuilder.append(selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");

@@ -37,11 +37,9 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 创建 Catalog
 
-<version since="1.2.0">
-
 1. MySQL
 
-</version>
+<version since="1.2.0"></version>
 
 ```sql
 CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -54,11 +52,9 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 )
 ```
 
-<version since="1.2.2">
-
 2. PostgreSQL
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -71,7 +67,7 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 );
 ```
 
-映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定 Catalog（如示例中 `jdbc_url` 参数中 "demo"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
+映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定Catalog下的一个 Schema（如示例中 `jdbc_url` 参数中 "demo"下的schemas）。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
 
 |Doris | PostgreSQL |
 |---|---|
@@ -79,11 +75,11 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 | Database | Schema |
 | Table | Table |
 
-<version since="1.2.2">
+> Doris通过sql语句`select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` 来获得PG user能够访问的所有schema并将其映射为Doris的database
 
 3. Oracle
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -96,19 +92,17 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 );
 ```
 
-映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User（如示例中 `jdbc_url` 参数中 "helowin"）。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
+映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
 
-|Doris | PostgreSQL |
+|Doris | Oracle |
 |---|---|
 | Catalog | Database | 
 | Database | User |
 | Table | Table |
 
-<version since="1.2.2">
-
 4. Clickhouse
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -121,11 +115,9 @@ CREATE CATALOG jdbc_clickhouse PROPERTIES (
 );
 ```
 
-<version since="1.2.2">
-    
 5. SQLServer
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG sqlserver_catalog PROPERTIES (
@@ -146,11 +138,9 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 | Database | Schema |
 | Table | Table |
 
-<version since="dev">
-    
 6. Doris
 
-</version>
+<version since="dev"></version>
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
@@ -173,9 +163,11 @@ CREATE CATALOG doris_catalog PROPERTIES (
 --- | --- | --- | --- 
 `user` | 是 | | 对应数据库的用户名 |
 `password` | 是 |   | 对应数据库的密码 |
-`jdbc_url ` | 是 |  | JDBC 连接串 |
-`driver_url ` | 是 |  | JDBC Driver Jar 包名称* |
-`driver_class ` | 是 |  | JDBC Driver Class 名称 |
+`jdbc_url` | 是 |  | JDBC 连接串 |
+`driver_url` | 是 |  | JDBC Driver Jar 包名称* |
+`driver_class` | 是 |  | JDBC Driver Class 名称 |
+`only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
+`lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -185,10 +177,16 @@ CREATE CATALOG doris_catalog PROPERTIES (
 > 
 > 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
+> `only_specified_database`:
+> 
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 可以只同步指定的 database。
+> 
+> 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
+
 ## 数据查询
 
 ```sql
-select * from mysql_table where k1 > 1000 and k3 ='term';
+select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
 ```
 由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
 
@@ -201,8 +199,8 @@ select * from mysql_table where k1 > 1000 and k3 ='term';
 示例：
 
 ```sql
-insert into mysql_table values(1, "doris");
-insert into mysql_table select * from table;
+insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
+insert into mysql_catalog.mysql_database.mysql_table select * from table;
 ```
 ### 事务
 
@@ -273,8 +271,11 @@ set enable_odbc_transcation = true;
 
 | ORACLE Type | Doris Type | Comment |
 |---|---|---|
-| number(p) / number(p,0) |  | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
-| number(p,s) | DECIMAL | |
+| number(p) / number(p,0) | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
+| number(p,s), [ if(s>0 && p>s) ] | DECIMAL(p,s) | |
+| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s) |  |
+| number(p,s), [ if(s<0) ] | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | s<0的情况下, Doris会将p设置为 p+\|s\|, 并进行和number(p) / number(p,0)一样的映射 |
+| number |  | Doris目前不支持未指定p和s的oracle类型 |
 | decimal | DECIMAL | |
 | float/real | DOUBLE | |
 | DATE | DATETIME | |
@@ -428,6 +429,6 @@ set enable_odbc_transcation = true;
     为减少内存的使用，在获取结果集时，每次仅获取batchSize的大小，这样一批一批的获取结果。而MYSQL默认是一次将结果全部加载到内存，
     设置的按批获取无法生效，需要主动显示的在URL中指定:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true"
 
- 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
+7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
 
     如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。

@@ -74,13 +74,9 @@ public abstract class DataType implements AbstractDataType {
             .add(BigIntType.class, () -> ImmutableList.of(LargeIntType.INSTANCE))
             .add(LargeIntType.class, () -> ImmutableList.of(FloatType.INSTANCE, StringType.INSTANCE))
             .add(FloatType.class, () -> ImmutableList.of(
-                    DoubleType.INSTANCE, DecimalV3Type.DEFAULT_DECIMAL64, StringType.INSTANCE))
+                    DoubleType.INSTANCE, DecimalV3Type.WILDCARD, StringType.INSTANCE))
             .add(DoubleType.class, () -> ImmutableList.of(DecimalV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
-            .add(DecimalV2Type.class, () -> ImmutableList.of(
-                    DecimalV3Type.DEFAULT_DECIMAL32,
-                    DecimalV3Type.DEFAULT_DECIMAL64,
-                    DecimalV3Type.DEFAULT_DECIMAL128,
-                    StringType.INSTANCE))
+            .add(DecimalV2Type.class, () -> ImmutableList.of(DecimalV3Type.WILDCARD, StringType.INSTANCE))
             .add(DateType.class, () -> ImmutableList.of(
                     DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
@@ -105,84 +101,10 @@ public abstract class DataType implements AbstractDataType {
     }
 
     /**
-     * Convert data type in Doris catalog to data type in Nereids.
-     * TODO: throw exception when cannot convert catalog type to Nereids type
-     *
-     * @param catalogType data type in Doris catalog
-     * @return data type in Nereids
-     */
-    public static DataType convertFromCatalogDataType(Type catalogType) {
-        if (catalogType instanceof ScalarType) {
-            ScalarType scalarType = (ScalarType) catalogType;
-            switch (scalarType.getPrimitiveType()) {
-                case BOOLEAN:
-                    return BooleanType.INSTANCE;
-                case TINYINT:
-                    return TinyIntType.INSTANCE;
-                case SMALLINT:
-                    return SmallIntType.INSTANCE;
-                case INT:
-                    return IntegerType.INSTANCE;
-                case BIGINT:
-                    return BigIntType.INSTANCE;
-                case LARGEINT:
-                    return LargeIntType.INSTANCE;
-                case FLOAT:
-                    return FloatType.INSTANCE;
-                case DOUBLE:
-                    return DoubleType.INSTANCE;
-                case CHAR:
-                    return CharType.createCharType(scalarType.getLength());
-                case VARCHAR:
-                    return VarcharType.createVarcharType(scalarType.getLength());
-                case STRING:
-                    return StringType.INSTANCE;
-                case DATE:
-                    return DateType.INSTANCE;
-                case DATEV2:
-                    return DateV2Type.INSTANCE;
-                case DATETIME:
-                    return DateTimeType.INSTANCE;
-                case DATETIMEV2:
-                    return DateTimeV2Type.of(scalarType.getScalarScale());
-                case DECIMALV2:
-                    return DecimalV2Type.createDecimalV2Type(scalarType.decimalPrecision(), scalarType.decimalScale());
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
-                    return DecimalV3Type.createDecimalV3Type(scalarType.getScalarPrecision());
-                case JSONB:
-                    return JsonType.INSTANCE;
-                case HLL:
-                    return HllType.INSTANCE;
-                case BITMAP:
-                    return BitmapType.INSTANCE;
-                case QUANTILE_STATE:
-                    return QuantileStateType.INSTANCE;
-                case NULL_TYPE:
-                    return NullType.INSTANCE;
-                default:
-                    throw new AnalysisException("Nereids do not support type: " + scalarType.getPrimitiveType());
-            }
-        } else if (catalogType.isArrayType()) {
-            org.apache.doris.catalog.ArrayType catalogArrayType = (org.apache.doris.catalog.ArrayType) catalogType;
-            return ArrayType.of(
-                    convertFromCatalogDataType(catalogArrayType.getItemType()),
-                    catalogArrayType.getContainsNull());
-        } else if (catalogType.isMapType()) {
-            throw new AnalysisException("Nereids do not support map type.");
-        } else if (catalogType.isStructType()) {
-            throw new AnalysisException("Nereids do not support struct type.");
-        } else if (catalogType.isMultiRowType()) {
-            throw new AnalysisException("Nereids do not support multi row type.");
-        } else {
-            throw new AnalysisException("Nereids do not support type: " + catalogType);
-        }
-    }
-
-    /**
      * Convert to data type in Nereids.
      * throw exception when cannot convert to Nereids type
+     * NOTICE: only used in parser, if u want to convert string to type,
+     * please use {@link this#convertFromString(String)}
      *
      * @param types data type in string representation
      * @return data type in Nereids
@@ -318,23 +240,23 @@ public abstract class DataType implements AbstractDataType {
      * @param type legacy date type
      * @return nereids's data type
      */
-    @Developing // should support decimal_v3
+    @Developing // should support map, struct
     public static DataType fromCatalogType(Type type) {
         if (type.isBoolean()) {
             return BooleanType.INSTANCE;
-        } else if (type == Type.TINYINT) {
+        } else if (type.getPrimitiveType() == Type.TINYINT.getPrimitiveType()) {
             return TinyIntType.INSTANCE;
-        } else if (type == Type.SMALLINT) {
+        } else if (type.getPrimitiveType() == Type.SMALLINT.getPrimitiveType()) {
             return SmallIntType.INSTANCE;
-        } else if (type == Type.INT) {
+        } else if (type.getPrimitiveType() == Type.INT.getPrimitiveType()) {
             return IntegerType.INSTANCE;
-        } else if (type == Type.BIGINT) {
+        } else if (type.getPrimitiveType() == Type.BIGINT.getPrimitiveType()) {
             return BigIntType.INSTANCE;
-        } else if (type == Type.LARGEINT) {
+        } else if (type.getPrimitiveType() == Type.LARGEINT.getPrimitiveType()) {
             return LargeIntType.INSTANCE;
-        } else if (type == Type.FLOAT) {
+        } else if (type.getPrimitiveType() == Type.FLOAT.getPrimitiveType()) {
             return FloatType.INSTANCE;
-        } else if (type == Type.DOUBLE) {
+        } else if (type.getPrimitiveType() == Type.DOUBLE.getPrimitiveType()) {
             return DoubleType.INSTANCE;
         } else if (type.isNull()) {
             return NullType.INSTANCE;
@@ -365,7 +287,8 @@ public abstract class DataType implements AbstractDataType {
         } else if (type.isDecimalV3()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
-            return DecimalV3Type.createDecimalV3Type(precision);
+            int scale = scalarType.getScalarScale();
+            return DecimalV3Type.createDecimalV3Type(precision, scale);
         } else if (type.isDecimalV2()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
@@ -374,10 +297,13 @@ public abstract class DataType implements AbstractDataType {
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
         } else if (type.isStructType()) {
+            // TODO: support struct type really
             return StructType.INSTANCE;
         } else if (type.isMapType()) {
+            // TODO: support map type really
             return MapType.INSTANCE;
         } else if (type.isArrayType()) {
+            // TODO: support array type really
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
         }
@@ -477,6 +403,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof DecimalV3Type;
     }
 
+    public boolean isDecimalLikeType() {
+        return isDecimalV2Type() || isDecimalV3Type();
+    }
+
     public boolean isDateTimeType() {
         return this instanceof DateTimeType;
     }
@@ -486,11 +416,23 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isDateLikeType() {
-        return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2Type();
+        return isDateType() || isDateTimeType() || isDateV2Type() || isDateTimeV2Type();
     }
 
-    public boolean isDateLikeV2Type() {
-        return isDateV2() || isDateTimeV2Type();
+    public boolean isDateV2LikeType() {
+        return isDateV2Type() || isDateTimeV2Type();
+    }
+
+    public boolean isTimeType() {
+        return this instanceof TimeType;
+    }
+
+    public boolean isTimeV2Type() {
+        return this instanceof TimeV2Type;
+    }
+
+    public boolean isTimeLikeType() {
+        return isTimeType() || isTimeV2Type();
     }
 
     public boolean isNullType() {
@@ -513,6 +455,14 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof VarcharType;
     }
 
+    public boolean isStringType() {
+        return this instanceof StringType;
+    }
+
+    public boolean isJsonType() {
+        return this instanceof JsonType;
+    }
+
     public boolean isStringLikeType() {
         return this instanceof CharacterType;
     }
@@ -521,7 +471,7 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof PrimitiveType;
     }
 
-    public boolean isDateV2() {
+    public boolean isDateV2Type() {
         return this instanceof DateV2Type;
     }
 
@@ -620,7 +570,8 @@ public abstract class DataType implements AbstractDataType {
     }
 
     static class PromotionBuilder {
-        private Map<Class<? extends DataType>, Promotion<? extends DataType>> promotionMap = Maps.newLinkedHashMap();
+        private final Map<Class<? extends DataType>, Promotion<? extends DataType>> promotionMap
+                = Maps.newLinkedHashMap();
 
         public <T extends DataType> PromotionBuilder add(Class<T> dataTypeClass, Promotion<T> promotion) {
             promotionMap.put(dataTypeClass, promotion);

@@ -527,12 +527,12 @@ public:
 
     DateTimeValue& operator--() { return *this += -1; }
 
-    void to_datetime_val(doris_udf::DateTimeVal* tv) const {
+    void to_datetime_val(doris::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();
         tv->type = _type;
     }
 
-    static DateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
+    static DateTimeValue from_datetime_val(const doris::DateTimeVal& tv) {
         DateTimeValue value;
         value.from_packed_time(tv.packed_time);
         if (tv.type == TIME_DATE) {

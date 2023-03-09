@@ -22,18 +22,22 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.pattern.MatchingContext;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -41,8 +45,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -69,24 +76,35 @@ public class BindRelation extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
-            List<String> nameParts = ctx.root.getNameParts();
-            switch (nameParts.size()) {
-                case 1: { // table
-                    // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
-                }
-                case 2: { // db.table
-                    // Use database name from table name parts.
-                    return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
-                }
-                case 3: { // catalog.db.table
-                    // Use catalog and database name from name parts.
-                    return bindWithCatalogNameFromNamePart(ctx.cascadesContext, ctx.root);
-                }
-                default:
-                    throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
+            Plan plan = doBindRelation(ctx);
+            if (!(plan instanceof Unbound)) {
+                // init output and allocate slot id immediately, so that the slot id increase
+                // in the order in which the table appears.
+                LogicalProperties logicalProperties = plan.getLogicalProperties();
+                logicalProperties.getOutput();
             }
+            return plan;
         }).toRule(RuleType.BINDING_RELATION);
+    }
+
+    private Plan doBindRelation(MatchingContext<UnboundRelation> ctx) {
+        List<String> nameParts = ctx.root.getNameParts();
+        switch (nameParts.size()) {
+            case 1: { // table
+                // Use current database name from catalog.
+                return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
+            }
+            case 2: { // db.table
+                // Use database name from table name parts.
+                return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
+            }
+            case 3: { // catalog.db.table
+                // Use catalog and database name from name parts.
+                return bindWithCatalogNameFromNamePart(ctx.cascadesContext, ctx.root);
+            }
+            default:
+                throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
+        }
     }
 
     private TableIf getTable(String catalogName, String dbName, String tableName, Env env) {
@@ -179,6 +197,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             Preconditions.checkArgument(deleteSlot != null);
             Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+                scan = scan.withPreAggStatus(PreAggStatus.off(
+                        Column.DELETE_SIGN + " is used as conjuncts."));
+            }
             return new LogicalFilter(Sets.newHashSet(conjunct), scan);
         }
         return scan;
@@ -194,10 +216,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
-                return new LogicalFileScan(cascadesContext.getStatementContext().getNextRelationId(),
+                return new LogicalFileScan(RelationUtil.newRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));
             case SCHEMA:
-                return new LogicalSchemaScan(RelationUtil.newRelationId(), (Table) table, ImmutableList.of(dbName));
+                return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
+            case JDBC_EXTERNAL_TABLE:
+                return new LogicalJdbcScan(RelationUtil.newRelationId(),
+                    (JdbcExternalTable) table, ImmutableList.of(dbName));
+            case ES_EXTERNAL_TABLE:
+                return new LogicalEsScan(RelationUtil.newRelationId(),
+                    (EsExternalTable) table, ImmutableList.of(dbName));
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }
@@ -205,12 +233,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
-        CascadesContext viewContext = new Memo(parsedViewPlan)
-                .newCascadesContext(parentContext.getStatementContext());
+        CascadesContext viewContext = CascadesContext.newRewriteContext(
+                parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();
 
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
-        return viewContext.getMemo().copyOut(false);
+        return viewContext.getRewritePlan();
     }
 
     private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation) {

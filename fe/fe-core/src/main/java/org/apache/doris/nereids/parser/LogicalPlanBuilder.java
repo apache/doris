@@ -194,6 +194,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -221,6 +222,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -925,8 +927,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
-        return ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.expression()), typedVisit(ctx.dataType())));
+        DataType dataType = typedVisit(ctx.dataType());
+        Expression cast = ParserUtils.withOrigin(ctx, () ->
+                new Cast(getExpression(ctx.expression()), dataType));
+        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            List<Expression> args = ImmutableList.of(
+                    cast,
+                    new TinyIntLiteral((byte) 1),
+                    Literal.of(((CharacterType) dataType).getLen())
+            );
+            return new UnboundFunction("substr", args);
+        } else {
+            return cast;
+        }
     }
 
     @Override
@@ -1217,6 +1230,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 ExpressionUtils.EMPTY_CONDITION,
                                 ExpressionUtils.EMPTY_CONDITION,
                                 JoinHint.NONE,
+                                Optional.empty(),
                                 left,
                                 right);
                 left = withJoinRelations(left, relation);
@@ -1346,7 +1360,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (offsetToken != null) {
                 offset = Long.parseLong(offsetToken.getText());
             }
-            return new LogicalLimit<>(limit, offset, input);
+            return new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, input);
         });
     }
 
@@ -1480,6 +1494,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION),
                         joinHint,
+                        Optional.empty(),
                         last,
                         plan(join.relationPrimary()));
             } else {

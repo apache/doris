@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -58,6 +57,7 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left()))
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().left().getOutputSet()))
+                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -70,13 +70,10 @@ public class OuterJoinAssoc extends OneExplorationRuleFactory {
                      * But because we have added eliminate_outer_rule, we don't need to consider this.
                      */
 
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            topJoin.getHashJoinConjuncts(), topJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                            b, c);
-                    LogicalJoin<GroupPlan, LogicalJoin<GroupPlan, GroupPlan>> newTopJoin
-                            = new LogicalJoin<>(bottomJoin.getJoinType(),
-                            bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                            a, newBottomJoin, bottomJoin.getJoinReorderContext());
+                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(b, c);
+                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
+                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(a, newBottomJoin);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     setReorderContext(newTopJoin, newBottomJoin);
                     return newTopJoin;
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_ASSOC);

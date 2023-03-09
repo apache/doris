@@ -107,9 +107,11 @@ public:
         return (higher - position) * lower_key + (position - lower) * higher_key;
     }
 
-    doris_udf::DoubleVal terminate(double quantile) const {
+    double terminate(double quantile) const {
         if (_counts.empty()) {
-            return doris_udf::DoubleVal::null();
+            // Although set null here, but the value is 0.0 and the call method just
+            // get val in aggregate_function_percentile_approx.h
+            return 0.0;
         }
 
         std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());
@@ -126,7 +128,7 @@ public:
 
         long max_position = total - 1;
         double position = max_position * quantile;
-        return doris_udf::DoubleVal(get_percentile(elems, position));
+        return get_percentile(elems, position);
     }
 
 private:

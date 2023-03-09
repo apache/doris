@@ -351,7 +351,7 @@ bool LRUCache::_check_element_count_limit() {
 
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                                 void (*deleter)(const CacheKey& key, void* value),
-                                MemTrackerLimiter* tracker, CachePriority priority) {
+                                MemTrackerLimiter* tracker, CachePriority priority, size_t bytes) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
     LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
@@ -359,16 +359,19 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->charge = charge;
     e->key_length = key.size();
     e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : 1);
+    DCHECK(_type == LRUCacheType::SIZE || bytes != -1) << " _type " << _type;
+    e->bytes = (_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes);
     e->hash = hash;
     e->refs = 2; // one for the returned handle, one for LRUCache.
     e->next = e->prev = nullptr;
     e->in_cache = true;
     e->priority = priority;
     e->mem_tracker = tracker;
+    e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
-    THREAD_MEM_TRACKER_TRANSFER_TO(e->total_size, tracker);
+    THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -461,7 +464,7 @@ int64_t LRUCache::prune() {
     return pruned_count;
 }
 
-int64_t LRUCache::prune_if(CacheValuePredicate pred) {
+int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -472,6 +475,8 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
+            } else if (lazy_mode) {
+                break;
             }
             p = next;
         }
@@ -483,6 +488,8 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
+            } else if (lazy_mode) {
+                break;
             }
             p = next;
         }
@@ -515,7 +522,8 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
           _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
           _num_shards(num_shards),
           _shards(nullptr),
-          _last_id(1) {
+          _last_id(1),
+          _total_capacity(total_capacity) {
     _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
@@ -568,10 +576,10 @@ ShardedLRUCache::~ShardedLRUCache() {
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
-                                       CachePriority priority) {
+                                       CachePriority priority, size_t bytes) {
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, _mem_tracker.get(),
-                                         priority);
+                                         priority, bytes);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
@@ -610,16 +618,24 @@ int64_t ShardedLRUCache::prune() {
     return num_prune;
 }
 
-int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
+int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
     int64_t num_prune = 0;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune_if(pred);
+        num_prune += _shards[s]->prune_if(pred, lazy_mode);
     }
     return num_prune;
 }
 
 int64_t ShardedLRUCache::mem_consumption() {
     return _mem_tracker->consumption();
+}
+
+int64_t ShardedLRUCache::get_usage() {
+    size_t total_usage = 0;
+    for (int i = 0; i < _num_shards; i++) {
+        total_usage += _shards[i]->get_usage();
+    }
+    return total_usage;
 }
 
 void ShardedLRUCache::update_cache_metrics() const {

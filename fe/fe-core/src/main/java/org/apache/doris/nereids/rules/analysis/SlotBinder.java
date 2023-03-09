@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang.StringUtils;
 
 import java.util.List;
@@ -47,15 +48,18 @@ class SlotBinder extends SubExprAnalyzer {
     but enabled for order by clause
     TODO after remove original planner, always enable exact match mode.
      */
-    private boolean enableExactMatch = true;
+    private boolean enableExactMatch;
+    private final boolean bindSlotInOuterScope;
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
-        this(scope, cascadesContext, true);
+        this(scope, cascadesContext, true, true);
     }
 
-    public SlotBinder(Scope scope, CascadesContext cascadesContext, boolean enableExactMatch) {
+    public SlotBinder(Scope scope, CascadesContext cascadesContext,
+            boolean enableExactMatch, boolean bindSlotInOuterScope) {
         super(scope, cascadesContext);
         this.enableExactMatch = enableExactMatch;
+        this.bindSlotInOuterScope = bindSlotInOuterScope;
     }
 
     public Expression bind(Expression expression) {
@@ -66,12 +70,15 @@ class SlotBinder extends SubExprAnalyzer {
     public Expression visitUnboundAlias(UnboundAlias unboundAlias, CascadesContext context) {
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
+            collectColumnNames(unboundAlias.getAlias().get());
             return new Alias(child, unboundAlias.getAlias().get());
         }
         if (child instanceof NamedExpression) {
+            collectColumnNames(((NamedExpression) child).getName());
             return new Alias(child, ((NamedExpression) child).getName());
         } else {
             // TODO: resolve aliases
+            collectColumnNames(child.toSql());
             return new Alias(child, child.toSql());
         }
     }
@@ -81,7 +88,7 @@ class SlotBinder extends SubExprAnalyzer {
         Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
         // Currently only looking for symbols on the previous level.
-        if (!foundInThisScope && getScope().getOuterScope().isPresent()) {
+        if (bindSlotInOuterScope && !foundInThisScope && getScope().getOuterScope().isPresent()) {
             boundedOpt = Optional.of(bindSlot(unboundSlot,
                     getScope()
                             .getOuterScope()
@@ -95,7 +102,8 @@ class SlotBinder extends SubExprAnalyzer {
                 // if unbound finally, check will throw exception
                 return unboundSlot;
             case 1:
-                if (!foundInThisScope) {
+                if (!foundInThisScope
+                        && !getScope().getOuterScope().get().getCorrelatedSlots().contains(bounded.get(0))) {
                     getScope().getOuterScope().get().getCorrelatedSlots().add(bounded.get(0));
                 }
                 return bounded.get(0);
@@ -214,5 +222,12 @@ class SlotBinder extends SubExprAnalyzer {
             throw new AnalysisException("Not supported name: "
                     + StringUtils.join(nameParts, "."));
         }).collect(Collectors.toList());
+    }
+
+    private void collectColumnNames(String columnName) {
+        Preconditions.checkNotNull(getCascadesContext());
+        if (!getCascadesContext().getStatementContext().getColumnNames().add(columnName)) {
+            throw new AnalysisException("Collect column name failed, columnName : " + columnName);
+        }
     }
 }

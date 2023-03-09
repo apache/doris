@@ -23,56 +23,46 @@
 namespace doris::vectorized {
 
 template <typename T>
-AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types) {
-    bool has_input_param = (argument_types.size() == 3);
+AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types,
+                                                   const bool result_is_nullable) {
+    bool has_input_param = (argument_types.size() == 2);
 
     if (has_input_param) {
         return AggregateFunctionPtr(
-                new AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>(
-                        argument_types));
+                creator_without_type::create<
+                        AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, true>>(
+                        result_is_nullable, argument_types));
     } else {
         return AggregateFunctionPtr(
-                new AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>(
-                        argument_types));
+                creator_without_type::create<
+                        AggregateFunctionHistogram<AggregateFunctionHistogramData<T>, T, false>>(
+                        result_is_nullable, argument_types));
     }
 }
 
 AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name,
                                                          const DataTypes& argument_types,
                                                          const bool result_is_nullable) {
-    WhichDataType type(argument_types[0]);
+    WhichDataType type(remove_nullable(argument_types[0]));
 
-    LOG(INFO) << fmt::format("supported input type {} for aggregate function {}",
-                             argument_types[0]->get_name(), name);
-
-#define DISPATCH(TYPE) \
-    if (type.idx == TypeIndex::TYPE) return create_agg_function_histogram<TYPE>(argument_types);
+#define DISPATCH(TYPE)               \
+    if (type.idx == TypeIndex::TYPE) \
+        return create_agg_function_histogram<TYPE>(argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
+    FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
     if (type.idx == TypeIndex::String) {
-        return create_agg_function_histogram<String>(argument_types);
+        return create_agg_function_histogram<String>(argument_types, result_is_nullable);
     }
     if (type.idx == TypeIndex::DateTime || type.idx == TypeIndex::Date) {
-        return create_agg_function_histogram<Int64>(argument_types);
+        return create_agg_function_histogram<Int64>(argument_types, result_is_nullable);
     }
     if (type.idx == TypeIndex::DateV2) {
-        return create_agg_function_histogram<UInt32>(argument_types);
+        return create_agg_function_histogram<UInt32>(argument_types, result_is_nullable);
     }
     if (type.idx == TypeIndex::DateTimeV2) {
-        return create_agg_function_histogram<UInt64>(argument_types);
-    }
-    if (type.idx == TypeIndex::Decimal32) {
-        return create_agg_function_histogram<Decimal32>(argument_types);
-    }
-    if (type.idx == TypeIndex::Decimal64) {
-        return create_agg_function_histogram<Decimal64>(argument_types);
-    }
-    if (type.idx == TypeIndex::Decimal128) {
-        return create_agg_function_histogram<Decimal128>(argument_types);
-    }
-    if (type.idx == TypeIndex::Decimal128I) {
-        return create_agg_function_histogram<Decimal128I>(argument_types);
+        return create_agg_function_histogram<UInt64>(argument_types, result_is_nullable);
     }
 
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
@@ -81,7 +71,7 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
 }
 
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("histogram", create_aggregate_function_histogram);
+    factory.register_function_both("histogram", create_aggregate_function_histogram);
     factory.register_alias("histogram", "hist");
 }
 

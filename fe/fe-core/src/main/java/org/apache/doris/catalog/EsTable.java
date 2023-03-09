@@ -145,6 +145,10 @@ public class EsTable extends Table {
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
+    public List<String> needCompatDateFields() {
+        return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
     private void validate(Map<String, String> properties) throws DdlException {
         EsResource.valid(properties, false);
         hosts = properties.get(EsResource.HOSTS).trim();
@@ -270,10 +274,10 @@ public class EsTable extends Table {
         indexName = tableContext.get("indexName");
         mappingType = tableContext.get("mappingType");
 
-        enableDocValueScan = Boolean.parseBoolean(tableContext.getOrDefault("enableDocValueScan",
-                EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
-        enableKeywordSniff = Boolean.parseBoolean(tableContext.getOrDefault("enableKeywordSniff",
-                EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
+        enableDocValueScan = Boolean.parseBoolean(
+                tableContext.getOrDefault("enableDocValueScan", EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
+        enableKeywordSniff = Boolean.parseBoolean(
+                tableContext.getOrDefault("enableKeywordSniff", EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
         if (tableContext.containsKey("maxDocValueFields")) {
             try {
                 maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
@@ -281,12 +285,12 @@ public class EsTable extends Table {
                 maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
             }
         }
-        nodesDiscovery = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.NODES_DISCOVERY,
-                EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
-        httpSslEnabled = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.HTTP_SSL_ENABLED,
-                EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
-        likePushDown = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.LIKE_PUSH_DOWN,
-                EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
+        nodesDiscovery = Boolean.parseBoolean(
+                tableContext.getOrDefault(EsResource.NODES_DISCOVERY, EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
+        httpSslEnabled = Boolean.parseBoolean(
+                tableContext.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
+        likePushDown = Boolean.parseBoolean(
+                tableContext.getOrDefault(EsResource.LIKE_PUSH_DOWN, EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
         PartitionType partType = PartitionType.valueOf(Text.readString(in));
         if (partType == PartitionType.UNPARTITIONED) {
             partitionInfo = SinglePartitionInfo.read(in);

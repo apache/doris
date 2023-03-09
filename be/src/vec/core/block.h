@@ -100,6 +100,8 @@ public:
     void insert_unique(ColumnWithTypeAndName&& elem);
     /// remove the column at the specified position
     void erase(size_t position);
+    /// remove the column at the [start, end)
+    void erase_tail(size_t start);
     /// remove the columns at the specified positions
     void erase(const std::set<size_t>& positions);
     /// remove the column with the specified name
@@ -259,6 +261,8 @@ public:
 
     bool is_empty_column() { return data.empty(); }
 
+    bool empty() const { return rows() == 0; }
+
     /** Updates SipHash of the Block, using update method of columns.
       * Returns hash for block, that could be used to differentiate blocks
       *  with same structure, but different data.
@@ -288,9 +292,7 @@ public:
     static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
-        for (int i = block->columns() - 1; i >= column_to_keep; --i) {
-            block->erase(i);
-        }
+        block->erase_tail(column_to_keep);
     }
 
     // serialize block to PBlock

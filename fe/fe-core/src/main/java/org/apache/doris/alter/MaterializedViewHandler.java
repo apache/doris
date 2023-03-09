@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -93,8 +94,10 @@ public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
     public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
 
+    public static int scheduler_interval_millisecond = 333;
+
     public MaterializedViewHandler() {
-        super("materialized view");
+        super("materialized view", scheduler_interval_millisecond);
     }
 
     // for batch submit rollup job, tableId -> jobId
@@ -557,7 +560,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType().isComplexType()) {
+            if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {
                 throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
                         + "to create materialized view");
             }
@@ -1140,6 +1143,18 @@ public class MaterializedViewHandler extends AlterHandler {
         // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
         Collections.sort(rollupJobInfos, comparator);
+
+        return rollupJobInfos;
+    }
+
+    public List<List<Comparable>> getAllAlterJobInfos() {
+        List<List<Comparable>> rollupJobInfos = new LinkedList<List<Comparable>>();
+
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            // no need to check priv here. This method is only called in show proc stmt,
+            // which already check the ADMIN priv.
+            alterJob.getInfo(rollupJobInfos);
+        }
 
         return rollupJobInfos;
     }

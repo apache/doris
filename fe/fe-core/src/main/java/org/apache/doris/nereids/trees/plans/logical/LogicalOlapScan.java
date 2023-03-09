@@ -180,7 +180,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public String toString() {
         return Utils.toSqlString("LogicalOlapScan",
                 "qualified", qualifiedName(),
-                "output", getOutput(),
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
                 "selectedIndexId", selectedIndexId,
                 "preAgg", preAggStatus
@@ -246,6 +245,12 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
     }
 
+    public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapScan(this, context);
@@ -297,6 +302,9 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     @Override
     public List<Slot> computeNonUserVisibleOutput() {
+        // if (getTable().getIndexIdToMeta().size() == 1) {
+        //     return ImmutableList.of();
+        // }
         Set<String> baseSchemaColNames = table.getBaseSchema().stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet());

@@ -177,15 +177,26 @@ void Block::erase(const std::set<size_t>& positions) {
     }
 }
 
-void Block::erase(size_t position) {
-    if (data.empty()) {
-        LOG(FATAL) << "Block is empty";
+void Block::erase_tail(size_t start) {
+    DCHECK(start <= data.size()) << fmt::format(
+            "Position out of bound in Block::erase(), max position = {}", data.size());
+    data.erase(data.begin() + start, data.end());
+    for (auto it = index_by_name.begin(); it != index_by_name.end();) {
+        if (it->second >= start) {
+            index_by_name.erase(it++);
+        } else {
+            ++it;
+        }
     }
+    if (start < row_same_bit.size()) {
+        row_same_bit.erase(row_same_bit.begin() + start, row_same_bit.end());
+    }
+}
 
-    if (position >= data.size()) {
-        LOG(FATAL) << fmt::format("Position out of bound in Block::erase(), max position = {}",
-                                  data.size() - 1);
-    }
+void Block::erase(size_t position) {
+    DCHECK(!data.empty()) << "Block is empty";
+    DCHECK(position < data.size()) << fmt::format(
+            "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
 
     erase_impl(position);
 }
@@ -657,7 +668,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         for (auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
             if (column->size() != count) {
-                if (column->use_count() == 1) {
+                if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
                     CHECK_EQ(result_size, count);
                 } else {
@@ -700,21 +711,16 @@ void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector&
 
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                            int filter_column_id, int column_to_keep) {
-    ColumnPtr filter_column = block->get_by_position(filter_column_id).column;
+    const auto& filter_column = block->get_by_position(filter_column_id).column;
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-        ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+        const auto& nested_column = nullable_column->get_nested_column_ptr();
 
         MutableColumnPtr mutable_holder =
                 nested_column->use_count() == 1
                         ? nested_column->assume_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
-        ColumnUInt8* concrete_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
-        if (!concrete_column) {
-            return Status::InvalidArgument(
-                    "Illegal type {} of column for filter. Must be UInt8 or Nullable(UInt8).",
-                    filter_column->get_name());
-        }
+        ColumnUInt8* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
         auto* __restrict null_map = nullable_column->get_null_map_data().data();
         IColumn::Filter& filter = concrete_column->get_data();
         auto* __restrict filter_data = filter.data();
@@ -811,6 +817,9 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
+    } else {
+        pblock->set_column_values(std::move(column_values));
+        *compressed_bytes = content_uncompressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",

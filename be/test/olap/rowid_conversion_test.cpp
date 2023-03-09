@@ -19,11 +19,9 @@
 
 #include <gtest/gtest.h>
 
-#include "common/logging.h"
 #include "olap/data_dir.h"
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
-#include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -31,10 +29,8 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -166,25 +162,24 @@ protected:
         Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_TRUE(s.ok());
 
-        RowCursor input_row;
-        input_row.init(tablet_schema);
-
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            MemPool mem_pool;
+            vectorized::Block block = tablet_schema->create_block();
+            auto columns = block.mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
-                uint32_t c1 = std::get<0>(rowset_data[i][rid]);
-                uint32_t c2 = std::get<1>(rowset_data[i][rid]);
-                input_row.set_field_content(0, reinterpret_cast<char*>(&c1), &mem_pool);
-                input_row.set_field_content(1, reinterpret_cast<char*>(&c2), &mem_pool);
+                int32_t c1 = std::get<0>(rowset_data[i][rid]);
+                int32_t c2 = std::get<1>(rowset_data[i][rid]);
+                columns[0]->insert_data((const char*)&c1, sizeof(c1));
+                columns[1]->insert_data((const char*)&c2, sizeof(c2));
+
                 if (tablet_schema->keys_type() == UNIQUE_KEYS) {
                     uint8_t num = 0;
-                    input_row.set_field_content(2, reinterpret_cast<char*>(&num), &mem_pool);
+                    columns[2]->insert_data((const char*)&num, sizeof(num));
                 }
-                s = rowset_writer->add_row(input_row);
-                EXPECT_TRUE(s.ok());
                 num_rows++;
             }
+            s = rowset_writer->add_block(&block);
+            EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
         }
@@ -288,20 +283,6 @@ protected:
         return tablet;
     }
 
-    void block_create(TabletSchemaSPtr tablet_schema, vectorized::Block* block) {
-        block->clear();
-        Schema schema(tablet_schema);
-        const auto& column_ids = schema.column_ids();
-        for (size_t i = 0; i < schema.num_column_ids(); ++i) {
-            auto column_desc = schema.column(column_ids[i]);
-            auto data_type = Schema::get_data_type_ptr(*column_desc);
-            EXPECT_TRUE(data_type != nullptr);
-            auto column = data_type->create_column();
-            block->insert(vectorized::ColumnWithTypeAndName(std::move(column), data_type,
-                                                            column_desc->name()));
-        }
-    }
-
     void check_rowid_conversion(KeysType keys_type, bool enable_unique_key_merge_on_write,
                                 uint32_t num_input_rowset, uint32_t num_segments,
                                 uint32_t rows_per_segment, const SegmentsOverlapPB& overlap,
@@ -342,10 +323,6 @@ protected:
         TabletSharedPtr tablet =
                 create_tablet(*tablet_schema, enable_unique_key_merge_on_write,
                               output_rs_writer->version().first - 1, has_delete_handler);
-        if (enable_unique_key_merge_on_write) {
-            tablet->tablet_meta()->delete_bitmap().add({input_rowsets[0]->rowset_id(), 0, 0}, 0);
-            tablet->tablet_meta()->delete_bitmap().add({input_rowsets[0]->rowset_id(), 0, 0}, 3);
-        }
 
         // create input rowset reader
         vector<RowsetReaderSharedPtr> input_rs_readers;
@@ -375,15 +352,13 @@ protected:
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {0, 1};
         reader_context.return_columns = &return_columns;
-        reader_context.is_vec = true;
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
         // read output rowset data
-        vectorized::Block output_block;
         std::vector<std::tuple<int64_t, int64_t>> output_data;
         do {
-            block_create(tablet_schema, &output_block);
+            vectorized::Block output_block = tablet_schema->create_block();
             s = output_rs_reader->next_block(&output_block);
             auto columns = output_block.get_columns_with_type_and_name();
             EXPECT_EQ(columns.size(), 2);
@@ -411,11 +386,6 @@ protected:
                     RowLocation src(input_rowsets[rs_id]->rowset_id(), s_id, row_id);
                     RowLocation dst;
                     int res = rowid_conversion.get(src, &dst);
-                    // key deleted by delete bitmap
-                    if (enable_unique_key_merge_on_write && rs_id == 0 && s_id == 0 &&
-                        (row_id == 0 || row_id == 3)) {
-                        EXPECT_LT(res, 0);
-                    }
                     if (res < 0) {
                         continue;
                     }

@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.trees.expressions.functions.CheckOverflowNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
 
@@ -30,7 +30,7 @@ import java.util.List;
 /**
  * Add Expression.
  */
-public class Add extends BinaryArithmetic {
+public class Add extends BinaryArithmetic implements CheckOverflowNullable {
 
     public Add(Expression left, Expression right) {
         super(left, right, Operator.ADD);
@@ -43,17 +43,22 @@ public class Add extends BinaryArithmetic {
     }
 
     @Override
-    public DataType getDataType() {
-        return super.getDataType().promotion();
+    public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
+        return (DecimalV3Type) DecimalV3Type.widerDecimalV3Type(t1, t2, false);
+    }
+
+    @Override
+    public DataType getDataTypeForOthers(DataType t1, DataType t2) {
+        return super.getDataTypeForOthers(t1, t2).promotion();
+    }
+
+    @Override
+    public boolean nullable() {
+        return CheckOverflowNullable.super.nullable();
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAdd(this, context);
-    }
-
-    @Override
-    public AbstractDataType inputType() {
-        return NumericType.INSTANCE;
     }
 }

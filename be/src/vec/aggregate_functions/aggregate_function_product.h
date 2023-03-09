@@ -92,12 +92,7 @@ public:
     AggregateFunctionProduct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>(
                       argument_types_),
-              scale(0) {}
-
-    AggregateFunctionProduct(const IDataType& data_type, const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>(
-                      argument_types_),
-              scale(get_decimal_scale(data_type)) {}
+              scale(get_decimal_scale(*argument_types_[0])) {}
 
     DataTypePtr get_return_type() const override {
         if constexpr (IsDecimalNumber<T>) {

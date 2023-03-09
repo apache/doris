@@ -48,7 +48,6 @@ TabletsChannel::~TabletsChannel() {
     for (auto& it : _tablet_writers) {
         delete it.second;
     }
-    delete _row_desc;
     delete _schema;
 }
 
@@ -65,7 +64,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _schema = new OlapTableSchemaParam();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
-    _row_desc = new RowDescriptor(_tuple_desc, false);
 
     _num_remaining_senders = request.num_senders();
     _next_seqs.resize(_num_remaining_senders, 0);
@@ -125,7 +123,7 @@ Status TabletsChannel::close(
                 // to make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
                 // `close_wait` might create the rowset and commit txn directly, and the subsequent
                 // publish version task will success, which can cause the replica inconsistency.
-                if (_broken_tablets.find(it.second->tablet_id()) != _broken_tablets.end()) {
+                if (_is_broken_tablet(it.second->tablet_id())) {
                     LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
                                  << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
                     continue;
@@ -312,7 +310,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
     for (int i = 0; i < request.tablet_ids_size(); ++i) {
         int64_t tablet_id = request.tablet_ids(i);
-        if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
+        if (_is_broken_tablet(tablet_id)) {
             // skip broken tablets
             VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
@@ -347,7 +345,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
             error->set_tablet_id(tablet_to_rowidxs_it.first);
             error->set_msg(err_msg);
             tablet_writer_it->second->cancel_with_status(st);
-            _broken_tablets.insert(tablet_to_rowidxs_it.first);
+            _add_broken_tablet(tablet_to_rowidxs_it.first);
             // continue write to other tablet.
             // the error will return back to sender.
         }
@@ -387,7 +385,7 @@ void TabletsChannel::flush_memtable_async(int64_t tablet_id) {
                 tablet_id, _txn_id, st.to_string());
         LOG(WARNING) << err_msg;
         iter->second->cancel_with_status(st);
-        _broken_tablets.insert(iter->second->tablet_id());
+        _add_broken_tablet(tablet_id);
     }
 }
 
@@ -415,13 +413,22 @@ void TabletsChannel::wait_flush(int64_t tablet_id) {
                 tablet_id, _txn_id, st.to_string());
         LOG(WARNING) << err_msg;
         iter->second->cancel_with_status(st);
-        _broken_tablets.insert(iter->second->tablet_id());
+        _add_broken_tablet(tablet_id);
     }
 
     {
         std::lock_guard<std::mutex> l(_lock);
         _reducing_tablets.erase(tablet_id);
     }
+}
+void TabletsChannel::_add_broken_tablet(int64_t tablet_id) {
+    std::unique_lock<std::shared_mutex> wlock(_broken_tablets_lock);
+    _broken_tablets.insert(tablet_id);
+}
+
+bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
+    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
 
 template Status

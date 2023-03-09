@@ -26,10 +26,11 @@ public interface ComputePrecisionForSum extends ComputePrecision {
     @Override
     default FunctionSignature computePrecision(FunctionSignature signature) {
         DataType argumentType = getArgumentType(0);
-        if (argumentType.isDecimalV3Type()) {
-            DecimalV3Type decimalV3Type = (DecimalV3Type) argumentType;
-            return signature.withReturnType(DecimalV3Type.createDecimalV3Type(
-                    DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalV3Type.getScale()));
+        if (signature.getArgType(0) instanceof DecimalV3Type) {
+            DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
+            return signature.withArgumentType(0, decimalV3Type)
+                    .withReturnType(DecimalV3Type.createDecimalV3Type(
+                            DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalV3Type.getScale()));
         } else {
             return signature;
         }

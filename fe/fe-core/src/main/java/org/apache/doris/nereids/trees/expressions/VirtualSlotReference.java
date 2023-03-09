@@ -32,7 +32,7 @@ import java.util.Optional;
 /**
  * it is not a real column exist in table.
  */
-public class VirtualSlotReference extends SlotReference {
+public class VirtualSlotReference extends SlotReference implements SlotNotFromChildren {
     // arguments of GroupingScalarFunction
     private final List<Expression> realExpressions;
 

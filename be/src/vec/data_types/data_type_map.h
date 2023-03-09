@@ -20,25 +20,27 @@
 
 #pragma once
 
+#include "gen_cpp/data.pb.h"
+#include "util/stack_util.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 /** Map data type.
-  *
-  * Map's key and value only have types.
-  * If only one type is set, then key's type is "String" in default.
   */
 class DataTypeMap final : public IDataType {
 private:
     DataTypePtr key_type;
     DataTypePtr value_type;
-    DataTypePtr keys;   // array
-    DataTypePtr values; // array
 
 public:
     static constexpr bool is_parametric = true;
 
-    DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_);
+    DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Map; }
     std::string do_get_name() const override {
@@ -59,9 +61,6 @@ public:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-
-    const DataTypePtr& get_keys() const { return keys; }
-    const DataTypePtr& get_values() const { return values; }
 
     const DataTypePtr& get_key_type() const { return key_type; }
     const DataTypePtr& get_value_type() const { return value_type; }

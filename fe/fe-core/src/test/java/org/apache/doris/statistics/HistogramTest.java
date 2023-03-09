@@ -34,12 +34,11 @@ import java.util.List;
 import java.util.Objects;
 
 class HistogramTest {
-    private final Type datatype = Type.fromPrimitiveType(PrimitiveType.DATETIME);
     private Histogram histogramUnderTest;
 
     @BeforeEach
     void setUp() throws Exception {
-        String json = "{\"max_bucket_num\":128,\"bucket_num\":5,\"sample_rate\":1.0,\"buckets\":"
+        String json = "{\"data_type\":\"DATETIME\",\"sample_rate\":1.0,\"num_buckets\":5,\"buckets\":"
                 + "[{\"lower\":\"2022-09-21 17:30:29\",\"upper\":\"2022-09-21 22:30:29\","
                 + "\"count\":9,\"pre_sum\":0,\"ndv\":1},"
                 + "{\"lower\":\"2022-09-22 17:30:29\",\"upper\":\"2022-09-22 22:30:29\","
@@ -50,7 +49,7 @@ class HistogramTest {
                 + "\"count\":9,\"pre_sum\":28,\"ndv\":1},"
                 + "{\"lower\":\"2022-09-25 17:30:29\",\"upper\":\"2022-09-25 22:30:29\","
                 + "\"count\":9,\"pre_sum\":37,\"ndv\":1}]}";
-        histogramUnderTest = Histogram.deserializeFromJson(datatype, json);
+        histogramUnderTest = Histogram.deserializeFromJson(json);
         if (histogramUnderTest == null) {
             Assertions.fail();
         }
@@ -61,11 +60,8 @@ class HistogramTest {
         Type dataType = histogramUnderTest.dataType;
         Assertions.assertTrue(dataType.isDatetime());
 
-        int maxBucketSize = histogramUnderTest.maxBucketNum;
-        Assertions.assertEquals(128, maxBucketSize);
-
-        int bucketSize = histogramUnderTest.bucketNum;
-        Assertions.assertEquals(5, bucketSize);
+        int numBuckets = histogramUnderTest.numBuckets;
+        Assertions.assertEquals(5, numBuckets);
 
         double sampleRate = histogramUnderTest.sampleRate;
         Assertions.assertEquals(1.0, sampleRate);
@@ -97,11 +93,12 @@ class HistogramTest {
         String json = Histogram.serializeToJson(histogramUnderTest);
         JsonObject histogramJson = JsonParser.parseString(json).getAsJsonObject();
 
-        int maxBucketSize = histogramJson.get("max_bucket_num").getAsInt();
-        Assertions.assertEquals(128, maxBucketSize);
+        String typeStr = histogramJson.get("data_type").getAsString();
+        Type datatype = Type.fromPrimitiveType(PrimitiveType.valueOf(typeStr));
+        Assertions.assertEquals("DATETIME", typeStr);
 
-        int bucketSize = histogramJson.get("bucket_num").getAsInt();
-        Assertions.assertEquals(5, bucketSize);
+        int numBuckets = histogramJson.get("num_buckets").getAsInt();
+        Assertions.assertEquals(5, numBuckets);
 
         float sampleRate = histogramJson.get("sample_rate").getAsFloat();
         Assertions.assertEquals(1.0, sampleRate);
@@ -119,7 +116,6 @@ class HistogramTest {
 
         for (int i = 0; i < jsonArray.size(); i++) {
             JsonObject bucketJson = jsonArray.get(i).getAsJsonObject();
-            assert datatype != null;
             LiteralExpr lower = StatisticsUtil.readableValue(datatype, bucketJson.get("lower").getAsString());
             LiteralExpr upper = StatisticsUtil.readableValue(datatype, bucketJson.get("upper").getAsString());
             int count = bucketJson.get("count").getAsInt();

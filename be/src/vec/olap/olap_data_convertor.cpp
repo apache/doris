@@ -136,10 +136,8 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         const auto& key_column = column.get_sub_column(0);
         const auto& value_column = column.get_sub_column(1);
         return std::make_unique<OlapColumnDataConvertorMap>(
-                std::make_unique<OlapColumnDataConvertorArray>(
-                        create_olap_column_data_convertor(key_column)),
-                std::make_unique<OlapColumnDataConvertorArray>(
-                        create_olap_column_data_convertor(value_column)));
+                create_olap_column_data_convertor(key_column),
+                create_olap_column_data_convertor(value_column));
     }
     default: {
         DCHECK(false) << "Invalid type in RowBlockV2:" << column.type();
@@ -268,7 +266,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
         while (bitmap_value_cur != bitmap_value_end) {
             if (!*nullmap_cur) {
                 slice_size = bitmap_value_cur->getSizeInBytes();
-                bitmap_value_cur->write(raw_data);
+                bitmap_value_cur->write_to(raw_data);
 
                 slice->data = raw_data;
                 slice->size = slice_size;
@@ -286,7 +284,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     } else {
         while (bitmap_value_cur != bitmap_value_end) {
             slice_size = bitmap_value_cur->getSizeInBytes();
-            bitmap_value_cur->write(raw_data);
+            bitmap_value_cur->write_to(raw_data);
 
             slice->data = raw_data;
             slice->size = slice_size;
@@ -810,30 +808,38 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         const ColumnMap* column_map, const DataTypeMap* data_type_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
-    if (column_map->get_keys().is_nullable()) {
-        const auto& key_nullable_column =
-                assert_cast<const ColumnNullable&>(column_map->get_keys());
-        key_data = key_nullable_column.get_nested_column_ptr();
-    }
 
-    if (column_map->get_values().is_nullable()) {
-        const auto& val_nullable_column =
-                assert_cast<const ColumnNullable&>(column_map->get_values());
-        value_data = val_nullable_column.get_nested_column_ptr();
-    }
+    // offsets data
+    auto& offsets = column_map->get_offsets();
+    // make first offset
+    auto offsets_col = ColumnArray::ColumnOffsets::create();
 
-    ColumnWithTypeAndName key_typed_column = {key_data, remove_nullable(data_type_map->get_keys()),
-                                              "map.key"};
-    _key_convertor->set_source_column(key_typed_column, _row_pos, _num_rows);
+    // Now map column offsets data layout in memory is [3, 6, 9], and in disk should be [0, 3, 6, 9]
+    _offsets.reserve(offsets.size() + 1);
+    _offsets.push_back(_row_pos); // _offsets start with current map offsets
+    _offsets.insert_assume_reserved(offsets.begin(), offsets.end());
+
+    int64_t start_index = _row_pos - 1;
+    int64_t end_index = _row_pos + _num_rows - 1;
+    auto start = offsets[start_index];
+    auto size = offsets[end_index] - start;
+
+    ColumnWithTypeAndName key_typed_column = {key_data, data_type_map->get_key_type(), "map.key"};
+    _key_convertor->set_source_column(key_typed_column, start, size);
     _key_convertor->convert_to_olap();
 
-    ColumnWithTypeAndName value_typed_column = {
-            value_data, remove_nullable(data_type_map->get_values()), "map.value"};
-    _value_convertor->set_source_column(value_typed_column, _row_pos, _num_rows);
+    ColumnWithTypeAndName value_typed_column = {value_data, data_type_map->get_value_type(),
+                                                "map.value"};
+    _value_convertor->set_source_column(value_typed_column, start, size);
     _value_convertor->convert_to_olap();
 
-    _results[0] = _key_convertor->get_data();
-    _results[1] = _value_convertor->get_data();
+    // todo (Amory). put this value into MapValue
+    _results[0] = (void*)size;
+    _results[1] = _offsets.data();
+    _results[2] = _key_convertor->get_data();
+    _results[3] = _value_convertor->get_data();
+    _results[4] = _key_convertor->get_nullmap();
+    _results[5] = _value_convertor->get_nullmap();
 
     return Status::OK();
 }

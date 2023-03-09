@@ -64,6 +64,8 @@
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "vec/exec/join/vhash_join_node.h"
@@ -103,6 +105,7 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
+    _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
 
@@ -122,8 +125,11 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
-        if (_pipe != nullptr) {
-            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+        // For stream load the fragment's query_id == load id, it is set in FE.
+        auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+        if (stream_load_ctx != nullptr) {
+            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
         }
         _cancel_reason = reason;
         _cancel_msg = msg;
@@ -276,7 +282,10 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
     if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        _report_thread = std::thread(&PipelineFragmentContext::report_profile, this);
+        _exec_env->send_report_thread_pool()->submit_func([this] {
+            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
+            this->report_profile();
+        });
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
@@ -475,7 +484,9 @@ void PipelineFragmentContext::_stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    _report_thread.join();
+    // Wait infinitly to ensure that the report task is finished and the this variable
+    // is not used in report thread.
+    _report_thread_future.wait();
 }
 
 void PipelineFragmentContext::report_profile() {
@@ -780,6 +791,9 @@ Status PipelineFragmentContext::submit() {
 }
 
 void PipelineFragmentContext::close_if_prepare_failed() {
+    if (_tasks.empty()) {
+        _root_plan->close(_runtime_state.get());
+    }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
         WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");

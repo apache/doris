@@ -42,9 +42,10 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         // TODO: maybe consider ANTI?
-        return logicalJoin().when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
-            .whenNot(LogicalJoin::isGenerateIsNotNull)
-            .then(join -> {
+        return logicalJoin(any(), any())
+            .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
+            .thenApply(ctx -> {
+                LogicalJoin<Plan, Plan> join = ctx.root;
                 Set<Expression> conjuncts = new HashSet<>();
                 conjuncts.addAll(join.getHashJoinConjuncts());
                 conjuncts.addAll(join.getOtherJoinConjuncts());
@@ -52,22 +53,26 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
                 Plan left = join.left();
                 Plan right = join.right();
                 if (join.getJoinType().isInnerJoin()) {
-                    Set<Expression> leftNotNull = ExpressionUtils.inferNotNull(conjuncts, join.left().getOutputSet());
-                    Set<Expression> rightNotNull = ExpressionUtils.inferNotNull(conjuncts, join.right().getOutputSet());
+                    Set<Expression> leftNotNull = ExpressionUtils.inferNotNull(
+                            conjuncts, join.left().getOutputSet(), ctx.cascadesContext);
+                    Set<Expression> rightNotNull = ExpressionUtils.inferNotNull(
+                            conjuncts, join.right().getOutputSet(), ctx.cascadesContext);
                     left = PlanUtils.filterOrSelf(leftNotNull, join.left());
                     right = PlanUtils.filterOrSelf(rightNotNull, join.right());
                 } else if (join.getJoinType() == JoinType.LEFT_SEMI_JOIN) {
-                    Set<Expression> leftNotNull = ExpressionUtils.inferNotNull(conjuncts, join.left().getOutputSet());
+                    Set<Expression> leftNotNull = ExpressionUtils.inferNotNull(
+                            conjuncts, join.left().getOutputSet(), ctx.cascadesContext);
                     left = PlanUtils.filterOrSelf(leftNotNull, join.left());
                 } else {
-                    Set<Expression> rightNotNull = ExpressionUtils.inferNotNull(conjuncts, join.right().getOutputSet());
+                    Set<Expression> rightNotNull = ExpressionUtils.inferNotNull(
+                            conjuncts, join.right().getOutputSet(), ctx.cascadesContext);
                     right = PlanUtils.filterOrSelf(rightNotNull, join.right());
                 }
 
-                if (left == join.left() && right == join.right()) {
+                if (left.equals(join.left()) && right.equals(join.right())) {
                     return null;
                 }
-                return join.withIsGenerateIsNotNullAndChildren(true, left, right);
+                return join.withChildren(left, right);
             }).toRule(RuleType.INFER_JOIN_NOT_NULL);
     }
 }

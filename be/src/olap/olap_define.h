@@ -98,6 +98,17 @@ static const std::string PENDING_DELTA_PREFIX = "pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
 
+// define paths
+static inline std::string remote_tablet_path(int64_t tablet_id) {
+    // data/{tablet_id}
+    return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
+}
+static inline std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
+                                                  int64_t cooldown_term) {
+    // data/{tablet_id}/{replica_id}.{cooldown_term}.meta
+    return fmt::format("{}/{}.{}.meta", remote_tablet_path(tablet_id), replica_id, cooldown_term);
+}
+
 static const std::string TABLET_UID = "tablet_uid";
 static const std::string STORAGE_NAME = "storage_name";
 
@@ -113,8 +124,6 @@ static const uint64_t GB_EXCHANGE_BYTE = 1024 * 1024 * 1024;
 
 // bloom filter fpp
 static const double BLOOM_FILTER_DEFAULT_FPP = 0.05;
-
-#define OLAP_GOTO(label) goto label
 
 enum ColumnFamilyIndex {
     DEFAULT_COLUMN_FAMILY_INDEX = 0,
@@ -174,29 +183,6 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
     type_t& operator=(const type_t&);    \
     type_t(const type_t&);
 #endif
-
-// 没有使用的变量不报warning
-#define OLAP_UNUSED_ARG(a) (void)(a)
-
-// thread-safe(gcc only) method for obtaining singleton
-#define DECLARE_SINGLETON(classname)     \
-public:                                  \
-    static classname* instance() {       \
-        classname* p_instance = nullptr; \
-        try {                            \
-            static classname s_instance; \
-            p_instance = &s_instance;    \
-        } catch (...) {                  \
-            p_instance = nullptr;        \
-        }                                \
-        return p_instance;               \
-    }                                    \
-                                         \
-protected:                               \
-    classname();                         \
-                                         \
-private:                                 \
-    ~classname();
 
 #define SAFE_DELETE(ptr)      \
     do {                      \

@@ -60,6 +60,7 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _colname_to_value_range = colname_to_value_range;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
@@ -79,13 +80,7 @@ Status VFileScanner::prepare(
     _io_ctx->query_id = &_state->query_id();
     _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
-    }
-
     if (_is_load) {
-        _src_block_mem_reuse = true;
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                               std::vector<TupleId>({_input_tuple_desc->id()}),
                                               std::vector<bool>({false})));
@@ -407,10 +402,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     size_t rows = _src_block.rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
-    auto origin_column_num = _src_block.columns();
 
     // Set block dynamic, block maybe merge or add_rows
-    // in in later process.
+    // in later process.
     if (_is_dynamic_schema) {
         block->set_block_type(BlockType::DYNAMIC);
     }
@@ -441,11 +435,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             int result_column_id = -1;
             // PT1 => dest primitive type
             RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            column_ptr = is_origin_column && _src_block_mem_reuse
-                                 ? _src_block.get_by_position(result_column_id)
-                                           .column->clone_resized(rows)
-                                 : _src_block.get_by_position(result_column_id).column;
+            column_ptr = _src_block.get_by_position(result_column_id).column;
         }
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
@@ -537,11 +527,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
-    if (_src_block_mem_reuse) {
-        _src_block.clear_column_data(origin_column_num);
-    } else {
-        _src_block.clear();
-    }
+    _src_block.clear();
 
     size_t dest_size = block->columns();
     // do filter
@@ -813,8 +799,6 @@ Status VFileScanner::_init_expr_ctxes() {
     _is_dynamic_schema =
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
     if (_is_dynamic_schema) {
-        // should not resuse Block since Block is variable
-        _src_block_mem_reuse = false;
         _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
         _full_base_schema_view->db_name = _output_tuple_desc->table_desc()->database();
         _full_base_schema_view->table_name = _output_tuple_desc->table_desc()->name();

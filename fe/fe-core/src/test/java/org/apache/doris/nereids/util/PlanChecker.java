@@ -26,8 +26,8 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
-import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
+import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
+import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.CopyInResult;
@@ -107,20 +107,17 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker analyze() {
-        MemoTestUtils.createCascadesContext(connectContext, parsedPlan);
-        return this;
-    }
-
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
         this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.toMemo();
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
     }
@@ -176,13 +173,14 @@ public class PlanChecker {
     }
 
     public PlanChecker rewrite() {
-        new NereidsRewriteJobExecutor(cascadesContext).execute();
+        new NereidsRewriter(cascadesContext).execute();
+        cascadesContext.toMemo();
         return this;
     }
 
     public PlanChecker optimize() {
         double now = System.currentTimeMillis();
-        new OptimizeRulesJob(cascadesContext).execute();
+        new CascadesOptimizer(cascadesContext).execute();
         System.out.println("cascades:" + (System.currentTimeMillis() - now));
         return this;
     }
@@ -526,6 +524,10 @@ public class PlanChecker {
 
     public PhysicalPlan getBestPlanTree() {
         return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
+    }
+
+    public PhysicalPlan getBestPlanTree(PhysicalProperties properties) {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), properties);
     }
 
     public PlanChecker printlnBestPlanTree() {
