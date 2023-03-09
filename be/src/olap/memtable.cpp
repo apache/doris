@@ -329,6 +329,9 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
         if (res > 0) {
             return;
         }
+        // need to update the row pos in skiplist to the new row pos when has
+        // sequence column
+        row_in_skiplist->_row_pos = new_row->_row_pos;
     }
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
