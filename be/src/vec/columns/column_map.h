@@ -149,9 +149,7 @@ public:
     const ColumnPtr get_keys_array_ptr() const {
         return ColumnArray::create(keys_column, offsets_column);
     }
-    ColumnPtr get_keys_array_ptr() {
-        return ColumnArray::create(keys_column, offsets_column);
-    }
+    ColumnPtr get_keys_array_ptr() { return ColumnArray::create(keys_column, offsets_column); }
 
     const ColumnPtr& get_values_ptr() const { return values_column; }
     ColumnPtr& get_values_ptr() { return values_column; }
@@ -162,9 +160,7 @@ public:
     const ColumnPtr get_values_array_ptr() const {
         return ColumnArray::create(values_column, offsets_column);
     }
-    ColumnPtr get_values_array_ptr() {
-        return ColumnArray::create(values_column, offsets_column);
-    }
+    ColumnPtr get_values_array_ptr() { return ColumnArray::create(values_column, offsets_column); }
 
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
