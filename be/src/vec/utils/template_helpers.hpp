@@ -55,6 +55,9 @@
     M(DateTimeV2, ColumnUInt64)
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
+    M(Array, ColumnArray)              \
+    M(Map, ColumnMap)                  \
+    M(Struct, ColumnStruct)            \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 
@@ -66,7 +69,6 @@
 
 #define TYPE_TO_COLUMN_TYPE(M)   \
     TYPE_TO_BASIC_COLUMN_TYPE(M) \
-    M(Array, ColumnArray)        \
     COMPLEX_TYPE_TO_COLUMN_TYPE(M)
 
 namespace doris::vectorized {
