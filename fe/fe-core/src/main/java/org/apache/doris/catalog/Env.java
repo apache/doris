@@ -1456,15 +1456,6 @@ public class Env {
 
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
 
-        // add helper sockets
-        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
-            for (Frontend fe : frontends.values()) {
-                if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
-                    ((BDBHA) getHaProtocol()).addHelperSocket(fe.getIp(), fe.getEditLogPort());
-                }
-            }
-        }
-
         if (replayer == null) {
             createReplayer();
             replayer.start();
@@ -2468,7 +2459,6 @@ public class Env {
             frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                bdbha.addHelperSocket(ip, editLogPort);
                 helperNodes.add(new HostInfo(ip, hostname, editLogPort));
                 bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }
