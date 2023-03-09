@@ -123,7 +123,7 @@ private:
     }
 
     template <class T>
-    std::string print_stack(const std::stack<T>& stack) {
+    std::string print_stack(std::stack<T>& stack) {
         std::string result;
         while (!stack.empty()) {
             result = stack.top() + result;
