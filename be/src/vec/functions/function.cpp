@@ -378,13 +378,20 @@ bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
 
 bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
         const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
-    if (!(is_array(return_type) && is_array(func_return_type))) {
+    auto return_type_ptr = return_type->is_nullable()
+                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                   : return_type;
+    auto func_return_type_ptr =
+            func_return_type->is_nullable()
+                    ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                    : func_return_type;
+    if (!(is_array(return_type_ptr) && is_array(func_return_type_ptr))) {
         return false;
     }
     auto nested_nullable_return_type_ptr =
-            (assert_cast<const DataTypeArray*>(return_type.get()))->get_nested_type();
+            (assert_cast<const DataTypeArray*>(return_type_ptr.get()))->get_nested_type();
     auto nested_nullable_func_return_type =
-            (assert_cast<const DataTypeArray*>(func_return_type.get()))->get_nested_type();
+            (assert_cast<const DataTypeArray*>(func_return_type_ptr.get()))->get_nested_type();
     // There must be nullable inside array type.
     if (nested_nullable_return_type_ptr->is_nullable() &&
         nested_nullable_func_return_type->is_nullable()) {
