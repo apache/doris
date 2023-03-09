@@ -367,6 +367,10 @@ struct ConvertImplGenericFromString {
                 // Note: here we should handle the null element
                 if (val.size == 0) {
                     col_to->insert_default();
+                    // empty string('') is an invalid format for complex type, set null_map to 1
+                    if (is_complex_type(data_type_to)) {
+                        (*vec_null_map_to)[i] = 1;
+                    }
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(val.data), val.size);

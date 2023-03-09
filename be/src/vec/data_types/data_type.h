@@ -315,6 +315,7 @@ struct WhichDataType {
     bool is_uuid() const { return idx == TypeIndex::UUID; }
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
+    bool is_struct() const { return idx == TypeIndex::Struct; }
     bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
     bool is_interval() const { return idx == TypeIndex::Interval; }
@@ -429,6 +430,11 @@ inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_typ
 
 inline bool is_compilable_type(const DataTypePtr& data_type) {
     return data_type->is_value_represented_by_number() && !is_decimal(data_type);
+}
+
+inline bool is_complex_type(const DataTypePtr& data_type) {
+    WhichDataType which(data_type);
+    return which.is_array() || which.is_map() || which.is_struct();
 }
 
 } // namespace vectorized
