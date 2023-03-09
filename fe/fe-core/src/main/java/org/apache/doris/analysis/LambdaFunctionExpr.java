@@ -23,14 +23,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 public class LambdaFunctionExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionExpr.class);
@@ -94,7 +91,7 @@ public class LambdaFunctionExpr extends Expr {
         }
         if (slotExpr.size() != params.size() + 1) {
             String msg = new String();
-            for (Expr s: slotExpr) {
+            for (Expr s : slotExpr) {
                 msg = msg + s.debugString() + " ,";
             }
             throw new AnalysisException(

@@ -28,13 +28,25 @@ under the License.
 
 <version since="1.2.2">
 
-array_map(lambda,array,....)
+array_map(lambda,array1,array2....)
 
 </version>
 
 ### description
 
 使用一个lambda表达式作为输入参数，对其他的输入ARRAY参数的内部数据做对应表达式计算。
+在lambda表达式中输入的参数为1个或多个，必须和后面的输入array列数量一致。
+在lambda中可以执行合法的标量函数，不支持聚合函数等。
+
+```
+array_map(x->x, array1);
+array_map(x->(x+2), array1);
+array_map(x->(abs(x)-2), array1);
+
+array_map((x,y)->(x = y), array1, array2);
+array_map((x,y)->(power(x,2)+y), array1, array2);
+array_map((x,y,z)->(abs(x)+y*z), array1, array2, array3);
+```
 
 ### example
 

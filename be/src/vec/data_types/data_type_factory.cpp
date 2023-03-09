@@ -23,9 +23,9 @@
 #include <gen_cpp/types.pb.h>
 
 #include "data_type_time.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_object.h"
-#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
 

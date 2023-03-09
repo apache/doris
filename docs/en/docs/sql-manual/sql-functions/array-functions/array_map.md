@@ -35,6 +35,18 @@ array_map(lambda,array,....)
 ### description
 
 Use a lambda expression as the input parameter to calculate the corresponding expression for the internal data of other input ARRAY parameters.
+The number of parameters entered in the lambda expression is 1 or more, which must be consistent with the number of input array columns.
+The scalar functions can be executed in lambda, and aggregate functions are not supported.
+
+```
+array_map(x->x, array1);
+array_map(x->(x+2), array1);
+array_map(x->(abs(x)-2), array1);
+
+array_map((x,y)->(x = y), array1, array2);
+array_map((x,y)->(power(x,2)+y), array1, array2);
+array_map((x,y,z)->(abs(x)+y*z), array1, array2, array3);
+```
 
 ### example
 

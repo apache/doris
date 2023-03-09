@@ -22,7 +22,6 @@ import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -85,7 +84,7 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     protected String toSqlImpl() {
-        return columnName + "(" + slotId+ ")";
+        return columnName + "(" + slotId + ")";
     }
 
     @Override
@@ -104,6 +103,6 @@ public class ColumnRefExpr extends Expr {
     }
 
     public String debugString() {
-        return columnName + " (" + slotId+ ")id";
+        return columnName + " (" + slotId + ")id";
     }
 }
