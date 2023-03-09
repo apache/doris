@@ -61,6 +61,7 @@ under the License.
             </properties>
         </profile>
         <profile>
+            <id>protoc_rosetta</id>
             <activation>
                 <os>
                     <name>Mac OS X</name>
@@ -70,6 +71,17 @@ under the License.
             <properties>
                 <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
                 <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:osx-x86_64</grpc.java.artifact>
+            </properties>
+        </profile>
+        <profile>
+            <id>protoc_command</id>
+            <activation>
+                <file>
+                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
+                </file>
+            </activation>
+            <properties>
+                <protoc.command>${doris.thirdparty}/installed/bin/protoc</protoc.command>
             </properties>
         </profile>
     </profiles>
@@ -900,7 +912,7 @@ under the License.
                             <goal>run</goal>
                         </goals>
                         <configuration>
-                            <!-- <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand> -->
+                            <protocCommand>${protoc.command}</protocCommand>
                             <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
                             <protocArtifact>${protoc.artifact}</protocArtifact>
                             <protocVersion>${protobuf.version}</protocVersion>
