@@ -2056,5 +2056,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int mysql_load_thread_pool = 4;
 }
 
