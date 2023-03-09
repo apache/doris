@@ -67,6 +67,8 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -389,15 +391,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
+        NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
+        if (binaryArithmetic instanceof AlwaysNullable) {
+            nullableMode = NullableMode.ALWAYS_NULLABLE;
+        } else if (binaryArithmetic instanceof AlwaysNotNullable) {
+            nullableMode = NullableMode.ALWAYS_NOT_NULLABLE;
+        }
         return new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
-                binaryArithmetic.child(1).accept(this, context));
+                binaryArithmetic.child(1).accept(this, context),
+                binaryArithmetic.getDataType().toCatalogDataType(), nullableMode);
     }
 
     @Override
     public Expr visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, PlanTranslatorContext context) {
         return new ArithmeticExpr(unaryArithmetic.getLegacyOperator(),
-                unaryArithmetic.child().accept(this, context), null);
+                unaryArithmetic.child().accept(this, context), null,
+                unaryArithmetic.getDataType().toCatalogDataType(), NullableMode.DEPEND_ON_ARGUMENT);
 
     }
 

@@ -19,26 +19,26 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
- * decimal type literal
+ * Literal for DecimalV3 Type
  */
-public class DecimalLiteral extends Literal {
+public class DecimalV3Literal extends Literal {
 
     private final BigDecimal value;
 
-    public DecimalLiteral(BigDecimal value) {
-        super(DecimalV2Type.createDecimalV2Type(value));
+    public DecimalV3Literal(BigDecimal value) {
+        super(DecimalV3Type.createDecimalV3Type(value));
         this.value = Objects.requireNonNull(value);
     }
 
-    public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
-        super(DecimalV2Type.createDecimalV2Type(dataType.getPrecision(), dataType.getScale()));
+    public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
+        super(DecimalV3Type.createDecimalV3Type(dataType.getPrecision(), dataType.getScale()));
         this.value = Objects.requireNonNull(value.setScale(dataType.getScale(), RoundingMode.DOWN));
     }
 
@@ -49,12 +49,12 @@ public class DecimalLiteral extends Literal {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitDecimalLiteral(this, context);
+        return visitor.visitDecimalV3Literal(this, context);
     }
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DecimalLiteral(value);
+        return new org.apache.doris.analysis.DecimalLiteral(value, getDataType().toCatalogDataType());
     }
 
     @Override
