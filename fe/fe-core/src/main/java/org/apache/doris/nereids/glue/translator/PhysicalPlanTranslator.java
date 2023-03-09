@@ -1470,13 +1470,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // Union contains oneRowRelation
         if (inputFragment == null) {
-            return inputFragment;
+            return null;
         }
-        // For case globalLimit(l, o) -> LocalLimit(l+o, 0), that is the LocalLimit has already gathered
-        // The globalLimit can overwrite the limit and offset, so it's still correct
+
         PlanNode child = inputFragment.getPlanRoot();
-        child.setLimit(physicalLimit.getLimit());
+
+        // This case means GlobalLimit's child isn't gatherNode, which suggests the child is UNPARTITIONED
+        // When there is valid offset, exchangeNode should be added because other node don't support offset
+        if (physicalLimit.isGlobal() && physicalLimit.hasValidOffset()
+                && !(child instanceof ExchangeNode)) {
+            inputFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
+            child = inputFragment.getPlanRoot();
+        }
         child.setOffset(physicalLimit.getOffset());
+        child.setLimit(physicalLimit.getLimit());
         return inputFragment;
     }
 
