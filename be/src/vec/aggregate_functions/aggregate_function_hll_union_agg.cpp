@@ -19,36 +19,26 @@
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_HLL_union_agg(const std::string& name,
-                                                             const DataTypes& argument_types,
-                                                             const bool result_is_nullable) {
+template <template <typename> class Impl>
+AggregateFunctionPtr create_aggregate_function_HLL(const std::string& name,
+                                                   const DataTypes& argument_types,
+                                                   const bool result_is_nullable) {
     assert_arity_at_most<1>(name, argument_types);
-
-    return std::make_shared<AggregateFunctionHLLUnion<
-            AggregateFunctionHLLUnionAggImpl<AggregateFunctionHLLData<is_nullable>>>>(
-            argument_types);
-}
-
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name,
-                                                         const DataTypes& argument_types,
-                                                         const bool result_is_nullable) {
-    assert_arity_at_most<1>(name, argument_types);
-
-    return std::make_shared<AggregateFunctionHLLUnion<
-            AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData<is_nullable>>>>(argument_types);
+    return AggregateFunctionPtr(
+            creator_without_type::create<AggregateFunctionHLLUnion<Impl<AggregateFunctionHLLData>>>(
+                    result_is_nullable, argument_types));
 }
 
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg<false>);
-    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg<true>, true);
+    factory.register_function_both("hll_union_agg",
+                                   create_aggregate_function_HLL<AggregateFunctionHLLUnionAggImpl>);
 
-    factory.register_function("hll_union", create_aggregate_function_HLL_union<false>);
-    factory.register_function("hll_union", create_aggregate_function_HLL_union<true>, true);
+    factory.register_function_both("hll_union",
+                                   create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);
     factory.register_alias("hll_union", "hll_raw_agg");
 }
 

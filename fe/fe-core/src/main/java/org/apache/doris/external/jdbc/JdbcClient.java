@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
@@ -180,8 +181,8 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
-                            + "where schema_owner='" + jdbcUser + "';");
+                    rs = stmt.executeQuery("SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
+                            + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
@@ -376,7 +377,8 @@ public class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s", e, tableName);
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+                    Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }

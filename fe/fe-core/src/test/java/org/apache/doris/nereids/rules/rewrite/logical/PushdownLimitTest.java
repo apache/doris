@@ -22,6 +22,7 @@ import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -204,12 +205,19 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                                     // plan among fragments has duplicate elements.
                                     (s1, s2) -> s1)
                             );
-
                     // limit is push down to left scan of `t1`.
                     Assertions.assertEquals(2, nameToScan.size());
                     Assertions.assertEquals(5, nameToScan.get("t1").getLimit());
                 }
         );
+    }
+
+    @Test
+    public void testLimitPushSort() {
+        PlanChecker.from(connectContext)
+                .analyze("select k1 from t1 order by k1 limit 1")
+                .rewrite()
+                .matches(logicalTopN());
     }
 
     @Test
@@ -229,8 +237,10 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                                         logicalOlapScan().when(scan -> "t2".equals(scan.getTable().getName()))
                                 ),
                                 logicalLimit(
-                                        logicalProject(
-                                                logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
+                                        logicalLimit(
+                                            logicalProject(
+                                                    logicalOlapScan().when(scan -> "t3".equals(scan.getTable().getName()))
+                                            )
                                         )
                                 )
                         )
@@ -261,12 +271,12 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
 
         if (hasProject) {
             // return limit -> project -> join
-            return new LogicalLimit<>(10, 0, new LogicalProject<>(
+            return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, new LogicalProject<>(
                     ImmutableList.of(new UnboundSlot("sid"), new UnboundSlot("id")),
                     join));
         } else {
             // return limit -> join
-            return new LogicalLimit<>(10, 0, join);
+            return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, join);
         }
     }
 }

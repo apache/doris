@@ -32,7 +32,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-class DateTimeValue;
 
 namespace vectorized {
 
@@ -1094,13 +1093,6 @@ public:
     uint64_t set_datetime_uint64(uint64_t int_val);
 
     bool get_date_from_daynr(uint64_t);
-
-    static DateV2Value<DateTimeV2ValueType> from_datetimev2_val(const doris::DateTimeV2Val& tv) {
-        DCHECK(is_datetime);
-        DateV2Value<DateTimeV2ValueType> value;
-        value.from_datetime(tv.datetimev2_value);
-        return value;
-    }
 
     template <TimeUnit unit>
     void set_time_unit(uint32_t val) {

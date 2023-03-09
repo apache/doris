@@ -21,16 +21,26 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -45,36 +55,84 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply().when(LogicalApply::isIn).then(apply -> {
-            Expression predicate;
-            if (apply.isCorrelated()) {
-                predicate = ExpressionUtils.and(
-                        new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
-                                apply.right().getOutput().get(0)),
-                        apply.getCorrelationFilter().get());
-            } else {
-                predicate = new EqualTo(((InSubquery) apply.getSubqueryExpr()).getCompareExpr(),
-                        apply.right().getOutput().get(0));
+            if (needBitmapUnion(apply)) {
+                if (apply.isCorrelated()) {
+                    throw new AnalysisException("In bitmap does not support correlated subquery");
+                }
+                /*
+                case 1: in
+                select t1.k1 from bigtable t1 where t1.k1 in (select t2.k2 from bitmap_table t2);
+                =>
+                select t1.k1 from bigtable t1 where t1.k1 in (select bitmap_union(k2) from bitmap_table t2);
+                =>
+                select t1.k1 from bigtable t1 left semi join (select bitmap_union(k2) x from bitmap_table ) t2
+                on bitmap_contains(x, t1.k1);
+
+                case 2: not in
+                select t1.k1 from bigtable t1 where t1.k1 not in (select t2.k2 from bitmap_table t2);
+                =>
+                select t1.k1 from bigtable t1 where t1.k1 not in (select bitmap_union(k2) from bitmap_table t2);
+                =>
+                select t1.k1 from bigtable t1 left semi join (select bitmap_union(k2) x from bitmap_table ) t2
+                on not bitmap_contains(x, t1.k1);
+                 */
+                List<Expression> groupExpressions = ImmutableList.of();
+                Expression bitmapCol = apply.right().getOutput().get(0);
+                BitmapUnion union = new BitmapUnion(bitmapCol);
+                Alias alias = new Alias(union, union.toSql());
+                List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
+
+                LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
+                Expression compareExpr = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
+                if (!compareExpr.getDataType().isBigIntType()) {
+                    //this rule is after type coercion, we need to add cast by hand
+                    compareExpr = new Cast(compareExpr, BigIntType.INSTANCE);
+                }
+                Expression expr = new BitmapContains(agg.getOutput().get(0), compareExpr);
+                if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
+                    expr = new Not(expr);
+                }
+                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
+                        Lists.newArrayList(expr),
+                        JoinHint.NONE,
+                        apply.left(), agg);
             }
 
-            //TODO nereids should support bitmap runtime filter in future
-            List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
-            if (conjuncts.stream().anyMatch(expression -> expression.children().stream()
-                    .anyMatch(expr -> expr.getDataType() == BitmapType.INSTANCE))) {
-                throw new AnalysisException("nereids don't support bitmap runtime filter");
+            //in-predicate to equal
+            Expression predicate;
+            Expression left = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
+            Expression right = apply.right().getOutput().get(0);
+            if (apply.isCorrelated()) {
+                predicate = ExpressionUtils.and(
+                        TypeCoercionUtils.processComparisonPredicate(
+                            new EqualTo(left, right), left, right),
+                        apply.getCorrelationFilter().get());
+            } else {
+                predicate = TypeCoercionUtils.processComparisonPredicate(new EqualTo(left, right), left, right);
             }
+
+            if (apply.getSubCorrespondingConject().isPresent()) {
+                predicate = ExpressionUtils.and(predicate, apply.getSubCorrespondingConject().get());
+            }
+            List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
                 return new LogicalJoin<>(
                         predicate.nullable() ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN : JoinType.LEFT_ANTI_JOIN,
                         Lists.newArrayList(),
                         conjuncts,
-                        JoinHint.NONE,
+                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
                         apply.left(), apply.right());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
-                        JoinHint.NONE,
+                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
                         apply.left(), apply.right());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
+    }
+
+    private boolean needBitmapUnion(LogicalApply<Plan, Plan> apply) {
+        return apply.right().getOutput().get(0).getDataType().isBitmapType()
+                && !((InSubquery) apply.getSubqueryExpr()).getCompareExpr().getDataType().isBitmapType();
     }
 }

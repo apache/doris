@@ -40,10 +40,10 @@ import java.util.Optional;
  */
 public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements TopN {
 
-    private final int limit;
-    private final int offset;
+    private final long limit;
+    private final long offset;
 
-    public PhysicalTopN(List<OrderKey> orderKeys, int limit, int offset,
+    public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(orderKeys, limit, offset, phase, Optional.empty(), logicalProperties, child);
     }
@@ -51,7 +51,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalTopN(List<OrderKey> orderKeys, int limit, int offset,
+    public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, child);
@@ -63,7 +63,7 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalTopN(List<OrderKey> orderKeys, int limit, int offset,
+    public PhysicalTopN(List<OrderKey> orderKeys, long limit, long offset,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_TOP_N, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
@@ -73,11 +73,11 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
         this.offset = offset;
     }
 
-    public int getLimit() {
+    public long getLimit() {
         return limit;
     }
 
-    public int getOffset() {
+    public long getOffset() {
         return offset;
     }
 

@@ -833,7 +833,8 @@ CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // "whole_file_cache": the whole file.
 CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
+           config == "file_block_cache";
 });
 CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 

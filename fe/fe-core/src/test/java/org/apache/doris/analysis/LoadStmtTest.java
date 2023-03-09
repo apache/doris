@@ -240,4 +240,47 @@ public class LoadStmtTest {
         Assert.assertNull(stmt.getLabel().getDbName());
         Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
     }
+
+    @Test
+    public void testMySqlLoadPath(@Injectable DataDescription desc) throws UserException, IOException {
+        File temp = File.createTempFile("testMySqlLoadData_path", ".txt");
+        String parentPath = temp.getParent();
+        String fakePath = parentPath + "/../fake_path";
+        new Expectations() {
+            {
+                desc.isClientLocal();
+                minTimes = 0;
+                result = false;
+
+                desc.getFilePaths();
+                minTimes = 0;
+                result = Lists.newArrayList(fakePath);
+
+                desc.toSql();
+                minTimes = 0;
+                result = "XXX";
+
+                desc.getTableName();
+                minTimes = 0;
+                result = "testTbl";
+
+                desc.analyzeFullDbName(null, (Analyzer) any);
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                desc.getMergeType();
+                minTimes = 0;
+                result = LoadTask.MergeType.APPEND;
+            }
+        };
+
+        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap(), "");
+        Config.mysql_load_server_secure_path = parentPath;
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException ae) {
+            Assert.assertEquals("errCode = 2, detailMessage = Local file should be under the secure path of FE.",
+                    ae.getMessage());
+        }
+    }
 }

@@ -137,7 +137,6 @@ public class RuntimeProfile {
     // preorder traversal, idx should be modified in the traversal process
     private void update(List<TRuntimeProfileNode> nodes, Reference<Integer> idx) {
         TRuntimeProfileNode node = nodes.get(idx.getRef());
-
         // update this level's counters
         if (node.counters != null) {
             for (TCounter tcounter : node.counters) {

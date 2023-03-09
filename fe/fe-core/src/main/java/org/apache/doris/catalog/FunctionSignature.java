@@ -62,6 +62,18 @@ public class FunctionSignature {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }
 
+    public FunctionSignature withArgumentType(int index, AbstractDataType argumentType) {
+        ImmutableList.Builder<AbstractDataType> builder = ImmutableList.builder();
+        for (int i = 0; i < argumentsTypes.size(); i++) {
+            if (i == index) {
+                builder.add(argumentType);
+            } else {
+                builder.add(argumentsTypes.get(i));
+            }
+        }
+        return new FunctionSignature(returnType, hasVarArgs, builder.build());
+    }
+
     public FunctionSignature withArgumentTypes(boolean hasVarArgs, List<? extends AbstractDataType> argumentsTypes) {
         return new FunctionSignature(returnType, hasVarArgs, argumentsTypes);
     }

@@ -75,7 +75,7 @@ public class PhysicalPlanTranslatorTest {
         PhysicalProject<PhysicalFilter<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
                 placeHolder, filter);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
-        PhysicalPlanTranslator translator = new PhysicalPlanTranslator();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator(planTranslatorContext, null);
         PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
         PlanNode planNode = fragment.getPlanRoot();
         List<OlapScanNode> scanNodeList = new ArrayList<>();

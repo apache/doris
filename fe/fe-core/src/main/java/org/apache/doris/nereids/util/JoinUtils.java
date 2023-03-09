@@ -27,7 +27,9 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -134,6 +136,39 @@ public class JoinUtils {
                 mapper.getOrDefault(true, ImmutableList.of()),
                 mapper.getOrDefault(false, ImmutableList.of())
         );
+    }
+
+    /**
+     * This is used for bitmap runtime filter only.
+     * Extract bitmap_contains conjunct:
+     * like: bitmap_contains(a, b) and ..., Not(bitmap_contains(a, b)) and ...,
+     * where `a` and `b` are from right child and left child, respectively.
+     *
+     * @return condition for bitmap runtime filter: bitmap_contains
+     */
+    public static List<Expression> extractBitmapRuntimeFilterConditions(List<Slot> leftSlots,
+            List<Slot> rightSlots, List<Expression> onConditions) {
+        List<Expression> result = Lists.newArrayList();
+        for (Expression expr : onConditions) {
+            BitmapContains bitmapContains = null;
+            if (expr instanceof Not) {
+                List<Expression> notChildren = ExpressionUtils.extractConjunction(expr.child(0));
+                if (notChildren.size() == 1 && notChildren.get(0) instanceof BitmapContains) {
+                    bitmapContains = (BitmapContains) notChildren.get(0);
+                }
+            } else if (expr instanceof BitmapContains) {
+                bitmapContains = (BitmapContains) expr;
+            }
+            if (bitmapContains == null) {
+                continue;
+            }
+            //first child in right, second child in left
+            if (leftSlots.containsAll(bitmapContains.child(1).collect(Slot.class::isInstance))
+                    && rightSlots.containsAll(bitmapContains.child(0).collect(Slot.class::isInstance))) {
+                result.add(expr);
+            }
+        }
+        return result;
     }
 
     /**

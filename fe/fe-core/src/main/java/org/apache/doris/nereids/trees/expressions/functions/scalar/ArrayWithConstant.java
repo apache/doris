@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -62,6 +63,8 @@ public class ArrayWithConstant extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(BigIntType.INSTANCE, DoubleType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(BigIntType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                    .args(BigIntType.INSTANCE, DecimalV3Type.WILDCARD),
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
                     .args(BigIntType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(BigIntType.INSTANCE, StringType.INSTANCE)

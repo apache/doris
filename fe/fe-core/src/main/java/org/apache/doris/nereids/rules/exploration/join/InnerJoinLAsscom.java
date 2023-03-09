@@ -52,6 +52,7 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
         return innerLogicalJoin(innerLogicalJoin(), group())
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -93,7 +94,8 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         return !bottomJoin.getJoinReorderContext().hasCommuteZigZag()
-                && !topJoin.getJoinReorderContext().hasLAsscom();
+                && !topJoin.getJoinReorderContext().hasLAsscom()
+                && (!bottomJoin.isMarkJoin() && !topJoin.isMarkJoin());
     }
 
     /**

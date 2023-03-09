@@ -55,12 +55,237 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_hash64_3  """ select bitmap_count(bitmap_hash64(null)) """
 
     // BITMAP_OR
-    qt_sql """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt """
-    qt_sql """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(1))) cnt """
-    qt_sql """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2))) """
-    qt_sql """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) """
-    qt_sql """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), bitmap_empty())) """
-    qt_sql """ select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) """
+    qt_sql_bitmap_or1 """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt """
+    qt_sql_bitmap_or2  """ select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(1))) cnt """
+    qt_sql_bitmap_or3  """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2))) """
+    qt_sql_bitmap_or4  """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) """
+    qt_sql_bitmap_or5  """ select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), bitmap_empty())) """
+    qt_sql_bitmap_or6  """ select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) """
+    qt_sql_bitmap_or7  """ select bitmap_count(bitmap_or(to_bitmap(1), null)) cnt """
+
+    // bitmap_or of all nullable column
+    sql """ DROP TABLE IF EXISTS test_bitmap_or1 """
+    sql """ DROP TABLE IF EXISTS test_bitmap_or2 """
+    sql """
+        CREATE TABLE test_bitmap_or1 (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into
+            test_bitmap_or1
+        values
+            (1, to_bitmap(11)),
+            (2, to_bitmap(22)),
+            (3, to_bitmap(33)),
+            (4, to_bitmap(44));
+    """
+    sql """
+        CREATE TABLE test_bitmap_or2 (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into
+            test_bitmap_or2
+        values
+            (1, to_bitmap(111)),
+            (2, to_bitmap(222)),
+            (5, to_bitmap(555));
+    """
+    qt_sql_bitmap_or8 """
+        select
+            l.dt,
+            bitmap_count(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or_count6 """
+        select
+            l.dt,
+            bitmap_or_count(l.id, r.id) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or9 """
+        select
+            l.dt,
+            bitmap_count(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        where r.id is not null
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or_count7 """
+        select
+            l.dt,
+            bitmap_or_count(l.id, r.id) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        where r.id is not null
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or10 """
+        select
+            l.dt,
+            bitmap_to_string(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        order by l.dt
+    """
+    qt_sql_bitmap_or11 """
+        select
+            l.dt,
+            bitmap_to_string(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        where r.id is not null
+        order by l.dt
+    """
+
+    // bitmap_or of NOT NULLABLE column and nullable column
+    sql """ DROP TABLE IF EXISTS test_bitmap_or1 """
+    sql """
+        CREATE TABLE test_bitmap_or1 (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NOT NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 2
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into
+            test_bitmap_or1
+        values
+            (1, to_bitmap(11)),
+            (2, to_bitmap(22)),
+            (3, to_bitmap(33)),
+            (4, to_bitmap(44));
+    """
+    qt_sql_bitmap_or12 """
+        select
+            l.dt,
+            bitmap_count(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or_count8 """
+        select
+            l.dt,
+            bitmap_or_count(l.id, r.id) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or13 """
+        select
+            l.dt,
+            bitmap_count(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        where r.id is not null
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or_count9 """
+        select
+            l.dt,
+            bitmap_or_count(l.id, r.id) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        where r.id is not null
+        order by l.dt, count
+    """
+    qt_sql_bitmap_or14 """
+        select
+            l.dt,
+            bitmap_to_string(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        order by l.dt
+    """
+    qt_sql_bitmap_or15 """
+        select
+            l.dt,
+            bitmap_to_string(bitmap_or(l.id, r.id)) count
+        from
+            test_bitmap_or1 l left join test_bitmap_or2 r
+            on l.dt = r.dt
+        where r.id is not null
+        order by l.dt
+    """
+
+    qt_sql_bitmap_or16_0 """ select bitmap_from_string("1") is null """
+    qt_sql_bitmap_or16_1 """ select bitmap_from_string("a") is null """
+    qt_sql_bitmap_or16 """ select bitmap_or(bitmap_from_string("a"), bitmap_from_string("b")) is null"""
+    qt_sql_bitmap_or17 """ select bitmap_count(bitmap_or(bitmap_from_string("a"), bitmap_from_string("b"))) """
+    qt_sql_bitmap_or_count10 """ select bitmap_or_count(bitmap_from_string("a"), bitmap_from_string("b")) """
+    qt_sql_bitmap_or18 """ select bitmap_to_string(bitmap_or(bitmap_from_string("a"), bitmap_from_string("b"))) """
+    qt_sql_bitmap_or19 """ select bitmap_or(null, null) is null"""
+    // qt_sql_bitmap_or20 """ select bitmap_count(bitmap_or(null, null))"""
+    qt_sql_bitmap_or21 """ select bitmap_to_string(bitmap_or(null, null))"""
+
+    sql """ drop view if exists v1 """
+    sql """ drop view if exists v2 """
+    sql """
+        create view v1 as
+        (select
+          l.dt ldt,
+          l.id lid,
+          r.dt rdt,
+          r.id rid
+        from
+          test_bitmap_or1 l
+          left join test_bitmap_or2 r on l.dt = r.dt
+        where r.id is null);
+    """
+    sql """
+        create view v2 as
+        (select
+          l.dt ldt,
+          l.id lid,
+          r.dt rdt,
+          r.id rid
+        from
+          test_bitmap_or1 l
+          right join test_bitmap_or2 r on l.dt = r.dt
+        where l.id is null);
+    """
+
+    // test bitmap_or of all non-const null column values
+    qt_sql_bitmap_or22_0 """ select ldt, bitmap_count(lid), bitmap_count(rid) from v1 where rid is null order by ldt; """
+    qt_sql_bitmap_or22_1 """ select rdt, bitmap_count(lid), bitmap_count(rid) from v2 where lid is null order by rdt; """
+    qt_sql_bitmap_or22 """ select v1.ldt, v1.rdt, v2.ldt, v2.rdt, bitmap_or(v1.rid, v2.lid) is null from v1, v2 order by v1.ldt, v2.rdt; """
+    qt_sql_bitmap_or_count11 """ select v1.ldt, v1.rdt, v2.ldt, v2.rdt, bitmap_or_count(v1.rid, v2.lid) from v1, v2 order by v1.ldt, v2.rdt; """
+    qt_sql_bitmap_or23 """ select v1.ldt, v1.rdt, v2.ldt, v2.rdt, bitmap_to_string(bitmap_or(v1.rid, v2.lid)) from v1, v2 order by v1.ldt, v2.rdt; """
 
     // bitmap_and_count
     qt_sql """ select bitmap_and_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
@@ -71,11 +296,11 @@ suite("test_bitmap_function") {
     qt_sql """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL) """
 
     // bitmap_or_count
-    qt_sql """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
-    qt_sql """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('1,2,3'))"""
-    qt_sql """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) """
-    qt_sql """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty()) """
-    qt_sql """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) """
+    qt_sql_bitmap_or_count1 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
+    qt_sql_bitmap_or_count2 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('1,2,3'))"""
+    qt_sql_bitmap_or_count3 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) """
+    qt_sql_bitmap_or_count4 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty()) """
+    qt_sql_bitmap_or_count5 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) """
 
     // BITMAP_XOR
     qt_sql """ select bitmap_count(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))) cnt """
