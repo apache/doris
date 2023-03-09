@@ -260,7 +260,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public PhysicalHashAggregate<CHILD_TYPE> withAggOutputs(List<NamedExpression> newOutputs) {
+    public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutputs) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutputs, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
                 requireProperties, physicalProperties, statistics, child());

@@ -47,7 +47,7 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
                                             .map(ne -> ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne,
                                                     agg.getGroupByExpressions().isEmpty())))
                                             .collect(ImmutableList.toImmutableList());
-                                    return agg.withAggOutputs(output);
+                                    return agg.withAggOutput(output);
                                 })
                 ),
                 RuleType.ADJUST_NULLABLE_FOR_HAVING_SLOT.build(
