@@ -379,7 +379,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-        column_ptr = _src_block.get_by_position(result_column_id).column;
+        vectorized::ColumnPtr column_ptr = _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
 

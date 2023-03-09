@@ -2081,7 +2081,7 @@ public class Env {
         int jobSize = dbToLoadJob.size();
         checksum ^= jobSize;
         dos.writeInt(jobSize);
-        for (Entry<Long, List<LoadJob>> entry : dbToLoadJob.entrySet()) {
+        for (Map.Entry<Long, List<LoadJob>> entry : dbToLoadJob.entrySet()) {
             long dbId = entry.getKey();
             checksum ^= dbId;
             dos.writeLong(dbId);
