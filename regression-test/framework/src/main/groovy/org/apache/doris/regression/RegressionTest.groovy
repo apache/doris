@@ -182,25 +182,25 @@ class RegressionTest {
         if (!config.withOutLoadData) {
             List<String> load_sources = new ArrayList<>()
             List<String> other_sources = new ArrayList<>()
+
             new File(config.suitePath).eachDir { dir ->
                 {
-                    def load_flag = 0
-                    dir.eachFileRecurse { f_01 ->
-                        if (f_01.name.contains("load")) {
-                            load_flag = 1
-                            load_sources.add(f_01.name)
+                    List<String> load_temp_sources = new ArrayList<>()
+                    List<String> other_temp_sources = new ArrayList<>()
+                    load_temp_sources.clear()
+                    other_temp_sources.clear()
+                    dir.eachFileRecurse { f ->
+                        if (f.name.contains("load")) {
+                            load_temp_sources.add(f.name)
+                        }else{
+                            other_temp_sources.add(f.name)
                         }
                     }
-                    if (load_flag == 0) {
-                        dir.eachFileRecurse { f_02 ->
-                            load_sources.add(f_02.name)
-                        }
+                    if (load_temp_sources) {
+                        load_sources.addAll(load_temp_sources)
+                        other_sources.addAll(other_temp_sources)
                     }else {
-                        dir.eachFileRecurse { f_03 ->
-                            if (! f_03.name.contains("load")) {
-                                other_sources.add(f_03.name)
-                            }
-                        }
+                        load_sources.addAll(other_temp_sources)
                     }
                 }
             }
