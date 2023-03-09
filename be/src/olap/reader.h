@@ -112,8 +112,8 @@ public:
         std::vector<uint32_t>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
+        vectorized::VExpr* remaining_vconjunct_root = nullptr;
         vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
-        bool enable_common_expr_pushdown = false;
 
         // used for compaction to record row ids
         bool record_rowids = false;
@@ -127,6 +127,8 @@ public:
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
+        // filter_block arguments
+        vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
 
         // for vertical compaction
         bool is_key_column_group = false;

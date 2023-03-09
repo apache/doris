@@ -181,8 +181,6 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
-
-    bool _enable_common_expr_pushdown = false;
 };
 
 } // namespace doris::vectorized

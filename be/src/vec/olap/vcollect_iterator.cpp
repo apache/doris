@@ -287,6 +287,11 @@ Status VCollectIterator::_topn_next(Block* block) {
 
             auto col_name = block->get_names()[first_sort_column_idx];
 
+            // filter block
+            RETURN_IF_ERROR(VExprContext::filter_block(
+                    *(_reader->_reader_context.filter_block_vconjunct_ctx_ptr), block,
+                    block->columns()));
+
             // update read rows
             read_rows += block->rows();
 

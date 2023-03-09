@@ -186,10 +186,9 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
         _output_columns = *(opts.output_columns);
     }
 
+    _remaining_vconjunct_root = opts.remaining_vconjunct_root;
     _common_vexpr_ctxs_pushdown = opts.common_vexpr_ctxs_pushdown;
-    _remaining_vconjunct_root =
-            _common_vexpr_ctxs_pushdown ? _common_vexpr_ctxs_pushdown->root() : nullptr;
-    _enable_common_expr_pushdown = opts.enable_common_expr_pushdown;
+    _enable_common_expr_pushdown = _common_vexpr_ctxs_pushdown ? true : false;
     _column_predicate_info.reset(new ColumnPredicateInfo());
     _calculate_pred_in_remaining_vconjunct_root(_remaining_vconjunct_root);
 

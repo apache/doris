@@ -214,14 +214,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
+    // TODO: If a new runtime filter arrives after `_vconjunct_ctx` move to `_common_vexpr_ctxs_pushdown`,
+    // `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` will have values at the same time,
+    // and the root() of `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` should be merged as `remaining_vconjunct_root`
+    _tablet_reader_params.remaining_vconjunct_root =
+            (_common_vexpr_ctxs_pushdown == nullptr)
+                    ? (_vconjunct_ctx == nullptr ? nullptr : _vconjunct_ctx->root())
+                    : _common_vexpr_ctxs_pushdown->root();
     _tablet_reader_params.common_vexpr_ctxs_pushdown = _common_vexpr_ctxs_pushdown;
-
-    if (_tablet->keys_type() == KeysType::DUP_KEYS ||
-        (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-         _tablet->enable_unique_key_merge_on_write())) {
-        _tablet_reader_params.enable_common_expr_pushdown = _state->enable_common_expr_pushdown();
-        _enable_common_expr_pushdown = _state->enable_common_expr_pushdown();
-    }
     _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
@@ -351,6 +351,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
             _tablet_reader_params.read_orderby_key_limit = _limit;
+            _tablet_reader_params.filter_block_vconjunct_ctx_ptr = &_vconjunct_ctx;
         }
 
         // runtime predicate push down optimization for topn
