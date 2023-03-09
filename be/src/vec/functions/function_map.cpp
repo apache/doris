@@ -63,7 +63,7 @@ public:
         get_least_supertype(key_types, &key_type);
         get_least_supertype(val_types, &val_type);
 
-        return std::make_shared<DataTypeMap>(key_type, val_type);
+        return std::make_shared<DataTypeMap>(make_nullable(key_type), make_nullable(val_type));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -74,22 +74,21 @@ public:
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
-        // auto result_col_map = static_cast<ColumnMap*>(result_col.get());
-        // auto col_map = typeid_cast<ColumnMap*>(result_col.get());
-        auto col_map = static_cast<ColumnMap*>(result_col.get());
-        auto col_map_keys = static_cast<ColumnArray*>(&col_map->get_keys());
-        auto col_map_vals = static_cast<ColumnArray*>(&col_map->get_values());
+        auto map_column = typeid_cast<ColumnMap*>(result_col.get());
+        if (!map_column) {
+            return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
+                                        block.get_by_position(result).type->get_name());
+        }
 
-        // map keys array data and offsets
-        auto& result_col_map_keys_data = col_map_keys->get_data();
-        auto& result_col_map_keys_offsets = col_map_keys->get_offsets();
+        // map keys column
+        auto& result_col_map_keys_data = map_column->get_keys();
         result_col_map_keys_data.reserve(input_rows_count * num_element / 2);
-        result_col_map_keys_offsets.resize(input_rows_count);
-        // map values array data and offsets
-        auto& result_col_map_vals_data = col_map_vals->get_data();
-        auto& result_col_map_vals_offsets = col_map_vals->get_offsets();
+        // map values column
+        auto& result_col_map_vals_data = map_column->get_values();
         result_col_map_vals_data.reserve(input_rows_count * num_element / 2);
-        result_col_map_vals_offsets.resize(input_rows_count);
+        // map offsets column
+        auto& result_col_map_offsets = map_column->get_offsets();
+        result_col_map_offsets.resize(input_rows_count);
 
         // convert to nullable column
         for (size_t i = 0; i < num_element; ++i) {
@@ -112,8 +111,7 @@ public:
                         *block.get_by_position(arguments[i + 1]).column, row);
             }
             offset += num_element / 2;
-            result_col_map_keys_offsets[row] = offset;
-            result_col_map_vals_offsets[row] = offset;
+            result_col_map_offsets[row] = offset;
         }
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();
@@ -225,7 +223,7 @@ public:
         }
         const auto datatype_map = static_cast<const DataTypeMap*>(datatype.get());
         if constexpr (is_key) {
-            const auto& array_column = map_column->get_keys_ptr();
+            const auto& array_column = map_column->get_keys_array_ptr();
             const auto datatype_array =
                     std::make_shared<DataTypeArray>(datatype_map->get_key_type());
             if (nullmap_column) {
@@ -239,7 +237,7 @@ public:
                         block.get_by_position(arguments[0]).name + ".keys"};
             }
         } else {
-            const auto& array_column = map_column->get_values_ptr();
+            const auto& array_column = map_column->get_values_array_ptr();
             const auto datatype_array =
                     std::make_shared<DataTypeArray>(datatype_map->get_value_type());
             if (nullmap_column) {
@@ -265,67 +263,6 @@ public:
 private:
     FunctionArrayIndex<ArrayContainsAction, FunctionMapContains<is_key>> array_contains;
 };
-
-// template<bool is_key>
-// class FunctionMapContainsLike : public IFunction {
-// public:
-//     static constexpr auto name = is_key ? "map_contains_key_like" : "map_contains_value_like";
-//     static FunctionPtr create() { return std::make_shared<FunctionMapContainsLike>(); }
-
-//     /// Get function name.
-//     String get_name() const override { return name; }
-
-//     bool is_variadic() const override { return false; }
-
-//     size_t get_number_of_arguments() const override { return 2; }
-
-//     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-//         DCHECK(is_map(arguments[0]))
-//                 << "first argument for function: " << name << " should be DataTypeMap";
-
-//         if (arguments[0]->is_nullable()) {
-//             return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
-//         } else {
-//             return std::make_shared<DataTypeNumber<UInt8>>();
-//         }
-//     }
-
-//     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-//                         size_t result, size_t input_rows_count) override {
-//         // backup original argument 0
-//         auto orig_arg0 = block.get_by_position(arguments[0]);
-//         auto left_column =
-//                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-//         const auto col_map = check_and_get_column<ColumnMap>(*left_column);
-//         if (!col_map) {
-//             return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-//                                         block.get_by_position(arguments[0]).type->get_name());
-//         }
-
-//         const auto datatype_map =
-//             static_cast<const DataTypeMap*>(block.get_by_position(arguments[0]).type.get());
-//         if constexpr(is_key) {
-//             block.get_by_position(arguments[0]) = {
-//                 col_map->get_keys_ptr(),
-//                 std::make_shared<DataTypeArray>(datatype_map->get_key_type()),
-//                 block.get_by_position(arguments[0]).name + ".keys"
-//             };
-//         } else {
-//             block.get_by_position(arguments[0]) = {
-//                 col_map->get_values_ptr(),
-//                 std::make_shared<DataTypeArray>(datatype_map->get_value_type()),
-//                 block.get_by_position(arguments[0]).name + ".values"
-//             };
-//         }
-
-//         RETURN_IF_ERROR(
-//             array_contains.execute_impl(context, block, arguments, result, input_rows_count));
-
-//         // restore original argument 0
-//         block.get_by_position(arguments[0]) = orig_arg0;
-//         return Status::OK();
-//     }
-// };
 
 template <bool is_key>
 class FunctionMapEntries : public IFunction {
@@ -372,9 +309,9 @@ public:
         }
 
         if constexpr (is_key) {
-            block.replace_by_position(result, map_column->get_keys_ptr());
+            block.replace_by_position(result, map_column->get_keys_array_ptr());
         } else {
-            block.replace_by_position(result, map_column->get_values_ptr());
+            block.replace_by_position(result, map_column->get_values_array_ptr());
         }
 
         return Status::OK();

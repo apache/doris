@@ -235,7 +235,8 @@ private:
         const auto& map_column = reinterpret_cast<const ColumnMap&>(*left_column);
 
         // create column array to find keys
-        auto key_arr = ColumnArray::create(map_column.get_keys_ptr(), map_column.get_offsets_ptr());
+        auto key_arr =
+                ColumnArray::create(map_column.get_keys_ptr(), map_column.get_offsets_ptr());
         auto val_arr =
                 ColumnArray::create(map_column.get_values_ptr(), map_column.get_offsets_ptr());
 
