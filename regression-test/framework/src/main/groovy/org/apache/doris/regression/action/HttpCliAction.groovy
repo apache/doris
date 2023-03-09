@@ -36,6 +36,7 @@ class HttpCliAction implements SuiteAction {
     private String uri
     private String body
     private String result
+    private String op
     private Closure check
     SuiteContext context
 
@@ -67,6 +68,18 @@ class HttpCliAction implements SuiteAction {
         this.body = body
     }
 
+    void op(Closure<String> opSupplier) {
+        this.op = bodySupplier.call()
+    }
+
+    void op(String op) {
+        this.op = op
+    }
+
+    void result(Object result) {
+        this.result = result
+    }
+
     @Override
     void run() {
         try {
@@ -74,24 +87,41 @@ class HttpCliAction implements SuiteAction {
                 uri = "http://$endpoint" + uri
                 log.info("url : " + uri)
                 log.info("body: " + body)
-                HttpPost httpPost = new HttpPost(uri)
-                StringEntity requestEntity = new StringEntity(
-                        body,
-                        ContentType.APPLICATION_JSON);
-                httpPost.setEntity(requestEntity)
-                client.execute(httpPost).withCloseable { resp ->
-                    resp.withCloseable {
-                        String respJson = EntityUtils.toString(resp.getEntity())
-                        def respCode = resp.getStatusLine().getStatusCode()
-                        return new ActionResult(respCode, respJson)
+                log.info("op: " + op)
+
+                if (op == "get") {
+                    HttpGet httpGet = new HttpGet(uri)
+
+                    client.execute(httpGet).withCloseable { resp ->
+                        resp.withCloseable {
+                            String respJson = EntityUtils.toString(resp.getEntity())
+                            def respCode = resp.getStatusLine().getStatusCode()
+                            return new ActionResult(respCode, respJson)
+                        }
+                    }
+                } else {
+                    HttpPost httpPost = new HttpPost(uri)
+                    StringEntity requestEntity = new StringEntity(
+                            body,
+                            ContentType.APPLICATION_JSON);
+                    httpPost.setEntity(requestEntity)
+
+                    client.execute(httpPost).withCloseable { resp ->
+                        resp.withCloseable {
+                            String respJson = EntityUtils.toString(resp.getEntity())
+                            def respCode = resp.getStatusLine().getStatusCode()
+                            return new ActionResult(respCode, respJson)
+                        }
                     }
                 }
             }
+            log.info("result:${result}".toString())
+            log.info("this.result:${this.result}".toString())
             if (check != null) {
                 check.call(result.respCode, result.body)
             } else {
                 if (this.result != null) {
-                    Assert.assertEquals(this.result, result.body)
+                    Assert.assertEquals(this.result, result)
                 }
             }
         } catch (Throwable t) {
