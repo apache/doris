@@ -79,6 +79,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
     public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
     public static final String CATALOG_TYPE_PROP = "type";
+    public static final String DRY_RUN_PROP = "dry_run";
 
     private static final String YES = "yes";
 
@@ -239,6 +240,24 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Create and hold the catalog instance and write the meta log.
      */
     public void createCatalog(CreateCatalogStmt stmt) throws UserException {
+        if (checkIfDryRun(stmt.getProperties())) {
+            createCatalogDryRun(stmt);
+        } else {
+            createCatalogReal(stmt);
+        }
+
+    }
+
+    private void createCatalogDryRun(CreateCatalogStmt stmt) throws UserException {
+        CatalogLog log = CatalogFactory.constructorCatalogLog(-1l, stmt);
+        CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+        if (catalog instanceof ExternalCatalog) {
+            ((ExternalCatalog) catalog).checkProperties();
+            ((ExternalCatalog) catalog).dryRun();
+        }
+    }
+
+    private void createCatalogReal(CreateCatalogStmt stmt) throws UserException {
         writeLock();
         try {
             if (nameToCatalog.containsKey(stmt.getCatalogName())) {
@@ -258,6 +277,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    private boolean checkIfDryRun(Map<String, String> properties) {
+        return "true".equalsIgnoreCase(properties.get(DRY_RUN_PROP));
     }
 
     /**

@@ -17,6 +17,10 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.backup.S3Storage;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
@@ -27,6 +31,7 @@ import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -79,6 +84,9 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected boolean invalidCacheInInit = true;
 
     private ExternalSchemaCache schemaCache;
+
+    public static final String S3_IDENT_PROP = "AWS_REGION";
+    public static final String NOT_EXIST_FILE = "test.NOT_EXIST";
 
     public ExternalCatalog(long catalogId, String name) {
         this.id = catalogId;
@@ -153,6 +161,55 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
+    }
+
+    public void dryRun() throws DdlException {
+        if (!supportDryRun()) {
+            return;
+        }
+        tryGetMetadata();
+        tryGetData();
+    }
+
+    protected boolean supportDryRun() {
+        return false;
+    }
+
+    protected void tryGetMetadata() throws DdlException {
+        throw new NotImplementedException();
+    }
+
+    protected void tryGetData() throws DdlException {
+        StorageType storageType = getStorageType();
+        switch (storageType) {
+            case S3:
+                tryGetS3Data();
+                break;
+            default:
+                throw new DdlException("Unsupport storageType");
+        }
+    }
+
+    protected StorageBackend.StorageType getStorageType() {
+        if (getCatalogProperty().getProperties().containsKey(S3_IDENT_PROP)) {
+            return StorageType.S3;
+        }
+        return null;
+    }
+
+
+    protected void tryGetS3Data() throws DdlException {
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        try {
+            S3Storage.checkS3(properties);
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage());
+        }
+        S3Storage s3Storage = new S3Storage(properties);
+        Status status = s3Storage.checkPathExist(NOT_EXIST_FILE);
+        if (status != Status.OK && status.getErrCode() != Status.ErrCode.NOT_FOUND) {
+            throw new DdlException(status.getErrMsg());
+        }
     }
 
     /**

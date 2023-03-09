@@ -99,6 +99,22 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
     }
 
+    @Override
+    protected boolean supportDryRun() {
+        return true;
+    }
+
+    @Override
+    protected void tryGetMetadata() throws DdlException {
+        try {
+            initLocalObjects();
+            client.getAllDatabases();
+        } catch (Exception e) {
+            throw new DdlException("GetMetadata failed.");
+        }
+
+    }
+
     public String getHiveMetastoreUris() {
         return catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
     }
