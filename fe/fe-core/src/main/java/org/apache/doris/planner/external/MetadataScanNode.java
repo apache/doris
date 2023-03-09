@@ -24,7 +24,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
 import org.apache.doris.thrift.TMetaScanNode;
 import org.apache.doris.thrift.TMetadataType;
@@ -84,17 +83,15 @@ public class MetadataScanNode extends ScanNode {
 
     private void buildScanRanges() {
         if (tvf.getMetadataType() == TMetadataType.ICEBERG) {
-            IcebergTableValuedFunction icebergTvf = (IcebergTableValuedFunction) tvf;
             // todo: split
-            TScanRangeLocations locations = createIcebergTvfLocations(icebergTvf);
+            TScanRangeLocations locations = createIcebergTvfLocations();
             scanRangeLocations.add(locations);
         }
     }
 
-    // TODO(ftw): 这里IcebergTableValuedFunction 应该可以改成 MetadataTableValuedFunction
-    private TScanRangeLocations createIcebergTvfLocations(IcebergTableValuedFunction icebergTvf) {
+    private TScanRangeLocations createIcebergTvfLocations() {
         TScanRange scanRange = new TScanRange();
-        scanRange.setMetaScanRange(icebergTvf.getMetaScanRange());
+        scanRange.setMetaScanRange(tvf.getMetaScanRange());
         // set location
         TScanRangeLocation location = new TScanRangeLocation();
         Backend backend = backendPolicy.getNextBe();
