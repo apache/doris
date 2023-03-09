@@ -57,9 +57,9 @@ public:
     static jclass jni_util_class() { return jni_util_cl_; }
     static jmethodID throwable_to_stack_trace_id() { return throwable_to_stack_trace_id_; }
 
-    static const int32_t INITIAL_RESERVED_BUFFER_SIZE = 1024;
+    static const int64_t INITIAL_RESERVED_BUFFER_SIZE = 1024;
     // TODO: we need a heuristic strategy to increase buffer size for variable-size output.
-    static inline int32_t IncreaseReservedBufferSize(int n) {
+    static inline int64_t IncreaseReservedBufferSize(int n) {
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
 
