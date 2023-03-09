@@ -1999,6 +1999,12 @@ public class Config extends ConfigBase {
     public static int hms_events_polling_interval_ms = 10000;
 
     /**
+     * Regex pattern of HMS databases synchronization, empty string means synchronizing all databases.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String hms_sync_database_pattern = "";
+
+    /**
      * Maximum number of error tablets showed in broker load
      */
     @ConfField(masterOnly = true, mutable = true)
