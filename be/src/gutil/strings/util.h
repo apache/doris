@@ -142,7 +142,7 @@ const char* strncaseprefix(const char* haystack, int haystack_size, const char* 
 // char* literals). Templated so searching a const char* returns a const char*,
 // and searching a non-const char* returns a non-const char*.
 template <class CharStar>
-inline CharStar var_strprefix(CharStar str, const char* prefix) {
+CharStar var_strprefix(CharStar str, const char* prefix) {
     const int len = strlen(prefix);
     return strncmp(str, prefix, len) == 0 ? str + len : NULL;
 }
@@ -150,7 +150,7 @@ inline CharStar var_strprefix(CharStar str, const char* prefix) {
 // Same as var_strprefix() (immediately above), but matches a case-insensitive
 // prefix.
 template <class CharStar>
-inline CharStar var_strcaseprefix(CharStar str, const char* prefix) {
+CharStar var_strcaseprefix(CharStar str, const char* prefix) {
     const int len = strlen(prefix);
     return strncasecmp(str, prefix, len) == 0 ? str + len : NULL;
 }

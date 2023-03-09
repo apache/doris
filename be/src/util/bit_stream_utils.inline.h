@@ -79,7 +79,7 @@ inline uint8_t* BitWriter::GetNextBytePtr(int num_bytes) {
 }
 
 template <typename T>
-inline void BitWriter::PutAligned(T val, int num_bytes) {
+void BitWriter::PutAligned(T val, int num_bytes) {
     DCHECK_LE(num_bytes, sizeof(T));
     uint8_t* ptr = GetNextBytePtr(num_bytes);
     memcpy(ptr, &val, num_bytes);
@@ -113,7 +113,7 @@ inline void BitReader::BufferValues() {
 }
 
 template <typename T>
-inline bool BitReader::GetValue(int num_bits, T* v) {
+bool BitReader::GetValue(int num_bits, T* v) {
     DCHECK_LE(num_bits, 64);
     DCHECK_LE(num_bits, sizeof(T) * 8);
 
@@ -174,7 +174,7 @@ inline void BitReader::SeekToBit(unsigned int stream_position) {
 }
 
 template <typename T>
-inline bool BitReader::GetAligned(int num_bytes, T* v) {
+bool BitReader::GetAligned(int num_bytes, T* v) {
     DCHECK_LE(num_bytes, sizeof(T));
     int bytes_read = BitUtil::Ceil(bit_offset_, 8);
     if (PREDICT_FALSE(byte_offset_ + bytes_read + num_bytes > max_bytes_)) return false;
@@ -210,7 +210,7 @@ inline bool BitReader::GetVlqInt(int32_t* v) {
 }
 
 template <typename T>
-inline int BatchedBitReader::UnpackBatch(int bit_width, int num_values, T* v) {
+int BatchedBitReader::UnpackBatch(int bit_width, int num_values, T* v) {
     DCHECK(buffer_pos_ != nullptr);
     DCHECK_GE(bit_width, 0);
     DCHECK_LE(bit_width, MAX_BITWIDTH);
@@ -238,8 +238,8 @@ inline bool BatchedBitReader::SkipBatch(int bit_width, int num_values_to_skip) {
 }
 
 template <typename T>
-inline int BatchedBitReader::UnpackAndDecodeBatch(int bit_width, T* dict, int64_t dict_len,
-                                                  int num_values, T* v, int64_t stride) {
+int BatchedBitReader::UnpackAndDecodeBatch(int bit_width, T* dict, int64_t dict_len, int num_values,
+                                           T* v, int64_t stride) {
     DCHECK(buffer_pos_ != nullptr);
     DCHECK_GE(bit_width, 0);
     DCHECK_LE(bit_width, MAX_BITWIDTH);
@@ -259,7 +259,7 @@ inline int BatchedBitReader::UnpackAndDecodeBatch(int bit_width, T* dict, int64_
 }
 
 template <typename T>
-inline bool BatchedBitReader::GetBytes(int num_bytes, T* v) {
+bool BatchedBitReader::GetBytes(int num_bytes, T* v) {
     DCHECK(buffer_pos_ != nullptr);
     DCHECK_GE(num_bytes, 0);
     DCHECK_LE(num_bytes, sizeof(T));
@@ -271,7 +271,7 @@ inline bool BatchedBitReader::GetBytes(int num_bytes, T* v) {
 }
 
 template <typename UINT_T>
-inline bool BatchedBitReader::GetUleb128(UINT_T* v) {
+bool BatchedBitReader::GetUleb128(UINT_T* v) {
     static_assert(std::is_integral<UINT_T>::value, "Integral type required.");
     static_assert(std::is_unsigned<UINT_T>::value, "Unsigned type required.");
     static_assert(!std::is_same<UINT_T, bool>::value, "Bools are not supported.");

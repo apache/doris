@@ -28,7 +28,7 @@ namespace doris {
 
 // convert int to a hex format string, buf must enough to hold converted hex string
 template <typename T>
-inline void to_hex(T val, char* buf) {
+void to_hex(T val, char* buf) {
     static const char* digits = "0123456789abcdef";
     for (int i = 0; i < 2 * sizeof(T); ++i) {
         buf[2 * sizeof(T) - 1 - i] = digits[val & 0x0F];
@@ -37,7 +37,7 @@ inline void to_hex(T val, char* buf) {
 }
 
 template <typename T>
-inline void from_hex(T* ret, const std::string& buf) {
+void from_hex(T* ret, const std::string& buf) {
     T val = 0;
     for (int i = 0; i < buf.length(); ++i) {
         int buf_val = 0;

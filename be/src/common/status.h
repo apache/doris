@@ -258,7 +258,7 @@ E(INVERTED_INDEX_NO_TERMS, -6005);
 // clang-format off
 // whether to capture stacktrace
 template <int code>
-static constexpr bool capture_stacktrace() {
+constexpr bool capture_stacktrace() {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED

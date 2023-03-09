@@ -303,7 +303,7 @@ static inline IColumn& extract_element_column(IColumn& column, size_t idx) {
 }
 
 template <typename F>
-static void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
+void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) {
     /// We use the assumption that tuples of zero size do not exist.
     size_t old_size = column.size();
 

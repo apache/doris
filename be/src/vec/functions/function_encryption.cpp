@@ -116,11 +116,11 @@ public:
 };
 
 template <typename Impl, bool is_encrypt>
-static void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_list,
-                           std::vector<const ColumnString::Chars*>& chars_list, size_t i,
-                           EncryptionMode& encryption_mode, const char* iv_raw, int iv_length,
-                           ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
-                           NullMap& null_map) {
+void exectue_result(std::vector<const ColumnString::Offsets*>& offsets_list,
+                    std::vector<const ColumnString::Chars*>& chars_list, size_t i,
+                    EncryptionMode& encryption_mode, const char* iv_raw, int iv_length,
+                    ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
+                    NullMap& null_map) {
     int src_size = (*offsets_list[0])[i] - (*offsets_list[0])[i - 1];
     const auto src_raw =
             reinterpret_cast<const char*>(&(*chars_list[0])[(*offsets_list[0])[i - 1]]);

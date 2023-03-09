@@ -52,16 +52,16 @@ const static int32_t g_power_table[] = {1,      10,      100,      1000,      10
 // 计时工具，用于确定一段代码执行的时间，用于性能调优
 class OlapStopWatch {
 public:
-    uint64_t get_elapse_time_us() {
+    uint64_t get_elapse_time_us() const {
         struct timeval now;
-        gettimeofday(&now, 0);
+        gettimeofday(&now, nullptr);
         return (uint64_t)((now.tv_sec - _begin_time.tv_sec) * 1e6 +
                           (now.tv_usec - _begin_time.tv_usec));
     }
 
-    double get_elapse_second() { return get_elapse_time_us() / 1000000.0; }
+    double get_elapse_second() const { return get_elapse_time_us() / 1000000.0; }
 
-    void reset() { gettimeofday(&_begin_time, 0); }
+    void reset() { gettimeofday(&_begin_time, nullptr); }
 
     OlapStopWatch() { reset(); }
 

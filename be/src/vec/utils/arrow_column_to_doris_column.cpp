@@ -140,8 +140,8 @@ static Status convert_column_with_fixed_size_data(const arrow::Array* array, siz
 
 /// Inserts numeric data right into internal column data to reduce an overhead
 template <typename NumericType, typename VectorType = ColumnVector<NumericType>>
-static Status convert_column_with_numeric_data(const arrow::Array* array, size_t array_idx,
-                                               MutableColumnPtr& data_column, size_t num_elements) {
+Status convert_column_with_numeric_data(const arrow::Array* array, size_t array_idx,
+                                        MutableColumnPtr& data_column, size_t num_elements) {
     auto& column_data = static_cast<VectorType&>(*data_column).get_data();
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = array->data()->buffers[1];
@@ -181,9 +181,9 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 }
 
 template <typename ArrowType>
-static Status convert_column_with_timestamp_data(const arrow::Array* array, size_t array_idx,
-                                                 MutableColumnPtr& data_column, size_t num_elements,
-                                                 const cctz::time_zone& ctz) {
+Status convert_column_with_timestamp_data(const arrow::Array* array, size_t array_idx,
+                                          MutableColumnPtr& data_column, size_t num_elements,
+                                          const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<Int64>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
@@ -213,9 +213,9 @@ static Status convert_column_with_timestamp_data(const arrow::Array* array, size
 }
 
 template <typename ArrowType>
-static Status convert_column_with_date_v2_data(const arrow::Array* array, size_t array_idx,
-                                               MutableColumnPtr& data_column, size_t num_elements,
-                                               const cctz::time_zone& ctz) {
+Status convert_column_with_date_v2_data(const arrow::Array* array, size_t array_idx,
+                                        MutableColumnPtr& data_column, size_t num_elements,
+                                        const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<UInt32>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
@@ -242,10 +242,9 @@ static Status convert_column_with_date_v2_data(const arrow::Array* array, size_t
 }
 
 template <typename ArrowType>
-static Status convert_column_with_datetime_v2_data(const arrow::Array* array, size_t array_idx,
-                                                   MutableColumnPtr& data_column,
-                                                   size_t num_elements,
-                                                   const cctz::time_zone& ctz) {
+Status convert_column_with_datetime_v2_data(const arrow::Array* array, size_t array_idx,
+                                            MutableColumnPtr& data_column, size_t num_elements,
+                                            const cctz::time_zone& ctz) {
     auto& column_data = static_cast<ColumnVector<UInt64>&>(*data_column).get_data();
     auto concrete_array = down_cast<const ArrowType*>(array);
     int64_t divisor = 1;
