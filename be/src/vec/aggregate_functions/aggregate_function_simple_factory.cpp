@@ -28,7 +28,6 @@ class AggregateFunctionSimpleFactory;
 
 void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
@@ -86,9 +85,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
-
-        // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
-        register_aggregate_function_combinator_null(instance);
 
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);
