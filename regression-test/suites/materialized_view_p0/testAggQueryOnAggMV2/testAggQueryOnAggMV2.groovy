@@ -30,7 +30,7 @@ suite ("testAggQueryOnAggMV2") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
-    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
