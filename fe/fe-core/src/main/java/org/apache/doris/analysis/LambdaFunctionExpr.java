@@ -63,8 +63,8 @@ public class LambdaFunctionExpr extends Expr {
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (names.size() != params.size()) {
-            throw new AnalysisException("Lambda argument size: is " + names.size() + " but input params size is " +
-                    params.size());
+            throw new AnalysisException("Lambda argument size: is " + names.size() + " but input params size is "
+                    + params.size());
         }
         if (this.children.size() == 0) {
             this.children.add(slotExpr.get(0));
@@ -79,8 +79,8 @@ public class LambdaFunctionExpr extends Expr {
                         "The lambda function of params must be array type, now " + (i + 1) + "th is "
                                 + paramType.toString());
             }
-            //this ColumnRefExpr record the unique slotId, which is used for BE
-            //so could insert nested column by order.
+            // this ColumnRefExpr record the unique slotId, which is used for BE
+            // so could insert nested column by order.
             ColumnRefExpr column = new ColumnRefExpr();
             column.setName(names.get(i));
             column.setSlotId(slotId);
@@ -95,8 +95,8 @@ public class LambdaFunctionExpr extends Expr {
                 msg = msg + s.debugString() + " ,";
             }
             throw new AnalysisException(
-                    "Lambda columnref size: is " + (slotExpr.size() - 1) + " but input params size is " +
-                            params.size() + ". the replaceExpr of columnref is " + msg);
+                    "Lambda columnref size: is " + (slotExpr.size() - 1) + " but input params size is "
+                            + params.size() + ". the replaceExpr of columnref is " + msg);
         }
         this.children.get(0).analyze(analyzer);
     }
