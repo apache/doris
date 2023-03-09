@@ -196,9 +196,8 @@ public:
         vectorized::DataTypePtr data_type = get_data_type<DataType, nullable, false>();
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
-        Array array;
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, array, nullable);
+        auto agg_function = factory.get(fn_name, data_types, nullable);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -221,9 +220,8 @@ public:
         vectorized::DataTypePtr data_type = get_data_type<DataType, nullable, true>();
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
-        Array array;
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, array, nullable);
+        auto agg_function = factory.get(fn_name, data_types, nullable);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
