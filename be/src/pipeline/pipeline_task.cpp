@@ -132,7 +132,7 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_RAW_TIMER(&time_spent);
             auto st = open();
-            if (st.is_blocked_by_rf()) {
+            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
             }
