@@ -434,7 +434,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (invertedIndexChange) {
             try {
                 long expiration = (createTimeMs + timeoutMs) / 1000;
-                Preconditions.checkState(tbl.getState() == OlapTableState.NORMAL);
+                Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
                 for (Map.Entry<Long, Long> entry : partitionOriginIndexIdMap.entrySet()) {
                     long partitionId = entry.getKey();
@@ -627,7 +627,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (invertedIndexChange) {
             // do nothing
             try {
-                Preconditions.checkState(tbl.getState() == OlapTableState.NORMAL);
+                Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+                onFinished(tbl);
             } finally {
                 tbl.writeUnlock();
             }
@@ -695,6 +696,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void onFinished(OlapTable tbl) {
         if (invertedIndexChange) {
+            tbl.setStorageFormat(storageFormat);
+            tbl.setState(OlapTableState.NORMAL);
             return;
         }
         // replace the origin index with shadow index, set index state as NORMAL
@@ -897,6 +900,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         olapTable.writeLock();
         try {
             addShadowIndexToCatalog(olapTable);
+            if (invertedIndexChange) {
+                // invertedIndexChange job begin with WAITING_TXN, no PENDING state,
+                // here need set table state to SCHEMA_CHANGE when replay job begin at WAITING_TXN
+                olapTable.setState(OlapTableState.SCHEMA_CHANGE);
+            }
         } finally {
             olapTable.writeUnlock();
         }

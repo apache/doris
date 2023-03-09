@@ -22,4 +22,8 @@ import org.apache.doris.catalog.FunctionSignature;
 /** ComputePrecision */
 public interface ComputePrecision extends FunctionTrait {
     FunctionSignature computePrecision(FunctionSignature signature);
+
+    default boolean checkPrecision(FunctionSignature signature) {
+        return true;
+    }
 }

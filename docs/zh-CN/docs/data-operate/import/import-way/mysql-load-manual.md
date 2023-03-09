@@ -103,7 +103,7 @@ PROPERTIES ("strict_mode"="true")
 ```
 1. 导入服务端本地文件的语法和导入客户端语法的唯一区别是`LOAD DATA`关键词后面是否加入`LOCAL`关键字.
 2. FE为多节点部署, 导入服务端文件功能只能够导入客户端连接的FE节点, 无法导入其他FE节点本地的文件.
-3. 服务端导入默认是关闭, 通过设置FE的配置`mysql_load_server_secure_path`开启, 导入文件的必须在该目录下.建议在`DORIS_HOME`目录下创建一个`local_import_data`目录用于导入数据.
+3. 服务端导入默认是关闭, 通过设置FE的配置`mysql_load_server_secure_path`开启, 导入文件的必须在该目录下.
 
 ### 返回结果
 
@@ -114,6 +114,10 @@ PROPERTIES ("strict_mode"="true")
 Query OK, 1 row affected (0.17 sec)
 Records: 1  Deleted: 0  Skipped: 0  Warnings: 0
 ```
+
+### 配置项
+1. `mysql_load_thread_pool`控制单个FE中MySQL Load并发执行线程个数, 默认为4. 线程池的排队对接大小为`mysql_load_thread_pool`的5倍, 因此默认情况下, 可以并发提交的任务为 4 + 4*5 = 24个. 如果并发个数超过24时, 可以调大该配置项.
+2. `mysql_load_server_secure_path`服务端导入的安全路径, 默认为空, 即不允许服务端导入. 如需开启这个功能, 建议在`DORIS_HOME`目录下创建一个`local_import_data`目录, 用于导入数据.
 
 ## 注意事项
 

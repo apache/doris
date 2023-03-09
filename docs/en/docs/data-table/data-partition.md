@@ -307,7 +307,7 @@ Range partitioning also supports batch partitioning. For example, you can create
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
 
   ```
-  p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
   * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
   * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```
