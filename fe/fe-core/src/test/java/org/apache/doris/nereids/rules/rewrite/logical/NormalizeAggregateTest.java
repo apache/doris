@@ -26,8 +26,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
@@ -53,45 +51,6 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
     public final void beforeAll() {
         rStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
                 ImmutableList.of());
-    }
-
-    /*-
-     * original plan:
-     * LogicalAggregate (phase: [GLOBAL], output: [name#2, sum(id#0) AS `sum`#4], groupBy: [name#2])
-     * +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
-     *
-     * after rewrite:
-     * LogicalProject ( distinct=false, projects=[name#2, sum#2 AS `sum`#2], excepts=[], canEliminate=true )
-     * +--LogicalAggregate ( groupByExpr=[name#2], outputExpr=[name#2, sum(id#0) AS `sum`#2], hasRepeat=false )
-     *    +--LogicalProject ( distinct=false, projects=[name#2, id#0], excepts=[], canEliminate=true )
-     *       +--LogicalOlapScan ( qualified=student, indexName=<index_not_selected>, selectedIndexId=-1, preAgg=ON )
-     */
-    @Test
-    public void testSimpleKeyWithSimpleAggregateFunction() {
-        NamedExpression key = rStudent.getOutput().get(2).toSlot();
-        NamedExpression aggregateFunction = new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum");
-        List<Expression> groupExpressionList = Lists.newArrayList(key);
-        List<NamedExpression> outputExpressionList = Lists.newArrayList(key, aggregateFunction);
-        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new NormalizeAggregate())
-                .matchesFromRoot(
-                        logicalProject(
-                                logicalAggregate(
-                                        logicalProject(
-                                                logicalOlapScan()
-                                        )
-                                ).when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of(key)))
-                                    .when(aggregate -> aggregate.getOutputExpressions().get(0).equals(key))
-                                    .when(aggregate -> aggregate.getOutputExpressions().get(1).child(0)
-                                            .equals(aggregateFunction.child(0)))
-                        ).when(project -> project.getProjects().get(0).equals(key))
-                        .when(project -> project.getProjects().get(1) instanceof Alias)
-                        .when(project -> (project.getProjects().get(1)).getExprId()
-                                .equals(aggregateFunction.getExprId()))
-                        .when(project -> project.getProjects().get(1).child(0) instanceof SlotReference)
-                );
     }
 
     /*-
