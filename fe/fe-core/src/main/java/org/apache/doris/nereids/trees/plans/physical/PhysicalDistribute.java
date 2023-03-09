@@ -85,7 +85,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public PhysicalDistribute<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-                getLogicalProperties(), children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+
     }
 
     @Override

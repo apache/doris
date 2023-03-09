@@ -122,7 +122,8 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                getLogicalProperties(), children.get(0), children.get(1));
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
+                children.get(0), children.get(1));
     }
 
     @Override

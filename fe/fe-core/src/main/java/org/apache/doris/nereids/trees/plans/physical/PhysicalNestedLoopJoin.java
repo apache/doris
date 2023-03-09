@@ -127,8 +127,8 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference,
-                getLogicalProperties(), children.get(0), children.get(1));
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
     }
 
     @Override

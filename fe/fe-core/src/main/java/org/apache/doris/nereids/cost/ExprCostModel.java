@@ -50,7 +50,9 @@ public class ExprCostModel extends ExpressionVisitor<Double, Void> {
 
     @Override
     public Double visitAlias(Alias alias, Void context) {
-        return 0.0;
+        return alias.children().stream()
+                .map(e -> e.accept(this, context))
+                .reduce(0.0, (a, b) -> a + b);
     }
 
     @Override

@@ -28,11 +28,11 @@ public interface Cost {
     public double getValue();
 
     /**
-     * This is for simple calculate the cost in simplifier
+     * This is for calculating the cost in simplifier
      */
     public static Cost withRowCount(double rowCount) {
         if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
-            return new CostV2(0, rowCount);
+            return new CostV2(0, rowCount, 0);
         }
         return new CostV1(rowCount);
     }

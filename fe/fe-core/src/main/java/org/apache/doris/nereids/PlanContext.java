@@ -81,7 +81,7 @@ public class PlanContext {
         return childrenStats.get(index);
     }
 
-    public List<StatsDeriveResult> getChildrenStatistics() {
+    public List<Statistics> getChildrenStatistics() {
         return childrenStats;
     }
 }
