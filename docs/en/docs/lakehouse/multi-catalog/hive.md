@@ -194,4 +194,6 @@ This is applicable for Hive/Iceberge/Hudi.
 | varchar       | varchar       |                                                   |
 | decimal       | decimal       |                                                   |
 | `array<type>` | `array<type>` | Support nested array, such as `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | Not support nested map. KeyType and ValueType should be primitive types. |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | Not support nested struct. Type1, Type2, ... should be primitive types. |
 | other         | unsupported   |                                                   |
