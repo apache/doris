@@ -165,7 +165,7 @@ public:
 
     Status from_string(const std::string& str_value, CppType& value, int precision, int scale);
     Status add_value(InvertedIndexQueryOp op, const CppType& value);
-    Status add_value(InvertedIndexQueryOp op, std::shared_ptr<PredicateParams> params);
+    Status add_value(InvertedIndexQueryOp op, PredicateParams* params);
     bool is_point_query() const { return _fixed_values.size() != 0; }
     bool is_range_query() const { return _high_value > _low_value; }
     CppType& lower_value() { return _low_value; }

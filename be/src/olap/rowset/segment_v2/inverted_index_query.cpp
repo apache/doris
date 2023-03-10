@@ -85,11 +85,9 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, const CppTyp
 }
 
 template <PrimitiveType Type>
-Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op,
-                                           std::shared_ptr<PredicateParams> params) {
+Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, PredicateParams* params) {
     CppType value;
-    std::string value_str = std::move(params->value);
-    from_string(value_str, value, params->precision, params->scale);
+    from_string(params->value, value, params->precision, params->scale);
 
     if (is_match_query(op) || is_equal_query(op)) {
         return add_fixed_value(op, value);
@@ -154,32 +152,32 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op,
 
 template <>
 bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_lower_bound() {
-    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
+    return lower_value().data != &StringRef::MIN_CHAR;
 }
 
 template <>
 bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_lower_bound() {
-    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
+    return lower_value().data != &StringRef::MIN_CHAR;
 }
 
 template <>
 bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_lower_bound() {
-    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
+    return lower_value().data != &StringRef::MIN_CHAR;
 }
 
 template <>
 bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_upper_bound() {
-    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
+    return upper_value().data != &StringRef::MAX_CHAR;
 }
 
 template <>
 bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_upper_bound() {
-    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
+    return upper_value().data != &StringRef::MAX_CHAR;
 }
 
 template <>
 bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_upper_bound() {
-    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
+    return upper_value().data != &StringRef::MAX_CHAR;
 }
 
 template <>

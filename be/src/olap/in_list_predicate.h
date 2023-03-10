@@ -210,7 +210,7 @@ public:
         InvertedIndexQuery<Type> query(column_desc->type_info());
 
         for (auto& value : *_values) {
-            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::EQUAL_QUERY, std::move(value)));
+            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::EQUAL_QUERY, value));
         }
         std::unique_ptr<InvertedIndexQueryType> q(new InvertedIndexQueryType(query));
         RETURN_IF_ERROR(

@@ -230,7 +230,12 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 auto query_op = arg.point_op();
                 auto query_value = arg.get_fixed_value();
                 if constexpr (std::is_same_v<decltype(query_value), StringRef>) {
-                    std::string search_str = query_value.to_string();
+                    std::string search_str;
+                    if (query_value.size == 0) {
+                        search_str = "";
+                    } else {
+                        search_str = query_value.to_string();
+                    }
 
                     if (is_match_query(query_op) || is_equal_query(query_op)) {
                         return query_internal(search_str, column_name, query_op, analyser_type,
@@ -257,6 +262,14 @@ Status StringTypeInvertedIndexReader::new_iterator(const TabletIndex* index_meta
     return Status::OK();
 }
 
+std::wstring construct_from_string(const std::string& s) {
+    if (s.size() == 0) {
+        return L"";
+    }
+
+    return std::wstring(s.begin(), s.end());
+}
+
 template <PrimitiveType field_type>
 std::unique_ptr<lucene::search::Query> StringTypeInvertedIndexReader::generate_query(
         InvertedIndexQuery<field_type>& query, const std::string& column_name) {
@@ -274,8 +287,7 @@ std::unique_ptr<lucene::search::Query> StringTypeInvertedIndexReader::generate_q
                 auto act_len = strnlen(term_value.data, term_value.size);
                 std::string term_value_str(term_value.data, act_len);
 
-                std::wstring search_str_ws =
-                        std::wstring(term_value_str.begin(), term_value_str.end());
+                std::wstring search_str_ws = construct_from_string(term_value_str);
                 CLTermType term {
                         _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
                         termDeleter};
@@ -294,15 +306,15 @@ std::unique_ptr<lucene::search::Query> StringTypeInvertedIndexReader::generate_q
             return bq;
         } else if (query.is_range_query()) {
             if (query.has_lower_bound()) {
-                std::wstring lower_value = std::wstring(query.lower_value().to_string().begin(),
-                                                        query.lower_value().to_string().end());
+                std::wstring lower_value = construct_from_string(query.lower_value().to_string());
+
                 CLTermType lower_term {
                         _CLNEW lucene::index::Term(column_name_ws.c_str(), lower_value.c_str()),
                         termDeleter};
                 bool include_lower = query.get_include_lower();
                 if (query.has_upper_bound()) {
-                    std::wstring upper_value = std::wstring(query.upper_value().to_string().begin(),
-                                                            query.upper_value().to_string().end());
+                    std::wstring upper_value =
+                            construct_from_string(query.upper_value().to_string());
                     bool include_upper = query.get_include_upper();
                     CLTermType upper_term {
                             _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),
@@ -314,8 +326,7 @@ std::unique_ptr<lucene::search::Query> StringTypeInvertedIndexReader::generate_q
                                                                         include_lower);
                 }
             } else if (query.has_upper_bound()) {
-                std::wstring upper_value = std::wstring(query.upper_value().to_string().begin(),
-                                                        query.upper_value().to_string().end());
+                std::wstring upper_value = construct_from_string(query.upper_value().to_string());
                 bool include_upper = query.get_include_upper();
                 CLTermType upper_term {
                         _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),

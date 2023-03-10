@@ -53,7 +53,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                 column_desc->type_info(), &query));
         RETURN_IF_ERROR(std::visit(
                 [&](auto& q) -> Status {
-                    return q.add_value(inverted_index_query_op, predicate_params());
+                    return q.add_value(inverted_index_query_op, predicate_params().get());
                 },
                 *query));
         s = iterator->read_from_inverted_index(column_desc->name(), query, num_rows, &roaring,
@@ -65,7 +65,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         if (is_string_type(column_desc->get_sub_field(0)->type_info()->type())) {
             RETURN_IF_ERROR(std::visit(
                     [&](auto& q) -> Status {
-                        return q.add_value(inverted_index_query_op, predicate_params());
+                        return q.add_value(inverted_index_query_op, predicate_params().get());
                     },
                     *query));
             //StringRef match_value;
@@ -79,7 +79,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
             //column_desc->get_sub_field(0)->from_string(buf, _value);
             RETURN_IF_ERROR(std::visit(
                     [&](auto& q) -> Status {
-                        return q.add_value(inverted_index_query_op, predicate_params());
+                        return q.add_value(inverted_index_query_op, predicate_params().get());
                     },
                     *query));
             skip_try_inverted_index = true;
