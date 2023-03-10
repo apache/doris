@@ -82,14 +82,12 @@ public class MetadataScanNode extends ScanNode {
     }
 
     private void buildScanRanges() {
-        if (tvf.getMetadataType() == TMetadataType.ICEBERG) {
-            // todo: split
-            TScanRangeLocations locations = createIcebergTvfLocations();
-            scanRangeLocations.add(locations);
-        }
+        // todo: split
+        TScanRangeLocations locations = createMetaDataTvfLocations();
+        scanRangeLocations.add(locations);
     }
 
-    private TScanRangeLocations createIcebergTvfLocations() {
+    private TScanRangeLocations createMetaDataTvfLocations() {
         TScanRange scanRange = new TScanRange();
         scanRange.setMetaScanRange(tvf.getMetaScanRange());
         // set location
