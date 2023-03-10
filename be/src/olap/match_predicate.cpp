@@ -44,7 +44,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     auto column_desc = schema.column(_column_id);
     roaring::Roaring roaring;
     Status s = Status::OK();
-    auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
+    auto inverted_index_query_op = _to_inverted_index_query_op(_match_type);
     InvertedIndexQueryType* query = nullptr;
     bool skip_try_inverted_index = false;
 
@@ -53,9 +53,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                 column_desc->type_info(), &query));
         RETURN_IF_ERROR(std::visit(
                 [&](auto& q) -> Status {
-                    return q.add_value_str(inverted_index_query_type, _value,
-                                           predicate_params()->precision,
-                                           predicate_params()->scale);
+                    return q.add_value(inverted_index_query_op, predicate_params());
                 },
                 *query));
         s = iterator->read_from_inverted_index(column_desc->name(), query, num_rows, &roaring,
@@ -67,9 +65,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         if (is_string_type(column_desc->get_sub_field(0)->type_info()->type())) {
             RETURN_IF_ERROR(std::visit(
                     [&](auto& q) -> Status {
-                        return q.add_value_str(inverted_index_query_type, _value,
-                                               predicate_params()->precision,
-                                               predicate_params()->scale);
+                        return q.add_value(inverted_index_query_op, predicate_params());
                     },
                     *query));
             //StringRef match_value;
@@ -83,9 +79,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
             //column_desc->get_sub_field(0)->from_string(buf, _value);
             RETURN_IF_ERROR(std::visit(
                     [&](auto& q) -> Status {
-                        return q.add_value_str(inverted_index_query_type, _value,
-                                               predicate_params()->precision,
-                                               predicate_params()->scale);
+                        return q.add_value(inverted_index_query_op, predicate_params());
                     },
                     *query));
             skip_try_inverted_index = true;
@@ -97,7 +91,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     return s;
 }
 
-InvertedIndexQueryOp MatchPredicate::_to_inverted_index_query_type(MatchType match_type) const {
+InvertedIndexQueryOp MatchPredicate::_to_inverted_index_query_op(MatchType match_type) const {
     auto ret = InvertedIndexQueryOp::UNKNOWN_QUERY;
     switch (match_type) {
     case MatchType::MATCH_ANY:

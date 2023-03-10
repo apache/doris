@@ -41,172 +41,6 @@ using CLTermDeleter = void (*)(lucene::index::Term*);
 using CLTermType = std::unique_ptr<lucene::index::Term, CLTermDeleter>;
 CLTermDeleter termDeleter = [](lucene::index::Term* term) { _CLDECDELETE(term) };
 
-template <PrimitiveType Type>
-Status InvertedIndexQuery<Type>::add_fixed_value(InvertedIndexQueryOp op, const CppType& value,
-                                                 const std::string& value_str) {
-    _fixed_values.insert(value);
-    _fixed_values_str.insert(value_str);
-    std::string tmp;
-    _value_key_coder->full_encode_ascending(&value, &tmp);
-    _fixed_values_encoded.insert(tmp);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_lower_bound() {
-    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_lower_bound() {
-    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_lower_bound() {
-    return ((StringRef)lower_value()).data != &StringRef::MIN_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_upper_bound() {
-    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_upper_bound() {
-    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_upper_bound() {
-    return ((StringRef)upper_value()).data != &StringRef::MAX_CHAR;
-}
-
-template <>
-Status InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::add_fixed_value(
-        InvertedIndexQueryOp op, const CppType& value, const std::string& value_str) {
-    _fixed_values.insert(value);
-    _fixed_values_str.insert(value_str);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
-template <>
-Status InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::add_fixed_value(InvertedIndexQueryOp op,
-                                                                     const CppType& value,
-                                                                     const std::string& value_str) {
-    _fixed_values.insert(value);
-    _fixed_values_str.insert(value_str);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
-template <>
-Status InvertedIndexQuery<PrimitiveType::TYPE_STRING>::add_fixed_value(
-        InvertedIndexQueryOp op, const CppType& value, const std::string& value_str) {
-    _fixed_values.insert(value);
-    _fixed_values_str.insert(value_str);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
-template <PrimitiveType Type>
-Status InvertedIndexQuery<Type>::from_string(const std::string& str_value, CppType& value,
-                                             int precision, int scale) {
-    StringParser::ParseResult result;
-    if constexpr (Type == TYPE_TINYINT || Type == TYPE_SMALLINT || Type == TYPE_INT ||
-                  Type == TYPE_BIGINT || Type == TYPE_LARGEINT) {
-        std::from_chars(str_value.data(), str_value.data() + str_value.size(), value);
-    } else if constexpr (Type == TYPE_FLOAT) {
-        value = std::stof(str_value, nullptr);
-    } else if constexpr (Type == TYPE_DOUBLE) {
-        value = std::stod(str_value, nullptr);
-    } else if constexpr (Type == TYPE_DATE) {
-        value = timestamp_from_date(str_value);
-    } else if constexpr (Type == TYPE_DATEV2) {
-        value = timestamp_from_date_v2(str_value);
-    } else if constexpr (Type == TYPE_DATETIME) {
-        value = timestamp_from_datetime(str_value);
-    } else if constexpr (Type == TYPE_DATETIMEV2) {
-        value = timestamp_from_datetime_v2(str_value);
-    } else if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
-        value = str_value;
-    } else if constexpr (Type == TYPE_BOOLEAN) {
-        value = StringParser::string_to_bool(str_value.c_str(), str_value.size(), &result);
-    } else if constexpr (Type == TYPE_DECIMALV2) {
-        decimal12_t tmp = {precision, scale};
-        value.from_string(str_value);
-        value = tmp;
-    } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                         Type == TYPE_DECIMAL128I) {
-        value = StringParser::string_to_decimal<int128_t>(str_value.data(), str_value.size(),
-                                                          precision, scale, &result);
-    } else {
-        return Status::InternalError("from_string fail! Unsupported primitive type.");
-    }
-
-    return Status::OK();
-}
-
-template <PrimitiveType Type>
-Status InvertedIndexQuery<Type>::from_string(std::string_view str_value, CppType& value,
-                                             int precision, int scale) {
-    StringParser::ParseResult result;
-    if constexpr (Type == TYPE_TINYINT || Type == TYPE_SMALLINT || Type == TYPE_INT ||
-                  Type == TYPE_BIGINT || Type == TYPE_LARGEINT) {
-        std::from_chars(str_value.data(), str_value.data() + str_value.size(), value);
-    } else if constexpr (Type == TYPE_FLOAT) {
-        value = std::stof(std::string(str_value.begin(), str_value.end()), nullptr);
-    } else if constexpr (Type == TYPE_DOUBLE) {
-        value = std::stod(std::string(str_value.begin(), str_value.end()), nullptr);
-    } else if constexpr (Type == TYPE_DATE) {
-        value = timestamp_from_date(std::string(str_value.begin(), str_value.end()));
-    } else if constexpr (Type == TYPE_DATEV2) {
-        value = timestamp_from_date_v2(std::string(str_value.begin(), str_value.end()));
-    } else if constexpr (Type == TYPE_DATETIME) {
-        value = timestamp_from_datetime(std::string(str_value.begin(), str_value.end()));
-    } else if constexpr (Type == TYPE_DATETIMEV2) {
-        value = timestamp_from_datetime_v2(std::string(str_value.begin(), str_value.end()));
-    } else if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
-        (const_cast<StringRef&>(value)).replace(str_value.data(), str_value.size());
-    } else if constexpr (Type == TYPE_BOOLEAN) {
-        value = StringParser::string_to_bool(str_value.data(), str_value.size(), &result);
-    } else if constexpr (Type == TYPE_DECIMALV2) {
-        decimal12_t tmp = {precision, scale};
-        value.from_string(std::string(str_value.begin(), str_value.end()));
-        value = tmp;
-    } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                         Type == TYPE_DECIMAL128I) {
-        value = StringParser::string_to_decimal<int128_t>(str_value.data(), str_value.size(),
-                                                          precision, scale, &result);
-    } else {
-        return Status::InternalError("from_string fail! Unsupported primitive type.");
-    }
-
-    return Status::OK();
-}
-
 bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     bool exists = false;
     RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
@@ -394,14 +228,20 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             [&](auto& arg) -> Status {
                 DCHECK(arg.is_point_query());
                 auto query_op = arg.point_op();
-                auto query_value = arg.get_fixed_value_string();
-                if (is_match_query(query_op) || is_equal_query(query_op)) {
-                    return query_internal(query_value, column_name, query_op, analyser_type, stats,
-                                          bit_map);
-                } else {
-                    LOG(WARNING) << column_name << " must use match query";
-                    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                auto query_value = arg.get_fixed_value();
+                if constexpr (std::is_same_v<decltype(query_value), StringRef>) {
+                    std::string search_str = query_value.to_string();
+
+                    if (is_match_query(query_op) || is_equal_query(query_op)) {
+                        return query_internal(search_str, column_name, query_op, analyser_type,
+                                              stats, bit_map);
+                    } else {
+                        LOG(WARNING) << column_name << " must use match query";
+                        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                    }
                 }
+                DCHECK(false);
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
             },
             *query_range);
 }
@@ -420,61 +260,69 @@ Status StringTypeInvertedIndexReader::new_iterator(const TabletIndex* index_meta
 template <PrimitiveType field_type>
 std::unique_ptr<lucene::search::Query> StringTypeInvertedIndexReader::generate_query(
         InvertedIndexQuery<field_type>& query, const std::string& column_name) {
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+    if constexpr (field_type == PrimitiveType::TYPE_VARCHAR ||
+                  field_type == PrimitiveType::TYPE_CHAR ||
+                  field_type == PrimitiveType::TYPE_STRING) {
+        std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
 
-    if (query.is_point_query()) {
-        bool deleteQuery = true;
-        auto term_value_set = query.get_fixed_value_string_set();
-        //std::vector<lucene::search::BooleanClause*> bcs;
-        auto bq = std::make_unique<lucene::search::BooleanQuery>();
-        for (auto term_value : term_value_set) {
-            std::wstring search_str_ws = std::wstring(term_value.begin(), term_value.end());
-            CLTermType term {
-                    _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
-                    termDeleter};
-            //lucene::search::BooleanClause* bc = _CLNEW lucene::search::BooleanClause(
-            //        _CLNEW lucene::search::TermQuery(term.get()), deleteQuery,
-            //        lucene::search::BooleanClause::SHOULD);
-            //bcs.emplace_back(bc);
+        if (query.is_point_query()) {
+            bool deleteQuery = true;
+            auto term_value_set = query.get_fixed_value_set();
+            //std::vector<lucene::search::BooleanClause*> bcs;
+            auto bq = std::make_unique<lucene::search::BooleanQuery>();
+            for (auto& term_value : term_value_set) {
+                auto act_len = strnlen(term_value.data, term_value.size);
+                std::string term_value_str(term_value.data, act_len);
 
-            bq->add(_CLNEW lucene::search::TermQuery(term.get()), deleteQuery,
-                    lucene::search::BooleanClause::SHOULD);
-        }
-        //int32_t minimumNumberShouldMatch = 1;
-        //lucene::search::BooleanQuery* bq =
-        //        _CLNEW lucene::search::BooleanQuery(minimumNumberShouldMatch, bcs);
-        //return std::make_unique<lucene::search::BooleanQuery>(minimumNumberShouldMatch, bcs);
-        return bq;
-    } else if (query.is_range_query()) {
-        if (query.has_lower_bound()) {
-            std::wstring lower_value = std::wstring(query.lower_value_string().begin(),
-                                                    query.lower_value_string().end());
-            CLTermType lower_term {
-                    _CLNEW lucene::index::Term(column_name_ws.c_str(), lower_value.c_str()),
-                    termDeleter};
-            bool include_lower = query.get_include_lower();
-            if (query.has_upper_bound()) {
-                std::wstring upper_value = std::wstring(query.upper_value_string().begin(),
-                                                        query.upper_value_string().end());
+                std::wstring search_str_ws =
+                        std::wstring(term_value_str.begin(), term_value_str.end());
+                CLTermType term {
+                        _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
+                        termDeleter};
+                //lucene::search::BooleanClause* bc = _CLNEW lucene::search::BooleanClause(
+                //        _CLNEW lucene::search::TermQuery(term.get()), deleteQuery,
+                //        lucene::search::BooleanClause::SHOULD);
+                //bcs.emplace_back(bc);
+
+                bq->add(_CLNEW lucene::search::TermQuery(term.get()), deleteQuery,
+                        lucene::search::BooleanClause::SHOULD);
+            }
+            //int32_t minimumNumberShouldMatch = 1;
+            //lucene::search::BooleanQuery* bq =
+            //        _CLNEW lucene::search::BooleanQuery(minimumNumberShouldMatch, bcs);
+            //return std::make_unique<lucene::search::BooleanQuery>(minimumNumberShouldMatch, bcs);
+            return bq;
+        } else if (query.is_range_query()) {
+            if (query.has_lower_bound()) {
+                std::wstring lower_value = std::wstring(query.lower_value().to_string().begin(),
+                                                        query.lower_value().to_string().end());
+                CLTermType lower_term {
+                        _CLNEW lucene::index::Term(column_name_ws.c_str(), lower_value.c_str()),
+                        termDeleter};
+                bool include_lower = query.get_include_lower();
+                if (query.has_upper_bound()) {
+                    std::wstring upper_value = std::wstring(query.upper_value().to_string().begin(),
+                                                            query.upper_value().to_string().end());
+                    bool include_upper = query.get_include_upper();
+                    CLTermType upper_term {
+                            _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),
+                            termDeleter};
+                    return std::make_unique<lucene::search::RangeQuery>(
+                            lower_term.get(), upper_term.get(), include_lower && include_upper);
+                } else {
+                    return std::make_unique<lucene::search::RangeQuery>(lower_term.get(), nullptr,
+                                                                        include_lower);
+                }
+            } else if (query.has_upper_bound()) {
+                std::wstring upper_value = std::wstring(query.upper_value().to_string().begin(),
+                                                        query.upper_value().to_string().end());
                 bool include_upper = query.get_include_upper();
                 CLTermType upper_term {
                         _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),
                         termDeleter};
-                return std::make_unique<lucene::search::RangeQuery>(
-                        lower_term.get(), upper_term.get(), include_lower && include_upper);
-            } else {
-                return std::make_unique<lucene::search::RangeQuery>(lower_term.get(), nullptr,
-                                                                    include_lower);
+                return std::make_unique<lucene::search::RangeQuery>(nullptr, upper_term.get(),
+                                                                    include_upper);
             }
-        } else if (query.has_upper_bound()) {
-            std::wstring upper_value = std::wstring(query.upper_value_string().begin(),
-                                                    query.upper_value_string().end());
-            bool include_upper = query.get_include_upper();
-            CLTermType upper_term {
-                    _CLNEW lucene::index::Term(column_name_ws.c_str(), upper_value.c_str()),
-                    termDeleter};
-            return std::make_unique<lucene::search::RangeQuery>(nullptr, upper_term.get(),
-                                                                include_upper);
         }
     }
     return nullptr;
@@ -1116,73 +964,6 @@ InvertedIndexParserType InvertedIndexIterator::get_inverted_index_analyser_type(
 InvertedIndexReaderType InvertedIndexIterator::get_inverted_index_reader_type() const {
     return _reader->type();
 }
-
-/*template <PrimitiveType Type, typename VT>
-Status InvertedIndexIterator::add_range(InvertedIndexQueryRange<Type>* range, VT value, InvertedIndexQueryOp op) {
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
-
-    if (range->_high_value > range->_low_value) {
-        switch (op) {
-        case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
-            if (value >= range->_low_value) {
-                range->_lo_value = value;
-                range->_low_op = op;
-            }
-            break;
-        }
-
-        case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
-            if (value > range->_low_value) {
-                range->_low_value = value;
-                range->_low_op = op;
-            }
-            break;
-        }
-
-        case InvertedIndexQueryOp::LESS_THAN_QUERY: {
-            if (value <= range->_high_value) {
-                range->_high_value = value;
-                range->_high_op = op;
-            }
-            break;
-        }
-
-        case InvertedIndexQueryOp::LESS_EQUAL_QUERY: {
-            if (value < range->_high_value) {
-                range->_high_value = value;
-                range->_high_op = op;
-            }
-            break;
-        }
-
-        default: {
-            return Status::InternalError("Add Range fail! Unsupported InvertedIndexQueryOp.");
-        }
-        }
-    }
-
-    return Status::OK();
-}*/
-
-template class InvertedIndexQuery<TYPE_BOOLEAN>;
-template class InvertedIndexQuery<TYPE_TINYINT>;
-template class InvertedIndexQuery<TYPE_SMALLINT>;
-template class InvertedIndexQuery<TYPE_INT>;
-template class InvertedIndexQuery<TYPE_BIGINT>;
-template class InvertedIndexQuery<TYPE_LARGEINT>;
-template class InvertedIndexQuery<TYPE_FLOAT>;
-template class InvertedIndexQuery<TYPE_DOUBLE>;
-template class InvertedIndexQuery<TYPE_DECIMALV2>;
-template class InvertedIndexQuery<TYPE_DATEV2>;
-template class InvertedIndexQuery<TYPE_DATE>;
-template class InvertedIndexQuery<TYPE_DATETIME>;
-template class InvertedIndexQuery<TYPE_DATETIMEV2>;
-template class InvertedIndexQuery<TYPE_CHAR>;
-template class InvertedIndexQuery<TYPE_VARCHAR>;
-template class InvertedIndexQuery<TYPE_STRING>;
-template class InvertedIndexQuery<TYPE_DECIMAL32>;
-template class InvertedIndexQuery<TYPE_DECIMAL64>;
-template class InvertedIndexQuery<TYPE_DECIMAL128I>;
 
 } // namespace segment_v2
 } // namespace doris

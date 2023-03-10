@@ -197,7 +197,6 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
     std::string column_name = column_desc->name();
     roaring::Roaring roaring;
 
-    //std::unique_ptr<InvertedIndexQueryRangeType> query_range = nullptr;
     InvertedIndexQueryType* query_range = nullptr;
     RETURN_IF_ERROR(InvertedIndexQueryRangeTypeFactory::create_inverted_index_query(
             column_desc->type_info(), &query_range));
@@ -211,10 +210,8 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
         case PredicateType::GT: {
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
-                        return value_range.add_value_str(InvertedIndexQueryOp::GREATER_THAN_QUERY,
-                                                         p->predicate_params()->value,
-                                                         p->predicate_params()->precision,
-                                                         p->predicate_params()->scale);
+                        return value_range.add_value(InvertedIndexQueryOp::GREATER_THAN_QUERY,
+                                                         p->predicate_params());
                     },
                     *query_range));
             break;
@@ -222,9 +219,8 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
         case PredicateType::LT: {
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
-                        return value_range.add_value_str(
-                                InvertedIndexQueryOp::LESS_THAN_QUERY, p->predicate_params()->value,
-                                p->predicate_params()->precision, p->predicate_params()->scale);
+                        return value_range.add_value(InvertedIndexQueryOp::LESS_THAN_QUERY,
+                                                         p->predicate_params());
                     },
                     *query_range));
             break;
@@ -232,10 +228,8 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
         case PredicateType::GE: {
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
-                        return value_range.add_value_str(InvertedIndexQueryOp::GREATER_EQUAL_QUERY,
-                                                         p->predicate_params()->value,
-                                                         p->predicate_params()->precision,
-                                                         p->predicate_params()->scale);
+                        return value_range.add_value(InvertedIndexQueryOp::GREATER_EQUAL_QUERY,
+                                                         p->predicate_params());
                     },
                     *query_range));
             break;
@@ -243,10 +237,8 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
         case PredicateType::LE: {
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
-                        return value_range.add_value_str(InvertedIndexQueryOp::LESS_EQUAL_QUERY,
-                                                         p->predicate_params()->value,
-                                                         p->predicate_params()->precision,
-                                                         p->predicate_params()->scale);
+                        return value_range.add_value(InvertedIndexQueryOp::LESS_EQUAL_QUERY,
+                                                         p->predicate_params());
                     },
                     *query_range));
             break;

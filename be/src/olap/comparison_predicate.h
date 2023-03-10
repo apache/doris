@@ -71,54 +71,24 @@ public:
         InvertedIndexQuery<Type> query(column_desc->type_info());
         switch (PT) {
         case PredicateType::GT: {
-            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
-                RETURN_IF_ERROR(query.add_value_str(
-                        InvertedIndexQueryOp::GREATER_THAN_QUERY, predicate_params()->value,
-                        predicate_params()->precision, predicate_params()->scale));
-            } else {
-                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::GREATER_THAN_QUERY, _value));
-            }
+            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::GREATER_THAN_QUERY, _value));
             break;
         }
         case PredicateType::LT: {
-            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
-                RETURN_IF_ERROR(query.add_value_str(
-                        InvertedIndexQueryOp::LESS_THAN_QUERY, predicate_params()->value,
-                        predicate_params()->precision, predicate_params()->scale));
-            } else {
-                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::LESS_THAN_QUERY, _value));
-            }
+            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::LESS_THAN_QUERY, _value));
             break;
         }
         case PredicateType::GE: {
-            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
-                RETURN_IF_ERROR(query.add_value_str(
-                        InvertedIndexQueryOp::GREATER_EQUAL_QUERY, predicate_params()->value,
-                        predicate_params()->precision, predicate_params()->scale));
-            } else {
-                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::GREATER_EQUAL_QUERY, _value));
-            }
+            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::GREATER_EQUAL_QUERY, _value));
             break;
         }
         case PredicateType::LE: {
-            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
-                RETURN_IF_ERROR(query.add_value_str(
-                        InvertedIndexQueryOp::LESS_EQUAL_QUERY, predicate_params()->value,
-                        predicate_params()->precision, predicate_params()->scale));
-            } else {
-                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::LESS_EQUAL_QUERY, _value));
-            }
+            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::LESS_EQUAL_QUERY, _value));
             break;
         }
         case PredicateType::NE:
         case PredicateType::EQ: {
-            if constexpr (std::is_same_v<decltype(_value), StringRef>) {
-                RETURN_IF_ERROR(query.add_value_str(
-                        InvertedIndexQueryOp::EQUAL_QUERY, predicate_params()->value,
-                        predicate_params()->precision, predicate_params()->scale));
-            } else {
-                RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::EQUAL_QUERY, _value));
-            }
+            RETURN_IF_ERROR(query.add_value(InvertedIndexQueryOp::EQUAL_QUERY, _value));
             break;
         }
         default: {
