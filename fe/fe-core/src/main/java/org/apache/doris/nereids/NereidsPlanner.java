@@ -61,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -306,8 +307,8 @@ public class NereidsPlanner extends Planner {
             if (!(plan instanceof PhysicalPlan)) {
                 throw new AnalysisException("Result plan must be PhysicalPlan");
             }
-
-            // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
+            // add groupExpression to plan so that we could print group id in plan.treeString()
+            plan = plan.withGroupExpression(Optional.of(groupExpression));
             PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
                     groupExpression.getOutputProperties(physicalProperties),
                     groupExpression.getOwnerGroup().getStatistics());
