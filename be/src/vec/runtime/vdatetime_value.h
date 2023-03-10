@@ -634,8 +634,6 @@ public:
                _day > 0;
     }
 
-    void convert_vec_dt_to_dt(doris::DateTimeValue* dt) const;
-    void convert_dt_to_vec_dt(doris::DateTimeValue* dt);
     int64_t to_datetime_int64() const;
 
 private:

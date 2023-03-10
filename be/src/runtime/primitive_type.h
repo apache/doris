@@ -30,7 +30,6 @@ namespace vectorized {
 class ColumnString;
 } // namespace vectorized
 
-class DateTimeValue;
 class DecimalV2Value;
 struct StringRef;
 struct JsonBinaryValue;
@@ -162,12 +161,12 @@ struct PrimitiveTypeTraits<TYPE_DOUBLE> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
-    using CppType = doris::DateTimeValue;
+    using CppType = doris::vectorized::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
-    using CppType = doris::DateTimeValue;
+    using CppType = doris::vectorized::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 template <>

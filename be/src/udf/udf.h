@@ -36,7 +36,6 @@ struct ColumnPtrWrapper;
 struct StringRef;
 class BitmapValue;
 class DecimalV2Value;
-class DateTimeValue;
 class CollectionValue;
 struct TypeDescriptor;
 

@@ -309,13 +309,14 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             // binary is not supported, use string instead
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
-            {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
+            {"timestamp_col", TYPE_DATETIME, sizeof(int128_t), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
-            {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
+            {"date_col", TYPE_DATE, sizeof(int128_t), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
-            {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
+            {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 18, 0}};
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
@@ -424,11 +425,12 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
             {"string_col", TYPE_STRING, sizeof(StringRef), true},
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
-            {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
+            {"timestamp_col", TYPE_DATETIME, sizeof(int128_t), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
-            {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
+            {"date_col", TYPE_DATE, sizeof(int128_t), true}};
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
