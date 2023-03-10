@@ -398,6 +398,10 @@ public class SingleNodePlanner {
                 break;
             }
 
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+                break;
+            }
+
             // TODO: Support muti table in the future
             if (selectStmt.getTableRefs().size() != 1) {
                 break;

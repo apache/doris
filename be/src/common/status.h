@@ -402,8 +402,6 @@ public:
 
     bool ok() const { return _code == ErrorCode::OK; }
 
-    bool is_blocked_by_rf() const { return _code == ErrorCode::PIP_WAIT_FOR_RF; }
-
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||

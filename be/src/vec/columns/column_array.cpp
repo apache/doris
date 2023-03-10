@@ -742,14 +742,22 @@ void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn&
     if (col_size == 0) {
         return;
     }
-
-    IColumn::Offsets replicate_offsets(col_size);
+    // |---------------------|-------------------------|-------------------------|
+    // [0, begin)             [begin, begin + count_sz)  [begin + count_sz, size())
+    //  do not need to copy    copy counts[n] times       do not need to copy
+    IColumn::Offsets replicate_offsets(get_offsets().size(), 0);
     size_t cur_offset = 0;
     size_t end = begin + col_size;
+    // copy original data at offset n counts[n] times
     for (size_t i = begin; i < end; ++i) {
         cur_offset += counts[i];
-        replicate_offsets[i - begin] = cur_offset;
+        replicate_offsets[i] = cur_offset;
     }
+    // ignored
+    for (size_t i = end; i < size(); ++i) {
+        replicate_offsets[i] = replicate_offsets[i - 1];
+    }
+
     if (cur_offset != target_size) {
         LOG(WARNING) << "ColumnArray replicate input target_size:" << target_size
                      << " not equal SUM(counts):" << cur_offset;
@@ -941,7 +949,9 @@ ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offse
         size_t size_to_replicate = replicate_offsets[i] - prev_offset;
         prev_offset = replicate_offsets[i];
 
-        for (size_t j = 0; j < size_to_replicate; ++j) res_concrete.insert_from(*this, i);
+        for (size_t j = 0; j < size_to_replicate; ++j) {
+            res_concrete.insert_from(*this, i);
+        }
     }
 
     return res;

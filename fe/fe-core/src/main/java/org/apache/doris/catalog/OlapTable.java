@@ -339,7 +339,7 @@ public class OlapTable extends Table {
                 }
             }
         }
-        LOG.debug("after rebuild full schema. table {}, schema: {}", id, fullSchema);
+        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -1320,8 +1320,13 @@ public class OlapTable extends Table {
         }
 
         // remove shadow index from copied table
-        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst()
-                .get().getMaterializedIndices(IndexExtState.SHADOW);
+        // NOTICE that there maybe not partition in table.
+        List<MaterializedIndex> shadowIndex = Lists.newArrayList();
+        Optional<Partition> firstPartition = copied.getPartitions().stream().findFirst();
+        if (firstPartition.isPresent()) {
+            shadowIndex = firstPartition.get().getMaterializedIndices(IndexExtState.SHADOW);
+        }
+
         for (MaterializedIndex deleteIndex : shadowIndex) {
             LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
