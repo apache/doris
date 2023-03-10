@@ -87,4 +87,36 @@ suite("test_null_predicate") {
     qt_select12 """ select id, name from ${tableName} where id < 110 or name is not null order by id, name; """
     qt_select13 """ select id, name from ${tableName} where id > 109 or name is not null order by id, name; """
     qt_select14 """ select count(1) from ${tableName} where name is not null; """
+
+    sql """ DROP TABLE IF EXISTS test_null_predicate"""
+    sql """
+        create table test_null_predicate (
+            id boolean null,
+            value int null
+        ) duplicate key(id)
+        DISTRIBUTED BY HASH(id) buckets 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true"
+        );
+    """
+    sql """
+        insert into test_null_predicate values(1, null), (1,1), (null, 2), (1,2), (0, 3), (0, 4);
+    """
+
+    sql """
+        insert into test_null_predicate values(1, null), (1,1), (null, 2), (1,2), (0, 3), (0, 4);
+    """
+
+    sql """
+        delete from test_null_predicate where id is null;
+    """
+
+    sql """
+        insert into test_null_predicate values (null, 99), (null, 101);
+    """
+
+    qt_select16 """
+        select * from test_null_predicate where id is null order by id, value;
+    """
 }
