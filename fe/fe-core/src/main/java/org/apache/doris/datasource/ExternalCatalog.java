@@ -84,7 +84,6 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     private ExternalSchemaCache schemaCache;
 
     public static final String S3_IDENT_PROP = "AWS_REGION";
-    public static final String NOT_EXIST_FILE = "test.NOT_EXIST";
 
     public ExternalCatalog(long catalogId, String name) {
         this.id = catalogId;
