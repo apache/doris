@@ -363,9 +363,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::MAP:
         DCHECK(pcolumn.children_size() == 2);
         // here to check pcolumn is list?
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(pcolumn.children(0).children(0)),
-                create_data_type(pcolumn.children(1).children(0)));
+        nested = std::make_shared<vectorized::DataTypeMap>(create_data_type(pcolumn.children(0)),
+                                                           create_data_type(pcolumn.children(1)));
         break;
     case PGenericType::STRUCT: {
         size_t col_size = pcolumn.children_size();

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -125,7 +126,7 @@ public class RoleManager implements Writable {
 
     public void getRoleInfo(List<List<String>> results) {
         for (Role role : roles.values()) {
-            if (role.getRoleName().startsWith(DEFAULT_ROLE_PREFIX)) {
+            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
                 if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().showUserDefaultRole) {
                     continue;
                 }

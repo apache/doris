@@ -225,6 +225,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
+    _reader_context.common_vexpr_ctxs_pushdown = read_params.common_vexpr_ctxs_pushdown;
     _reader_context.output_columns = &read_params.output_columns;
 
     return Status::OK();
@@ -483,8 +484,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
-            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
+        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
             return true;
         }
 
@@ -578,8 +578,8 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<false>(function_filter._opposite, index, function_filter._fn_ctx,
-                                          function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {

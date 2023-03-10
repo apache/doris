@@ -61,11 +61,13 @@ public:
         result_offset_col.resize(input_rows_count);
 
         // convert to nullable column
+        ColumnPtr arg[num_element];
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
             col = col->convert_to_full_column_if_const();
+            arg[i] = col;
             if (result_nested_col.is_nullable() && !col->is_nullable()) {
-                col = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
+                arg[i] = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
         }
 
@@ -73,7 +75,7 @@ public:
         ColumnArray::Offset64 offset = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
             for (size_t idx = 0; idx < num_element; ++idx) {
-                result_nested_col.insert_from(*block.get_by_position(arguments[idx]).column, row);
+                result_nested_col.insert_from(*arg[idx], row);
             }
             offset += num_element;
             result_offset_col[row] = offset;

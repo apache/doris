@@ -66,6 +66,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
        "driver_class" = "org.postgresql.Driver"
    );
    ```
+> Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
 
    As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
 
@@ -185,7 +186,7 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 ## Query
 
 ```
-select * from mysql_table where k1 > 1000 and k3 ='term';
+select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
 ```
 
 In some cases, the keywords in the database might be used as the field names. For queries to function normally in these cases, Doris will add escape characters to the field names and tables names in SQL statements based on the rules of different databases, such as (``) for MySQL, ([]) for SQLServer, and ("") for PostgreSQL and Oracle. This might require extra attention on case sensitivity. You can view the query statements sent to these various databases via ```explain sql```.
@@ -199,8 +200,8 @@ After creating a JDBC Catalog in Doris, you can write data or query results to i
 Example:
 
 ```
-insert into mysql_table values(1, "doris");
-insert into mysql_table select * from table;
+insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
+insert into mysql_catalog.mysql_database.mysql_table select * from table;
 ```
 
 ### Transaction
@@ -429,6 +430,6 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
    To reduce memory usage, Doris obtains one batch of query results at a time, and has a size limit for each batch. However, MySQL conducts one-off loading of all query results by default, which means the "loading in batches" method won't work. To solve this, you need to specify "jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true" in the URL.
 
- 7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
+7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
 
-    If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+   If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.

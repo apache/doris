@@ -47,5 +47,222 @@ suite("test_string_basic") {
          (2, repeat("test1111", 131072))
         """
     order_qt_select_str_tb "select k1, md5(v1), length(v1) from ${tbName}"
+
+    sql """drop table if exists test_string_cmp;"""
+
+    sql """
+    CREATE TABLE `test_string_cmp` (
+        `ts` datetime NULL,
+        `s1` varchar(32) NULL,
+        `s2` varchar(128) NULL
+    ) ENGINE = OLAP
+    DUPLICATE KEY(`ts`)
+    DISTRIBUTED BY HASH(`s1`) BUCKETS 1
+    PROPERTIES ( 
+        "replication_num" = "1"
+    );
+    """
+
+    sql """
+    INSERT INTO `test_string_cmp` VALUES ('2023-02-22 12:00:00', '8001', '1'),
+                                         ('2023-02-22 12:00:03', '8008', '8'),
+                                         ('2023-02-22 12:00:03', '8008', '8008'),
+                                         ('2023-02-22 12:00:03', null, '0');
+    """
+
+    qt_col_eq_col """
+    select
+        s1, s2,
+        if(
+            s1 = s2,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_neq_col """
+    select
+        s1, s2,
+        if(
+            s1 != s2,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_gt_col """
+    select
+        s1, s2,
+        if(
+            s1 > s2,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_eq_const """
+    select
+        s1, s2,
+        if(
+            s1 = '8008',
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_neq_const """
+    select
+        s1, s2,
+        if(
+            s1 != '8008',
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_lt_const """
+    select
+        s1, s2,
+        if(
+            s1 < '8008',
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_const_eq_col """
+    select
+        s1, s2,
+        if(
+            '8008' = s1,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_const_neq_col """
+    select
+        s1, s2,
+        if(
+            '8008' != s1,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_const_gt_col """
+    select
+        s1, s2,
+        if(
+            '8008' > s1,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_const_eq_const """
+    select
+        s1, s2,
+        if(
+            '8008' = substr('a8008', 2, 4),
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_const_neq_const """
+    select
+        s1, s2,
+        if(
+            '8008' != substr('a8008', 2, 4),
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_const_gt_const """
+    select
+        s1, s2,
+        if(
+            '8008' > substr('a8007', 2, 4),
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_eq_null """
+    select
+        s1, s2,
+        if(
+            s1 = null,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_neq_null """
+    select
+        s1, s2,
+        if(
+            s1 != null,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
+
+    qt_col_gt_null """
+    select
+        s1, s2,
+        if(
+            s1 > null,
+            1,
+            0
+        ) as counts
+    from
+        test_string_cmp
+    order by s1, s2, counts;
+    """
 }
 

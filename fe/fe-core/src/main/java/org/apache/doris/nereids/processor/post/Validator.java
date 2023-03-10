@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
@@ -45,6 +45,9 @@ import java.util.stream.Collectors;
  * validator plan.
  */
 public class Validator extends PlanPostProcessor {
+
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPE = ImmutableSet.of(
+            MapType.class, StructType.class, JsonType.class, ArrayType.class);
 
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
@@ -78,7 +81,8 @@ public class Validator extends PlanPostProcessor {
                 .<Set<Slot>>map(expr -> expr.collect(Slot.class::isInstance))
                 .flatMap(Collection::stream).collect(Collectors.toSet());
         for (Slot slot : slotsUsedByFilter) {
-            Preconditions.checkState(childOutputSet.contains(slot));
+            Preconditions.checkState(childOutputSet.contains(slot)
+                    || slot instanceof MarkJoinSlotReference);
         }
 
         child.accept(this, context);
@@ -110,8 +114,7 @@ public class Validator extends PlanPostProcessor {
         }
 
         private void checkTypes(DataType dataType) {
-            if (ImmutableSet.of(MapType.class, StructType.class, JsonType.class,
-                    ArrayType.class, DecimalV3Type.class).contains(dataType.getClass())) {
+            if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
                 throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
             }
         }

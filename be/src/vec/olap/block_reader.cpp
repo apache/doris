@@ -73,7 +73,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
     for (auto& rs_reader : read_params.rs_readers) {
@@ -454,8 +453,8 @@ ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<true>(function_filter._opposite, index, function_filter._fn_ctx,
-                                         function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 } // namespace doris::vectorized

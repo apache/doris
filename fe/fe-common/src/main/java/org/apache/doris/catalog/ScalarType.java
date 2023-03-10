@@ -812,11 +812,11 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR && scalarType.isStringType()) {
             return true;
         }
-        if (isDecimalV2() && scalarType.isWildcardDecimal()) {
+        if (isDecimalV2() && scalarType.isWildcardDecimal() && scalarType.isDecimalV2()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
         }
-        if (isDecimalV3() && scalarType.isWildcardDecimal()) {
+        if (isDecimalV3() && scalarType.isWildcardDecimal() && scalarType.isDecimalV3()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
         }

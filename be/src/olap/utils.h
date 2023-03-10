@@ -252,8 +252,11 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
            field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
            field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
-           field_type == OLAP_FIELD_TYPE_DATETIME || field_type == OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_BOOL;
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
 }
 
 // Util used to get string name of thrift enum item
@@ -276,6 +279,20 @@ struct RowLocation {
     RowsetId rowset_id;
     uint32_t segment_id;
     uint32_t row_id;
+
+    bool operator==(const RowLocation& rhs) const {
+        return rowset_id == rhs.rowset_id && segment_id == rhs.segment_id && row_id == rhs.row_id;
+    }
+
+    bool operator<(const RowLocation& rhs) const {
+        if (rowset_id != rhs.rowset_id) {
+            return rowset_id < rhs.rowset_id;
+        } else if (segment_id != rhs.segment_id) {
+            return segment_id < rhs.segment_id;
+        } else {
+            return row_id < rhs.row_id;
+        }
+    }
 };
 
 struct GlobalRowLoacation {

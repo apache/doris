@@ -34,14 +34,15 @@
 // binary. For example, it would be unfortunate if they had a random dependency
 // on libhdfs.
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 FunctionContextImpl::FunctionContextImpl()
         : _state(nullptr),
-          _version(doris_udf::FunctionContext::V2_0),
           _num_warnings(0),
           _thread_local_fn_state(nullptr),
           _fragment_local_fn_state(nullptr) {}
@@ -51,41 +52,34 @@ void FunctionContextImpl::set_constant_cols(
     _constant_cols = constant_cols;
 }
 
-doris_udf::FunctionContext* FunctionContextImpl::create_context(
-        RuntimeState* state, const doris_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types) {
-    auto* ctx = new doris_udf::FunctionContext();
+std::unique_ptr<doris::FunctionContext> FunctionContextImpl::create_context(
+        RuntimeState* state, const doris::TypeDescriptor& return_type,
+        const std::vector<doris::TypeDescriptor>& arg_types) {
+    auto ctx = std::unique_ptr<doris::FunctionContext>(new doris::FunctionContext());
     ctx->_impl->_state = state;
     ctx->_impl->_return_type = return_type;
     ctx->_impl->_arg_types = arg_types;
     return ctx;
 }
 
-FunctionContext* FunctionContextImpl::clone() {
-    doris_udf::FunctionContext* new_context = create_context(_state, _return_type, _arg_types);
+std::unique_ptr<FunctionContext> FunctionContextImpl::clone() {
+    auto new_context = create_context(_state, _return_type, _arg_types);
     new_context->_impl->_constant_cols = _constant_cols;
     new_context->_impl->_fragment_local_fn_state = _fragment_local_fn_state;
     return new_context;
 }
 
+const doris::TypeDescriptor& FunctionContextImpl::get_return_type() const {
+    return _return_type;
+}
+
 } // namespace doris
 
-namespace doris_udf {
+namespace doris {
 static const int MAX_WARNINGS = 1000;
 
 FunctionContext::FunctionContext() {
     _impl = std::make_unique<doris::FunctionContextImpl>();
-}
-
-FunctionContext::DorisVersion FunctionContext::version() const {
-    return _impl->_version;
-}
-
-FunctionContext::UniqueId FunctionContext::query_id() const {
-    UniqueId id;
-    id.hi = _impl->_state->query_id().hi;
-    id.lo = _impl->_state->query_id().lo;
-    return id;
 }
 
 void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {
@@ -131,7 +125,7 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     }
 }
 
-const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) const {
+const doris::TypeDescriptor* FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _impl->_arg_types.size()) {
         return nullptr;
     }
@@ -156,7 +150,7 @@ int FunctionContext::get_num_args() const {
     return _impl->_arg_types.size();
 }
 
-const FunctionContext::TypeDesc& FunctionContext::get_return_type() const {
+const doris::TypeDescriptor& FunctionContext::get_return_type() const {
     return _impl->_return_type;
 }
 
@@ -172,12 +166,9 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     }
 }
 
-StringVal FunctionContext::create_temp_string_val(int64_t len) {
+StringRef FunctionContext::create_temp_string_val(int64_t len) {
     this->impl()->string_result().resize(len);
-    return StringVal((uint8_t*)this->impl()->string_result().c_str(), len);
+    return StringRef((uint8_t*)this->impl()->string_result().c_str(), len);
 }
 
-std::ostream& operator<<(std::ostream& os, const StringVal& string_val) {
-    return os << string_val.to_string();
-}
-} // namespace doris_udf
+} // namespace doris

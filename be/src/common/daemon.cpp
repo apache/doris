@@ -211,7 +211,7 @@ void Daemon::memory_gc_thread() {
     int64_t cache_gc_freed_mem = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
-        if (!MemInfo::initialized()) {
+        if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
         if (memory_full_gc_sleep_time_ms <= 0 &&

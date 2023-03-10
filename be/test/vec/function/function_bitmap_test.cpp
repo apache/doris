@@ -118,7 +118,7 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
         DataSet data_set = {{{&bitmap1, &bitmap2, &empty_bitmap}, (int64_t)5}, //0,1,33,1024,2019
                             {{&bitmap1, &bitmap2, &bitmap3},
                              (int64_t)7}, //0,1,5,33,1024,2019,18446744073709551615
-                            {{&bitmap1, &empty_bitmap, Null()}, Null()},
+                            {{&bitmap1, &empty_bitmap, Null()}, (int64_t)3},
                             {{&bitmap1, &bitmap3, &bitmap3},
                              (int64_t)6}}; //1,5,33,1024,2019,18446744073709551615
 

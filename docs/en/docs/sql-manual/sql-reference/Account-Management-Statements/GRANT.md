@@ -32,12 +32,21 @@ GRANT
 
 ### Description
 
-The GRANT command is used to grant the specified user or role specified permissions
+The GRANT command has the following functions:
+
+1. Grant the specified permissions to a user or role.
+2. Grant the specified role to a user.
+
+>Note that.
+>
+>"Grant the specified role to the user" is not supported in the current version
 
 ```sql
 GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 
 GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
+
+GRANT role_list TO user_identity
 ````
 
 privilege_list is a list of privileges to be granted, separated by commas. Currently Doris supports the following permissions:
@@ -83,6 +92,8 @@ user_identity:
     
     You can also assign permissions to the specified ROLE, if the specified ROLE does not exist, it will be created automatically.
 
+role_list is the list of roles to be assigned, separated by commas,the specified role must exist.
+
 ### Example
 
 1. Grant permissions to all catalog and databases and tables to the user
@@ -120,6 +131,12 @@ user_identity:
    ```sql
    GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
    ````
+
+7. Grant the specified role to a user
+
+    ```sql
+    GRANT 'role1','role2' TO 'jack'@'%';
+    ```
 
 ### Keywords
 

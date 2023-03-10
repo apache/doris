@@ -33,6 +33,14 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _is_load = (_input_tuple_desc != nullptr);
 }
 
+Status VScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+    if (vconjunct_ctx_ptr != nullptr) {
+        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
+        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+    }
+    return Status::OK();
+}
+
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
@@ -70,9 +78,9 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             {
                 SCOPED_TIMER(_parent->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
-                // record rows return (after filter) for _limit check
-                _num_rows_return += block->rows();
             }
+            // record rows return (after filter) for _limit check
+            _num_rows_return += block->rows();
         } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
@@ -132,6 +140,9 @@ Status VScanner::close(RuntimeState* state) {
     }
     if (_vconjunct_ctx) {
         _vconjunct_ctx->close(state);
+    }
+    if (_common_vexpr_ctxs_pushdown) {
+        _common_vexpr_ctxs_pushdown->close(state);
     }
 
     COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);

@@ -43,6 +43,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
+import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PushdownJoinOtherConditionTest {
@@ -85,7 +86,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, Optional.empty(), left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);
@@ -125,7 +126,7 @@ public class PushdownJoinOtherConditionTest {
         Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, rStudent,
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, Optional.empty(), rStudent,
                 rScore);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
@@ -168,7 +169,7 @@ public class PushdownJoinOtherConditionTest {
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, left, right);
+        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, Optional.empty(), left, right);
         Plan root = new LogicalProject<>(Lists.newArrayList(), join);
 
         Memo memo = rewrite(root);

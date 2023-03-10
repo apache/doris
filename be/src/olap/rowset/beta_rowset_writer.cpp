@@ -62,7 +62,11 @@ BetaRowsetWriter::BetaRowsetWriter()
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
-    // OLAP_UNUSED_ARG(_wait_flying_segcompaction());
+    /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
+     * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
+     * is cancelled, the objects involved in the job should be preserved during segcompaction to
+     * avoid crashs for memory issues. */
+    _wait_flying_segcompaction();
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
@@ -290,8 +294,8 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization ||
-        _context.tablet_schema->is_dynamic_schema() || !_check_and_set_is_doing_segcompaction()) {
+    if (!config::enable_segcompaction || _context.tablet_schema->is_dynamic_schema() ||
+        !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
@@ -322,7 +326,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
 Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     Status status = Status::OK();
     DCHECK_EQ(_is_doing_segcompaction, false);
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
+    if (!config::enable_segcompaction) {
         return Status::OK();
     }
     if (_segcompaction_status.load() != OK) {

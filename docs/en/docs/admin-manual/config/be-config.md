@@ -188,7 +188,8 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+    - `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G), 6.4G is the maximum memory reserved for the system by default.
+* Default value: auto
 
 #### `cluster_id`
 
@@ -444,12 +445,6 @@ There are two ways to configure BE configuration items:
 * Description: Whether disable automatic compaction task
   - Generally it needs to be turned off. When you want to manually operate the compaction task in the debugging or test environment, you can turn on the configuration.
 * Default value: false
-
-#### `enable_vectorized_compaction`
-
-* Type: bool
-* Description: Whether to enable vectorized compaction
-* Default value: true
 
 #### `enable_vertical_compaction`
 
@@ -1398,11 +1393,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: Cgroups assigned to doris
 * Default value: empty
-
-#### `row_nums_check`
-
-* Description: Check row nums for BE/CE and schema change
-* Default value: true
 
 #### `priority_queue_remaining_tasks_increased_frequency`
 

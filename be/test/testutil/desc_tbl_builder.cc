@@ -36,7 +36,7 @@ TupleDescBuilder& DescriptorTblBuilder::declare_tuple() {
 
 // item_id of -1 indicates no itemTupleId
 static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDescriptor& type,
-                                            int slot_idx, int byte_offset, int item_id) {
+                                            int slot_idx, int item_id) {
     int null_byte = slot_idx / 8;
     int null_bit = slot_idx % 8;
     TSlotDescriptor slot_desc;
@@ -45,7 +45,7 @@ static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDes
     slot_desc.__set_slotType(type.to_thrift());
     // For now no tests depend on the materialized path being populated correctly.
     // slot_desc.__set_materializedPath(vector<int>());
-    slot_desc.__set_byteOffset(byte_offset);
+    slot_desc.__set_byteOffset(0);
     slot_desc.__set_nullIndicatorByte(null_byte);
     slot_desc.__set_nullIndicatorBit(null_bit);
     slot_desc.__set_slotIdx(slot_idx);
@@ -56,10 +56,10 @@ static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDes
     return slot_desc;
 }
 
-static TTupleDescriptor make_tuple_descriptor(int id, int byte_size, int num_null_bytes) {
+static TTupleDescriptor make_tuple_descriptor(int id, int num_null_bytes) {
     TTupleDescriptor tuple_desc;
     tuple_desc.__set_id(id);
-    tuple_desc.__set_byteSize(byte_size);
+    tuple_desc.__set_byteSize(0);
     tuple_desc.__set_numNullBytes(num_null_bytes);
     return tuple_desc;
 }
@@ -91,7 +91,6 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>&
     }
 
     int num_null_bytes = BitUtil::ceil(slot_types.size(), 8);
-    int byte_offset = num_null_bytes;
     int tuple_id = *next_tuple_id;
     ++(*next_tuple_id);
 
@@ -105,13 +104,12 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>&
         // }
 
         thrift_desc_tbl->slotDescriptors.push_back(
-                make_slot_descriptor(*slot_id, tuple_id, slot_types[i], i, byte_offset, item_id));
+                make_slot_descriptor(*slot_id, tuple_id, slot_types[i], i, item_id));
         thrift_desc_tbl->__isset.slotDescriptors = true;
-        byte_offset += slot_types[i].get_slot_size();
         ++(*slot_id);
     }
 
-    TTupleDescriptor result = make_tuple_descriptor(tuple_id, byte_offset, num_null_bytes);
+    TTupleDescriptor result = make_tuple_descriptor(tuple_id, num_null_bytes);
     thrift_desc_tbl->tupleDescriptors.push_back(result);
     return result;
 }

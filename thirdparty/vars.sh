@@ -73,10 +73,10 @@ OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
 OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
-THRIFT_NAME=thrift-0.13.0.tar.gz
-THRIFT_SOURCE=thrift-0.13.0
-THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.16.0/thrift-0.16.0.tar.gz"
+THRIFT_NAME=thrift-0.16.0.tar.gz
+THRIFT_SOURCE=thrift-0.16.0
+THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
 
 # protobuf
 PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
@@ -458,6 +458,12 @@ FAST_FLOAT_NAME=fast_float-3.9.0.tar.gz
 FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
+# libhdfs
+HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
+HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
+HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
+HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'CLUCENE'
@@ -525,6 +531,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
+    'HADOOP_LIBS_X86'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

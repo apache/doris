@@ -355,7 +355,6 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->mark_as_stale();
         _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
     }
     _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
@@ -388,6 +387,9 @@ void VScanNode::release_resource(RuntimeState* state) {
 
     for (auto& ctx : _stale_vexpr_ctxs) {
         (*ctx)->close(state);
+    }
+    if (_common_vexpr_ctxs_pushdown) {
+        (*_common_vexpr_ctxs_pushdown)->close(state);
     }
     _scanner_pool.clear();
 
@@ -458,8 +460,11 @@ Status VScanNode::_normalize_conjuncts() {
             RETURN_IF_ERROR(_normalize_predicate((*_vconjunct_ctx_ptr)->root(), &new_root));
             if (new_root) {
                 (*_vconjunct_ctx_ptr)->set_root(new_root);
-            } else {
-                (*_vconjunct_ctx_ptr)->mark_as_stale();
+                if (_should_push_down_common_expr()) {
+                    _common_vexpr_ctxs_pushdown = std::move(_vconjunct_ctx_ptr);
+                    _vconjunct_ctx_ptr.reset(nullptr);
+                }
+            } else { // All conjucts are pushed down as predicate column
                 _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                 _vconjunct_ctx_ptr.reset(nullptr);
             }
@@ -640,8 +645,8 @@ Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ct
     }
 
     if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
-        doris_udf::FunctionContext* fn_ctx = nullptr;
-        StringVal val;
+        doris::FunctionContext* fn_ctx = nullptr;
+        StringRef val;
         PushDownType temp_pdt;
         RETURN_IF_ERROR(_should_push_down_function_filter(
                 reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));

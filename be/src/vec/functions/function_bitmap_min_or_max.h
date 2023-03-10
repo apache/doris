@@ -26,12 +26,12 @@ namespace doris::vectorized {
 
 struct FunctionBitmapMinImpl {
     static constexpr auto name = "bitmap_min";
-    static Int64 calculate(const BitmapValue& value) { return value.minimum().val; }
+    static Int64 calculate(const BitmapValue& value) { return value.minimum(); }
 };
 
 struct FunctionBitmapMaxImpl {
     static constexpr auto name = "bitmap_max";
-    static Int64 calculate(const BitmapValue& value) { return value.maximum().val; }
+    static Int64 calculate(const BitmapValue& value) { return value.maximum(); }
 };
 
 template <typename Impl>

@@ -273,7 +273,7 @@ After you create a Catalog, Doris will automatically synchronize the databases a
 
 <version since="dev">
 
-As for types that cannot be mapped to a Doris column type, such as `map` and `struct` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
+As for types that cannot be mapped to a Doris column type, such as `UNION` and `INTERVAL` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
 
 Suppose the table is of the following schema:
 
