@@ -17,52 +17,53 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
-import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushdownJoinOtherConditionTest {
+class PushdownJoinOtherConditionTest implements MemoPatternMatchSupported {
 
-    private Plan rStudent;
-    private Plan rScore;
+    private LogicalOlapScan rStudent;
+    private LogicalOlapScan rScore;
+
+    private List<Slot> rStudentSlots;
+
+    private List<Slot> rScoreSlots;
 
     /**
      * ut before.
      */
     @BeforeAll
-    public final void beforeAll() {
+    final void beforeAll() {
         rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
         rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        rStudentSlots = rStudent.getOutput();
+        rScoreSlots = rScore.getOutput();
     }
 
     @Test
-    public void oneSide() {
+    void oneSide() {
         oneSide(JoinType.CROSS_JOIN, false);
         oneSide(JoinType.INNER_JOIN, false);
         oneSide(JoinType.LEFT_OUTER_JOIN, true);
@@ -74,46 +75,43 @@ public class PushdownJoinOtherConditionTest {
     }
 
     private void oneSide(JoinType joinType, boolean testRight) {
-
-        Expression pushSide1 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
-        Expression pushSide2 = new GreaterThan(rStudent.getOutput().get(1), Literal.of(50));
+        Expression pushSide1 = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression pushSide2 = new GreaterThan(rStudentSlots.get(1), Literal.of(50));
         List<Expression> condition = ImmutableList.of(pushSide1, pushSide2);
 
-        Plan left = rStudent;
-        Plan right = rScore;
+        LogicalOlapScan left = rStudent;
+        LogicalOlapScan right = rScore;
         if (testRight) {
             left = rScore;
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, Optional.empty(), left, right);
-        Plan root = new LogicalProject<>(Lists.newArrayList(), join);
+        LogicalPlan root = new LogicalPlanBuilder(left)
+                .join(right, joinType, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
 
-        Memo memo = rewrite(root);
-        Group rootGroup = memo.getRoot();
+        PlanChecker planChecker = PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushdownJoinOtherCondition());
 
-        Plan shouldJoin = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan shouldFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-                .child(0).getLogicalExpression().getPlan();
-        Plan shouldScan = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-                .child(1).getLogicalExpression().getPlan();
         if (testRight) {
-            shouldFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-                    .child(1).getLogicalExpression().getPlan();
-            shouldScan = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-                    .child(0).getLogicalExpression().getPlan();
+            planChecker.matches(
+                    logicalJoin(
+                            logicalOlapScan(),
+                            logicalFilter()
+                                    .when(filter -> ImmutableList.copyOf(filter.getConjuncts()).equals(condition))));
+        } else {
+            planChecker.matches(
+                    logicalJoin(
+                            logicalFilter().when(
+                                    filter -> ImmutableList.copyOf(filter.getConjuncts()).equals(condition)),
+                            logicalOlapScan()));
+
         }
-
-        Assertions.assertTrue(shouldJoin instanceof LogicalJoin);
-        Assertions.assertTrue(shouldFilter instanceof LogicalFilter);
-        Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
-        LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
-
-        Assertions.assertEquals(condition, ImmutableList.copyOf(actualFilter.getConjuncts()));
     }
 
     @Test
-    public void bothSideToBothSide() {
+    void bothSideToBothSide() {
         bothSideToBothSide(JoinType.CROSS_JOIN);
         bothSideToBothSide(JoinType.INNER_JOIN);
         bothSideToBothSide(JoinType.LEFT_SEMI_JOIN);
@@ -122,34 +120,26 @@ public class PushdownJoinOtherConditionTest {
 
     private void bothSideToBothSide(JoinType joinType) {
 
-        Expression leftSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
-        Expression rightSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
+        Expression leftSide = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression rightSide = new GreaterThan(rScoreSlots.get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(leftSide, rightSide);
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, Optional.empty(), rStudent,
-                rScore);
-        Plan root = new LogicalProject<>(Lists.newArrayList(), join);
+        LogicalPlan root = new LogicalPlanBuilder(rStudent)
+                .join(rScore, joinType, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
 
-        Memo memo = rewrite(root);
-        Group rootGroup = memo.getRoot();
-
-        Plan shouldJoin = rootGroup.getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan leftFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-                .child(0).getLogicalExpression().getPlan();
-        Plan rightFilter = rootGroup.getLogicalExpression().child(0).getLogicalExpression()
-                .child(1).getLogicalExpression().getPlan();
-
-        Assertions.assertTrue(shouldJoin instanceof LogicalJoin);
-        Assertions.assertTrue(leftFilter instanceof LogicalFilter);
-        Assertions.assertTrue(rightFilter instanceof LogicalFilter);
-        LogicalFilter<Plan> actualLeft = (LogicalFilter<Plan>) leftFilter;
-        LogicalFilter<Plan> actualRight = (LogicalFilter<Plan>) rightFilter;
-        Assertions.assertEquals(ImmutableSet.of(leftSide), actualLeft.getConjuncts());
-        Assertions.assertEquals(ImmutableSet.of(rightSide), actualRight.getConjuncts());
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushdownJoinOtherCondition())
+                .matches(
+                        logicalJoin(
+                                logicalFilter().when(left -> left.getConjuncts().equals(ImmutableSet.of(leftSide))),
+                                logicalFilter().when(right -> right.getConjuncts().equals(ImmutableSet.of(rightSide)))
+                        ));
     }
 
     @Test
-    public void bothSideToOneSide() {
+    void bothSideToOneSide() {
         bothSideToOneSide(JoinType.LEFT_OUTER_JOIN, true);
         bothSideToOneSide(JoinType.LEFT_ANTI_JOIN, true);
         bothSideToOneSide(JoinType.RIGHT_OUTER_JOIN, false);
@@ -157,45 +147,37 @@ public class PushdownJoinOtherConditionTest {
     }
 
     private void bothSideToOneSide(JoinType joinType, boolean testRight) {
-
-        Expression pushSide = new GreaterThan(rStudent.getOutput().get(1), Literal.of(18));
-        Expression reserveSide = new GreaterThan(rScore.getOutput().get(2), Literal.of(60));
+        Expression pushSide = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression reserveSide = new GreaterThan(rScoreSlots.get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(pushSide, reserveSide);
 
-        Plan left = rStudent;
-        Plan right = rScore;
+        LogicalOlapScan left = rStudent;
+        LogicalOlapScan right = rScore;
         if (testRight) {
             left = rScore;
             right = rStudent;
         }
 
-        Plan join = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION, condition, JoinHint.NONE, Optional.empty(), left, right);
-        Plan root = new LogicalProject<>(Lists.newArrayList(), join);
+        LogicalPlan root = new LogicalPlanBuilder(left)
+                .join(right, joinType, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
 
-        Memo memo = rewrite(root);
-        Group rootGroup = memo.getRoot();
+        PlanChecker planChecker = PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushdownJoinOtherCondition());
 
-        Plan shouldJoin = rootGroup.getLogicalExpression()
-                .child(0).getLogicalExpression().getPlan();
-        Plan shouldFilter = rootGroup.getLogicalExpression()
-                .child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
-        Plan shouldScan = rootGroup.getLogicalExpression()
-                .child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
         if (testRight) {
-            shouldFilter = rootGroup.getLogicalExpression()
-                    .child(0).getLogicalExpression().child(1).getLogicalExpression().getPlan();
-            shouldScan = rootGroup.getLogicalExpression()
-                    .child(0).getLogicalExpression().child(0).getLogicalExpression().getPlan();
+            planChecker.matches(
+                    logicalJoin(
+                            logicalOlapScan(),
+                            logicalFilter().when(filter -> filter.getConjuncts().equals(ImmutableSet.of(pushSide)))
+                    ));
+        } else {
+            planChecker.matches(
+                    logicalJoin(
+                            logicalFilter().when(filter -> filter.getConjuncts().equals(ImmutableSet.of(pushSide))),
+                            logicalOlapScan()
+                    ));
         }
-
-        Assertions.assertTrue(shouldJoin instanceof LogicalJoin);
-        Assertions.assertTrue(shouldFilter instanceof LogicalFilter);
-        Assertions.assertTrue(shouldScan instanceof LogicalOlapScan);
-        LogicalFilter<Plan> actualFilter = (LogicalFilter<Plan>) shouldFilter;
-        Assertions.assertEquals(ImmutableSet.of(pushSide), actualFilter.getConjuncts());
-    }
-
-    private Memo rewrite(Plan plan) {
-        return PlanRewriter.topDownRewriteMemo(plan, new ConnectContext(), new PushdownJoinOtherCondition());
     }
 }

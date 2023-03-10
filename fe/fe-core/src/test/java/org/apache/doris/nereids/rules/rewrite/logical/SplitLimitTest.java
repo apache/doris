@@ -17,25 +17,32 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.trees.plans.LimitPhase;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
-public class SplitLimitTest {
+/**
+ * Tests for {@link SplitLimit}.
+ */
+class SplitLimitTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     @Test
     void testSplitLimit() {
-        Plan plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, scan1);
-        plan = PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .rewrite()
-                .getPlan();
-        plan.anyMatch(x -> x instanceof LogicalLimit && ((LogicalLimit<?>) x).isSplit());
+        LogicalPlan limit = new LogicalPlanBuilder(scan1)
+                .limit(0, 0)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), limit)
+                .applyTopDown(new SplitLimit())
+                .matches(
+                        globalLogicalLimit(localLogicalLimit())
+                );
     }
 }
