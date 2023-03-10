@@ -139,8 +139,9 @@ PROPERTIES
 );
 ```
 
-<version since="1.2"></version>
 7. Create a repository named minio_repo via temporary security credentials.
+
+<version since="1.2"></version>
 
 ```
 CREATE REPOSITORY `minio_repo`
@@ -154,6 +155,21 @@ PROPERTIES
     "AWS_TOKEN" = "AWS_TEMP_TOKEN",
     "AWS_REGION" = "AWS_REGION"
 )
+```
+
+8. Create repository using Tencent COS
+
+```
+CREATE REPOSITORY `cos_repo`
+WITH S3
+ON LOCATION "s3://backet1/"
+PROPERTIES
+(
+    "AWS_ACCESS_KEY" = "ak",
+    "AWS_SECRET_KEY" = "sk",
+    "AWS_ENDPOINT" = "http://cos.ap-beijing.myqcloud.com",
+    "AWS_REGION" = "ap-beijing"
+);
 ```
 
 ### Keywords
