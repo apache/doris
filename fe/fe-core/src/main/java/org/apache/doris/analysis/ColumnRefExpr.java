@@ -76,7 +76,6 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        LOG.info("protected void analyzeImpl(Analyzer analyzer)");
         if (columnId < 0) {
             throw new AnalysisException("the columnId is invalid : " + columnId);
         }
@@ -89,7 +88,6 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        LOG.info("protected void toThrift(TExprNode msg)");
         msg.node_type = TExprNodeType.COLUMN_REF;
         TColumnRef columnRef = new TColumnRef();
         columnRef.setColumnId(columnId);

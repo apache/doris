@@ -157,20 +157,20 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
         *expr = pool->add(new VcompoundPred(texpr_node));
         break;
     }
+    case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
+        *expr = pool->add(new VLambdaFunctionExpr(texpr_node));
+        break;
+    }
     case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
         *expr = pool->add(new VLambdaFunctionCallExpr(texpr_node));
         break;
     }
     case doris::TExprNodeType::ARITHMETIC_EXPR:
     case doris::TExprNodeType::BINARY_PRED:
+    case doris::TExprNodeType::FUNCTION_CALL:
     case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
-    case doris::TExprNodeType::MATCH_PRED: 
-    case doris::TExprNodeType::FUNCTION_CALL: {
+    case doris::TExprNodeType::MATCH_PRED: {
         *expr = pool->add(new VectorizedFnCall(texpr_node));
-        break;
-    }
-    case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
-        *expr = pool->add(new VLambdaFunctionExpr(texpr_node));
         break;
     }
     case doris::TExprNodeType::CAST_EXPR: {

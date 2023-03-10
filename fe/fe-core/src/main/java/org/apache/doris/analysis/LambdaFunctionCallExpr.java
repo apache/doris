@@ -69,7 +69,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         for (int i = 0; i < childSize; ++i) {
             this.children.get(i).analyze(analyzer);
             argTypes[i] = this.children.get(i).getType();
-            LOG.info("argTypes[i]: " + argTypes[i].toString());
         }
 
         if (fnName.getFunction().equalsIgnoreCase("array_map")) {
