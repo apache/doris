@@ -32,13 +32,16 @@ import java.util.stream.Collectors;
 /**
  * Paper: Quantifying TPC-H Choke Points and Their Optimizations
  * - Figure 14:
- * ------
+ * <p>
  * Rewrite InPredicate to disjunction, if there exists < 3 elements in InPredicate
  * Examples:
  * where A in (x, y) ==> where A = x or A = y
  * Examples:
  * where A in (x) ==> where A = x
  * where A not in (x) ==> where not A = x (After ExpressionTranslator, "not A = x" will be translated to "A != x")
+ * <p>
+ * NOTICE: it's related with `SimplifyRange`.
+ * They are same processes, so must change synchronously.
  */
 public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
 
