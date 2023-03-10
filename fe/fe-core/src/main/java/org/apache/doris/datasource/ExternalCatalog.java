@@ -28,8 +28,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -162,19 +161,19 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public void checkProperties() throws UserException {
     }
 
-    public void dryRun() throws DdlException {
+    public void dryRun() throws UserException {
         if (!supportDryRun()) {
             return;
         }
         try {
             tryGetMetadata();
         } catch (Exception e) {
-            throw new DdlException(e.getMessage(), ErrorCode.ERR_GET_REMOTE_METADATA);
+            throw new UserException(InternalErrorCode.GET_REMOTE_METADATA_ERROR, e.getMessage());
         }
         try {
             tryGetData();
         } catch (Exception e) {
-            throw new DdlException(e.getMessage(), ErrorCode.ERR_GET_REMOTE_DATA);
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR, e.getMessage());
         }
     }
 
@@ -182,11 +181,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         return false;
     }
 
-    protected void tryGetMetadata() throws DdlException {
+    protected void tryGetMetadata() {
         throw new NotImplementedException();
     }
 
-    protected void tryGetData() throws DdlException {
+    protected void tryGetData() {
         StorageType storageType = getStorageType();
         if (storageType == null) {
             return;
@@ -208,7 +207,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
 
-    protected void tryGetS3Data() throws DdlException {
+    protected void tryGetS3Data() {
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey("sts")) {
             // TODO: 2023/3/10 check sts

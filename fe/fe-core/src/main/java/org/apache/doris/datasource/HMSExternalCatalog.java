@@ -123,14 +123,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    protected void tryGetMetadata() throws DdlException {
-        try {
-            initLocalObjects();
-            List<String> allDatabases = client.getAllDatabases();
-            LOG.info("TryGetMetadata:{}", allDatabases);
-        } catch (Exception e) {
-            throw new DdlException("GetMetadata failed.");
-        }
+    protected void tryGetMetadata() {
+        initLocalObjects();
+        List<String> allDatabases = client.getAllDatabases();
+        LOG.info("TryGetMetadata:{}", allDatabases);
 
     }
 

@@ -34,7 +34,11 @@ public enum InternalErrorCode {
     MANUAL_STOP_ERR(101),
     TOO_MANY_FAILURE_ROWS_ERR(102),
     CREATE_TASKS_ERR(103),
-    TASKS_ABORT_ERR(104);
+    TASKS_ABORT_ERR(104),
+
+    // for external catalog
+    GET_REMOTE_METADATA_ERROR(201),
+    GET_REMOTE_DATA_ERROR(202);
 
     private long errCode;
 
