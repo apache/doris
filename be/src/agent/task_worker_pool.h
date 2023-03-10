@@ -203,7 +203,7 @@ private:
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
-    void _handle_report(TReportRequest& request, ReportType type);
+    void _handle_report(const TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);
