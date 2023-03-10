@@ -395,7 +395,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 DCHECK(arg.is_point_query());
                 auto query_op = arg.point_op();
                 auto query_value = arg.get_fixed_value_string();
-                if (is_match_query(query_op)) {
+                if (is_match_query(query_op) || is_equal_query(query_op)) {
                     return query_internal(query_value, column_name, query_op, analyser_type, stats,
                                           bit_map);
                 } else {

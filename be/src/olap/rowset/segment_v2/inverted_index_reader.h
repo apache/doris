@@ -246,7 +246,8 @@ public:
 
         return Status::OK();
     }
-    Status add_value_str(InvertedIndexQueryOp op, const std::string& value_str, int precision, int scale) {
+    Status add_value_str(InvertedIndexQueryOp op, const std::string& value_str, int precision,
+                         int scale) {
         CppType value;
         from_string(value_str, value, precision, scale);
 
@@ -310,7 +311,8 @@ public:
 
         return Status::OK();
     }
-    Status add_value_str(InvertedIndexQueryOp op, std::string_view value_str_view, int precision, int scale) {
+    Status add_value_str(InvertedIndexQueryOp op, std::string_view value_str_view, int precision,
+                         int scale) {
         CppType value;
         from_string(value_str_view, value, precision, scale);
         std::string value_str(value_str_view.begin(), value_str_view.end());
