@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
@@ -104,7 +105,7 @@ public class CreateFunctionStmt extends DdlStmt {
     private final Map<String, String> properties;
     private final List<String> parameters;
     private final Expr originFunction;
-    TFunctionBinaryType binaryType = TFunctionBinaryType.NATIVE;
+    TFunctionBinaryType binaryType = TFunctionBinaryType.JAVA_UDF;
 
     // needed item set after analyzed
     private String userFile;
@@ -190,7 +191,7 @@ public class CreateFunctionStmt extends DdlStmt {
         functionName.analyze(analyzer);
 
         // check operation privilege
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         // check argument
@@ -208,10 +209,14 @@ public class CreateFunctionStmt extends DdlStmt {
             intermediateType = returnType;
         }
 
-        String type = properties.getOrDefault(BINARY_TYPE, "NATIVE");
+        String type = properties.getOrDefault(BINARY_TYPE, "JAVA_UDF");
         binaryType = getFunctionBinaryType(type);
         if (binaryType == null) {
             throw new AnalysisException("unknown function type");
+        }
+        if (type.equals("NATIVE")) {
+            throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
+                                    + "please use JAVA_UDF or RPC instead");
         }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
@@ -541,17 +546,23 @@ public class CreateFunctionStmt extends DdlStmt {
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
             throws AnalysisException {
-        if (!(expType instanceof ScalarType)) {
+        Set<Class> javaTypes;
+        if (expType instanceof ScalarType) {
+            ScalarType scalarType = (ScalarType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
+        } else if (expType instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(arrayType.getPrimitiveType());
+        } else {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support non-scalar type '%s'",
+                    String.format("Method '%s' in class '%s' does not support type '%s'",
                             method.getName(), clazz.getCanonicalName(), expType));
         }
-        ScalarType scalarType = (ScalarType) expType;
-        Set<Class> javaTypes = Type.PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
+
         if (javaTypes == null) {
             throw new AnalysisException(
                     String.format("Method '%s' in class '%s' does not support type '%s'",
-                            method.getName(), clazz.getCanonicalName(), scalarType));
+                            method.getName(), clazz.getCanonicalName(), expType.toString()));
         }
         if (!javaTypes.contains(pType)) {
             throw new AnalysisException(

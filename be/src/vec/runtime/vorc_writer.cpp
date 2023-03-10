@@ -158,13 +158,13 @@ void VOrcWriterWrapper::close() {
                 cur_batch->notNull[row_id] = 1;                                                    \
                 int len = binary_cast<FROM, TO>(                                                   \
                                   assert_cast<const ColumnVector<FROM>&>(*col).get_data()[row_id]) \
-                                  .to_buffer((char*)buffer.ptr);                                   \
-                while (buffer.len < offset + len) {                                                \
-                    char* new_ptr = (char*)malloc(buffer.len + BUFFER_UNIT_SIZE);                  \
-                    memcpy(new_ptr, buffer.ptr, buffer.len);                                       \
-                    free(buffer.ptr);                                                              \
-                    buffer.ptr = (uint8_t*)new_ptr;                                                \
-                    buffer.len = buffer.len + BUFFER_UNIT_SIZE;                                    \
+                                  .to_buffer(const_cast<char*>(buffer.data));                      \
+                while (buffer.size < offset + len) {                                               \
+                    char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
+                    memcpy(new_ptr, buffer.data, buffer.size);                                     \
+                    free(const_cast<char*>(buffer.data));                                          \
+                    buffer.data = new_ptr;                                                         \
+                    buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                  \
                 }                                                                                  \
                 cur_batch->length[row_id] = len;                                                   \
                 offset += len;                                                                     \
@@ -175,7 +175,7 @@ void VOrcWriterWrapper::close() {
             if (null_data[row_id] != 0) {                                                          \
                 cur_batch->notNull[row_id] = 0;                                                    \
             } else {                                                                               \
-                cur_batch->data[row_id] = (char*)buffer.ptr + offset;                              \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;                 \
                 offset += cur_batch->length[row_id];                                               \
             }                                                                                      \
         }                                                                                          \
@@ -183,20 +183,20 @@ void VOrcWriterWrapper::close() {
                        check_and_get_column<const ColumnVector<FROM>>(col)) {                      \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
             int len = binary_cast<FROM, TO>(not_null_column->get_data()[row_id])                   \
-                              .to_buffer((char*)buffer.ptr);                                       \
-            while (buffer.len < offset + len) {                                                    \
-                char* new_ptr = (char*)malloc(buffer.len + BUFFER_UNIT_SIZE);                      \
-                memcpy(new_ptr, buffer.ptr, buffer.len);                                           \
-                free(buffer.ptr);                                                                  \
-                buffer.ptr = (uint8_t*)new_ptr;                                                    \
-                buffer.len = buffer.len + BUFFER_UNIT_SIZE;                                        \
+                              .to_buffer(const_cast<char*>(buffer.data));                          \
+            while (buffer.size < offset + len) {                                                   \
+                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
+                memcpy(new_ptr, buffer.data, buffer.size);                                         \
+                free(const_cast<char*>(buffer.data));                                              \
+                buffer.data = new_ptr;                                                             \
+                buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                      \
             }                                                                                      \
             cur_batch->length[row_id] = len;                                                       \
             offset += len;                                                                         \
         }                                                                                          \
         offset = 0;                                                                                \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
-            cur_batch->data[row_id] = (char*)buffer.ptr + offset;                                  \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;                     \
             offset += cur_batch->length[row_id];                                                   \
         }                                                                                          \
     } else {                                                                                       \
@@ -258,7 +258,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
 
     // Buffer used by date type
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-    StringVal buffer(ptr, BUFFER_UNIT_SIZE);
+    StringRef buffer(ptr, BUFFER_UNIT_SIZE);
 
     size_t sz = block.rows();
     auto row_batch = _create_row_batch(sz);
@@ -347,13 +347,14 @@ Status VOrcWriterWrapper::write(const Block& block) {
                             int len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
                                               assert_cast<const ColumnVector<UInt64>&>(*col)
                                                       .get_data()[row_id])
-                                              .to_buffer((char*)buffer.ptr, output_scale);
-                            while (buffer.len < offset + len) {
-                                char* new_ptr = (char*)malloc(buffer.len + BUFFER_UNIT_SIZE);
-                                memcpy(new_ptr, buffer.ptr, buffer.len);
-                                free(buffer.ptr);
-                                buffer.ptr = (uint8_t*)new_ptr;
-                                buffer.len = buffer.len + BUFFER_UNIT_SIZE;
+                                              .to_buffer(const_cast<char*>(buffer.data),
+                                                         output_scale);
+                            while (buffer.size < offset + len) {
+                                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);
+                                memcpy(new_ptr, buffer.data, buffer.size);
+                                free(const_cast<char*>(buffer.data));
+                                buffer.data = new_ptr;
+                                buffer.size = buffer.size + BUFFER_UNIT_SIZE;
                             }
                             cur_batch->length[row_id] = len;
                             offset += len;
@@ -364,7 +365,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                         if (null_data[row_id] != 0) {
                             cur_batch->notNull[row_id] = 0;
                         } else {
-                            cur_batch->data[row_id] = (char*)buffer.ptr + offset;
+                            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;
                             offset += cur_batch->length[row_id];
                         }
                     }
@@ -374,20 +375,20 @@ Status VOrcWriterWrapper::write(const Block& block) {
                         int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
                         int len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
                                           not_null_column->get_data()[row_id])
-                                          .to_buffer((char*)buffer.ptr, output_scale);
-                        while (buffer.len < offset + len) {
-                            char* new_ptr = (char*)malloc(buffer.len + BUFFER_UNIT_SIZE);
-                            memcpy(new_ptr, buffer.ptr, buffer.len);
-                            free(buffer.ptr);
-                            buffer.ptr = (uint8_t*)new_ptr;
-                            buffer.len = buffer.len + BUFFER_UNIT_SIZE;
+                                          .to_buffer(const_cast<char*>(buffer.data), output_scale);
+                        while (buffer.size < offset + len) {
+                            char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);
+                            memcpy(new_ptr, buffer.data, buffer.size);
+                            free(const_cast<char*>(buffer.data));
+                            buffer.data = new_ptr;
+                            buffer.size = buffer.size + BUFFER_UNIT_SIZE;
                         }
                         cur_batch->length[row_id] = len;
                         offset += len;
                     }
                     offset = 0;
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        cur_batch->data[row_id] = (char*)buffer.ptr + offset;
+                        cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;
                         offset += cur_batch->length[row_id];
                     }
                 } else {
@@ -508,7 +509,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
     _writer->add(*row_batch);
     _cur_written_rows += sz;
 
-    free(buffer.ptr);
+    free(const_cast<char*>(buffer.data));
     return Status::OK();
 }
 

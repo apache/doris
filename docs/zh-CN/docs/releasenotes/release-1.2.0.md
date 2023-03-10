@@ -143,7 +143,7 @@ Multi-Catalog 多源数据目录功能的目标在于能够帮助用户更方便
 
 更多数据源的适配已经在规划之中，原则上任何支持 JDBC 协议访问的数据库均能通过 JDBC 外部表的方式来访问。而之前的 ODBC 外部表功能将会在后续的某个版本中移除，还请尽量切换到 JDBC 外表功能。
 
-文档：[https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/jdbc-of-doris/](https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/jdbc-of-doris/)
+文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc)
 
 ### 6. JAVA UDF
 

@@ -129,9 +129,9 @@ public class MetaPersistMethod {
                 break;
             case "paloAuth":
                 metaPersistMethod.readMethod =
-                        Env.class.getDeclaredMethod("loadPaloAuth", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadAuth", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Env.class.getDeclaredMethod("savePaloAuth", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveAuth", CountingDataOutputStream.class, long.class);
                 break;
             case "transactionState":
                 metaPersistMethod.readMethod =
@@ -201,12 +201,6 @@ public class MetaPersistMethod {
                 metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadMTMVJobManager", DataInputStream.class,
                         long.class);
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveMTMVJobManager",
-                        CountingDataOutputStream.class, long.class);
-                break;
-            case "cooldownJob":
-                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadCooldownJob", DataInputStream.class,
-                        long.class);
-                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveCooldownJob",
                         CountingDataOutputStream.class, long.class);
                 break;
             default:

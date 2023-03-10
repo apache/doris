@@ -40,6 +40,8 @@ struct TTabletSchema {
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
     14: optional bool store_row_column = false
+    15: optional bool is_dynamic_schema = false
+    16: optional i32 version_col_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -164,6 +166,19 @@ struct TAlterTabletReqV2 {
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
+}
+
+struct TAlterInvertedIndexReq {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TSchemaHash schema_hash
+    3: optional Types.TVersion alter_version
+    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
+    5: optional bool is_drop_op= false
+    6: optional list<Descriptors.TOlapTableIndex> alter_inverted_indexes
+    7: optional list<Descriptors.TOlapTableIndex> indexes
+    8: optional list<Descriptors.TColumn> columns
+    9: optional i64 job_id
+    10: optional i64 expiration
 }
 
 struct TAlterMaterializedViewParam {
@@ -405,6 +420,7 @@ struct TAgentTaskRequest {
     // DEPRECATED 29: optional TGetStoragePolicy update_policy
     30: optional TPushCooldownConfReq push_cooldown_conf
     31: optional TPushStoragePolicyReq push_storage_policy_req
+    32: optional TAlterInvertedIndexReq alter_inverted_index_req
 }
 
 struct TAgentResult {

@@ -42,7 +42,7 @@ public interface IdenticalSignature extends ComputeSignature {
 
     @Override
     default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        return SearchSignature.from(signatures, getArguments())
+        return SearchSignature.from(this, signatures, getArguments())
                 // first round, use identical strategy to find signature
                 .orElseSearch(IdenticalSignature::isIdentical)
                 .resultOrException(getName());

@@ -78,11 +78,7 @@ public class MVColumnItem {
     }
 
     public MVColumnItem(Expr defineExpr) throws AnalysisException {
-        if (defineExpr instanceof SlotRef) {
-            this.name = defineExpr.toSql();
-        } else {
-            this.name = CreateMaterializedViewStmt.mvColumnBuilder(defineExpr.toSql());
-        }
+        this.name = CreateMaterializedViewStmt.mvColumnBuilder(defineExpr.toSql());
 
         if (this.name == null) {
             throw new AnalysisException("defineExpr.toSql() is null");
@@ -168,7 +164,7 @@ public class MVColumnItem {
         if (baseColumn != null) {
             result = new Column(baseColumn);
             if (result.getType() == null) {
-                throw new DdlException("base column's type is null");
+                throw new DdlException("base column's type is null, column=" + result.getName());
             }
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily

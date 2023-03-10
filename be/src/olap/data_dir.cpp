@@ -678,7 +678,12 @@ void DataDir::perform_path_scan() {
                              << " error[" << ret.to_string() << "]";
                 continue;
             }
+
             for (const auto& schema_hash : schema_hashes) {
+                int32_t interval_ms = config::path_scan_step_interval_ms;
+                if (interval_ms > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+                }
                 auto tablet_schema_hash_path = fmt::format("{}/{}", tablet_id_path, schema_hash);
                 _all_tablet_schemahash_paths.insert(tablet_schema_hash_path);
 
@@ -848,18 +853,18 @@ void DataDir::perform_remote_rowset_gc() {
             continue;
         }
         DCHECK(fs->type() != io::FileSystemType::LOCAL);
-        bool success = true;
+        std::vector<io::Path> seg_paths;
+        seg_paths.reserve(gc_pb.num_segments());
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
-            auto seg_path = BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i);
-            // TODO(plat1ko): batch delete
-            auto st = fs->delete_file(seg_path);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to delete remote rowset. err=" << st;
-                success = false;
-            }
+            seg_paths.push_back(BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
         }
-        if (success) {
+        LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
+                  << ", rowset_id=" << rowset_id;
+        auto st = std::static_pointer_cast<io::RemoteFileSystem>(fs)->batch_delete(seg_paths);
+        if (st.ok()) {
             deleted_keys.push_back(std::move(key));
+        } else {
+            LOG(WARNING) << "failed to delete remote rowset. err=" << st;
         }
     }
     for (const auto& key : deleted_keys) {
@@ -892,6 +897,8 @@ void DataDir::perform_remote_tablet_gc() {
                 success = false;
                 continue;
             }
+            LOG(INFO) << "delete remote rowsets of tablet. root_path=" << fs->root_path()
+                      << ", tablet_id=" << tablet_id;
             auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to delete all remote rowset in tablet. err=" << st;

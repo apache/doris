@@ -37,6 +37,7 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
 
     // create a const string column
     _target_data_type = _data_type;
+    // TODO(xy): support return struct type name
     _target_data_type_name = DataTypeFactory::instance().get(_target_data_type);
     _cast_param_data_type = std::make_shared<DataTypeString>();
     _cast_param = _cast_param_data_type->create_column_const(1, _target_data_type_name);

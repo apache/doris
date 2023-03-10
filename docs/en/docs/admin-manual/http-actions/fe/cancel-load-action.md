@@ -33,6 +33,12 @@ under the License.
 ## Description
 
 Used to cancel the load transaction of the specified label.
+RETURN VALUES
+    Return a JSON format string:
+    Status: 
+        Success: cancel succeed
+        Others: cancel failed
+    Message: Error message if cancel failed
     
 ## Path parameters
 

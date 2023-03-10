@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -66,7 +65,7 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalAggregate()).then(filter -> {
-            LogicalAggregate<GroupPlan> aggregate = filter.child();
+            LogicalAggregate<Plan> aggregate = filter.child();
             Set<Slot> canPushDownSlots = new HashSet<>();
             if (aggregate.hasRepeat()) {
                 // When there is a repeat, the push-down condition is consistent with the repeat

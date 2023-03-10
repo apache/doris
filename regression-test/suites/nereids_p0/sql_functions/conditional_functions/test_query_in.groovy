@@ -30,6 +30,7 @@ suite("test_query_in", "query,p0") {
     qt_in4 """select * from ${tableName1} where k7 in ("wjj") order by k1, k2, k3, k4"""
     qt_in5 """select * from ${tableName1} where k8 in (1, -1, 0.100, 0) order by k1, k2, k3, k4"""
     qt_in6 """select * from ${tableName1} where k9 in (-365, 100) order by k1, k2, k3, k4"""
+    // Fow sql below, if all sql convert to string type, we will get empty result.
     qt_in7 """select * from ${tableName1} where k5 in
 		    (123.123, 1243.5, 100, -654,6540, "0", "-0.1230")
 		    order by k1, k2, k3, k4"""

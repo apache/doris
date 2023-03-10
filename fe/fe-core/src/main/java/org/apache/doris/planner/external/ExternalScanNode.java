@@ -35,8 +35,13 @@ import java.util.List;
  */
 public class ExternalScanNode extends ScanNode {
 
-    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
+    // set to false means this scan node does not need to check column priv.
+    private boolean needCheckColumnPriv;
+
+    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
+            boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType);
+        this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
     @Override
@@ -47,5 +52,10 @@ public class ExternalScanNode extends ScanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
 
+    }
+
+    @Override
+    public boolean needToCheckColumnPriv() {
+        return this.needCheckColumnPriv;
     }
 }

@@ -31,13 +31,12 @@ under the License.
 
 1. 支持 Iceberg V1/V2 表格式。
 2. V2 格式仅支持 Position Delete 方式，不支持 Equality Delete。
-3. 目前仅支持 Hive Metastore 类型的 Catalog。所以使用方式和 Hive Catalog 基本一致。
 
 ## 创建 Catalog
 
 ### 基于Hive Metastore创建Catalog
 
-和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
+和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive.md)。
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -54,7 +53,11 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### 基于Iceberg API创建Catalog
 
+<version since="dev">
+
 使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
+
+</version>
 
 - Hive Metastore作为元数据服务
 
@@ -72,6 +75,26 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+- Glue Catalog作为元数据服务
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+"type"="iceberg",
+"iceberg.catalog.type" = "glue",
+"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
+);
+```
+
+`glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
 - REST Catalog作为元数据服务
 
 该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
@@ -86,16 +109,17 @@ CREATE CATALOG iceberg PROPERTIES (
 
 若数据存放在S3上，properties中可以使用以下参数
 
-```sql
-"AWS_ACCESS_KEY" = "username"
-"AWS_SECRET_KEY" = "password"
+```
+"AWS_ACCESS_KEY" = "ak"
+"AWS_SECRET_KEY" = "sk"
 "AWS_REGION" = "region-name"
 "AWS_ENDPOINT" = "http://endpoint-uri"
+"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 
 ## 列类型映射
 
-和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive) 中 **列类型映射** 一节。
+和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
 
 ## Time Travel
 

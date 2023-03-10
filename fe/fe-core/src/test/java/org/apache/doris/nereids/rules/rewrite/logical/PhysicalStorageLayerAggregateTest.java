@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.pattern.GeneratedPatterns;
+import org.apache.doris.nereids.pattern.GeneratedMemoPatterns;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
+import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -42,7 +42,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.Optional;
 
-public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
+public class PhysicalStorageLayerAggregateTest implements GeneratedMemoPatterns {
 
     @Test
     public void testWithoutProject() {

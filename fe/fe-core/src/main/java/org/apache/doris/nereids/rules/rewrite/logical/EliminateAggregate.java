@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -34,7 +34,7 @@ public class EliminateAggregate extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate(logicalAggregate()).then(outerAgg -> {
-            LogicalAggregate<GroupPlan> innerAgg = outerAgg.child();
+            LogicalAggregate<Plan> innerAgg = outerAgg.child();
 
             if (!isSame(outerAgg.getGroupByExpressions(), innerAgg.getGroupByExpressions())) {
                 return outerAgg;

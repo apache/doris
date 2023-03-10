@@ -74,19 +74,30 @@ Status SchemaVariablesScanner::get_next_block(vectorized::Block* block, bool* eo
 }
 
 Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
+    auto row_num = _var_result.variables.size();
+    std::vector<void*> datas(row_num);
     // variables names
     {
+        StringRef strs[row_num];
+        int idx = 0;
         for (auto& it : _var_result.variables) {
-            StringRef str = StringRef(it.first.c_str(), it.first.size());
-            fill_dest_column(block, &str, _s_vars_columns[0]);
+            strs[idx] = StringRef(it.first.c_str(), it.first.size());
+            datas[idx] = strs + idx;
+            ++idx;
         }
+        fill_dest_column_for_range(block, 0, datas);
     }
     // value
     {
+        StringRef strs[row_num];
+        int idx = 0;
         for (auto& it : _var_result.variables) {
-            StringRef str = StringRef(it.second.c_str(), it.second.size());
-            fill_dest_column(block, &str, _s_vars_columns[1]);
+            strs[idx] = StringRef(it.second.c_str(), it.second.size());
+            datas[idx] = strs + idx;
+            ++idx;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     return Status::OK();
 }

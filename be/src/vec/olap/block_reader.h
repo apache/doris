@@ -62,8 +62,7 @@ private:
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
 
-    Status _init_collect_iter(const ReaderParams& read_params,
-                              std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _init_collect_iter(const ReaderParams& read_params);
 
     void _init_agg_state(const ReaderParams& read_params);
 

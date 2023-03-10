@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "util/lock.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 
@@ -69,16 +70,16 @@ public:
 
     Status init();
 
-    vectorized::Block* get_free_block(bool* get_free_block);
-    void return_free_block(vectorized::Block* block);
+    vectorized::BlockUPtr get_free_block(bool* has_free_block);
+    void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
-    void append_blocks_to_queue(const std::vector<vectorized::Block*>& blocks);
+    void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);
 
     // Get next block from blocks queue. Called by ScanNode
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
-    virtual Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
+    virtual Status get_block_from_queue(vectorized::BlockUPtr* block, bool* eos, bool wait = true);
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
@@ -87,27 +88,27 @@ public:
     bool set_status_on_error(const Status& status);
 
     Status status() {
-        std::lock_guard<std::mutex> l(_transfer_lock);
+        std::lock_guard l(_transfer_lock);
         return _process_status;
     }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
     void set_should_stop() {
-        std::lock_guard<std::mutex> l(_transfer_lock);
+        std::lock_guard l(_transfer_lock);
         _should_stop = true;
         _blocks_queue_added_cv.notify_one();
     }
 
     // Return true if this ScannerContext need no more process
     virtual bool done() {
-        std::unique_lock<std::mutex> l(_transfer_lock);
+        std::unique_lock l(_transfer_lock);
         return _is_finished || _should_stop || !_process_status.ok();
     }
 
     // Update the running num of scanners and contexts
     void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
-        std::lock_guard<std::mutex> l(_transfer_lock);
+        std::lock_guard l(_transfer_lock);
         _num_running_scanners += scanner_inc;
         _num_scheduling_ctx += sched_inc;
         _blocks_queue_added_cv.notify_one();
@@ -139,6 +140,7 @@ public:
     std::string ctx_id;
     int32_t queue_idx = -1;
     ThreadPoolToken* thread_token;
+    std::vector<bthread_t> _btids;
 
 private:
     Status _close_and_clear_scanners();
@@ -164,15 +166,15 @@ protected:
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
     // Including access to variables such as blocks_queue, _process_status, _is_finished, etc.
-    std::mutex _transfer_lock;
+    doris::Mutex _transfer_lock;
     // The blocks got from scanners will be added to the "blocks_queue".
     // And the upper scan node will be as a consumer to fetch blocks from this queue.
     // Should be protected by "_transfer_lock"
-    std::list<vectorized::Block*> _blocks_queue;
+    std::list<vectorized::BlockUPtr> _blocks_queue;
     // Wait in get_block_from_queue(), by ScanNode.
-    std::condition_variable _blocks_queue_added_cv;
+    doris::ConditionVariable _blocks_queue_added_cv;
     // Wait in clear_and_join(), by ScanNode.
-    std::condition_variable _ctx_finish_cv;
+    doris::ConditionVariable _ctx_finish_cv;
 
     // The following 3 variables control the process of the scanner scheduling.
     // Use _transfer_lock to protect them.
@@ -193,8 +195,8 @@ protected:
     std::atomic_bool _is_finished = false;
 
     // Pre-allocated blocks for all scanners to share, for memory reuse.
-    std::mutex _free_blocks_lock;
-    std::vector<vectorized::Block*> _free_blocks;
+    doris::Mutex _free_blocks_lock;
+    std::vector<vectorized::BlockUPtr> _free_blocks;
 
     // The limit from SQL's limit clause
     int64_t limit;
@@ -223,7 +225,7 @@ protected:
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.
     // Not need to protect by lock, because only one scheduler thread will access to it.
-    std::mutex _scanners_lock;
+    doris::Mutex _scanners_lock;
     std::list<VScanner*> _scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;

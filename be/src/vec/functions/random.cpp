@@ -40,15 +40,9 @@ public:
         return std::make_shared<DataTypeFloat64>();
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        std::mt19937_64* generator =
-                reinterpret_cast<std::mt19937_64*>(context->allocate(sizeof(std::mt19937_64)));
-        if (UNLIKELY(generator == nullptr)) {
-            return Status::MemoryAllocFailed("allocate random seed generator failed.");
-        }
-
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
         context->set_function_state(scope, generator);
-        new (generator) std::mt19937_64();
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->get_num_args() == 1) {
                 // This is a call to RandSeed, initialize the seed
@@ -90,12 +84,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            uint8_t* generator = reinterpret_cast<uint8_t*>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
-            context->free(generator);
-            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
-        }
         return Status::OK();
     }
 };

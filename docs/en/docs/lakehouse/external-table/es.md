@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-Please use [ES Catalog](../multi-catalog/es) to visit ES
+Please use [ES Catalog](../multi-catalog/es.md) to visit ES
 
 </version>
 

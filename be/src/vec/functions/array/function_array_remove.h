@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -245,6 +247,12 @@ private:
         } else if (right_column.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column,
                                                                      right_column, nested_null_map);
+        } else if (check_column<ColumnDateV2>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_column,
+                                                                   right_column, nested_null_map);
+        } else if (check_column<ColumnDateTimeV2>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDateTimeV2>(
+                    offsets, nested_column, right_column, nested_null_map);
         } else if (check_column<ColumnInt64>(right_column)) {
             return _execute_number<NestedColumnType, ColumnInt64>(offsets, nested_column,
                                                                   right_column, nested_null_map);
@@ -330,8 +338,16 @@ private:
                 res = _execute_number_expanded<ColumnDateTime>(offsets, *nested_column,
                                                                *right_column, nested_null_map);
             }
+        } else if (is_date_v2_or_datetime_v2(right_type) &&
+                   is_date_v2_or_datetime_v2(left_element_type)) {
+            if (check_column<ColumnDateV2>(*nested_column)) {
+                res = _execute_number_expanded<ColumnDateV2>(offsets, *nested_column, *right_column,
+                                                             nested_null_map);
+            } else if (check_column<ColumnDateTimeV2>(*nested_column)) {
+                res = _execute_number_expanded<ColumnDateTimeV2>(offsets, *nested_column,
+                                                                 *right_column, nested_null_map);
+            }
         }
-
         return res;
     }
 };

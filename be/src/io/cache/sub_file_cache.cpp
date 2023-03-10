@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
+#include "util/async_io.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
 
@@ -50,6 +51,17 @@ SubFileCache::~SubFileCache() {}
 
 Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
                              size_t* bytes_read) {
+    if (bthread_self() == 0) {
+        return read_at_impl(offset, result, io_ctx, bytes_read);
+    }
+    Status s;
+    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
+    AsyncIO::run_task(task, io::FileSystemType::S3);
+    return s;
+}
+
+Status SubFileCache::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
+                                  size_t* bytes_read) {
     _init();
     if (io_ctx.reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);

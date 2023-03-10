@@ -241,3 +241,10 @@ template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMapWithSavedHash =
         HashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash, Grower, Allocator>;
+
+template <typename Key, typename Mapped, typename Hash, size_t initial_size_degree>
+using HashMapWithStackMemory = HashMapTable<
+        Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash,
+        HashTableGrower<initial_size_degree>,
+        HashTableAllocatorWithStackMemory<(1ULL << initial_size_degree) *
+                                          sizeof(HashMapCellWithSavedHash<Key, Mapped, Hash>)>>;

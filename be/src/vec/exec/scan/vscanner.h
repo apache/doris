@@ -47,9 +47,6 @@ public:
 
     virtual Status close(RuntimeState* state);
 
-    // Subclass must implement this to return the current rows read
-    virtual int64_t raw_rows_read() { return 0; }
-
 protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
@@ -59,6 +56,9 @@ protected:
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
+
+    // Not virtual, all child will call this method explictly
+    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
 
 public:
     VScanNode* get_parent() { return _parent; }
@@ -93,7 +93,7 @@ public:
     int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
 
     virtual doris::TabletStorageType get_storage_type() {
-        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
     bool need_to_close() { return _need_to_close; }
@@ -120,7 +120,6 @@ public:
 protected:
     void _discard_conjuncts() {
         if (_vconjunct_ctx) {
-            _vconjunct_ctx->mark_as_stale();
             _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
             _vconjunct_ctx = nullptr;
         }
@@ -141,9 +140,6 @@ protected:
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
     Block _input_block;
-    // If _input_tuple_desc is set, this will point to _input_block,
-    // otherwise, it will point to the output block.
-    Block* _input_block_ptr;
 
     bool _is_open = false;
     bool _is_closed = false;
@@ -157,6 +153,7 @@ protected:
     // Cloned from _vconjunct_ctx of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContext* _vconjunct_ctx = nullptr;
+    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
     // Late arriving runtime filters will update _vconjunct_ctx.
     // The old _vconjunct_ctx will be temporarily placed in _stale_vexpr_ctxs
     // and will be destroyed at the end.

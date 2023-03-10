@@ -41,16 +41,15 @@ public:
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
-    int register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                      const std::vector<FunctionContext::TypeDesc>& arg_types,
-                      int varargs_buffer_size);
+    int register_function_context(RuntimeState* state, const doris::TypeDescriptor& return_type,
+                                  const std::vector<doris::TypeDescriptor>& arg_types);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
-    /// register_func(). This should only be called by VExprs.
+    /// register_function_context(). This should only be called by VExprs.
     FunctionContext* fn_context(int i) {
         DCHECK_GE(i, 0);
         DCHECK_LT(i, _fn_contexts.size());
-        return _fn_contexts[i];
+        return _fn_contexts[i].get();
     }
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
@@ -72,11 +71,6 @@ public:
 
     void clone_fn_contexts(VExprContext* other);
 
-    void mark_as_stale() {
-        DCHECK(!_stale);
-        _stale = true;
-    }
-
 private:
     friend class VExpr;
 
@@ -93,13 +87,11 @@ private:
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.
-    std::vector<FunctionContext*> _fn_contexts;
-
-    /// Pool backing fn_contexts_.
-    std::unique_ptr<MemPool> _pool;
+    std::vector<std::unique_ptr<FunctionContext>> _fn_contexts;
 
     int _last_result_column_id;
 
-    bool _stale;
+    /// The depth of expression-tree.
+    int _depth_num = 0;
 };
 } // namespace doris::vectorized

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;
@@ -67,8 +66,13 @@ public enum PrimitiveType {
     // sizeof(CollectionValue)
     ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
-    STRUCT("STRUCT", 24, TPrimitiveType.STRUCT),
+    // sizeof(StructValue)
+    // 8-byte pointer and 4-byte size and 1 bytes has_null (13 bytes total)
+    // Aligning to 16 bytes total.
+    STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
+    VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
+    TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
@@ -555,6 +559,7 @@ public enum PrimitiveType {
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
         supportedTypes.add(QUANTILE_STATE);
+        supportedTypes.add(VARIANT);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -1002,6 +1007,8 @@ public enum PrimitiveType {
                 return STRUCT;
             case ALL:
                 return ALL;
+            case VARIANT:
+                return VARIANT;
             default:
                 return INVALID_TYPE;
         }
@@ -1102,8 +1109,28 @@ public enum PrimitiveType {
         return this == ARRAY;
     }
 
+    public boolean isMapType() {
+        return this == MAP;
+    }
+
+    public boolean isStructType() {
+        return this == STRUCT;
+    }
+
     public boolean isComplexType() {
-        return this == HLL || this == BITMAP;
+        return this == ARRAY || this == MAP || this == STRUCT;
+    }
+
+    public boolean isHllType() {
+        return this == HLL;
+    }
+
+    public boolean isBitmapType() {
+        return this == BITMAP;
+    }
+
+    public boolean isVariantType() {
+        return this == VARIANT;
     }
 
     public boolean isStringType() {
@@ -1163,6 +1190,8 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_BLOB;
             case JSONB:
                 return MysqlColType.MYSQL_TYPE_JSON;
+            case MAP:
+                return MysqlColType.MYSQL_TYPE_MAP;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }
@@ -1194,17 +1223,6 @@ public enum PrimitiveType {
                 return 16;
             default:
                 return this.getSlotSize();
-        }
-    }
-
-    public static PrimitiveType getDatePrimitiveType(PrimitiveType type) {
-        switch (type) {
-            case DATE:
-                return Config.enable_date_conversion ? DATEV2 : DATE;
-            case DATETIME:
-                return Config.enable_date_conversion ? DATETIMEV2 : DATETIME;
-            default:
-                return type;
         }
     }
 }

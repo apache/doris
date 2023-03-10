@@ -67,10 +67,6 @@ public class ExchangeNode extends PlanNode {
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
 
-    // Offset after which the exchange begins returning rows. Currently valid
-    // only if mergeInfo_ is non-null, i.e. this is a merging exchange node.
-    private long offset;
-
     /**
      * Create ExchangeNode that consumes output of inputNode.
      * An ExchangeNode doesn't have an input node as a child, which is why we
@@ -145,25 +141,6 @@ public class ExchangeNode extends PlanNode {
                 : MERGING_EXCHANGE_NODE;
     }
 
-    /**
-     * This function is used to translate PhysicalLimit.
-     * Ignore the offset if this is not a merging exchange node.
-     * @param offset
-     */
-    public void setOffset(long offset) {
-        if (isMergingExchange()) {
-            this.offset = offset;
-        }
-    }
-
-    /**
-     * Used by new optimizer only.
-     */
-    @Override
-    public void setOffSetDirectly(long offset) {
-        this.offset = offset;
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
@@ -207,7 +184,7 @@ public class ExchangeNode extends PlanNode {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
         }
         return nodesInfo;
     }

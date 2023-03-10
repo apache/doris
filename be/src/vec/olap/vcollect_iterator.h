@@ -71,7 +71,29 @@ public:
         return false;
     }
 
+    inline bool use_topn_next() const { return _topn_limit > 0; }
+
 private:
+    // next for topn query
+    Status _topn_next(Block* block);
+
+    class BlockRowPosComparator {
+    public:
+        BlockRowPosComparator(MutableBlock* mutable_block,
+                              const std::vector<uint32_t>* compare_columns, bool is_reverse)
+                : _mutable_block(mutable_block),
+                  _compare_columns(compare_columns),
+                  _is_reverse(is_reverse) {}
+
+        bool operator()(const size_t& lpos, const size_t& rpos) const;
+
+    private:
+        const MutableBlock* _mutable_block = nullptr;
+        const std::vector<uint32_t>* _compare_columns;
+        // reverse the compare order
+        const bool _is_reverse = false;
+    };
+
     // This interface is the actual implementation of the new version of iterator.
     // It currently contains two implementations, one is Level0Iterator,
     // which only reads data from the rowset reader, and the other is Level1Iterator,
@@ -276,9 +298,6 @@ private:
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
 
-        // batch size, get from TabletReader
-        int _batch_size;
-
         std::vector<RowLocation> _block_row_locations;
     };
 
@@ -291,6 +310,11 @@ private:
     bool _merge = true;
     // reverse the compare order
     bool _is_reverse = false;
+    // for topn next
+    size_t _topn_limit = 0;
+    bool _topn_eof = false;
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
+
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;
 

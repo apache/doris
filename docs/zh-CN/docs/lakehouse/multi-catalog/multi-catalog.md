@@ -72,13 +72,13 @@ under the License.
     
 4. 删除 Catalog
 
-    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
+    External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG.md) 命令删除一个 External Catalog。
     
     该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
     
 5. Resource
 
-	Resource 是一组配置的集合。用户可以通过 [CREATE RESOURCE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE) 命令创建一个 Resource。之后可以在创建 Catalog 时使用这个 Resource。
+	Resource 是一组配置的集合。用户可以通过 [CREATE RESOURCE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md) 命令创建一个 Resource。之后可以在创建 Catalog 时使用这个 Resource。
 	
 	一个 Resource 可以被多个 Catalog 使用，以复用其中的配置。
 
@@ -88,7 +88,7 @@ under the License.
 
 这里我们通过连接一个 Hive 集群说明如何使用 Catalog 功能。
 
-更多关于 Hive 的说明，请参阅：[Hive Catalog](./hive)
+更多关于 Hive 的说明，请参阅：[Hive Catalog](./hive.md)
 
 1. 创建 Catalog
 
@@ -99,7 +99,7 @@ under the License.
 	);
 	```
 	
-	> [CREATE CATALOG 语法帮助](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG)
+	> [CREATE CATALOG 语法帮助](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG.md)
 	
 2. 查看 Catalog
 
@@ -115,11 +115,11 @@ under the License.
 	+-----------+-------------+----------+
 	```
 	
-	> [SHOW CATALOGS 语法帮助](../../sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS)
+	> [SHOW CATALOGS 语法帮助](../../sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS.md)
 	
-	> 可以通过 [SHOW CREATE CATALOG](../../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG) 查看创建 Catalog 的语句。
+	> 可以通过 [SHOW CREATE CATALOG](../../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG.md) 查看创建 Catalog 的语句。
 	
-	> 可以通过 [ALTER CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG) 修改 Catalog 的属性。
+	> 可以通过 [ALTER CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG.md) 修改 Catalog 的属性。
 	
 3. 切换 Catalog
 
@@ -255,19 +255,19 @@ under the License.
 
 ### 连接 Iceberg
 
-详见 [Iceberg Catalog](./iceberg)
+详见 [Iceberg Catalog](./iceberg.md)
 
 ### 连接 Hudi
 
-详见 [Hudi Catalog](./hudi)
+详见 [Hudi Catalog](./hudi.md)
 
 ### 连接 Elasticsearch
 
-详见 [Elasticsearch Catalog](./es)
+详见 [Elasticsearch Catalog](./es.md)
 
 ### 连接 JDBC
 
-详见 [JDBC Catalog](./jdbc)
+详见 [JDBC Catalog](./jdbc.md)
 
 ## 列类型映射
 
@@ -275,7 +275,7 @@ under the License.
 
 <version since="dev">
 
-对于当前无法映射到 Doris 列类型的外表类型，如 map，struct 等。Doris 会将列类型映射为 UNSUPPORTED 类型。对于 UNSUPPORTED 类型的查询，示例如下：
+对于当前无法映射到 Doris 列类型的外表类型，如 `UNION`, `INTERVAL` 等。Doris 会将列类型映射为 UNSUPPORTED 类型。对于 UNSUPPORTED 类型的查询，示例如下：
 
 假设同步后的表 schema 为：
 
@@ -313,11 +313,9 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 
 ### 自动刷新
 
-<version since="dev">
+<version since="1.2.2"></version>
 
 自动刷新目前仅支持 Hive Metastore 元数据服务。通过让 FE 节点定时读取 HMS 的 notification event 来感知 Hive 表元数据的变更情况，目前支持处理如下event：
-
-</version>
 
 |事件 | 事件行为和对应的动作 |
 |---|---|

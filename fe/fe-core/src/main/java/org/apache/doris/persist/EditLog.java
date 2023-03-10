@@ -41,7 +41,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
-import org.apache.doris.cooldown.CooldownJob;
+import org.apache.doris.cooldown.CooldownConfHandler;
+import org.apache.doris.cooldown.CooldownConfList;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -400,6 +402,11 @@ public class EditLog {
                     env.replayAddFrontend(fe);
                     break;
                 }
+                case OperationType.OP_MODIFY_FRONTEND: {
+                    Frontend fe = (Frontend) journal.getData();
+                    env.replayModifyFrontend(fe);
+                    break;
+                }
                 case OperationType.OP_REMOVE_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
@@ -553,6 +560,12 @@ public class EditLog {
                     final BatchRemoveTransactionsOperation operation =
                             (BatchRemoveTransactionsOperation) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
+                    break;
+                }
+                case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
+                    final BatchRemoveTransactionsOperationV2 operation =
+                            (BatchRemoveTransactionsOperationV2) journal.getData();
+                    Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactionV2(operation);
                     break;
                 }
                 case OperationType.OP_CREATE_REPOSITORY: {
@@ -720,11 +733,12 @@ public class EditLog {
                     }
                     break;
                 }
-                case OperationType.OP_PUSH_COOLDOWN_CONF:
-                    if (Config.cooldown_single_remote_file) {
-                        CooldownJob cooldownJob = (CooldownJob) journal.getData();
-                        env.getCooldownHandler().replayCooldownJob(cooldownJob);
-                    }
+                case OperationType.OP_UPDATE_COOLDOWN_CONF:
+                    CooldownConfList cooldownConfList = (CooldownConfList) journal.getData();
+                    CooldownConfHandler.replayUpdateCooldownConf(cooldownConfList);
+                    break;
+                case OperationType.OP_COOLDOWN_DELETE:
+                    // noop
                     break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
@@ -871,6 +885,12 @@ public class EditLog {
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
                     break;
                 }
+                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
+                    final TableAddOrDropInvertedIndicesInfo info =
+                            (TableAddOrDropInvertedIndicesInfo) journal.getData();
+                    env.getSchemaChangeHandler().replaymodifyTableAddOrDropInvertedIndices(info);
+                    break;
+                }
                 case OperationType.OP_CLEAN_LABEL: {
                     final CleanLabelOperationLog log = (CleanLabelOperationLog) journal.getData();
                     env.getLoadManager().replayCleanLabel(log);
@@ -904,6 +924,11 @@ public class EditLog {
                 case OperationType.OP_DROP_MTMV_TASK: {
                     final DropMTMVTask dropTask = (DropMTMVTask) journal.getData();
                     env.getMTMVJobManager().replayDropJobTasks(dropTask.getTaskIds());
+                    break;
+                }
+                case OperationType.OP_ALTER_MTMV_STMT: {
+                    final AlterMultiMaterializedView alterView = (AlterMultiMaterializedView) journal.getData();
+                    env.getAlterInstance().processAlterMaterializedView(alterView, true);
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1222,6 +1247,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FIRST_FRONTEND, fe);
     }
 
+    public void logModifyFrontend(Frontend fe) {
+        logEdit(OperationType.OP_MODIFY_FRONTEND, fe);
+    }
+
     public void logRemoveFrontend(Frontend fe) {
         logEdit(OperationType.OP_REMOVE_FRONTEND, fe);
     }
@@ -1517,8 +1546,12 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
     }
 
-    public void logCooldownJob(CooldownJob cooldownJob) {
-        logEdit(OperationType.OP_PUSH_COOLDOWN_CONF, cooldownJob);
+    public void logUpdateCooldownConf(CooldownConfList cooldownConf) {
+        logEdit(OperationType.OP_UPDATE_COOLDOWN_CONF, cooldownConf);
+    }
+
+    public void logCooldownDelete(CooldownDelete cooldownDelete) {
+        logEdit(OperationType.OP_COOLDOWN_DELETE, cooldownDelete);
     }
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
@@ -1577,8 +1610,8 @@ public class EditLog {
         logEdit(OperationType.OP_REPLACE_TABLE, log);
     }
 
-    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
-        logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
+    public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
+        logEdit(OperationType.OP_BATCH_REMOVE_TXNS_V2, op);
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
@@ -1689,11 +1722,19 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
     }
 
+    public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+    }
+
     public void logCleanLabel(CleanLabelOperationLog log) {
         logEdit(OperationType.OP_CLEAN_LABEL, log);
     }
 
     public void logAlterUser(AlterUserOperationLog log) {
         logEdit(OperationType.OP_ALTER_USER, log);
+    }
+
+    public void logAlterMTMV(AlterMultiMaterializedView log) {
+        logEdit(OperationType.OP_ALTER_MTMV_STMT, log);
     }
 }

@@ -30,16 +30,12 @@ import com.google.common.collect.ImmutableSet;
  * this rule aims to merge consecutive filters.
  * For example:
  * logical plan tree:
- *               project
- *                  |
  *                filter(a>0)
  *                  |
  *                filter(b>0)
  *                  |
  *                scan
  * transformed to:
- *                project
- *                   |
  *                filter(a>0 and b>0)
  *                   |
  *                 scan

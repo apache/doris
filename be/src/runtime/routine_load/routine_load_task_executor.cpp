@@ -55,19 +55,13 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _thread_pool.join();
 
     LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
-    for (auto it = _task_map.begin(); it != _task_map.end(); ++it) {
-        auto ctx = it->second;
-        if (ctx->unref()) {
-            delete ctx;
-        }
-    }
     _task_map.clear();
 }
 
 // Create a temp StreamLoadContext and set some kafka connection info in it.
 // So that we can use this ctx to get kafka data consumer instance.
 Status RoutineLoadTaskExecutor::_prepare_ctx(const PKafkaMetaProxyRequest& request,
-                                             StreamLoadContext* ctx) {
+                                             std::shared_ptr<StreamLoadContext> ctx) {
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = TLoadSourceType::KAFKA;
     ctx->label = "NaN";
@@ -93,11 +87,11 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
-    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(
             partition_ids);
@@ -112,11 +106,11 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
-    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_offsets_for_times(
             std::vector<PIntegerPair>(request.offset_times().begin(), request.offset_times().end()),
@@ -132,11 +126,11 @@ Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
-    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
     Status st =
             std::static_pointer_cast<KafkaDataConsumer>(consumer)
@@ -168,7 +162,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 
     // create the context
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = task.type;
     ctx->job_id = task.job_id;
@@ -212,35 +206,28 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         break;
     default:
         LOG(WARNING) << "unknown load source type: " << task.type;
-        delete ctx;
         return Status::InternalError("unknown load source type");
     }
 
     VLOG_CRITICAL << "receive a new routine load task: " << ctx->brief();
     // register the task
-    ctx->ref();
     _task_map[ctx->id] = ctx;
 
     // offer the task to thread pool
-    if (!_thread_pool.offer(std::bind<void>(&RoutineLoadTaskExecutor::exec_task, this, ctx,
-                                            &_data_consumer_pool, [this](StreamLoadContext* ctx) {
-                                                std::unique_lock<std::mutex> l(_lock);
-                                                _task_map.erase(ctx->id);
-                                                LOG(INFO) << "finished routine load task "
-                                                          << ctx->brief()
-                                                          << ", status: " << ctx->status
-                                                          << ", current tasks num: "
-                                                          << _task_map.size();
-                                                if (ctx->unref()) {
-                                                    delete ctx;
-                                                }
-                                            }))) {
+    if (!_thread_pool.offer(std::bind<void>(
+                &RoutineLoadTaskExecutor::exec_task, this, ctx, &_data_consumer_pool,
+                [this](std::shared_ptr<StreamLoadContext> ctx) {
+                    std::unique_lock<std::mutex> l(_lock);
+                    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+                    _task_map.erase(ctx->id);
+                    LOG(INFO) << "finished routine load task " << ctx->brief()
+                              << ", status: " << ctx->status
+                              << ", current tasks num: " << _task_map.size();
+                }))) {
         // failed to submit task, clear and return
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
+        ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
         _task_map.erase(ctx->id);
-        if (ctx->unref()) {
-            delete ctx;
-        }
         return Status::InternalError("failed to submit routine load task");
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
@@ -249,8 +236,8 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 }
 
-void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool* consumer_pool,
-                                        ExecFinishCallback cb) {
+void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
+                                        DataConsumerPool* consumer_pool, ExecFinishCallback cb) {
 #define HANDLE_ERROR(stmt, err_msg)                                        \
     do {                                                                   \
         Status _status_ = (stmt);                                          \
@@ -290,9 +277,10 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     }
     }
     ctx->body_sink = pipe;
+    ctx->pipe = pipe;
 
     // must put pipe before executing plan fragment
-    HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
+    HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx), "failed to add pipe");
 
 #ifndef BE_TEST
     // execute plan fragment, async
@@ -316,7 +304,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     consumer_pool->return_consumers(consumer_grp.get());
 
     // commit txn
-    HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");
+    HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
 
     // commit kafka offset
     switch (ctx->load_src_type) {
@@ -358,12 +346,12 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     cb(ctx);
 }
 
-void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& st,
+void RoutineLoadTaskExecutor::err_handler(std::shared_ptr<StreamLoadContext> ctx, const Status& st,
                                           const std::string& err_msg) {
     LOG(WARNING) << err_msg << ", routine load task: " << ctx->brief(true);
     ctx->status = st;
     if (ctx->need_rollback) {
-        _exec_env->stream_load_executor()->rollback_txn(ctx);
+        _exec_env->stream_load_executor()->rollback_txn(ctx.get());
         ctx->need_rollback = false;
     }
     if (ctx->body_sink != nullptr) {
@@ -372,10 +360,10 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
 }
 
 // for test only
-Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
+Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx) {
     auto mock_consumer = [this, ctx]() {
-        ctx->ref();
-        std::shared_ptr<io::StreamLoadPipe> pipe = _exec_env->new_load_stream_mgr()->get(ctx->id);
+        std::shared_ptr<io::StreamLoadPipe> pipe = std::static_pointer_cast<io::StreamLoadPipe>(
+                _exec_env->new_load_stream_mgr()->get(ctx->id)->body_sink);
         std::stringstream ss;
         while (true) {
             char one;
@@ -402,9 +390,6 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
             } else {
                 ss << one;
             }
-        }
-        if (ctx->unref()) {
-            delete ctx;
         }
     };
 

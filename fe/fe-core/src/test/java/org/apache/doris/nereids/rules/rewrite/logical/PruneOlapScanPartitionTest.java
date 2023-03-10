@@ -97,7 +97,7 @@ class PruneOlapScanPartitionTest {
         cascadesContext.topDownRewrite(rules);
         Plan resultPlan = cascadesContext.getMemo().copyOut();
         LogicalOlapScan rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
-        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().iterator().next());
 
         Expression lessThan0 = new LessThan(slotRef, new IntegerLiteral(0));
         Expression greaterThan6 = new GreaterThan(slotRef, new IntegerLiteral(6));
@@ -109,7 +109,7 @@ class PruneOlapScanPartitionTest {
         cascadesContext.topDownRewrite(rules);
         resultPlan = cascadesContext.getMemo().copyOut();
         rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
-        Assertions.assertEquals(1L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+        Assertions.assertEquals(1L, rewrittenOlapScan.getSelectedPartitionIds().iterator().next());
 
         Expression greaterThanEqual0 =
                 new GreaterThanEqual(
@@ -123,7 +123,7 @@ class PruneOlapScanPartitionTest {
         cascadesContext.topDownRewrite(rules);
         resultPlan = cascadesContext.getMemo().copyOut();
         rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
-        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().iterator().next());
         Assertions.assertEquals(2, rewrittenOlapScan.getSelectedPartitionIds().toArray().length);
     }
 
@@ -160,7 +160,6 @@ class PruneOlapScanPartitionTest {
         cascadesContext.topDownRewrite(rules);
         Plan resultPlan = cascadesContext.getMemo().copyOut();
         LogicalOlapScan rewrittenOlapScan = (LogicalOlapScan) resultPlan.child(0);
-        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().toArray()[0]);
+        Assertions.assertEquals(0L, rewrittenOlapScan.getSelectedPartitionIds().iterator().next());
     }
-
 }

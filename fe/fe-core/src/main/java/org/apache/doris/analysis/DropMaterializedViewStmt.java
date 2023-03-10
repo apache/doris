@@ -94,13 +94,13 @@ public class DropMaterializedViewStmt extends DdlStmt {
             Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
             // check access
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                     tableName.getTbl(), PrivPredicate.DROP)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
             }
         } else {
             mtmvName.analyze(analyzer);
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), mtmvName.getDb(),
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mtmvName.getDb(),
                     mtmvName.getTbl(), PrivPredicate.DROP)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
             }

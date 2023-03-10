@@ -60,7 +60,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
@@ -94,9 +94,8 @@ public class ShowExecutorTest {
 
     @Before
     public void setUp() throws Exception {
-        ctx = new ConnectContext(null);
+        ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
-
 
         Column column1 = new Column("col1", PrimitiveType.BIGINT);
         Column column2 = new Column("col2", PrimitiveType.DOUBLE);
@@ -178,7 +177,7 @@ public class ShowExecutorTest {
         };
 
         // mock auth
-        PaloAuth auth = AccessTestUtil.fetchAdminAccess();
+        AccessControllerManager accessManager = AccessTestUtil.fetchAdminAccess();
 
         // mock catalog
         catalog = Deencapsulation.newInstance(InternalCatalog.class);
@@ -231,9 +230,9 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = catalog;
 
-                env.getAuth();
+                env.getAccessManager();
                 minTimes = 0;
-                result = auth;
+                result = accessManager;
 
                 Env.getCurrentEnv();
                 minTimes = 0;

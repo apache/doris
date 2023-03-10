@@ -58,6 +58,10 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
+    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env);
+
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
@@ -86,6 +90,8 @@ public:
     }
     int max_errors() const { return _query_options.max_errors; }
     int query_timeout() const { return _query_options.query_timeout; }
+    int insert_timeout() const { return _query_options.insert_timeout; }
+    int execution_timeout() const { return _query_options.execution_timeout; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -110,6 +116,11 @@ public:
     bool check_overflow_for_decimal() const {
         return _query_options.__isset.check_overflow_for_decimal &&
                _query_options.check_overflow_for_decimal;
+    }
+
+    bool enable_common_expr_pushdown() const {
+        return _query_options.__isset.enable_common_expr_pushdown &&
+               _query_options.enable_common_expr_pushdown;
     }
 
     Status query_status() {
@@ -287,6 +298,10 @@ public:
 
     bool skip_delete_predicate() const {
         return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
+    }
+
+    bool skip_delete_bitmap() const {
+        return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
     int partitioned_hash_join_rows_threshold() const {

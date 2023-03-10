@@ -65,22 +65,22 @@ false
 -- !sql_bitmap_hash64_3 --
 0
 
--- !sql --
+-- !sql_bitmap_or1 --
 2
 
--- !sql --
+-- !sql_bitmap_or2 --
 1
 
--- !sql --
+-- !sql_bitmap_or3 --
 1,2
 
--- !sql --
-\N
-
--- !sql --
+-- !sql_bitmap_or4 --
 0,1,2,10
 
--- !sql --
+-- !sql_bitmap_or5 --
+0,1,2,10
+
+-- !sql_bitmap_or6 --
 1,2,3,4,5,10
 
 -- !sql --
@@ -101,20 +101,20 @@ false
 -- !sql --
 \N
 
--- !sql --
+-- !sql_bitmap_or_count1 --
 3
 
--- !sql --
+-- !sql_bitmap_or_count2 --
 3
 
--- !sql --
+-- !sql_bitmap_or_count3 --
 5
 
--- !sql --
+-- !sql_bitmap_or_count4 --
 6
 
--- !sql --
-\N
+-- !sql_bitmap_or_count5 --
+6
 
 -- !sql --
 2
@@ -248,26 +248,4 @@ false
 
 -- !sql --
 0
-
--- !sql --
-[1, 2, 3]
-[1, 2, 3, 4, 5]
-
--- !sql --
-[]
-
--- !sql --
-[3, 4, 100, 200]
-
--- !sql --
-1,2,3
-
--- !sql --
-1
-
--- !sql --
-100
-
--- !sql --
-20221103
 

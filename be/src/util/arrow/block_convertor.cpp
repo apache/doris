@@ -38,6 +38,7 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"
@@ -137,9 +138,15 @@ public:
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
+            case vectorized::TypeIndex::JSONB: {
+                std::string string_temp =
+                        JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+                ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
+                break;
+            }
             default: {
                 LOG(WARNING) << "can't convert this type = " << vectorized::getTypeName(type_idx)
-                             << "to arrow type";
+                             << " to arrow type";
                 return arrow::Status::TypeError("unsupported column type");
             }
             }

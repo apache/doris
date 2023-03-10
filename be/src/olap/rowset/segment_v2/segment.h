@@ -81,7 +81,8 @@ public:
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                       const TabletIndex* index_meta, InvertedIndexIterator** iter);
+                                       const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                                       InvertedIndexIterator** iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -94,6 +95,8 @@ public:
     }
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);
+
+    Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
@@ -112,6 +115,8 @@ public:
     }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
+
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

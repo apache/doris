@@ -60,7 +60,7 @@ public class ClusterAction extends RestBaseController {
         Map<String, List<String>> result = Maps.newHashMap();
         List<String> frontends = Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive)
-                .map(Frontend::getHost)
+                .map(Frontend::getIp)
                 .collect(Collectors.toList());
 
         result.put("mysql", frontends.stream().map(ip -> ip + ":" + Config.query_port).collect(Collectors.toList()));

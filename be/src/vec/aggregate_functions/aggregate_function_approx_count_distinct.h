@@ -72,7 +72,7 @@ public:
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
                                            AggregateFunctionApproxCountDistinct<ColumnDataType>>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
@@ -85,8 +85,8 @@ public:
                     HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
         } else {
             auto value = static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
-            StringVal sv = value.to_string_val();
-            uint64_t hash_value = HashUtil::murmur_hash64A(sv.ptr, sv.len, HashUtil::MURMUR_SEED);
+            uint64_t hash_value =
+                    HashUtil::murmur_hash64A(value.data, value.size, HashUtil::MURMUR_SEED);
             this->data(place).add(hash_value);
         }
     }

@@ -89,10 +89,10 @@ jobs:
             'openjdk-11-jdk'
             'openjdk-11-jdk-headless'
             'maven'
+            'llvm'
           )
 
           sudo apt update
-          sudo apt upgrade --yes
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"

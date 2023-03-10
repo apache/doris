@@ -67,8 +67,9 @@ suite("test_javaudf_string") {
         qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_string_test(string, int, int); """
+        
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

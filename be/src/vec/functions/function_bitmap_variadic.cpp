@@ -25,49 +25,104 @@
 
 namespace doris::vectorized {
 
-#define BITMAP_FUNCTION_VARIADIC(CLASS, FUNCTION_NAME, OP)                                         \
-    struct CLASS {                                                                                 \
-        static constexpr auto name = #FUNCTION_NAME;                                               \
-        using ResultDataType = DataTypeBitMap;                                                     \
-        static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
-                                    size_t input_rows_count, std::vector<BitmapValue>& res) {      \
-            auto& mid_data =                                                                       \
-                    assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();       \
-            for (size_t row = 0; row < input_rows_count; ++row) {                                  \
-                res[row] = mid_data[row];                                                          \
-            }                                                                                      \
-            for (size_t col = 1; col < col_size; ++col) {                                          \
-                auto& col_data =                                                                   \
-                        assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
-                for (size_t row = 0; row < input_rows_count; ++row) {                              \
-                    res[row] OP col_data[row];                                                     \
-                }                                                                                  \
-            }                                                                                      \
-            return Status::OK();                                                                   \
-        }                                                                                          \
+// currently only bitmap_or and bitmap_or_count will call this function,
+// other bitmap functions will use default implementation for nulls
+#define BITMAP_OR_NULLABLE(nullable, input_rows_count, res, op)                                \
+    const auto& nested_col_ptr = nullable->get_nested_column_ptr();                            \
+    const auto* __restrict null_map_data = nullable->get_null_map_data().data();               \
+    const auto& mid_data = assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data(); \
+    for (size_t row = 0; row < input_rows_count; ++row) {                                      \
+        if (!null_map_data[row]) {                                                             \
+            res[row] op mid_data[row];                                                         \
+        }                                                                                      \
     }
 
-#define BITMAP_FUNCTION_COUNT_VARIADIC(CLASS, FUNCTION_NAME, OP)                                   \
-    struct CLASS {                                                                                 \
-        static constexpr auto name = #FUNCTION_NAME;                                               \
-        using ResultDataType = DataTypeInt64;                                                      \
-        using TData = std::vector<BitmapValue>;                                                    \
-        using ResTData = typename ColumnVector<Int64>::Container;                                  \
-        static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                 \
-                                    size_t input_rows_count, ResTData& res) {                      \
-            TData vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();  \
-            for (size_t col = 1; col < col_size; ++col) {                                          \
-                auto& col_data =                                                                   \
-                        assert_cast<const ColumnBitmap*>(argument_columns[col].get())->get_data(); \
-                for (size_t row = 0; row < input_rows_count; ++row) {                              \
-                    vals[row] OP col_data[row];                                                    \
-                }                                                                                  \
-            }                                                                                      \
-            for (size_t row = 0; row < input_rows_count; ++row) {                                  \
-                res[row] = vals[row].cardinality();                                                \
-            }                                                                                      \
-            return Status::OK();                                                                   \
-        }                                                                                          \
+#define BITMAP_FUNCTION_VARIADIC(CLASS, FUNCTION_NAME, OP)                                        \
+    struct CLASS {                                                                                \
+        static constexpr auto name = #FUNCTION_NAME;                                              \
+        using ResultDataType = DataTypeBitMap;                                                    \
+        static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
+                                    size_t input_rows_count, std::vector<BitmapValue>& res,       \
+                                    IColumn* res_nulls) {                                         \
+            const ColumnUInt8::value_type* null_map_datas[col_size];                              \
+            int nullable_cols_count = 0;                                                          \
+            ColumnUInt8::value_type* __restrict res_nulls_data = nullptr;                         \
+            if (res_nulls) {                                                                      \
+                res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();         \
+            }                                                                                     \
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
+                null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();     \
+                BITMAP_OR_NULLABLE(nullable, input_rows_count, res, =);                           \
+            } else {                                                                              \
+                const auto& mid_data =                                                            \
+                        assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();  \
+                for (size_t row = 0; row < input_rows_count; ++row) {                             \
+                    res[row] = mid_data[row];                                                     \
+                }                                                                                 \
+            }                                                                                     \
+            for (size_t col = 1; col < col_size; ++col) {                                         \
+                if (auto* nullable =                                                              \
+                            check_and_get_column<ColumnNullable>(*argument_columns[col])) {       \
+                    null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data(); \
+                    BITMAP_OR_NULLABLE(nullable, input_rows_count, res, OP);                      \
+                } else {                                                                          \
+                    const auto& col_data =                                                        \
+                            assert_cast<const ColumnBitmap*>(argument_columns[col].get())         \
+                                    ->get_data();                                                 \
+                    for (size_t row = 0; row < input_rows_count; ++row) {                         \
+                        res[row] OP col_data[row];                                                \
+                    }                                                                             \
+                }                                                                                 \
+            }                                                                                     \
+            if (res_nulls_data && nullable_cols_count == col_size) {                              \
+                const auto* null_map_data = null_map_datas[0];                                    \
+                for (size_t row = 0; row < input_rows_count; ++row) {                             \
+                    res_nulls_data[row] = null_map_data[row];                                     \
+                }                                                                                 \
+                for (int i = 1; i < nullable_cols_count; ++i) {                                   \
+                    const auto* null_map_data = null_map_datas[i];                                \
+                    for (size_t row = 0; row < input_rows_count; ++row) {                         \
+                        res_nulls_data[row] &= null_map_data[row];                                \
+                    }                                                                             \
+                }                                                                                 \
+            }                                                                                     \
+            return Status::OK();                                                                  \
+        }                                                                                         \
+    }
+
+#define BITMAP_FUNCTION_COUNT_VARIADIC(CLASS, FUNCTION_NAME, OP)                                  \
+    struct CLASS {                                                                                \
+        static constexpr auto name = #FUNCTION_NAME;                                              \
+        using ResultDataType = DataTypeInt64;                                                     \
+        using TData = std::vector<BitmapValue>;                                                   \
+        using ResTData = typename ColumnVector<Int64>::Container;                                 \
+        static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
+                                    size_t input_rows_count, ResTData& res, IColumn* res_nulls) { \
+            TData vals;                                                                           \
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
+                vals.resize(input_rows_count);                                                    \
+                BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, =);                          \
+            } else {                                                                              \
+                vals = assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();   \
+            }                                                                                     \
+            for (size_t col = 1; col < col_size; ++col) {                                         \
+                if (auto* nullable =                                                              \
+                            check_and_get_column<ColumnNullable>(*argument_columns[col])) {       \
+                    BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, OP);                     \
+                } else {                                                                          \
+                    const auto& col_data =                                                        \
+                            assert_cast<const ColumnBitmap*>(argument_columns[col].get())         \
+                                    ->get_data();                                                 \
+                    for (size_t row = 0; row < input_rows_count; ++row) {                         \
+                        vals[row] OP col_data[row];                                               \
+                    }                                                                             \
+                }                                                                                 \
+            }                                                                                     \
+            for (size_t row = 0; row < input_rows_count; ++row) {                                 \
+                res[row] = vals[row].cardinality();                                               \
+            }                                                                                     \
+            return Status::OK();                                                                  \
+        }                                                                                         \
     }
 
 BITMAP_FUNCTION_VARIADIC(BitmapOr, bitmap_or, |=);
@@ -92,10 +147,31 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         using ResultDataType = typename Impl::ResultDataType;
-        return std::make_shared<ResultDataType>();
+        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+            bool return_nullable = false;
+            // result is nullable only when any columns is nullable for bitmap_or and bitmap_or_count
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i]->is_nullable()) {
+                    return_nullable = true;
+                    break;
+                }
+            }
+            auto result_type = std::make_shared<ResultDataType>();
+            return return_nullable ? make_nullable(result_type) : result_type;
+        } else {
+            return std::make_shared<ResultDataType>();
+        }
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
+    bool use_default_implementation_for_nulls() const override {
+        // result is null only when all columns is null for bitmap_or and bitmap_or_count
+        if (std::is_same_v<Impl, BitmapOr> || std::is_same_v<Impl, BitmapOrCount>) {
+            return false;
+        } else {
+            return true;
+        }
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -113,13 +189,27 @@ public:
                 std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
                                    ColumnVector<ResultType>>;
         typename ColVecResult::MutablePtr col_res = nullptr;
+
+        typename ColumnUInt8::MutablePtr col_res_nulls;
+        auto& result_info = block.get_by_position(result);
+        // special case for bitmap_or and bitmap_or_count
+        if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
+            col_res_nulls = ColumnUInt8::create(input_rows_count, 0);
+        }
+
         col_res = ColVecResult::create();
 
         auto& vec_res = col_res->get_data();
         vec_res.resize(input_rows_count);
 
-        Impl::vector_vector(argument_columns, argument_size, input_rows_count, vec_res);
-        block.replace_by_position(result, std::move(col_res));
+        Impl::vector_vector(argument_columns, argument_size, input_rows_count, vec_res,
+                            col_res_nulls);
+        if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));
+        } else {
+            block.replace_by_position(result, std::move(col_res));
+        }
         return Status::OK();
     }
 };

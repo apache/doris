@@ -39,7 +39,7 @@ import org.junit.Test;
 
 public class SetPasswordTest {
 
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     public Env env;
     @Mocked
@@ -49,7 +49,7 @@ public class SetPasswordTest {
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
-        auth = new PaloAuth();
+        auth = new Auth();
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -85,7 +85,7 @@ public class SetPasswordTest {
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(userIdentity));
         auth.createUser(stmt);
 
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         // set password for 'cmy'@'%'
         UserIdentity currentUser1 = new UserIdentity("default_cluster:cmy", "%");
         currentUser1.setIsAnalyzed();

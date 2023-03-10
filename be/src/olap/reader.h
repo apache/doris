@@ -28,6 +28,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -100,7 +101,10 @@ public:
         DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
+        // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
+        // output_columns only contain columns in OrderByExprs and outputExprs
+        std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -109,6 +113,7 @@ public:
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
+        vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
 
         // used for compaction to record row ids
         bool record_rowids = false;
@@ -120,9 +125,17 @@ public:
         bool read_orderby_key_reverse = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
+        // limit of rows for read_orderby_key
+        size_t read_orderby_key_limit = 0;
+        // filter_block arguments
+        vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
 
         // for vertical compaction
         bool is_key_column_group = false;
+
+        bool is_segcompaction = false;
+
+        std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
 
         void check_validation() const;
 
@@ -156,7 +169,9 @@ public:
                _stats.rows_vec_cond_filtered;
     }
 
-    void set_batch_size(int batch_size) { _batch_size = batch_size; }
+    void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
+
+    int batch_size() const { return _reader_context.batch_size; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
@@ -173,8 +188,7 @@ protected:
 
     Status _init_params(const ReaderParams& read_params);
 
-    Status _capture_rs_readers(const ReaderParams& read_params,
-                               std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _capture_rs_readers(const ReaderParams& read_params);
 
     bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
@@ -232,7 +246,6 @@ protected:
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;
     bool _direct_mode = false;
-    int _batch_size = 1024;
 
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;

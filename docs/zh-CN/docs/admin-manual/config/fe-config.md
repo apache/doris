@@ -1007,7 +1007,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 #### `max_running_txn_num_per_db`
 
-默认值：100
+默认值：1000
 
 是否可以动态配置：true
 
@@ -1023,7 +1023,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 该遇到该错误时，说明当前集群内正在运行的导入任务超过了该配置值。此时建议在业务侧进行等待并重试导入任务。
 
-一般来说不推荐增大这个配置值。过高的并发数可能导致系统负载过大
+如果使用Connector方式写入，该参数的值可以适当调大，上千也没有问题
 
 #### `using_old_load_usage_pattern`
 
@@ -2592,3 +2592,45 @@ SmallFileMgr 中存储的最大文件数
 是否为 Master FE 节点独有的配置项：true
 
 broker load job 保存的失败tablet 信息的最大数量
+
+#### `default_db_max_running_txn_num`
+
+默认值：-1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+用于设置默认数据库事务配额大小。
+
+默认值设置为 -1 意味着使用 `max_running_txn_num_per_db` 而不是 `default_db_max_running_txn_num`。
+
+设置单个数据库的配额大小可以使用：
+
+```
+设置数据库事务量配额
+ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
+查看配置
+show data （其他用法：HELP SHOW DATA）
+```
+
+#### `prefer_compute_node_for_external_table`
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为 true，对外部表的查询将优先分配给计算节点。计算节点的最大数量由 `min_backend_num_for_external_table` 控制。如果设置为 false，对外部表的查询将分配给任何节点。
+
+#### `min_backend_num_for_external_table`
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+仅在 `prefer_compute_node_for_external_table` 为 true 时生效。如果计算节点数小于此值，则对外部表的查询将尝试使用一些混合节点，让节点总数达到这个值。
+如果计算节点数大于这个值，外部表的查询将只分配给计算节点。

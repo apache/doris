@@ -176,9 +176,14 @@ public class UdafExecutor extends BaseExecutor {
     }
 
     @Override
-    protected long getCurrentOutputOffset(long row) {
-        return Integer.toUnsignedLong(
+    protected long getCurrentOutputOffset(long row, boolean isArrayType) {
+        if (isArrayType) {
+            return Integer.toUnsignedLong(
+                UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * (row - 1)));
+        } else {
+            return Integer.toUnsignedLong(
                 UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * (row - 1)));
+        }
     }
 
     @Override

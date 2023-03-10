@@ -25,11 +25,16 @@ import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -56,8 +61,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         this.rewriter = Objects.requireNonNull(rewriter, "rewriter is null");
     }
 
-    public Expression rewrite(Expression expression) {
-        return rewriter.rewrite(expression);
+    public Expression rewrite(Expression expression, ExpressionRewriteContext expressionRewriteContext) {
+        return rewriter.rewrite(expression, expressionRewriteContext);
     }
 
     @Override
@@ -77,10 +82,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class GenerateExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalGenerate().then(generate -> {
+            return logicalGenerate().thenApply(ctx -> {
+                LogicalGenerate<Plan> generate = ctx.root;
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 List<Function> generators = generate.getGenerators();
                 List<Function> newGenerators = generators.stream()
-                        .map(func -> (Function) rewriter.rewrite(func))
+                        .map(func -> (Function) rewriter.rewrite(func, context))
                         .collect(ImmutableList.toImmutableList());
                 if (generators.equals(newGenerators)) {
                     return generate;
@@ -93,11 +100,14 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class OneRowRelationExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalOneRowRelation().then(oneRowRelation -> {
+            return logicalOneRowRelation().thenApply(ctx -> {
+                LogicalOneRowRelation oneRowRelation = ctx.root;
                 List<NamedExpression> projects = oneRowRelation.getProjects();
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+
                 List<NamedExpression> newProjects = projects
                         .stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr))
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
                         .collect(ImmutableList.toImmutableList());
                 if (projects.equals(newProjects)) {
                     return oneRowRelation;
@@ -110,10 +120,13 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class ProjectExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalProject().then(project -> {
+            return logicalProject().thenApply(ctx -> {
+                LogicalProject<Plan> project = ctx.root;
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 List<NamedExpression> projects = project.getProjects();
                 List<NamedExpression> newProjects = projects.stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(ImmutableList.toImmutableList());
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
+                        .collect(ImmutableList.toImmutableList());
                 if (projects.equals(newProjects)) {
                     return project;
                 }
@@ -125,9 +138,11 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class FilterExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalFilter().then(filter -> {
+            return logicalFilter().thenApply(ctx -> {
+                LogicalFilter<Plan> filter = ctx.root;
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
-                        rewriter.rewrite(filter.getPredicate())));
+                        rewriter.rewrite(filter.getPredicate(), context)));
                 if (newConjuncts.equals(filter.getConjuncts())) {
                     return filter;
                 }
@@ -139,13 +154,16 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class AggExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalAggregate().then(agg -> {
+            return logicalAggregate().thenApply(ctx -> {
+                LogicalAggregate<Plan> agg = ctx.root;
                 List<Expression> groupByExprs = agg.getGroupByExpressions();
-                List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs);
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs, context);
 
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 List<NamedExpression> newOutputExpressions = outputExpressions.stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(ImmutableList.toImmutableList());
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
+                        .collect(ImmutableList.toImmutableList());
                 if (outputExpressions.equals(newOutputExpressions)) {
                     return agg;
                 }
@@ -158,16 +176,18 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class JoinExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalJoin().then(join -> {
+            return logicalJoin().thenApply(ctx -> {
+                LogicalJoin<Plan, Plan> join = ctx.root;
                 List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
                 List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
                 if (otherJoinConjuncts.isEmpty() && hashJoinConjuncts.isEmpty()) {
                     return join;
                 }
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 List<Expression> rewriteHashJoinConjuncts = Lists.newArrayList();
                 boolean hashJoinConjunctsChanged = false;
                 for (Expression expr : hashJoinConjuncts) {
-                    Expression newExpr = rewriter.rewrite(expr);
+                    Expression newExpr = rewriter.rewrite(expr, context);
                     hashJoinConjunctsChanged = hashJoinConjunctsChanged || !newExpr.equals(expr);
                     rewriteHashJoinConjuncts.add(newExpr);
                 }
@@ -175,7 +195,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<Expression> rewriteOtherJoinConjuncts = Lists.newArrayList();
                 boolean otherJoinConjunctsChanged = false;
                 for (Expression expr : otherJoinConjuncts) {
-                    Expression newExpr = rewriter.rewrite(expr);
+                    Expression newExpr = rewriter.rewrite(expr, context);
                     otherJoinConjunctsChanged = otherJoinConjunctsChanged || !newExpr.equals(expr);
                     rewriteOtherJoinConjuncts.add(newExpr);
                 }
@@ -184,7 +204,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return join;
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
-                        rewriteOtherJoinConjuncts, join.getHint(), join.left(), join.right());
+                        rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
+                        join.left(), join.right());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }
@@ -193,11 +214,13 @@ public class ExpressionRewrite implements RewriteRuleFactory {
 
         @Override
         public Rule build() {
-            return logicalSort().then(sort -> {
+            return logicalSort().thenApply(ctx -> {
+                LogicalSort<Plan> sort = ctx.root;
                 List<OrderKey> orderKeys = sort.getOrderKeys();
                 List<OrderKey> rewrittenOrderKeys = new ArrayList<>();
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 for (OrderKey k : orderKeys) {
-                    Expression expression = rewriter.rewrite(k.getExpr());
+                    Expression expression = rewriter.rewrite(k.getExpr(), context);
                     rewrittenOrderKeys.add(new OrderKey(expression, k.isAsc(), k.isNullFirst()));
                 }
                 return sort.withOrderKeys(rewrittenOrderKeys);
@@ -208,10 +231,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class HavingExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalHaving().then(having -> {
+            return logicalHaving().thenApply(ctx -> {
+                LogicalHaving<Plan> having = ctx.root;
                 Set<Expression> rewrittenExpr = new HashSet<>();
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                 for (Expression e : having.getExpressions()) {
-                    rewrittenExpr.add(rewriter.rewrite(e));
+                    rewrittenExpr.add(rewriter.rewrite(e, context));
                 }
                 return having.withExpressions(rewrittenExpr);
             }).toRule(RuleType.REWRITE_HAVING_EXPRESSION);
@@ -221,15 +246,19 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     private class LogicalRepeatRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalRepeat().then(r -> {
+            return logicalRepeat().thenApply(ctx -> {
+                LogicalRepeat<Plan> repeat = ctx.root;
                 ImmutableList.Builder<List<Expression>> groupingExprs = ImmutableList.builder();
-                for (List<Expression> expressions : r.getGroupingSets()) {
-                    groupingExprs.add(expressions.stream().map(rewriter::rewrite)
-                            .collect(ImmutableList.toImmutableList()));
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                for (List<Expression> expressions : repeat.getGroupingSets()) {
+                    groupingExprs.add(expressions.stream()
+                            .map(expr -> rewriter.rewrite(expr, context))
+                            .collect(ImmutableList.toImmutableList())
+                    );
                 }
-                return r.withGroupSetsAndOutput(groupingExprs.build(),
-                        r.getOutputExpressions().stream()
-                                .map(rewriter::rewrite)
+                return repeat.withGroupSetsAndOutput(groupingExprs.build(),
+                        repeat.getOutputExpressions().stream()
+                                .map(output -> rewriter.rewrite(output, context))
                                 .map(e -> (NamedExpression) e)
                                 .collect(ImmutableList.toImmutableList()));
             }).toRule(RuleType.REWRITE_REPEAT_EXPRESSION);

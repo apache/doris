@@ -88,9 +88,9 @@ public class StoragePolicy extends Policy {
     private static final String TTL_DAY_SIMPLE = "d";
     private static final String TTL_HOUR = "hour";
     private static final String TTL_HOUR_SIMPLE = "h";
-    private static final long ONE_HOUR_MS = 3600 * 1000;
-    private static final long ONE_DAY_MS = 24 * ONE_HOUR_MS;
-    private static final long ONE_WEEK_MS = 7 * ONE_DAY_MS;
+    private static final long ONE_HOUR_S = 3600;
+    private static final long ONE_DAY_S = 24 * ONE_HOUR_S;
+    private static final long ONE_WEEK_S = 7 * ONE_DAY_S;
 
     @SerializedName(value = "storageResource")
     private String storageResource = null;
@@ -98,13 +98,9 @@ public class StoragePolicy extends Policy {
     @SerializedName(value = "cooldownTimestampMs")
     private long cooldownTimestampMs = -1;
 
+    // time unit: seconds
     @SerializedName(value = "cooldownTtl")
-    private String cooldownTtl = null;
-
-    @SerializedName(value = "cooldownTtlMs")
-    private long cooldownTtlMs = 0;
-
-    private Map<String, String> props;
+    private long cooldownTtl = 0;
 
     // for Gson fromJson
     public StoragePolicy() {
@@ -118,16 +114,14 @@ public class StoragePolicy extends Policy {
      * @param policyName policy name
      * @param storageResource resource name for storage
      * @param cooldownTimestampMs cool down time
-     * @param cooldownTtl cool down time cost after partition is created
-     * @param cooldownTtlMs seconds for cooldownTtl
+     * @param cooldownTtl seconds for cooldownTtl
      */
     public StoragePolicy(long policyId, final String policyName, final String storageResource,
-            final long cooldownTimestampMs, final String cooldownTtl, long cooldownTtlMs) {
+            final long cooldownTimestampMs, long cooldownTtl) {
         super(policyId, PolicyTypeEnum.STORAGE, policyName);
         this.storageResource = storageResource;
         this.cooldownTimestampMs = cooldownTimestampMs;
         this.cooldownTtl = cooldownTtl;
-        this.cooldownTtlMs = cooldownTtlMs;
     }
 
     /**
@@ -157,10 +151,16 @@ public class StoragePolicy extends Policy {
         }
         checkRequiredProperty(props, STORAGE_RESOURCE);
         this.storageResource = props.get(STORAGE_RESOURCE);
-        boolean hasCooldownDatetime = false;
-        boolean hasCooldownTtl = false;
-        if (props.containsKey(COOLDOWN_DATETIME)) {
-            hasCooldownDatetime = true;
+        boolean hasCooldownDatetime = props.containsKey(COOLDOWN_DATETIME);
+        boolean hasCooldownTtl = props.containsKey(COOLDOWN_TTL);
+
+        if (hasCooldownDatetime && hasCooldownTtl) {
+            throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
+        }
+        if (!hasCooldownDatetime && !hasCooldownTtl) {
+            throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
+        }
+        if (hasCooldownDatetime) {
             SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
                 this.cooldownTimestampMs = df.parse(props.get(COOLDOWN_DATETIME)).getTime();
@@ -168,22 +168,13 @@ public class StoragePolicy extends Policy {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
                                             props.get(COOLDOWN_DATETIME)), e);
             }
+            // ttl would be set as -1 when using datetime
+            this.cooldownTtl = -1;
         }
-        if (props.containsKey(COOLDOWN_TTL)) {
-            hasCooldownTtl = true;
+        if (hasCooldownTtl) {
             // second
-            this.cooldownTtl = String.valueOf(getMsByCooldownTtl(props.get(COOLDOWN_TTL)) / 1000);
-        }
-        if (hasCooldownDatetime && hasCooldownTtl) {
-            throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
-        }
-        if (!hasCooldownDatetime && !hasCooldownTtl) {
-            throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
-        }
-
-        // no set ttl use -1
-        if (!hasCooldownTtl) {
-            this.cooldownTtl = "-1";
+            // this.cooldownTtlMs = (getMsByCooldownTtl(props.get(COOLDOWN_TTL)) / 1000);
+            this.cooldownTtl = getSecondsByCooldownTtl(props.get(COOLDOWN_TTL));
         }
 
         checkIsS3ResourceAndExist(this.storageResource);
@@ -221,11 +212,11 @@ public class StoragePolicy extends Policy {
         try {
             if (cooldownTimestampMs == -1) {
                 return Lists.newArrayList(this.policyName, String.valueOf(this.id), String.valueOf(this.version),
-                        this.type.name(), this.storageResource, "-1", this.cooldownTtl);
+                        this.type.name(), this.storageResource, "-1", String.valueOf(this.cooldownTtl));
             }
             return Lists.newArrayList(this.policyName, String.valueOf(this.id), String.valueOf(this.version),
                     this.type.name(), this.storageResource, TimeUtils.longToTimeString(this.cooldownTimestampMs),
-                    this.cooldownTtl);
+                    String.valueOf(this.cooldownTtl));
         } finally {
             readUnlock();
         }
@@ -237,7 +228,7 @@ public class StoragePolicy extends Policy {
     @Override
     public StoragePolicy clone() {
         return new StoragePolicy(this.id, this.policyName, this.storageResource, this.cooldownTimestampMs,
-                this.cooldownTtl, this.cooldownTtlMs);
+                this.cooldownTtl);
     }
 
     @Override
@@ -281,28 +272,28 @@ public class StoragePolicy extends Policy {
      * @param cooldownTtl cooldown ttl
      * @return millisecond for cooldownTtl
      */
-    public static long getMsByCooldownTtl(String cooldownTtl) throws AnalysisException {
+    public static long getSecondsByCooldownTtl(String cooldownTtl) throws AnalysisException {
         cooldownTtl = cooldownTtl.replace(TTL_DAY, TTL_DAY_SIMPLE).replace(TTL_HOUR, TTL_HOUR_SIMPLE);
-        long cooldownTtlMs = 0;
+        long cooldownTtlSeconds = 0;
         try {
             if (cooldownTtl.endsWith(TTL_DAY_SIMPLE)) {
-                cooldownTtlMs = Long.parseLong(cooldownTtl.replace(TTL_DAY_SIMPLE, "").trim()) * ONE_DAY_MS;
+                cooldownTtlSeconds = Long.parseLong(cooldownTtl.replace(TTL_DAY_SIMPLE, "").trim()) * ONE_DAY_S;
             } else if (cooldownTtl.endsWith(TTL_HOUR_SIMPLE)) {
-                cooldownTtlMs = Long.parseLong(cooldownTtl.replace(TTL_HOUR_SIMPLE, "").trim()) * ONE_HOUR_MS;
+                cooldownTtlSeconds = Long.parseLong(cooldownTtl.replace(TTL_HOUR_SIMPLE, "").trim()) * ONE_HOUR_S;
             } else if (cooldownTtl.endsWith(TTL_WEEK)) {
-                cooldownTtlMs = Long.parseLong(cooldownTtl.replace(TTL_WEEK, "").trim()) * ONE_WEEK_MS;
+                cooldownTtlSeconds = Long.parseLong(cooldownTtl.replace(TTL_WEEK, "").trim()) * ONE_WEEK_S;
             } else {
-                cooldownTtlMs = Long.parseLong(cooldownTtl.trim()) * 1000;
+                cooldownTtlSeconds = Long.parseLong(cooldownTtl.trim());
             }
         } catch (NumberFormatException e) {
             LOG.error("getSecByCooldownTtl failed.", e);
             throw new AnalysisException("getSecByCooldownTtl failed.", e);
         }
-        if (cooldownTtlMs < 0) {
+        if (cooldownTtlSeconds < 0) {
             LOG.error("cooldownTtl can't be less than 0");
             throw new AnalysisException("cooldownTtl can't be less than 0");
         }
-        return cooldownTtlMs;
+        return cooldownTtlSeconds;
     }
 
     public void checkProperties(Map<String, String> properties) throws AnalysisException {
@@ -324,7 +315,7 @@ public class StoragePolicy extends Policy {
         long cooldownTtlMs = -1;
         String cooldownTtl = properties.get(COOLDOWN_TTL);
         if (cooldownTtl != null) {
-            cooldownTtlMs = getMsByCooldownTtl(cooldownTtl);
+            cooldownTtlMs = getSecondsByCooldownTtl(cooldownTtl);
         }
         long cooldownTimestampMs = -1;
         String cooldownDatetime = properties.get(COOLDOWN_DATETIME);
@@ -347,8 +338,7 @@ public class StoragePolicy extends Policy {
         // modify properties
         writeLock();
         if (cooldownTtlMs > 0) {
-            this.cooldownTtl = cooldownTtl;
-            this.cooldownTtlMs = cooldownTtlMs;
+            this.cooldownTtl = cooldownTtlMs;
         }
         if (cooldownTimestampMs > 0) {
             this.cooldownTimestampMs = cooldownTimestampMs;

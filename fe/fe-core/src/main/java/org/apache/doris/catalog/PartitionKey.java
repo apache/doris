@@ -47,11 +47,20 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     private List<LiteralExpr> keys;
     private List<PrimitiveType> types;
+    private boolean isDefaultListPartitionKey = false;
 
     // constructor for partition prune
     public PartitionKey() {
         keys = Lists.newArrayList();
         types = Lists.newArrayList();
+    }
+
+    public void setDefaultListPartition(boolean isDefaultListPartitionKey) {
+        this.isDefaultListPartitionKey = isDefaultListPartitionKey;
+    }
+
+    public boolean isDefaultListPartitionKey() {
+        return isDefaultListPartitionKey;
     }
 
     // Factory methods
@@ -92,7 +101,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         // PARTITION BY LIST(k1, k2)
         // (
         //     PARTITION p1 VALUES IN (("1","beijing"), ("1", "shanghai")),
-        //     PARTITION p2 VALUES IN (("2","shanghai"))
+        //     PARTITION p2 VALUES IN (("2","shanghai")),
+        //     PARTITION p3 VALUES IN,
+        //     PARTITION p4,
         // )
         //
         // for single list partition:
@@ -104,18 +115,29 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         //     PARTITION p3 VALUES IN ("11", "12", "13", "14", "15"),
         //     PARTITION p4 VALUES IN ("16", "17", "18", "19", "20"),
         //     PARTITION p5 VALUES IN ("21", "22", "23", "24", "25"),
-        //     PARTITION p6 VALUES IN ("26")
+        //     PARTITION p6 VALUES IN ("26"),
+        //     PARTITION p5 VALUES IN,
+        //     PARTITION p7
         // )
         //
-        Preconditions.checkArgument(values.size() == types.size(),
-                "in value size[" + values.size() + "] is not equal to partition column size[" + types.size() + "].");
+        // ListPartitionInfo::createAndCheckPartitionItem has checked
+        Preconditions.checkArgument(values.size() <= types.size(),
+                "in value size[" + values.size() + "] is not less than partition column size[" + types.size() + "].");
 
         PartitionKey partitionKey = new PartitionKey();
         for (int i = 0; i < values.size(); i++) {
             partitionKey.keys.add(values.get(i).getValue(types.get(i)));
             partitionKey.types.add(types.get(i).getPrimitiveType());
         }
+        if (values.isEmpty()) {
+            for (int i = 0; i < types.size(); ++i) {
+                partitionKey.keys.add(LiteralExpr.createInfinity(types.get(i), false));
+                partitionKey.types.add(types.get(i).getPrimitiveType());
+            }
+            partitionKey.setDefaultListPartition(true);
+        }
 
+        Preconditions.checkState(partitionKey.keys.size() == types.size());
         return partitionKey;
     }
 
@@ -246,7 +268,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         builder.append("]; ");
 
         builder.append("keys: [");
-        builder.append(toString(keys));
+        if (isDefaultListPartitionKey()) {
+            builder.append("default key");
+        } else {
+            builder.append(toString(keys));
+        }
         builder.append("]; ");
 
         return builder.toString();

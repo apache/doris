@@ -91,15 +91,15 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
     int try_times = 1;
     do {
         // to avoid invalid loops, the lock is guaranteed to be acquired here
-        std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
-        res = _check_running_txns();
-        if (res.ok()) {
-            // transfer the lock to the caller
-            *migration_wlock = std::move(wlock);
-            return res;
+        {
+            std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
+            res = _check_running_txns();
+            if (res.ok()) {
+                // transfer the lock to the caller
+                *migration_wlock = std::move(wlock);
+                return res;
+            }
         }
-        // unlock and sleep for a while, try again
-        wlock.unlock();
         sleep(std::min(config::sleep_one_second * try_times, CHECK_TXNS_MAX_WAIT_TIME_SECS));
         ++try_times;
     } while (!_is_timeout());

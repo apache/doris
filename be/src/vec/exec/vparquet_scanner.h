@@ -48,8 +48,9 @@ public:
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                                       FileReader* file_reader, int32_t num_of_columns_from_file,
-                                       int64_t range_start_offset, int64_t range_size) override;
+                                       io::FileReaderSPtr file_reader,
+                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
+                                       int64_t range_size) override;
 };
 
 } // namespace doris::vectorized

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -65,6 +66,7 @@ public class ArrayEnumerate extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
+            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DecimalV3Type.WILDCARD)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(StringType.INSTANCE))
     );

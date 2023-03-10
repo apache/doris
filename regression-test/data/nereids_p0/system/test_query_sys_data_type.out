@@ -8,3 +8,7 @@ os	char
 set1	hll
 set2	bitmap
 
+-- !sql --
+id	int
+c_array	array
+

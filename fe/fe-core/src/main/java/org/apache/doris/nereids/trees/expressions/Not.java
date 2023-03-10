@@ -88,7 +88,9 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Not(children.get(0));
+        Not not = new Not(children.get(0));
+        not.isGeneratedIsNotNull = this.isGeneratedIsNotNull;
+        return not;
     }
 
     @Override

@@ -114,7 +114,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
-            _function = AggregateJavaUdaf::create(_fn, argument_types, {}, _data_type);
+            _function = AggregateJavaUdaf::create(_fn, argument_types, _data_type);
             RETURN_IF_ERROR(static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(_fn));
         } else {
             return Status::InternalError(
@@ -122,10 +122,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     "true and restart be.");
         }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
-        _function = AggregateRpcUdaf::create(_fn, argument_types, {}, _data_type);
+        _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, argument_types, {}, _data_type->is_nullable());
+                _fn.name.function_name, argument_types, _data_type->is_nullable());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);

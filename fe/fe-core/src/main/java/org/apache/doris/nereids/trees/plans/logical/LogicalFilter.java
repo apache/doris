@@ -50,18 +50,13 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     private final boolean singleTableExpressionExtracted;
 
     public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), Optional.empty(), child);
+        this(conjuncts, Optional.empty(), false, Optional.empty(), child);
     }
 
     public LogicalFilter(Set<Expression> conjuncts, boolean singleTableExpressionExtracted,
             CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), singleTableExpressionExtracted,
                 Optional.empty(), child);
-    }
-
-    public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(conjuncts, groupExpression, false, logicalProperties, child);
     }
 
     public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
@@ -154,5 +149,4 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public boolean isSingleTableExpressionExtracted() {
         return singleTableExpressionExtracted;
     }
-
 }

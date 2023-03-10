@@ -80,7 +80,9 @@ Status NewOlapScanNode::_init_profile() {
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
+    _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");
     _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _second_read_timer = ADD_TIMER(_segment_profile, "SecondReadTime");
     _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
     _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
 
@@ -110,7 +112,20 @@ Status NewOlapScanNode::_init_profile() {
 
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
-    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTimer");
+    _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
+    _inverted_index_query_cache_hit_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT);
+    _inverted_index_query_cache_miss_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
+    _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+    _inverted_index_query_bitmap_copy_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
+    _inverted_index_query_bitmap_op_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapOpTime");
+    _inverted_index_searcher_open_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
+    _inverted_index_searcher_search_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
@@ -222,6 +237,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                             if (exact_range) {
                                 _colname_to_value_range.erase(iter->first);
                             }
+                        } else {
+                            // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
+                            // and will not erase from _colname_to_value_range, it must be not exact_range
+                            temp_range.set_whole_value_range();
+                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
+                                    temp_range, _max_scan_key_num, &exact_range, &eos));
                         }
                         return Status::OK();
                     },
@@ -278,8 +299,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
 Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                           VExprContext* expr_ctx,
-                                                          StringVal* constant_str,
-                                                          doris_udf::FunctionContext** fn_ctx,
+                                                          StringRef* constant_str,
+                                                          doris::FunctionContext** fn_ctx,
                                                           VScanNode::PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
@@ -288,7 +309,7 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     }
 
     const auto& children = fn_call->children();
-    doris_udf::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
+    doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
@@ -302,11 +323,11 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
             return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
-                *constant_str = const_column->get_data_at(0).to_string_val();
+                *constant_str = const_column->get_data_at(0);
             } else {
                 pdt = PushDownType::UNACCEPTABLE;
                 return Status::OK();
@@ -316,6 +337,14 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     *fn_ctx = func_cxt;
     pdt = PushDownType::ACCEPTABLE;
     return Status::OK();
+}
+
+bool NewOlapScanNode::_should_push_down_common_expr() {
+    return _state->enable_common_expr_pushdown() &&
+           (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+            (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+             _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+             _olap_scan_node.enable_unique_key_merge_on_write));
 }
 
 // PlanFragmentExecutor will call this method to set scan range
@@ -355,6 +384,15 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
         _runtime_profile->add_info_string("RemainedDownPredicates",
                                           (*_vconjunct_ctx_ptr)->root()->debug_string());
+    }
+
+    if (!_olap_scan_node.output_column_unique_ids.empty()) {
+        for (auto uid : _olap_scan_node.output_column_unique_ids) {
+            if (uid < 0) {
+                continue;
+            }
+            _maybe_read_column_ids.emplace(uid);
+        }
     }
 
     // ranges constructed from scan keys
@@ -403,15 +441,15 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
-                    _need_agg_finalize, *scan_range, _scanner_profile.get());
+                    _need_agg_finalize, _scanner_profile.get());
 
             scanner->set_compound_filters(_compound_filters);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
-            RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
-                                             _olap_filters, _filter_predicates,
-                                             _push_down_functions));
+            RETURN_IF_ERROR(scanner->prepare(
+                    *scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(), _olap_filters,
+                    _filter_predicates, _push_down_functions, _common_vexpr_ctxs_pushdown.get()));
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

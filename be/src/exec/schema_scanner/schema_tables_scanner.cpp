@@ -59,6 +59,7 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
@@ -87,6 +88,7 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaTablesScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -117,17 +119,22 @@ Status SchemaTablesScanner::_get_new_table() {
 }
 
 Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
+    std::vector<void*> null_datas(table_num, nullptr);
+    std::vector<void*> datas(table_num);
+
     // catalog
-    if (_db_result.__isset.catalogs) {
-        std::string catalog_name = _db_result.catalogs[_db_index - 1];
-        StringRef str_slot = StringRef(catalog_name.c_str(), catalog_name.size());
-        for (int i = 0; i < table_num; ++i) {
-            fill_dest_column(block, &str_slot, _s_tbls_columns[0]);
-        }
-    } else {
-        for (int i = 0; i < table_num; ++i) {
-            fill_dest_column(block, nullptr, _s_tbls_columns[0]);
+    {
+        if (_db_result.__isset.catalogs) {
+            std::string catalog_name = _db_result.catalogs[_db_index - 1];
+            StringRef str_slot = StringRef(catalog_name.c_str(), catalog_name.size());
+            for (int i = 0; i < table_num; ++i) {
+                datas[i] = &str_slot;
+            }
+            fill_dest_column_for_range(block, 0, datas);
+        } else {
+            fill_dest_column_for_range(block, 0, null_datas);
         }
     }
     // schema
@@ -135,157 +142,184 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         StringRef str_slot = StringRef(db_name.c_str(), db_name.size());
         for (int i = 0; i < table_num; ++i) {
-            fill_dest_column(block, &str_slot, _s_tbls_columns[1]);
+            datas[i] = &str_slot;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // name
-    for (int i = 0; i < table_num; ++i) {
-        const std::string* src = &_table_result.tables[i].name;
-        StringRef str_slot = StringRef(src->c_str(), src->size());
-        fill_dest_column(block, &str_slot, _s_tbls_columns[2]);
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].name;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // type
-    for (int i = 0; i < table_num; ++i) {
-        const std::string* src = &_table_result.tables[i].type;
-        StringRef str_slot = StringRef(src->c_str(), src->size());
-        fill_dest_column(block, &str_slot, _s_tbls_columns[3]);
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].type;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
     }
     // engine
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.engine) {
-            const std::string* src = &tbl_status.engine;
-            StringRef str_slot = StringRef(src->c_str(), src->size());
-            fill_dest_column(block, &str_slot, _s_tbls_columns[4]);
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[4]);
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.engine) {
+                const std::string* src = &tbl_status.engine;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
         }
+        fill_dest_column_for_range(block, 4, datas);
     }
     // version
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[5]);
-    }
+    { fill_dest_column_for_range(block, 5, null_datas); }
     // row_format
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[6]);
-    }
+    { fill_dest_column_for_range(block, 6, null_datas); }
     // rows
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.rows) {
-            int64_t src = tbl_status.rows;
-            fill_dest_column(block, &src, _s_tbls_columns[7]);
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[7]);
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.rows) {
+                srcs[i] = tbl_status.rows;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
         }
+        fill_dest_column_for_range(block, 7, datas);
     }
     // avg_row_length
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.avg_row_length) {
-            int64_t src = tbl_status.avg_row_length;
-            fill_dest_column(block, &src, _s_tbls_columns[8]);
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[8]);
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.avg_row_length) {
+                srcs[i] = tbl_status.avg_row_length;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
         }
+        fill_dest_column_for_range(block, 8, datas);
     }
     // data_length
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.avg_row_length) {
-            int64_t src = tbl_status.data_length;
-            fill_dest_column(block, &src, _s_tbls_columns[9]);
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[9]);
+    {
+        int64_t srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.avg_row_length) {
+                srcs[i] = tbl_status.data_length;
+                datas[i] = srcs + i;
+            } else {
+                datas[i] = nullptr;
+            }
         }
+        fill_dest_column_for_range(block, 9, datas);
     }
     // max_data_length
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[10]);
-    }
+    { fill_dest_column_for_range(block, 10, null_datas); }
     // index_length
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[11]);
-    }
+    { fill_dest_column_for_range(block, 11, null_datas); }
     // data_free
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[12]);
-    }
+    { fill_dest_column_for_range(block, 12, null_datas); }
     // auto_increment
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[13]);
-    }
+    { fill_dest_column_for_range(block, 13, null_datas); }
     // creation_time
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.create_time) {
-            int64_t create_time = tbl_status.create_time;
-            if (create_time <= 0) {
-                fill_dest_column(block, nullptr, _s_tbls_columns[14]);
+    {
+        DateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.create_time) {
+                int64_t create_time = tbl_status.create_time;
+                if (create_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(create_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
             } else {
-                DateTimeValue time_slot;
-                time_slot.from_unixtime(create_time, TimezoneUtils::default_time_zone);
-                fill_dest_column(block, &time_slot, _s_tbls_columns[14]);
+                datas[i] = nullptr;
             }
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[14]);
         }
+        fill_dest_column_for_range(block, 14, datas);
     }
     // update_time
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.update_time) {
-            int64_t update_time = tbl_status.update_time;
-            if (update_time <= 0) {
-                fill_dest_column(block, nullptr, _s_tbls_columns[15]);
+    {
+        DateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.update_time) {
+                int64_t update_time = tbl_status.update_time;
+                if (update_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(update_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
             } else {
-                DateTimeValue time_slot;
-                time_slot.from_unixtime(update_time, TimezoneUtils::default_time_zone);
-                fill_dest_column(block, &time_slot, _s_tbls_columns[15]);
+                datas[i] = nullptr;
             }
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[15]);
         }
+        fill_dest_column_for_range(block, 15, datas);
     }
     // check_time
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.last_check_time) {
-            int64_t check_time = tbl_status.last_check_time;
-            if (check_time <= 0) {
-                fill_dest_column(block, nullptr, _s_tbls_columns[16]);
+    {
+        DateTimeValue srcs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.last_check_time) {
+                int64_t check_time = tbl_status.last_check_time;
+                if (check_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(check_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs + i;
+                }
             } else {
-                DateTimeValue time_slot;
-                time_slot.from_unixtime(check_time, TimezoneUtils::default_time_zone);
-                fill_dest_column(block, &time_slot, _s_tbls_columns[16]);
+                datas[i] = nullptr;
             }
         }
+        fill_dest_column_for_range(block, 16, datas);
     }
     // collation
-    for (int i = 0; i < table_num; ++i) {
-        const TTableStatus& tbl_status = _table_result.tables[i];
-        if (tbl_status.__isset.collation) {
-            const std::string* src = &tbl_status.collation;
-            StringRef str_slot = StringRef(src->c_str(), src->size());
-            fill_dest_column(block, &str_slot, _s_tbls_columns[17]);
-
-        } else {
-            fill_dest_column(block, nullptr, _s_tbls_columns[17]);
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.collation) {
+                const std::string* src = &tbl_status.collation;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
         }
+        fill_dest_column_for_range(block, 17, datas);
     }
     // checksum
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[18]);
-    }
+    { fill_dest_column_for_range(block, 18, null_datas); }
     // create_options
-    for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _s_tbls_columns[19]);
-    }
+    { fill_dest_column_for_range(block, 19, null_datas); }
     // create_comment
-    for (int i = 0; i < table_num; ++i) {
-        const std::string* src = &_table_result.tables[i].comment;
-        StringRef str_slot = StringRef(src->c_str(), src->size());
-        fill_dest_column(block, &str_slot, _s_tbls_columns[20]);
+    {
+        StringRef strs[table_num];
+        for (int i = 0; i < table_num; ++i) {
+            const std::string* src = &_table_result.tables[i].comment;
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 20, datas);
     }
     return Status::OK();
 }

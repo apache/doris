@@ -20,13 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
@@ -39,13 +40,15 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class DataDescriptionTest {
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -61,7 +64,7 @@ public class DataDescriptionTest {
 
     @Before
     public void setUp() throws AnalysisException {
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new Expectations() {
             {
@@ -389,10 +392,10 @@ public class DataDescriptionTest {
                         Lists.newArrayList(predicate), properties);
         String db = desc.analyzeFullDbName(null, analyzer);
         Assert.assertEquals("default_cluster:testDb", db);
-        Assert.assertEquals("testDb", desc.getDbName());
+        Assert.assertEquals("default_cluster:testDb", desc.getDbName());
         db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
         Assert.assertEquals("testCluster:testDb1", db);
-        Assert.assertEquals("testDb1", desc.getDbName());
+        Assert.assertEquals("testCluster:testDb1", desc.getDbName());
 
         desc.analyze("testDb1");
         Assert.assertEquals(1, desc.getFilePaths().size());
@@ -412,5 +415,14 @@ public class DataDescriptionTest {
                 + "(k1, k2, v1) "
                 + "SET (`k1` = bitmap_dict('day', `k2`))";
         Assert.assertEquals(sql, desc.toSql());
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testHllFunctionArgsNull() throws AnalysisException {
+        String functionName = FunctionSet.HLL_HASH;
+        List<String> args = new ArrayList<>();
+        args.add(null);
+
+        DataDescription.validateMappingFunction(functionName, args, new HashMap<String, String>(), null, false);
     }
 }

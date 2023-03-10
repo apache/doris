@@ -195,7 +195,7 @@ under the License.
 | 1    | 100  | beijing   | 1.1  |
 | 2    | 200  | shanghai  | 1.2  |
 | 3    | 300  | guangzhou | 1.3  |
-| 4    | 400  | chongqing | 1.4  |
+| \N   | 400  | chongqing | 1.4  |
 
 1. 将源文件中的列值经转换后导入表中
 
@@ -286,7 +286,7 @@ under the License.
 | 1    | 100  | beijing   | 1.1  |
 | 2    | 200  | shanghai  | 1.2  |
 | 3    | 300  | guangzhou | 1.3  |
-| 4    | 400  | chongqing | 1.4  |
+| \N   | 400  | chongqing | 1.4  |
 
 1. 在列映射和转换缺省的情况下，直接过滤
 
@@ -329,7 +329,7 @@ under the License.
    假设表中有 `k1,k2,k3,k4` 4列。我们想过滤掉 `k1` 列为 `null` 的数据，同时过滤掉 `k4` 列小于 1.2 的数据，则过滤条件如下：
 
    ```text
-   where k1 is null and k4 < 1.2
+   where k1 is not null and k4 >= 1.2
    ```
 
    最终表中的数据如下：

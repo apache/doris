@@ -24,25 +24,6 @@
 
 namespace doris::vectorized {
 
-class ParquetColumnMetadata {
-public:
-    ParquetColumnMetadata(int64_t chunk_start_offset, int64_t chunk_length,
-                          tparquet::ColumnMetaData metadata)
-            : _chunk_start_offset(chunk_start_offset),
-              _chunk_length(chunk_length),
-              _metadata(metadata) {}
-
-    ~ParquetColumnMetadata() = default;
-    int64_t start_offset() const { return _chunk_start_offset; }
-    int64_t size() const { return _chunk_length; }
-    tparquet::ColumnMetaData t_metadata() { return _metadata; }
-
-private:
-    int64_t _chunk_start_offset;
-    int64_t _chunk_length;
-    tparquet::ColumnMetaData _metadata;
-};
-
 class ParquetColumnReader {
 public:
     struct Statistics {
@@ -98,12 +79,7 @@ public:
 
     ParquetColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
             : _row_ranges(row_ranges), _ctz(ctz) {}
-    virtual ~ParquetColumnReader() {
-        if (_stream_reader != nullptr) {
-            delete _stream_reader;
-            _stream_reader = nullptr;
-        }
-    }
+    virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     ColumnSelectVector& select_vector, size_t batch_size,
                                     size_t* read_rows, bool* eof) = 0;
@@ -111,23 +87,22 @@ public:
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size);
-    void init_column_metadata(const tparquet::ColumnChunk& chunk);
     void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
-    Statistics statistics() {
-        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
-                          _decode_null_map_time);
-    }
+    void set_nested_column() { _nested_column = true; }
+    virtual const std::vector<level_t>& get_rep_level() const = 0;
+    virtual const std::vector<level_t>& get_def_level() const = 0;
+    virtual Statistics statistics() = 0;
     virtual void close() = 0;
 
 protected:
     void _generate_read_ranges(int64_t start_index, int64_t end_index,
                                std::list<RowRange>& read_ranges);
 
-    BufferedFileStreamReader* _stream_reader;
-    std::unique_ptr<ParquetColumnMetadata> _metadata;
+    FieldSchema* _field_schema;
+    // When scalar column is the child of nested column, we should turn off the filtering by page index and lazy read.
+    bool _nested_column = false;
     const std::vector<RowRange>& _row_ranges;
     cctz::time_zone* _ctz;
-    std::unique_ptr<ColumnChunkReader> _chunk_reader;
     tparquet::OffsetIndex* _offset_index;
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
@@ -136,18 +111,35 @@ protected:
 
 class ScalarColumnReader : public ParquetColumnReader {
 public:
-    ScalarColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
-            : ParquetColumnReader(row_ranges, ctz) {}
+    ScalarColumnReader(const std::vector<RowRange>& row_ranges,
+                       const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz)
+            : ParquetColumnReader(row_ranges, ctz), _chunk_meta(chunk_meta) {}
     ~ScalarColumnReader() override { close(); }
-    Status init(io::FileReaderSPtr file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                size_t max_buf_size);
+    Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
                             bool* eof) override;
+    const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
+    const std::vector<level_t>& get_def_level() const override { return _def_levels; }
+    Statistics statistics() override {
+        return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
+                          _decode_null_map_time);
+    }
+    void close() override {}
+
+private:
+    tparquet::ColumnChunk _chunk_meta;
+    std::unique_ptr<BufferedFileStreamReader> _stream_reader;
+    std::unique_ptr<ColumnChunkReader> _chunk_reader;
+    std::vector<level_t> _rep_levels;
+    std::vector<level_t> _def_levels;
+
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,
                         ColumnSelectVector& select_vector);
-    void close() override;
+    Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
+                               ColumnSelectVector& select_vector, size_t batch_size,
+                               size_t* read_rows, bool* eof);
 };
 
 class ArrayColumnReader : public ParquetColumnReader {
@@ -155,39 +147,88 @@ public:
     ArrayColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
             : ParquetColumnReader(row_ranges, ctz) {}
     ~ArrayColumnReader() override { close(); }
-    Status init(io::FileReaderSPtr file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                size_t max_buf_size);
+    Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
                             bool* eof) override;
-    void close() override;
+    const std::vector<level_t>& get_rep_level() const override {
+        return _element_reader->get_rep_level();
+    }
+    const std::vector<level_t>& get_def_level() const override {
+        return _element_reader->get_def_level();
+    }
+    Statistics statistics() override { return _element_reader->statistics(); }
+    void close() override {}
 
 private:
-    void _reserve_def_levels_buf(size_t size);
-    void _init_rep_levels_buf();
-    void _load_rep_levels();
-    Status _load_nested_column(ColumnPtr& doris_column, DataTypePtr& type, size_t read_values,
-                               ColumnSelectVector& select_vector);
-    Status _generate_array_offset(std::vector<size_t>& element_offsets, size_t pre_batch_size,
-                                  size_t* real_batch_size, size_t* num_values);
-    void _fill_array_offset(MutableColumnPtr& doris_column, std::vector<size_t>& element_offsets,
-                            int offset_index, size_t num_rows);
-    Status _skip_values(size_t num_values);
-
-    std::unique_ptr<level_t[]> _def_levels_buf = nullptr;
-    size_t _def_levels_buf_size = 0;
-    size_t _def_offset = 0;
-
-    std::unique_ptr<level_t[]> _rep_levels_buf = nullptr;
-    size_t _rep_levels_buf_size = 0;
-    size_t _rep_size = 0;
-    size_t _rep_offset = 0;
-    size_t _start_offset = 0;
-    size_t _remaining_rep_levels = 0;
-
-    level_t _CONCRETE_ELEMENT = -1;
-    level_t _NULL_ELEMENT = -1;
-    level_t _EMPTY_ARRAY = -1;
-    level_t _NULL_ARRAY = -1;
+    std::unique_ptr<ParquetColumnReader> _element_reader = nullptr;
 };
+
+class MapColumnReader : public ParquetColumnReader {
+public:
+    MapColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
+            : ParquetColumnReader(row_ranges, ctz) {}
+    ~MapColumnReader() override { close(); }
+
+    Status init(std::unique_ptr<ParquetColumnReader> key_reader,
+                std::unique_ptr<ParquetColumnReader> value_reader, FieldSchema* field);
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
+                            bool* eof) override;
+
+    const std::vector<level_t>& get_rep_level() const override {
+        return _key_reader->get_rep_level();
+    }
+    const std::vector<level_t>& get_def_level() const override {
+        return _key_reader->get_def_level();
+    }
+
+    Statistics statistics() override {
+        Statistics kst = _key_reader->statistics();
+        Statistics vst = _value_reader->statistics();
+        kst.merge(vst);
+        return kst;
+    }
+
+    void close() override {}
+
+private:
+    std::unique_ptr<ParquetColumnReader> _key_reader = nullptr;
+    std::unique_ptr<ParquetColumnReader> _value_reader = nullptr;
+};
+
+class StructColumnReader : public ParquetColumnReader {
+public:
+    StructColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
+            : ParquetColumnReader(row_ranges, ctz) {}
+    ~StructColumnReader() override { close(); }
+
+    Status init(std::vector<std::unique_ptr<ParquetColumnReader>>&& child_readers,
+                FieldSchema* field);
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
+                            bool* eof) override;
+
+    const std::vector<level_t>& get_rep_level() const override {
+        return _child_readers[0]->get_rep_level();
+    }
+    const std::vector<level_t>& get_def_level() const override {
+        return _child_readers[0]->get_def_level();
+    }
+
+    Statistics statistics() override {
+        Statistics st;
+        for (const auto& reader : _child_readers) {
+            Statistics cst = reader->statistics();
+            st.merge(cst);
+        }
+        return st;
+    }
+
+    void close() override {}
+
+private:
+    std::vector<std::unique_ptr<ParquetColumnReader>> _child_readers;
+};
+
 }; // namespace doris::vectorized

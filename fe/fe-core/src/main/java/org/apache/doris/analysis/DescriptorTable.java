@@ -118,6 +118,10 @@ public class DescriptorTable {
         return tupleDescs.get(id);
     }
 
+    public HashMap<SlotId, SlotDescriptor> getSlotDescs() {
+        return slotDescs;
+    }
+
     /**
      * Return all tuple desc by idList.
      */
@@ -185,7 +189,7 @@ public class DescriptorTable {
         for (TupleDescriptor tupleD : tupleDescs.values()) {
             // inline view of a non-constant select has a non-materialized tuple descriptor
             // in the descriptor table just for type checking, which we need to skip
-            if (tupleD.getIsMaterialized()) {
+            if (tupleD.isMaterialized()) {
                 result.addToTupleDescriptors(tupleD.toThrift());
                 // an inline view of a constant select has a materialized tuple
                 // but its table has no id

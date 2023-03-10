@@ -41,19 +41,6 @@ public:
     int get_size() const;
 
 private:
-    // helper method for processing date/datetime cols with rapidjson::Value
-    // type is used for distinguish date and datetime
-    // fill date slot with string format date
-    Status fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type);
-    Status fill_date_col_with_strval(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                                     PrimitiveType type);
-    // fill date slot with timestamp
-    Status fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col,
-                                         PrimitiveType type);
-    Status fill_date_col_with_timestamp(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                                        PrimitiveType type);
-
-private:
     std::string _scroll_id;
     int _size;
     rapidjson::SizeType _line_index;

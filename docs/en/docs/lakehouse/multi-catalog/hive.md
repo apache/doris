@@ -85,13 +85,14 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.security.authentication' = 'kerberos',
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
-    'yarn.resourcemanager.principal' = 'your-rm-principal/your-rm-address@YOUR.COM'
+    'hive.metastore.kerberos.principal' = 'your-hms-principal'
 );
 ```
 
 Remember `krb5.conf` and `keytab` file should be placed at all `BE` nodes and `FE` nodes. The location of `keytab` file should be equal to the value of `hadoop.kerberos.keytab`.
 As default, `krb5.conf` should be placed at `/etc/krb5.conf`.
+
+Value of `hive.metastore.kerberos.principal` should be same with the same name property used by HMS you are connecting to, which can be found in `hive-site.xml`.
 
 To provide Hadoop KMS encrypted transmission information:
 
@@ -115,6 +116,25 @@ CREATE CATALOG hive PROPERTIES (
     'juicefs.meta' = 'xxx'
 );
 ```
+
+<version since="dev">
+
+when connecting to Hive Metastore which is authorized by Ranger, need some properties and update FE runtime environment.
+
+1. add below properties when creating Catalog：
+
+```sql
+"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
+"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+```
+
+2. update all FEs' runtime environment：
+   a. copy all ranger-*.xml files to <doris_home>/conf which are located in HMS/conf directory
+   b. update value of `ranger.plugin.hive.policy.cache.dir` in ranger-<ranger_service_name>-security.xml to a writable directory
+   c. add a log4j.properties to <doris_home>/conf, thus you can get logs of ranger authorizer
+   d. restart FE
+
+</version>
 
 In Doris 1.2.1 and newer, you can create a Resource that contains all these parameters, and reuse the Resource when creating new Catalogs. Here is an example:
 
@@ -174,4 +194,6 @@ This is applicable for Hive/Iceberge/Hudi.
 | varchar       | varchar       |                                                   |
 | decimal       | decimal       |                                                   |
 | `array<type>` | `array<type>` | Support nested array, such as `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | Not support nested map. KeyType and ValueType should be primitive types. |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | Not support nested struct. Type1, Type2, ... should be primitive types. |
 | other         | unsupported   |                                                   |

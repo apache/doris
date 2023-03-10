@@ -216,21 +216,6 @@ public:
         cursor_ += i;
     }
 
-    // Formats "number" as hexadecimal number, and updates the internal
-    // cursor.  Padding will be added in front if needed.
-    void AppendHexWithPadding(uint64 number, int width) {
-        char* start = cursor_;
-        AppendString("0x");
-        AppendUint64(number, 16);
-        // Move to right and add padding in front if needed.
-        if (cursor_ < start + width) {
-            const int64 delta = start + width - cursor_;
-            std::copy(start, cursor_, start + delta);
-            std::fill(start, start + delta, ' ');
-            cursor_ = start + width;
-        }
-    }
-
 private:
     char* buffer_;
     char* cursor_;
@@ -300,7 +285,7 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     if (reason != nullptr) {
         formatter.AppendString(reason);
     } else {
-        formatter.AppendString("unkown detail explain");
+        formatter.AppendString("unknown detail explain");
     }
     formatter.AppendString(" (@0x");
     formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);

@@ -39,6 +39,7 @@
 #include "util/spinlock.h"
 #include "util/thread.h"
 #include "vec/columns/column.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -178,7 +179,8 @@ public:
 
     Status add_block(vectorized::Block* block,
                      const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
-                                     std::vector<int64_t>>& payload);
+                                     std::vector<int64_t>>& payload,
+                     bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
@@ -421,12 +423,25 @@ private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
+    using ChannelDistributionPayload = std::vector<std::unordered_map<
+            VNodeChannel*,
+            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>;
+
+    // payload for each row
+    void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
+                                            const VOlapTablePartition* partition,
+                                            uint32_t tablet_index, int row_idx, size_t row_cnt);
+
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     // set stop_processing if we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+
+    template <bool is_min>
+    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
+
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
                             bool* stop_processing, fmt::memory_buffer& error_prefix,
@@ -454,8 +469,6 @@ private:
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
     RowDescriptor* _output_row_desc = nullptr;
-
-    bool _need_validate_data = false;
 
     // number of senders used to insert into OlapTable, if we only support single node insert,
     // all data from select should collectted and then send to OlapTable.
@@ -486,8 +499,8 @@ private:
     scoped_refptr<Thread> _sender_thread;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::vector<DecimalV2Value> _max_decimalv2_val;
-    std::vector<DecimalV2Value> _min_decimalv2_val;
+    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
+    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
 
     // Stats for this
     int64_t _validate_data_ns = 0;
@@ -495,6 +508,7 @@ private:
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
+    int64_t _number_immutable_partition_filtered_rows = 0;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;

@@ -30,6 +30,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -191,7 +192,7 @@ public class Backend implements Writable {
         return id;
     }
 
-    public String getHost() {
+    public String getIp() {
         return ip;
     }
 
@@ -288,7 +289,7 @@ public class Backend implements Writable {
         this.backendState = state.ordinal();
     }
 
-    public void setHost(String ip) {
+    public void setIp(String ip) {
         this.ip = ip;
     }
 
@@ -780,6 +781,10 @@ public class Backend implements Writable {
 
     public Map<String, String> getTagMap() {
         return tagMap;
+    }
+
+    public TNetworkAddress getBrpcAdress() {
+        return new TNetworkAddress(getIp(), getBrpcPort());
     }
 
     public String getTagMapString() {

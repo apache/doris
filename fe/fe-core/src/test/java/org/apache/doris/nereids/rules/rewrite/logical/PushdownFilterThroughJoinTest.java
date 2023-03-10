@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -44,7 +44,7 @@ import java.util.Set;
  * PushdownFilterThroughJoinTest UT.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
+public class PushdownFilterThroughJoinTest implements MemoPatternMatchSupported {
 
     private LogicalPlan rStudent;
     private LogicalPlan rScore;
@@ -77,7 +77,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(whereCondition1, whereCondition2);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                .hashJoinEmptyOn(rScore, joinType)
+                .joinEmptyOn(rScore, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -98,7 +98,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(whereCondition1, whereCondition2);
 
         LogicalPlan plan = new LogicalPlanBuilder(rScore)
-                .hashJoinEmptyOn(rStudent, joinType)
+                .joinEmptyOn(rStudent, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -128,7 +128,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(bothSideEqualTo, leftSide, rightSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                .hashJoinEmptyOn(rScore, joinType)
+                .joinEmptyOn(rScore, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -178,7 +178,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(pushSide, reserveSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                .hashJoinEmptyOn(rScore, joinType)
+                .joinEmptyOn(rScore, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -201,7 +201,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(pushSide, reserveSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rScore)
-                .hashJoinEmptyOn(rStudent, joinType)
+                .joinEmptyOn(rStudent, joinType)
                 .filter(whereCondition)
                 .build();
 

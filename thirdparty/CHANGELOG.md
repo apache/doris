@@ -2,6 +2,16 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230228
+- Modified: thrift 0.13 -> 0.16
+
+## v20230221
+- Modified: clucene 2.4.4 -> 2.4.6
+
+## v20230218
+- Modified: libhdfs3 2.3.7 -> 2.3.8
+- Modified: jemalloc 5.2.1 -> 5.3.0
+
 ## v20230130
 - Modified: libhdfs3 2.3.6 -> 2.3.7
 

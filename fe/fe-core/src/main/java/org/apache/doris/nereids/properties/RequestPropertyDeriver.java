@@ -29,12 +29,12 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -86,24 +86,31 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
 
         List<PhysicalProperties> requiredPropertyList =
-                Lists.newArrayListWithCapacity(context.getGroupExpression().arity());
-        for (int i = context.getGroupExpression().arity(); i > 0; --i) {
+                Lists.newArrayListWithCapacity(context.arity());
+        for (int i = context.arity(); i > 0; --i) {
             requiredPropertyList.add(PhysicalProperties.ANY);
         }
-        requestPropertyToChildren.add(requiredPropertyList);
+        addRequestPropertyToChildren(requiredPropertyList);
         return null;
     }
 
     @Override
-    public Void visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.ANY);
+    public Void visitAbstractPhysicalSort(AbstractPhysicalSort<? extends Plan> sort, PlanContext context) {
+        if (!sort.getSortPhase().isLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        }
         return null;
     }
 
     @Override
-    public Void visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
-        // TODO: rethink here, should we throw exception directly?
-        addRequestPropertyToChildren(PhysicalProperties.ANY);
+    public Void visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PlanContext context) {
+        if (limit.isGlobal()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        }
         return null;
     }
 

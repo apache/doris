@@ -19,7 +19,12 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import org.joda.time.format.DateTimeFormatterBuilder;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.TextStyle;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 
 /**
  * date util tools.
@@ -37,84 +42,75 @@ public class DateUtils {
             if (escaped) {
                 switch (character) {
                     case 'a': // %a Abbreviated weekday name (Sun..Sat)
-                        builder.appendDayOfWeekShortText();
+                        builder.appendText(ChronoField.DAY_OF_WEEK, TextStyle.SHORT);
                         break;
                     case 'b': // %b Abbreviated month name (Jan..Dec)
-                        builder.appendMonthOfYearShortText();
+                        builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.SHORT);
                         break;
                     case 'c': // %c Month, numeric (0..12)
-                        builder.appendMonthOfYear(1);
+                        builder.appendValue(ChronoField.MONTH_OF_YEAR);
                         break;
                     case 'd': // %d Day of the month, numeric (00..31)
-                        builder.appendDayOfMonth(2);
+                        builder.appendValue(ChronoField.DAY_OF_MONTH, 2);
                         break;
                     case 'e': // %e Day of the month, numeric (0..31)
-                        builder.appendDayOfMonth(1);
+                        builder.appendValue(ChronoField.DAY_OF_MONTH);
                         break;
                     case 'H': // %H Hour (00..23)
-                        builder.appendHourOfDay(2);
+                        builder.appendValue(ChronoField.HOUR_OF_DAY, 2);
                         break;
                     case 'h': // %h Hour (01..12)
                     case 'I': // %I Hour (01..12)
-                        builder.appendClockhourOfHalfday(2);
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2);
                         break;
                     case 'i': // %i Minutes, numeric (00..59)
-                        builder.appendMinuteOfHour(2);
+                        builder.appendValue(ChronoField.MINUTE_OF_HOUR, 2);
                         break;
                     case 'j': // %j Day of year (001..366)
-                        builder.appendDayOfYear(3);
+                        builder.appendValue(ChronoField.DAY_OF_YEAR, 3);
                         break;
                     case 'k': // %k Hour (0..23)
-                        builder.appendHourOfDay(1);
+                        builder.appendValue(ChronoField.HOUR_OF_DAY);
                         break;
                     case 'l': // %l Hour (1..12)
-                        builder.appendClockhourOfHalfday(1);
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM);
                         break;
                     case 'M': // %M Month name (January..December)
-                        builder.appendMonthOfYearText();
+                        builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL);
                         break;
                     case 'm': // %m Month, numeric (00..12)
-                        builder.appendMonthOfYear(2);
+                        builder.appendValue(ChronoField.MONTH_OF_YEAR, 2);
                         break;
                     case 'p': // %p AM or PM
-                        builder.appendHalfdayOfDayText();
+                        builder.appendText(ChronoField.AMPM_OF_DAY);
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
-                        builder.appendClockhourOfHalfday(2)
-                                .appendLiteral(':')
-                                .appendMinuteOfHour(2)
-                                .appendLiteral(':')
-                                .appendSecondOfMinute(2)
-                                .appendLiteral(' ')
-                                .appendHalfdayOfDayText();
+                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
+                                .appendPattern(":mm:ss ")
+                                .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
+                                .toFormatter();
                         break;
                     case 'S': // %S Seconds (00..59)
                     case 's': // %s Seconds (00..59)
-                        builder.appendSecondOfMinute(2);
+                        builder.appendValue(ChronoField.SECOND_OF_MINUTE, 2);
                         break;
                     case 'T': // %T Time, 24-hour (hh:mm:ss)
-                        builder.appendHourOfDay(2)
-                                .appendLiteral(':')
-                                .appendMinuteOfHour(2)
-                                .appendLiteral(':')
-                                .appendSecondOfMinute(2);
+                        builder.appendPattern("HH:mm:ss");
                         break;
                     case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
-                        builder.appendWeekOfWeekyear(2);
+                        builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
                         break;
                     case 'x':
+                    case 'Y': // %Y Year, numeric, four digits
                         // %x Year for the week, where Monday is the first day of the week,
                         // numeric, four digits; used with %v
-                        builder.appendWeekyear(4, 4);
+                        builder.appendValue(ChronoField.YEAR, 4);
                         break;
                     case 'W': // %W Weekday name (Sunday..Saturday)
-                        builder.appendDayOfWeekText();
-                        break;
-                    case 'Y': // %Y Year, numeric, four digits
-                        builder.appendYear(4, 4);
+                        builder.appendText(ChronoField.DAY_OF_WEEK, TextStyle.FULL);
                         break;
                     case 'y': // %y Year, numeric (two digits)
-                        builder.appendTwoDigitYear(2020);
+                        builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
                         break;
                     // TODO(Gabriel): support microseconds in date literal
                     case 'f': // %f Microseconds (000000..999999)
@@ -142,5 +138,25 @@ public class DateUtils {
             }
         }
         return builder;
+    }
+
+    /**
+     * construct local date time from string
+     */
+    public static LocalDateTime getTime(DateTimeFormatter formatter, String value) {
+        TemporalAccessor accessor = formatter.parse(value);
+        return LocalDateTime.of(
+                getOrDefault(accessor, ChronoField.YEAR),
+                getOrDefault(accessor, ChronoField.MONTH_OF_YEAR),
+                getOrDefault(accessor, ChronoField.DAY_OF_MONTH),
+                getOrDefault(accessor, ChronoField.HOUR_OF_DAY),
+                getOrDefault(accessor, ChronoField.MINUTE_OF_HOUR),
+                getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE),
+                getOrDefault(accessor, ChronoField.MICRO_OF_SECOND)
+        );
+    }
+
+    public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
+        return accessor.isSupported(field) ? accessor.get(field) : /*default value*/ 0;
     }
 }

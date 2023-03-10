@@ -140,6 +140,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
                     std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
                     _conn_param.driver_checksum, &local_location));
         }
+        VLOG_QUERY << "driver local path = " << local_location;
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -460,7 +461,20 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
                                       address[1]);
         break;
     }
-    case TYPE_CHAR:
+    case TYPE_CHAR: {
+        bool need_trim_spaces = false;
+        if ((_conn_param.table_type == TOdbcTableType::POSTGRESQL) ||
+            (_conn_param.table_type == TOdbcTableType::ORACLE)) {
+            need_trim_spaces = true;
+        }
+        auto column_string = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        address[1] = reinterpret_cast<int64_t>(column_string->get_offsets().data());
+        auto chars_addres = reinterpret_cast<int64_t>(&column_string->get_chars());
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_char_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1], chars_addres, need_trim_spaces);
+        break;
+    }
     case TYPE_STRING:
     case TYPE_VARCHAR: {
         auto column_string = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
@@ -591,6 +605,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_double_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchStringResult",
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
+                                "(Ljava/lang/Object;ZIJJJZ)V", _executor_get_char_result));
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateResult",
                                 JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_date_result));

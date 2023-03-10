@@ -149,7 +149,18 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                 reinterpret_cast<char*>(&ts_slot), 0);
         break;
     }
-
+    case TYPE_DATEV2: {
+        vectorized::VecDateTimeValue ts_slot;
+        if (!ts_slot.from_date_str(data, len)) {
+            parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
+            break;
+        }
+        ts_slot.cast_to_date();
+        uint32_t num = ts_slot.to_date_v2();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(num);
+        break;
+    }
     case TYPE_DATETIME: {
         vectorized::VecDateTimeValue ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
@@ -160,6 +171,18 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         ts_slot.to_datetime();
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
                 reinterpret_cast<char*>(&ts_slot), 0);
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        vectorized::VecDateTimeValue ts_slot;
+        if (!ts_slot.from_date_str(data, len)) {
+            parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
+            break;
+        }
+        ts_slot.to_datetime();
+        uint64_t num = ts_slot.to_datetime_v2();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
         break;
     }
 

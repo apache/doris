@@ -228,7 +228,7 @@ public class MatchPredicate extends Predicate {
         Expr e2 = getChild(1);
         // Here we cast match_element_xxx value type from string to array item type.
         // Because be need to know the actual TExprNodeType when doing Expr Literal transform
-        if (isMatchElement(op) && e1.type.isArrayType() && (e2 instanceof StringLiteral)) {
+        if (isMatchElement(op) && e1.type.isArrayType()) {
             Type itemType = ((ArrayType) e1.type).getItemType();
             try {
                 setChild(1, e2.castTo(itemType));

@@ -20,6 +20,8 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "util/lock.h"
+
 namespace doris {
 
 struct StoragePolicyMgr {
@@ -28,6 +30,24 @@ struct StoragePolicyMgr {
 };
 
 static StoragePolicyMgr s_storage_policy_mgr;
+
+Status get_remote_file_system(int64_t storage_policy_id,
+                              std::shared_ptr<io::RemoteFileSystem>* fs) {
+    auto storage_policy = get_storage_policy(storage_policy_id);
+    if (storage_policy == nullptr) {
+        return Status::InternalError("could not find storage_policy, storage_policy_id={}",
+                                     storage_policy_id);
+    }
+    auto resource = get_storage_resource(storage_policy->resource_id);
+    *fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
+    if (*fs == nullptr) {
+        return Status::InternalError("could not find resource, resouce_id={}",
+                                     storage_policy->resource_id);
+    }
+    DCHECK(atol((*fs)->id().c_str()) == storage_policy->resource_id);
+    DCHECK((*fs)->type() != io::FileSystemType::LOCAL);
+    return Status::OK();
+}
 
 StoragePolicyPtr get_storage_policy(int64_t id) {
     std::lock_guard lock(s_storage_policy_mgr.mtx);
@@ -58,7 +78,7 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids() {
 }
 
 struct StorageResouceMgr {
-    std::mutex mtx;
+    doris::Mutex mtx;
     std::unordered_map<int64_t, StorageResource> map;
 };
 

@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-public class InferPredicatesTest extends TestWithFeService implements PatternMatchSupported {
+public class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -498,14 +498,18 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                    logicalJoin(
-                        logicalJoin(
-                                logicalOlapScan(),
-                                logicalFilter(
-                                        logicalOlapScan()
-                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                    innerLogicalJoin(
+                        innerLogicalJoin(
+                            logicalFilter(
+                                logicalOlapScan()
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            logicalFilter(
+                                logicalOlapScan()
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         ),
-                        logicalOlapScan()
+                        logicalFilter(
+                            logicalOlapScan()
+                        ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
                     )
                 );
     }

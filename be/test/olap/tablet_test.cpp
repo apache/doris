@@ -111,10 +111,8 @@ public:
         pb1->set_tablet_schema(_tablet_meta->tablet_schema());
     }
 
-    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end, int64_t earliest_ts,
-                      int64_t latest_ts) {
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end, int64_t latest_ts) {
         pb1->init_from_json(_json_rowset_meta);
-        pb1->set_oldest_write_timestamp(earliest_ts);
         pb1->set_newest_write_timestamp(latest_ts);
         pb1->set_start_version(start);
         pb1->set_end_version(end);
@@ -282,27 +280,27 @@ TEST_F(TestTablet, pad_rowset) {
 TEST_F(TestTablet, cooldown_policy) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     RowsetMetaSharedPtr ptr1(new RowsetMeta());
-    init_rs_meta(ptr1, 0, 2, 100, 200);
+    init_rs_meta(ptr1, 0, 2, 200);
     rs_metas.push_back(ptr1);
     RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
 
     RowsetMetaSharedPtr ptr2(new RowsetMeta());
-    init_rs_meta(ptr2, 3, 4, 300, 600);
+    init_rs_meta(ptr2, 3, 4, 600);
     rs_metas.push_back(ptr2);
     RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, "", ptr2);
 
     RowsetMetaSharedPtr ptr3(new RowsetMeta());
-    init_rs_meta(ptr3, 5, 5, 800, 800);
+    init_rs_meta(ptr3, 5, 5, 800);
     rs_metas.push_back(ptr3);
     RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
 
     RowsetMetaSharedPtr ptr4(new RowsetMeta());
-    init_rs_meta(ptr4, 6, 7, 1100, 1400);
+    init_rs_meta(ptr4, 6, 7, 1400);
     rs_metas.push_back(ptr4);
     RowsetSharedPtr rowset4 = make_shared<BetaRowset>(nullptr, "", ptr4);
 
     RowsetMetaSharedPtr ptr5(new RowsetMeta());
-    init_rs_meta(ptr5, 8, 9, 1800, 2000);
+    init_rs_meta(ptr5, 8, 9, 2000);
     rs_metas.push_back(ptr5);
     RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, "", ptr5);
 
@@ -322,6 +320,7 @@ TEST_F(TestTablet, cooldown_policy) {
     _tablet->_rs_version_map[ptr5->version()] = rowset5;
 
     _tablet->set_cumulative_layer_point(20);
+    sleep(30);
 
     {
         auto storage_policy = std::make_shared<StoragePolicy>();
@@ -334,7 +333,7 @@ TEST_F(TestTablet, cooldown_policy) {
         bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
         ASSERT_TRUE(ret);
         ASSERT_EQ(cooldown_timestamp, 250);
-        ASSERT_EQ(file_size, -1);
+        ASSERT_EQ(file_size, 84699);
     }
 
     {
@@ -347,8 +346,8 @@ TEST_F(TestTablet, cooldown_policy) {
         size_t file_size = -1;
         bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
         ASSERT_TRUE(ret);
-        ASSERT_EQ(cooldown_timestamp, 3700);
-        ASSERT_EQ(file_size, -1);
+        ASSERT_EQ(cooldown_timestamp, 3800);
+        ASSERT_EQ(file_size, 84699);
     }
 
     {
@@ -374,8 +373,11 @@ TEST_F(TestTablet, cooldown_policy) {
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
         bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        // the rowset with earliest version woule be picked up to do cooldown of which the timestamp
+        // is UnixSeconds() - 250
+        int64_t expect_cooldown_timestamp = UnixSeconds() - 50;
         ASSERT_TRUE(ret);
-        ASSERT_EQ(cooldown_timestamp, -1);
+        ASSERT_EQ(cooldown_timestamp, expect_cooldown_timestamp);
         ASSERT_EQ(file_size, 84699);
     }
 }
@@ -419,17 +421,17 @@ TEST_F(TestTablet, rowset_tree_update) {
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
     LOG(INFO) << tablet->lookup_row_key("101", &rowset_ids, &loc, 7).to_string();
-    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).is<ROWSET_LOAD_FAILED>());
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).is<IO_ERROR>());
     // Key not in range.
     ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is<NOT_FOUND>());
-    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).is<ROWSET_LOAD_FAILED>());
+    ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).is<IO_ERROR>());
     // Key not in range.
     ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Version too low.
     ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).is<ROWSET_LOAD_FAILED>());
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).is<IO_ERROR>());
 }
 
 } // namespace doris
