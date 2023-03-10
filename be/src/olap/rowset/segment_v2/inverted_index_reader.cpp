@@ -169,6 +169,44 @@ Status InvertedIndexQuery<Type>::from_string(const std::string& str_value, CppTy
     return Status::OK();
 }
 
+template <PrimitiveType Type>
+Status InvertedIndexQuery<Type>::from_string(std::string_view str_value, CppType& value,
+                                             int precision, int scale) {
+    StringParser::ParseResult result;
+    if constexpr (Type == TYPE_TINYINT || Type == TYPE_SMALLINT || Type == TYPE_INT ||
+                  Type == TYPE_BIGINT || Type == TYPE_LARGEINT) {
+        std::from_chars(str_value.data(), str_value.data() + str_value.size(), value);
+    } else if constexpr (Type == TYPE_FLOAT) {
+        value = std::stof(std::string(str_value.begin(), str_value.end()), nullptr);
+    } else if constexpr (Type == TYPE_DOUBLE) {
+        value = std::stod(std::string(str_value.begin(), str_value.end()), nullptr);
+    } else if constexpr (Type == TYPE_DATE) {
+        value = timestamp_from_date(std::string(str_value.begin(), str_value.end()));
+    } else if constexpr (Type == TYPE_DATEV2) {
+        value = timestamp_from_date_v2(std::string(str_value.begin(), str_value.end()));
+    } else if constexpr (Type == TYPE_DATETIME) {
+        value = timestamp_from_datetime(std::string(str_value.begin(), str_value.end()));
+    } else if constexpr (Type == TYPE_DATETIMEV2) {
+        value = timestamp_from_datetime_v2(std::string(str_value.begin(), str_value.end()));
+    } else if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
+        (const_cast<StringRef&>(value)).replace(str_value.data(), str_value.size());
+    } else if constexpr (Type == TYPE_BOOLEAN) {
+        value = StringParser::string_to_bool(str_value.data(), str_value.size(), &result);
+    } else if constexpr (Type == TYPE_DECIMALV2) {
+        decimal12_t tmp = {precision, scale};
+        value.from_string(std::string(str_value.begin(), str_value.end()));
+        value = tmp;
+    } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
+                         Type == TYPE_DECIMAL128I) {
+        value = StringParser::string_to_decimal<int128_t>(str_value.data(), str_value.size(),
+                                                          precision, scale, &result);
+    } else {
+        return Status::InternalError("from_string fail! Unsupported primitive type.");
+    }
+
+    return Status::OK();
+}
+
 bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     bool exists = false;
     RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));

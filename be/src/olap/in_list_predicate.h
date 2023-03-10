@@ -214,7 +214,7 @@ public:
             //we use value.to_string() to convert StringRef to string, although it is not efficient, because we need to cast it again to std::string in add_range.
             //also don't need to worry about StringRef->std::string->StringRef, because StringRef is just a pointer to the original string.
             if constexpr (std::is_same_v<decltype(value), const StringRef&>) {
-                auto value_str = ((StringRef)value).to_string();
+                auto value_str = ((StringRef)value).to_string_view();
                 RETURN_IF_ERROR(query.add_value_str(InvertedIndexQueryOp::EQUAL_QUERY, value_str,
                                                     predicate_params()->precision,
                                                     predicate_params()->scale));

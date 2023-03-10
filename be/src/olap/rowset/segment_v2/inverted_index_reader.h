@@ -189,6 +189,8 @@ public:
     }
 
     Status from_string(const std::string& str_value, CppType& value, int precision, int scale);
+    Status from_string(std::string_view str_value, CppType& value, int precision, int scale);
+
     Status add_value(InvertedIndexQueryOp op, const CppType& value) {
         if (is_match_query(op) || is_equal_query(op)) {
             return add_fixed_value(op, value);
@@ -244,10 +246,74 @@ public:
 
         return Status::OK();
     }
-    //NOTE: value_str intentionally copy here
-    Status add_value_str(InvertedIndexQueryOp op, std::string value_str, int precision, int scale) {
+    Status add_value_str(InvertedIndexQueryOp op, const std::string& value_str, int precision, int scale) {
         CppType value;
         from_string(value_str, value, precision, scale);
+
+        if (is_match_query(op) || is_equal_query(op)) {
+            return add_fixed_value(op, value, value_str);
+        }
+        if (_high_value > _low_value) {
+            switch (op) {
+            case InvertedIndexQueryOp::GREATER_THAN_QUERY: {
+                if (value >= _low_value) {
+                    _low_value = value;
+                    _low_value_str = value_str;
+                    // NOTE:full_encode_ascending will append encoded data to the end of buffer.
+                    // so we need to clear buffer first.
+                    _low_value_encoded.clear();
+                    _value_key_coder->full_encode_ascending(&value, &_low_value_encoded);
+                    _low_op = op;
+                }
+                break;
+            }
+
+            case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
+                if (value > _low_value) {
+                    _low_value = value;
+                    _low_value_str = value_str;
+                    _low_value_encoded.clear();
+                    _value_key_coder->full_encode_ascending(&value, &_low_value_encoded);
+                    _low_op = op;
+                }
+                break;
+            }
+
+            case InvertedIndexQueryOp::LESS_THAN_QUERY: {
+                if (value <= _high_value) {
+                    _high_value = value;
+                    _high_value_str = value_str;
+                    _high_value_encoded.clear();
+                    _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
+                    _high_op = op;
+                }
+                break;
+            }
+
+            case InvertedIndexQueryOp::LESS_EQUAL_QUERY: {
+                if (value < _high_value) {
+                    _high_value = value;
+                    _high_value_str = value_str;
+                    _high_value_encoded.clear();
+                    _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
+                    _high_op = op;
+                }
+                break;
+            }
+
+            default: {
+                return Status::InternalError(
+                        "Add value string fail! Unsupported InvertedIndexQueryOp {}", op);
+            }
+            }
+        }
+
+        return Status::OK();
+    }
+    Status add_value_str(InvertedIndexQueryOp op, std::string_view value_str_view, int precision, int scale) {
+        CppType value;
+        from_string(value_str_view, value, precision, scale);
+        std::string value_str(value_str_view.begin(), value_str_view.end());
 
         if (is_match_query(op) || is_equal_query(op)) {
             return add_fixed_value(op, value, value_str);
