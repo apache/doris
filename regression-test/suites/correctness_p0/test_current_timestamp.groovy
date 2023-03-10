@@ -78,10 +78,10 @@ suite("test_current_timestamp") {
 
         time 10000 // limit inflight 10s
     }
-    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_0) = to_date(dt_1); """
-    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_2) = to_date(dt_3); """
-    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_4) = to_date(dt_5); """
-    qt_stream_load """ select count(*) from ${tableName} where id > 4 and to_date(dt_6) = to_date(dt_7); """
+    qt_stream_load_csv1 """ select count(*) from ${tableName} where id > 4 and to_date(dt_0) = to_date(dt_1); """
+    qt_stream_load_csv2 """ select count(*) from ${tableName} where id > 4 and to_date(dt_2) = to_date(dt_3); """
+    qt_stream_load_csv3 """ select count(*) from ${tableName} where id > 4 and to_date(dt_4) = to_date(dt_5); """
+    qt_stream_load_csv4 """ select count(*) from ${tableName} where id > 4 and to_date(dt_6) = to_date(dt_7); """
 
     sql """select now()"""
 
