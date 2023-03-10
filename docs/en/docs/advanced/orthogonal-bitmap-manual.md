@@ -192,6 +192,11 @@ select orthogonal_bitmap_union_count(user_id) from user_tag_bitmap where tag in 
 Bitmap cross merge difference set hybrid computing:
 
 ```
-select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(A|B)&(C-D)&E') from user_str_tag_bitmap where tag in ('A', 'B', 'C', 'D', 'E');
-Note: A, B, C, D, E are string types, representing different labels of users
+select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(833736|999777)&(1308083|231207)&(1000|20000-30000)') from user_tag_bitmap where tag in (833736,999777,130808,231207,1000,20000,30000);
+Note: 1000, 20000, 30000 plastic tags represent different labels of users
+```
+
+```
+select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(A:a/b|B:2\\-4)&(C:1-D:12)&E:23') from user_str_tag_bitmap where tag in ('A:a/b', 'B:2-4', 'C:1', 'D:12', 'E:23');
+Note: 'A:a/b', 'B:2-4', etc. are string tag types, representing different labels of users, where 'B:2-4' needs to be escaped as'B:2\\-4'
 ```

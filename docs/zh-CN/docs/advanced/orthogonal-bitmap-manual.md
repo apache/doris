@@ -195,6 +195,11 @@ select orthogonal_bitmap_union_count(user_id) from user_tag_bitmap where tag in 
 bitmap交并差集合混合计算：
 
 ```sql
-select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(A|B)&(C-D)&E') from user_str_tag_bitmap where tag in ('A', 'B', 'C', 'D', 'E');
- 注：A、B、C、D、E是字符串类型，代表用户不同标签
+select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(833736|999777)&(1308083|231207)&(1000|20000-30000)') from user_tag_bitmap where tag in (833736,999777,130808,231207,1000,20000,30000);
+注：1000、20000、30000等整形tag，代表用户不同标签
+```
+
+```sql
+select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(A:a/b|B:2\\-4)&(C:1-D:12)&E:23') from user_str_tag_bitmap where tag in ('A:a/b', 'B:2-4', 'C:1', 'D:12', 'E:23');
+ 注：'A:a/b', 'B:2-4'等是字符串tag类型，代表用户不同标签, 其中'B:2-4'需要转义成'B:2\\-4'
 ```

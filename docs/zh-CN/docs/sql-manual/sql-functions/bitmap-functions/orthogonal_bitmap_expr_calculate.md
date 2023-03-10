@@ -32,8 +32,14 @@ under the License.
 
 ### example
 
+```sql
+select orthogonal_bitmap_expr_calculate(user_id, tag, '(833736|999777)&(1308083|231207)&(1000|20000-30000)') from user_tag_bitmap where tag in (833736,999777,130808,231207,1000,20000,30000);
+注：1000、20000、30000等整形tag，代表用户不同标签
 ```
-mysql> select orthogonal_bitmap_expr_calculate(user_id, tag, '((A|B)&(C)&(D-E))') from tag_map_tbl where tag in ('A', 'B', 'C', 'D', 'E');
+
+```sql
+select orthogonal_bitmap_expr_calculate(user_id, tag, '(A:a/b|B:2\\-4)&(C:1-D:12)&E:23') from user_str_tag_bitmap where tag in ('A:a/b', 'B:2-4', 'C:1', 'D:12', 'E:23');
+ 注：'A:a/b', 'B:2-4'等是字符串tag类型，代表用户不同标签, 其中'B:2-4'需要转义成'B:2\\-4'
 ```
 
 ### keywords
