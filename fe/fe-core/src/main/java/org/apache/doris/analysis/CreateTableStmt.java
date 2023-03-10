@@ -459,8 +459,9 @@ public class CreateTableStmt extends DdlStmt {
                     throw new AnalysisException("Please open enable_struct_type config before use Struct.");
                 }
 
-                if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("Aggregate table can't support array/map/struct value now");
+                if (columnDef.getAggregateType() == AggregateType.REPLACE
+                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
                 }
                 if (columnDef.getAggregateType() != null
                         && columnDef.getAggregateType() != AggregateType.NONE
