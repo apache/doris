@@ -224,7 +224,7 @@ suite("join") {
     assertTrue(
         //if analyze finished
             explainStr.contains("4:VAGGREGATE (update serialize)") && explainStr.contains("6:VAGGREGATE (merge finalize)")
-                    && explainStr.contains("wtid[#8] = CAST(wtid[#3] AS CHARACTER)") && explainStr.contains("projections: wtid[#5], wfid[#6]")
+                    && explainStr.contains("wtid[#8] = wtid[#3]") && explainStr.contains("projections: wtid[#5], wfid[#6]")
                     ||
         //analyze not finished
                     explainStr.contains("7:VAGGREGATE (update finalize)") && explainStr.contains("5:VAGGREGATE (update finalize)")
