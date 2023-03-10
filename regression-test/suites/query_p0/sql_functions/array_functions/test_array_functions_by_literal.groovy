@@ -248,6 +248,29 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array(8, null)"
     qt_sql "select array('a', 1, 2)"
     qt_sql "select array(null, null, null)"
+
+    // array_enumerate_uniq
+    qt_sql "select array_enumerate_uniq([])"
+    qt_sql "select array_enumerate_uniq([1, 2, 3, 4, 5])"
+    qt_sql "select array_enumerate_uniq([1, 2, 3, 4, 5, 1, 2, 3, 4, 5])"
+    qt_sql "select array_enumerate_uniq([1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5])"
+    qt_sql "select array_enumerate_uniq([1, 1, 2, 2, 3, 3, 4, 4])"
+    qt_sql "select array_enumerate_uniq([1, 2, 3, 1, 3, 4, 2, 5, 4, 5])"
+    qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1])"
+    qt_sql "select array_enumerate_uniq([null])"
+    qt_sql "select array_enumerate_uniq([1, 2, 3, 4, 5, null, null])"
+    qt_sql "select array_enumerate_uniq([1, null, 2, null, 3, null, 4, 1, null, 2, null, 3, null, 4])"
+    qt_sql "select array_enumerate_uniq(['11', '22', '33', '11', '33', '22'])"
+    qt_sql "select array_enumerate_uniq(array(cast (24.99 as decimal(10,3)), cast (25.99 as decimal(10,3)), cast (24.99 as decimal(10,3))))"
+    qt_sql "select array_enumerate_uniq(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)), cast ('2023-02-04 23:07:34.999' as datetimev2(3)), cast ('2023-02-06 22:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_enumerate_uniq([1, 2, 3, 4, 5], [1, 2, 3, 4, 5])"
+    qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1], [1, 1, 1, 1, 1])"
+    qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1], [1, 1, 1, 1, 1])"
+    qt_sql "select array_enumerate_uniq([1, 1, 2, 2, 1, 2], [1, 2, 1, 2, 2, 1])"
+    qt_sql "select array_enumerate_uniq([1, null, 1, null], [null, 1, null, 1])"
+    qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1, 1], [2, 1, 2, 1, 2, 1], [3, 1, 3, 1, 3, 1])"
+    qt_sql "select array_enumerate_uniq([1, 3, 1], [2.0, 5.0, 2.0], ['3', '8', '3'])"
+
     // abnormal test
     try {
         sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"

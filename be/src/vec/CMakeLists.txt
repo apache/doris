@@ -173,6 +173,7 @@ set(VEC_FILES
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
+  functions/array/function_array_enumerate_uniq.cpp
   functions/array/function_array_range.cpp
   functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
