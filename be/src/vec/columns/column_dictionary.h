@@ -277,7 +277,13 @@ public:
         }
     }
 
-    int32_t find_code(const StringRef& value) const { return _dict.find_code(value); }
+    int32_t find_code(const StringRef& value) const {
+        if (value != _last_target_value) {
+            _cached_code = _dict.find_code(value);
+            _last_target_value = value;
+        }
+        return _cached_code;
+    }
 
     int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
         return _dict.find_code_by_bound(value, greater, eq);
@@ -513,6 +519,8 @@ private:
     size_t _reserve_size;
     bool _dict_sorted = false;
     bool _dict_code_converted = false;
+    mutable int32_t _cached_code = -2;
+    mutable StringRef _last_target_value;
     Dictionary _dict;
     Container _codes;
     FieldType _type;
