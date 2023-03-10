@@ -103,10 +103,6 @@ run_sql() {
 
 echo '============================================'
 echo "optimize some session variables before run, and then restore it after run."
-origin_enable_vectorized_engine=$(
-    set -e
-    run_sql 'select @@enable_vectorized_engine;' | sed -n '3p'
-)
 origin_parallel_fragment_exec_instance_num=$(
     set -e
     run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
