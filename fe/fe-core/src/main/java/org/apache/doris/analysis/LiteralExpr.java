@@ -356,10 +356,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             4 bytes. But still we need to obey the protocol hence 9 in the
             assignment below.
             */
-            if (maxLen < 5) {
+            if (maxLen < 9) {
                 return 0;
             }
-            return MysqlProto.readInt4(data);
+            len = MysqlProto.readInt4(data);
+            MysqlProto.readFixedString(data, 4);
+            return len;
         } else if (len == 255) {
             return 0;
         } else {
