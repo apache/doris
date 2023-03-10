@@ -157,9 +157,4 @@ public abstract class Predicate extends Expr {
     public Pair<SlotId, SlotId> getEqSlots() {
         return null;
     }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        type = Type.BOOLEAN;
-    }
 }

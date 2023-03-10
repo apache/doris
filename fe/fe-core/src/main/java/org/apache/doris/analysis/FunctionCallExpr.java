@@ -1857,26 +1857,6 @@ public class FunctionCallExpr extends Expr {
         return result.toString();
     }
 
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    private List<Type> getArgTypesForNereids() {
-        if (argTypesForNereids.isPresent()) {
-            return argTypesForNereids.get();
-        } else {
-            return Lists.newArrayList(collectChildReturnTypes());
-        }
-    }
-
-    /**
-     * NOTICE: This function only used for Nereids, should not call it if u don't
-     * know what it is mean.
-     */
-    public void setMergeForNereids(boolean isMergeAggFn) {
-        this.isMergeAggFn = isMergeAggFn;
-    }
-
     public List<OrderByElement> getOrderByElements() {
         return orderByElements;
     }

@@ -261,11 +261,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public String toString() {
         return getStringValue();
     }

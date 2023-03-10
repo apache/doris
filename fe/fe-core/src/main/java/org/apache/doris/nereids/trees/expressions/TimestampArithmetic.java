@@ -109,10 +109,6 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
         return funcName;
     }
 
-    public boolean isIntervalFirst() {
-        return intervalFirst;
-    }
-
     public Operator getOp() {
         return op;
     }

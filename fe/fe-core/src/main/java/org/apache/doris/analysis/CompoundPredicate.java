@@ -274,11 +274,6 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
-    }
-
-    @Override
     public String toString() {
         return toSqlImpl();
     }

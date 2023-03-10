@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -98,6 +99,22 @@ public class InPredicate extends Predicate {
         children.add(compareExpr);
         children.addAll(inList);
         this.isNotIn = isNotIn;
+    }
+
+    /**
+     * use for Nereids ONLY
+     */
+    public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn, boolean allConstant) {
+        this(compareExpr, inList, isNotIn);
+        type = Type.BOOLEAN;
+        if (allConstant) {
+            opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
+        } else {
+            opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
+            fn = new Function(new FunctionName(isNotIn ? NOT_IN_ITERATE : IN_ITERATE),
+                    Lists.newArrayList(getChild(0).getType(), getChild(1).getType()), Type.BOOLEAN,
+                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
+        }
     }
 
     protected InPredicate(InPredicate other) {
@@ -330,40 +347,5 @@ public class InPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return hasNullableChild();
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
-        boolean allConstant = true;
-        for (int i = 1; i < children.size(); ++i) {
-            if (!children.get(i).isConstant()) {
-                allConstant = false;
-                break;
-            }
-        }
-        // Only lookup fn_ if all subqueries have been rewritten. If the second child is a
-        // subquery, it will have type ArrayType, which cannot be resolved to a builtin
-        // function and will fail analysis.
-        Type[] argTypes = {getChild(0).type, getChild(1).type};
-        if (allConstant) {
-            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP : IN_SET_LOOKUP,
-            // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
-            // Todo: need to implement completely type cast compatibility, like castAllToCompatibleType();
-            Type compatibleType = getChild(0).getType();
-            for (int i = 1; i < children.size(); ++i) {
-                compatibleType = Type.getCmpType(compatibleType, getChild(i).getType());
-            }
-            for (int i = 0; i < children.size(); ++i) {
-                if (!getChild(i).getType().equals(compatibleType)) {
-                    getChild(i).setType(compatibleType);
-                }
-            }
-        } else {
-            fn = getBuiltinFunction(isNotIn ? NOT_IN_ITERATE : IN_ITERATE,
-                    argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
-        }
     }
 }
