@@ -211,7 +211,7 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
                         return value_range.add_value(InvertedIndexQueryOp::GREATER_THAN_QUERY,
-                                                         p->predicate_params());
+                                                     p->predicate_params());
                     },
                     *query_range));
             break;
@@ -220,7 +220,7 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
                         return value_range.add_value(InvertedIndexQueryOp::LESS_THAN_QUERY,
-                                                         p->predicate_params());
+                                                     p->predicate_params());
                     },
                     *query_range));
             break;
@@ -229,7 +229,7 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
                         return value_range.add_value(InvertedIndexQueryOp::GREATER_EQUAL_QUERY,
-                                                         p->predicate_params());
+                                                     p->predicate_params());
                     },
                     *query_range));
             break;
@@ -238,7 +238,7 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
             RETURN_IF_ERROR(std::visit(
                     [&](auto& value_range) -> Status {
                         return value_range.add_value(InvertedIndexQueryOp::LESS_EQUAL_QUERY,
-                                                         p->predicate_params());
+                                                     p->predicate_params());
                     },
                     *query_range));
             break;
