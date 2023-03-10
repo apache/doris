@@ -48,9 +48,10 @@ Array create_empty_array_field(size_t num_dimensions);
 // Cast column to dst type
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 
-// Object column will be unfolded and if replace_if_duplicated
+// Object column will be unfolded and if  cast_to_original_type
 // the original column in the block will be replaced with the subcolumn
-// from object column.Also if column in block is empty, it will be filled
+// from object column and casted to the new type from slot_descs.
+// Also if column in block is empty, it will be filled
 // with num_rows of default values
 void unfold_object(size_t dynamic_col_position, std::vector<MutableColumnPtr>& columns,
                    const HashMap<StringRef, size_t, StringRefHash>& column_offset_map,

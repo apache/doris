@@ -27,7 +27,7 @@ Status VSchemaChangeExpr::prepare(doris::RuntimeState* state, const doris::RowDe
                                   VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     // DCHECK_EQ(_children.size(), 1);
-    _table_id = _tnode.schema_change_info.table_id;
+    _table_id = _tnode.schema_change_expr.table_id;
     _expr_name = fmt::format("(SCHEMA_CHANGE {})", "VARIANT");
     _slot_id = _tnode.slot_ref.slot_id;
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);

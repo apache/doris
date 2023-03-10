@@ -424,7 +424,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
         size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
         if (column_object.size() >= batch_size || _reader_eof) {
             column_object.finalize();
-            // flatten object columns for the purpose of extracting static columns and
+            // unfold object columns for the purpose of extracting static columns and
             // fill default values missing in static columns
             schema_util::unfold_object(columns.size() - 1, columns, _slot_desc_index, slot_descs,
                                        true /*cast to original column type*/);

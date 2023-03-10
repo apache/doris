@@ -177,7 +177,8 @@ struct TFunctionCallExpr {
   2: optional i32 vararg_start_idx
 }
 
-struct TSchemaChangeInfo {
+struct TSchemaChangeExpr {
+  // target schema change table
   1: optional i64 table_id 
 }
 
@@ -221,7 +222,7 @@ struct TExprNode {
   29: optional bool is_nullable
   
   30: optional TJsonLiteral json_literal
-  31: optional TSchemaChangeInfo schema_change_info
+  31: optional TSchemaChangeExpr schema_change_expr 
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
