@@ -446,7 +446,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             } else {
                 //TODO: add column correlation for agg estimation
                 // group by A1, A2
-                // currently, the estimated row count is min(ndv_A1, ndv_A2), but it should be less than the min
+                // currently, the estimated row count is between max(ndv_A1, ndv_A2) and ndv_A1 * ndv_A2
                 resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
                         .map(Slot::getExprId)
                         .filter(childSlotToColumnStats::containsKey)
@@ -454,13 +454,13 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                         .map(s -> {
                             double adjustedNdv = s.ndv;
                             if (s.isUnKnown || s.ndv > inputRowCount) {
-                                adjustedNdv = inputRowCount;
+                                adjustedNdv = 0;
                             }
                             return adjustedNdv;
                         })
-                        .reduce(Double.MAX_VALUE, (a, b) -> Math.min(a, b));
-                if (resultSetCount == Double.MAX_VALUE) {
-                    //all column stats are unknown
+                        .reduce(1.0, (a, b) -> a * b);
+                if (resultSetCount == 0) {
+                    //group by column stats are unknown
                     resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
                 }
                 if (resultSetCount > inputRowCount) {
