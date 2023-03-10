@@ -299,7 +299,7 @@ public class Coordinator {
                 OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
                 Preconditions.checkNotNull(planRoot);
                 pointExec = new PointQueryExec(planRoot.getPointQueryEqualPredicates(),
-                        planRoot.getDescTable(), fragment.getOutputExprs());
+                                                planRoot.getDescTable(), fragment.getOutputExprs());
             }
         }
         PrepareStmt prepareStmt = analyzer.getPrepareStmt();
@@ -345,8 +345,8 @@ public class Coordinator {
 
     // Used for broker load task/export task/update coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-            List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone,
-            boolean loadZeroTolerance) {
+                       List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone,
+                       boolean loadZeroTolerance) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -907,7 +907,7 @@ public class Coordinator {
     }
 
     private void waitRpc(List<Triple<BackendExecStates, BackendServiceProxy, Future<PExecPlanFragmentResult>>> futures,
-            long leftTimeMs,
+                         long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
@@ -1749,7 +1749,7 @@ public class Coordinator {
 
     // weather we can overwrite the first parameter or not?
     private List<TScanRangeParams> findOrInsert(Map<Integer, List<TScanRangeParams>> m, Integer key,
-            ArrayList<TScanRangeParams> defaultVal) {
+                                                ArrayList<TScanRangeParams> defaultVal) {
         List<TScanRangeParams> value = m.get(key);
         if (value == null) {
             m.put(key, defaultVal);
@@ -1948,9 +1948,9 @@ public class Coordinator {
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
-            Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost,
-            Reference<Long> backendIdRef) throws UserException {
+                                                         Map<TNetworkAddress, Long> assignedBytesPerHost,
+                                                         Map<TNetworkAddress, Long> replicaNumPerHost,
+                                                         Reference<Long> backendIdRef) throws UserException {
         if (!Config.enable_local_replica_selection) {
             return selectBackendsByRoundRobin(seqLocation.getLocations(), assignedBytesPerHost, replicaNumPerHost,
                     backendIdRef);
@@ -2541,7 +2541,7 @@ public class Coordinator {
         TUniqueId instanceId;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
-                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
+                                TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
@@ -3250,7 +3250,7 @@ public class Coordinator {
         }
 
         public FInstanceExecParam(TUniqueId id, TNetworkAddress host,
-                int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
+                                  int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
             this.instanceId = id;
             this.host = host;
             this.perFragmentInstanceIdx = perFragmentInstanceIdx;
