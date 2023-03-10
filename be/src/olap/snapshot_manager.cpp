@@ -79,6 +79,17 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
         return Status::Error<TABLE_NOT_FOUND>();
     }
+    // if one be received one req with __isset.missing_version = false it means
+    // this req is sent from FE(FE doesn't know the version details and would never set this)
+    // we need to check if this tablet is one cooldown tablets return not support if so
+    if (!request.__isset.missing_version) {
+        std::shared_lock rlock(ref_tablet->get_header_lock());
+        if (ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+            LOG(WARNING) << "tablet is in cooldown, not support snapshot. tablet="
+                         << request.tablet_id;
+            return Status::NotSupported("tablet is in cooldown, not support snapshot");
+        }
+    }
 
     res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
 
@@ -399,6 +410,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
+            // be would definitely set it as true no matter has missed version or not
+            // but it would take no effets on the following range loop
             if (request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -424,8 +437,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }
 
+            // be would definitely set it as true no matter has missed version or not need to
+            // add one condition to meet the origin semantic of __isset.missing_version = false
             int64_t version = -1;
-            if (!res.ok() || !request.__isset.missing_version) {
+            if (!res.ok() || !request.__isset.missing_version || request.missing_version.empty()) {
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
                 consistent_rowsets.clear(); // reset vector
