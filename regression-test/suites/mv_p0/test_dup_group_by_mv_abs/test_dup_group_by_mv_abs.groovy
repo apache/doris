@@ -36,17 +36,7 @@ suite ("test_dup_group_by_mv_abs") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    def result = "null"
-    sql "create materialized view k12sa as select k1,sum(abs(k2)) from d_table group by k1;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return 
-        }
-        Thread.sleep(1000)
-    }
+    createMV ("create materialized view k12sa as select k1,sum(abs(k2)) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

@@ -35,18 +35,7 @@ suite ("test_dup_mv_year") {
     sql "insert into d_table select 2,'2013-12-31','2013-12-31 01:02:03';"
     sql "insert into d_table select 3,'2023-12-31','2023-12-31 01:02:03';"
 
-    def result = "null"
-
-    sql "create materialized view k12y as select k1,year(k2) from d_table;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return 
-        }
-        Thread.sleep(1000)
-    }
+    createMV "create materialized view k12y as select k1,year(k2) from d_table;"
 
     explain {
         sql("select k1,year(k2) from d_table order by k1;")

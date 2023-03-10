@@ -36,17 +36,7 @@ suite ("test_dup_mv_bin") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    def result = "null"
-    sql "create materialized view k12b as select k1,bin(k2) from d_table;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return 
-        }
-        Thread.sleep(1000)
-    }
+    createMV( "create materialized view k12b as select k1,bin(k2) from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

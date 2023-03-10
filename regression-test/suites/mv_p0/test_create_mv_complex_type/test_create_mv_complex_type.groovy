@@ -18,19 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("create_mv_complex_type") {
-    def wait_for_create_mv_finish = { table_name, OpTimeout ->
-        def delta_time = 1000
-        for(useTime = 0; useTime <= OpTimeout; useTime += delta_time){
-            alter_res = sql """SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                 break
-            }
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_create_mv_finish timeout")
-    }
-
     sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
     sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 

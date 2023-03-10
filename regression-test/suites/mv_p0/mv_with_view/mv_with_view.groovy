@@ -59,6 +59,10 @@ suite ("mv_with_view") {
     qt_select_mv "select * from v_k132 order by k1;"
 
     sql """
+        drop view if exists v_k124;
+    """
+
+    sql """
         create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
     """
     explain {
