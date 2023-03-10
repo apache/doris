@@ -201,5 +201,5 @@ select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(833736|999777)&(13
 
 ```sql
 select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(A:a/b|B:2\\-4)&(C:1-D:12)&E:23') from user_str_tag_bitmap where tag in ('A:a/b', 'B:2-4', 'C:1', 'D:12', 'E:23');
- 注：'A:a/b', 'B:2-4'等是字符串tag类型，代表用户不同标签, 其中'B:2-4'需要转义成'B:2\\-4'
+ 注：'A:a/b', 'B:2-4'等是字符串类型tag，代表用户不同标签, 其中'B:2-4'需要转义成'B:2\\-4'
 ```
