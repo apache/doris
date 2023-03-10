@@ -120,8 +120,8 @@ INTO TABLE tbl_name
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     PROPERTIES ("max_filter_ratio"="0.2")
     ```
 
@@ -140,8 +140,8 @@ INTO TABLE tbl_name
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     IGNORE 1 LINES
     ```
 

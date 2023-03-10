@@ -816,6 +816,7 @@ public class StmtRewriter {
             break;
         }
 
+        boolean isInBitmap = false;
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // Join with InPredicate is actually an equal join, so we choose HashJoin.
             if (expr instanceof ExistsPredicate) {
@@ -825,6 +826,7 @@ public class StmtRewriter {
                     && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
                     .equalsIgnoreCase(BITMAP_CONTAINS))) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
+                isInBitmap = true;
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -843,6 +845,7 @@ public class StmtRewriter {
 
             inlineView.setMark(markTuple);
             inlineView.setJoinOp(joinOp);
+            inlineView.setInBitmap(isInBitmap);
             if (joinOp != JoinOperator.CROSS_JOIN) {
                 inlineView.setOnClause(onClausePredicate);
             }

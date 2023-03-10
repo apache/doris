@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -50,9 +51,11 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
                             .stream()
                             .filter(function -> function instanceof Avg && function.isDistinct())
                             .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
-                                Sum sum = new Sum(true, ((Avg) function).child());
-                                Count count = new Count(true, ((Avg) function).child());
-                                return new Divide(sum, count);
+                                Sum sum = (Sum) TypeCoercionUtils.processBoundFunction(
+                                        new Sum(true, ((Avg) function).isAlwaysNullable(), ((Avg) function).child()));
+                                Count count = (Count) TypeCoercionUtils.processBoundFunction(
+                                        new Count(true, ((Avg) function).child()));
+                                return TypeCoercionUtils.processDivide(new Divide(sum, count), sum, count);
                             }));
                     if (!avgToSumDivCount.isEmpty()) {
                         List<NamedExpression> newOutput = agg.getOutputExpressions().stream()

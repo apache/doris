@@ -113,6 +113,7 @@ public:
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
+        vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
 
         // used for compaction to record row ids
         bool record_rowids = false;

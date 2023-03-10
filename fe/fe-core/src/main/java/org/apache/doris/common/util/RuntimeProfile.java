@@ -438,6 +438,13 @@ public class RuntimeProfile {
         try {
             this.childList.sort((profile1, profile2) -> Long.compare(profile2.first.getCounterTotalTime().getValue(),
                     profile1.first.getCounterTotalTime().getValue()));
+        } catch (IllegalArgumentException e) {
+            // This exception may be thrown if the counter total time of the child is updated in the update method
+            // during the sorting process. This sorting only affects the profile instance display order, so this
+            // exception is temporarily ignored here.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sort child list error: ", e);
+            }
         } finally {
             childLock.writeLock().unlock();
         }

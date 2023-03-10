@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.cost.CostEstimate;
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -48,7 +48,6 @@ public class GroupExpression {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
     private double cost = 0.0;
-    private CostEstimate costEstimate = null;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;
@@ -60,7 +59,7 @@ public class GroupExpression {
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     // key is the physical properties the group expression support for its parent
     // and value is cost and request physical properties to its children.
-    private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
+    private final Map<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> lowestCostTable;
     // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
     // key is the output physical properties satisfying the incoming request properties
     // value is the request physical properties
@@ -182,7 +181,7 @@ public class GroupExpression {
         this.isUnused = isUnused;
     }
 
-    public Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> getLowestCostTable() {
+    public Map<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> getLowestCostTable() {
         return lowestCostTable;
     }
 
@@ -198,10 +197,10 @@ public class GroupExpression {
      * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
-            List<PhysicalProperties> childrenInputProperties, double cost) {
-        COST_STATE_TRACER.log(CostStateUpdateEvent.of(this, cost, outputProperties));
+            List<PhysicalProperties> childrenInputProperties, Cost cost) {
+        COST_STATE_TRACER.log(CostStateUpdateEvent.of(this, cost.getValue(), outputProperties));
         if (lowestCostTable.containsKey(outputProperties)) {
-            if (lowestCostTable.get(outputProperties).first > cost) {
+            if (lowestCostTable.get(outputProperties).first.getValue() > cost.getValue()) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
                 return true;
             } else {
@@ -220,6 +219,11 @@ public class GroupExpression {
      * @return Lowest cost to satisfy that property
      */
     public double getCostByProperties(PhysicalProperties property) {
+        Preconditions.checkState(lowestCostTable.containsKey(property));
+        return lowestCostTable.get(property).first.getValue();
+    }
+
+    public Cost getCostValueByProperties(PhysicalProperties property) {
         Preconditions.checkState(lowestCostTable.containsKey(property));
         return lowestCostTable.get(property).first;
     }
@@ -263,14 +267,6 @@ public class GroupExpression {
         this.cost = cost;
     }
 
-    public CostEstimate getCostEstimate() {
-        return costEstimate;
-    }
-
-    public void setCostEstimate(CostEstimate costEstimate) {
-        this.costEstimate = costEstimate;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -310,9 +306,8 @@ public class GroupExpression {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
 
-        if (costEstimate != null) {
-            builder.append(" cost=").append((long) cost).append(" (").append(costEstimate).append(")");
-        }
+        builder.append(" cost=").append((long) cost);
+
         builder.append(" estRows=").append(estOutputRowCount);
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {

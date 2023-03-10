@@ -199,5 +199,3 @@ public class DateLiteral extends Literal {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }
-
-

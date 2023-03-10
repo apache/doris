@@ -31,9 +31,11 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Use nested loop algorithm to do join.
@@ -42,6 +44,13 @@ public class PhysicalNestedLoopJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
+    /*
+    bitmap_contains(...) or Not(bitmap_contains(...)) can be used as bitmap runtime filter condition
+    bitmapRF is different from other RF in that scan node must wait for it.
+    if a condition is used in rf, it can be removed from join conditions. we collect these conditions here.
+     */
+    private final Set<Expression> bitMapRuntimeFilterConditions = Sets.newHashSet();
 
     public PhysicalNestedLoopJoin(
             JoinType joinType,
@@ -144,5 +153,17 @@ public class PhysicalNestedLoopJoin<
         return new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
+    }
+
+    public void addBitmapRuntimeFilterCondition(Expression expr) {
+        bitMapRuntimeFilterConditions.add(expr);
+    }
+
+    public boolean isBitmapRuntimeFilterCondition(Expression expr) {
+        return bitMapRuntimeFilterConditions.contains(expr);
+    }
+
+    public boolean isBitMapRuntimeFilterConditionsEmpty() {
+        return bitMapRuntimeFilterConditions.isEmpty();
     }
 }

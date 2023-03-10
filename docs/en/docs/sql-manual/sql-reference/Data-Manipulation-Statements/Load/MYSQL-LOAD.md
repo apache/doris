@@ -121,8 +121,8 @@ This import method can still guarantee the atomicity of a batch of import tasks,
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     PROPERTIES ("max_filter_ratio"="0.2")
     ```
 
@@ -141,8 +141,8 @@ This import method can still guarantee the atomicity of a batch of import tasks,
     ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
-    PARTITION (p1, p2)
     INTO TABLE testDb.testTbl
+    PARTITION (p1, p2)
     IGNORE 1 LINES
     ```
 
