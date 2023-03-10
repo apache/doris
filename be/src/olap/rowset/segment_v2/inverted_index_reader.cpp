@@ -228,25 +228,29 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             [&](auto& arg) -> Status {
                 DCHECK(arg.is_point_query());
                 auto query_op = arg.point_op();
-                auto query_value = arg.get_fixed_value();
-                if constexpr (std::is_same_v<decltype(query_value), StringRef>) {
-                    std::string search_str;
-                    if (query_value.size == 0) {
-                        search_str = "";
-                    } else {
-                        search_str = query_value.to_string();
-                    }
+                auto query_value_set = arg.get_fixed_value_set();
+                for (auto& query_value : query_value_set) {
+                    if constexpr (std::is_same_v<decltype(query_value), const StringRef&>) {
+                        std::string search_str;
+                        if (query_value.size == 0) {
+                            search_str = "";
+                        } else {
+                            search_str = query_value.to_string();
+                        }
 
-                    if (is_match_query(query_op) || is_equal_query(query_op)) {
-                        return query_internal(search_str, column_name, query_op, analyser_type,
-                                              stats, bit_map);
+                        if (is_match_query(query_op) || is_equal_query(query_op)) {
+                            RETURN_IF_ERROR(query_internal(search_str, column_name, query_op,
+                                                           analyser_type, stats, bit_map));
+                        } else {
+                            LOG(WARNING) << column_name << " must use match query";
+                            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                        }
                     } else {
-                        LOG(WARNING) << column_name << " must use match query";
+                        DCHECK(false);
                         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
                     }
                 }
-                DCHECK(false);
-                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                return Status::OK();
             },
             *query_range);
 }
