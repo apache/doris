@@ -1647,7 +1647,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& s
     return loader.move(src, tablet, overwrite);
 }
 
-void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
+void TaskWorkerPool::_handle_report(const TReportRequest& request, ReportType type) {
     TMasterResult result;
     Status status = MasterServerClient::instance()->report(request, &result);
     bool is_report_success = false;
