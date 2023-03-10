@@ -26,7 +26,7 @@ namespace doris::taskgroup {
 class TaskGroupManager {
     DECLARE_SINGLETON(TaskGroupManager)
 public:
-    // TODO rs poc 根据id选rs group,目前还不能创建
+    // TODO pipeline task group
     TaskGroupPtr get_or_create_task_group(uint64_t id);
 
     static constexpr uint64_t DEFAULT_RG_ID = 0;
@@ -37,7 +37,7 @@ public:
 
 private:
     void _create_default_task_group();
-    // TODO rs poc
+    // TODO pipeline task group remote this after POC
     void _create_poc_task_group();
 
     std::shared_mutex _group_mutex;

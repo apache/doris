@@ -66,9 +66,6 @@ public:
 
     Status push(PipelineTask* task);
 
-    // Get each thread task size
-//    size_t size() override { return _total_task_size; }
-
 private:
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 1.5;
     static constexpr size_t SUB_QUEUE_LEVEL = 5;
@@ -173,7 +170,6 @@ public:
 private:
     PipelineTask* _steal_take(size_t core_id);
 
-//    std::vector<std::unique_ptr<WorkTaskQueue>> _async_queue;
     std::unique_ptr<NormalWorkTaskQueue[]> _async_queue;
     std::atomic<size_t> _next_core = 0;
     std::atomic<bool> _closed;

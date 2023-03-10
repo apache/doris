@@ -48,15 +48,10 @@ public:
     int cpu_share() const;
 
 private:
-    // TODO rs poc 这里暂时不用多级反馈队列
+    // TODO pipeline use MLFQ
     std::queue<pipeline::PipelineTask*> _queue;
     taskgroup::TaskGroup* _rs;
     int64_t _vruntime_ns = 0;
-//    std::mutex _work_size_mutex;
-
-//    int _num_queries = 0;
-//    int _num_instances = 0;
-//    int _num_tasks = 0;
 };
 
 using TGEntityPtr = TaskGroupEntity*;

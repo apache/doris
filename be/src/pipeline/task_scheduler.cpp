@@ -225,9 +225,6 @@ void TaskScheduler::_do_work(size_t index) {
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
-        int64_t time_spent = 0;
-        SCOPED_RAW_TIMER(&time_spent);
-
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();

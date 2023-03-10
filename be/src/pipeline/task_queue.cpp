@@ -140,11 +140,6 @@ bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
     int64_t lhs_val = lhs_ptr->vruntime_ns();
     int64_t rhs_val = rhs_ptr->vruntime_ns();
     return lhs_val < rhs_val;
-//    sr
-//    if (lhs_val != rhs_val) {
-//        return lhs_val < rhs_val;
-//    }
-//    return lhs_ptr < rhs_ptr;
 }
 
 TaskGroupTaskQueue::TaskGroupTaskQueue(size_t core_size) : TaskQueue(core_size) {}
@@ -264,9 +259,6 @@ TaskQueue::~TaskQueue() = default;
 NormalTaskQueue::~NormalTaskQueue() = default;
 
 NormalTaskQueue::NormalTaskQueue(size_t core_size) : TaskQueue(core_size), _closed(false) {
-//    for (int i = 0; i < core_size; ++i) {
-//        _async_queue.emplace_back(new NormalWorkTaskQueue());
-//    }
     _async_queue.reset(new NormalWorkTaskQueue[core_size]);
 }
 
