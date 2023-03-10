@@ -459,22 +459,15 @@ public class CreateTableStmt extends DdlStmt {
                     throw new AnalysisException("Please open enable_struct_type config before use Struct.");
                 }
 
-                if (columnDef.getType().isArrayType()) {
-                    if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                        throw new AnalysisException("Aggregate table can't support array value now");
-                    }
-                    if (columnDef.getAggregateType() != null
-                            && columnDef.getAggregateType() != AggregateType.NONE
-                            && columnDef.getAggregateType() != AggregateType.REPLACE) {
-                        throw new AnalysisException("Array column can't support aggregation "
-                                                    + columnDef.getAggregateType());
-                    }
-                } else {
-                    if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
-                        throw new AnalysisException(columnDef.getType().getPrimitiveType()
-                                                    + " column can't support aggregation "
-                                                    + columnDef.getAggregateType());
-                    }
+                if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("Aggregate table can't support array/map/struct value now");
+                }
+                if (columnDef.getAggregateType() != null
+                        && columnDef.getAggregateType() != AggregateType.NONE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
+                                                + " column can't support aggregation "
+                                                + columnDef.getAggregateType());
                 }
                 if (columnDef.isKey()) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
