@@ -61,10 +61,13 @@ public class RangerHiveAccessController implements CatalogAccessController {
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
-        // currentUser.getQualifiedUser() is as of form: default_cluster:user1, only use `user1`
-        String[] userArray = currentUser.getQualifiedUser().split(":");
-        request.setUser(userArray[1]);
-        request.setClusterName(userArray[0]);
+        String user = currentUser.getQualifiedUser();
+        if (user.indexOf(":") != -1) {
+            // user is as of form: default_cluster:user1, only use `user1`
+            request.setUser(user.split(":")[1]);
+        } else {
+            request.setUser(user);
+        }
         Set<String> roles = new HashSet<>();
         for (String role : currentUser.getRoles()) {
             // default role is as of form: default_role_rbac_xxx@%, not useful for Ranger
