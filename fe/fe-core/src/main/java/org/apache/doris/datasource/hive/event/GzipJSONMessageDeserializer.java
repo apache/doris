@@ -68,12 +68,14 @@ public class GzipJSONMessageDeserializer extends JSONMessageDeserializer {
                     try {
                         is.close();
                     } catch (Throwable ignore) {
+                        LOG.warn("close GZIPInputStream failed", ignore);
                     }
                 }
             } finally {
                 try {
                     in.close();
                 } catch (Throwable ignore) {
+                    LOG.warn("close ByteArrayInputStream failed", ignore);
                 }
             }
             return body;
