@@ -39,7 +39,6 @@ protected:
     Status _fetch_iceberg_metadata(const TMetaScanRange& meta_scan_range);
 
 private:
-    VMetaScanNode* _parent;
     bool _meta_eos;
     TupleId _tuple_id;
     const TupleDescriptor* _tuple_desc;
