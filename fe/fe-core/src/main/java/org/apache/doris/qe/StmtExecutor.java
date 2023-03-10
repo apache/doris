@@ -1491,7 +1491,7 @@ public class StmtExecutor implements ProfileWriter {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        int timeoutSecond = sessionVariable.getQueryTimeoutS();
+        long timeoutSecond = ConnectContext.get().getExecTimeout();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -1531,7 +1531,7 @@ public class StmtExecutor implements ProfileWriter {
                 .setTbl(txnConf.getTbl())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
-                .setExecMemLimit(maxExecMemByte).setTimeout(timeoutSecond)
+                .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
 
         // execute begin txn
