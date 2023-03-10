@@ -36,10 +36,10 @@ suite ("testAggQueryOnAggMV2") {
     sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
 
     explain {
-        sql("select deptno, sum(salary) from emps group by deptno ;")
+        sql("select deptno, sum(salary) from emps group by deptno order by deptno;")
         contains "(emps)"
     }
-    qt_select_emps_mv "select deptno, sum(salary) from emps group by deptno ;"
+    qt_select_emps_mv "select deptno, sum(salary) from emps group by deptno order by deptno;"
 
     createMV("create materialized view emps_mv as select deptno, sum(salary) from emps group by deptno ;")
 
@@ -52,10 +52,10 @@ suite ("testAggQueryOnAggMV2") {
     qt_select_star "select * from emps order by empid;"
 
    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno DESC;")
+        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno ;")
         contains "(emps_mv)"
     }
-    qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno DESC;"
+    qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno ;"
 
 
 }

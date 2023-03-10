@@ -49,9 +49,9 @@ suite ("testAggQueryOnAggMV3") {
 
 
    explain {
-        sql("select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission;")
+        sql("select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;")
         contains "(emps_mv)"
     }
-    qt_select_mv "select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission;"
+    qt_select_mv "select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;"
 
 }

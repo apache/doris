@@ -47,10 +47,10 @@ suite ("testAggQueryOnAggMV1") {
 
 
     explain {
-        sql("select sum(salary), deptno from emps group by deptno ;")
+        sql("select sum(salary), deptno from emps group by deptno order by deptno;")
         contains "(emps_mv)"
     }
-    qt_select_mv "select sum(salary), deptno from emps group by deptno ;"
+    qt_select_mv "select sum(salary), deptno from emps group by deptno order by deptno;"
 
 
 }
