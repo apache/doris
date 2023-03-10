@@ -26,7 +26,7 @@ suite("test_json_load", "p0") {
                         id INT DEFAULT '10',
                         city VARCHAR(32) DEFAULT '',
                         code BIGINT SUM DEFAULT '0')
-                        DISTRIBUTED BY HASH(id) BUCKETS 10
+                        DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
         
@@ -48,7 +48,7 @@ suite("test_json_load", "p0") {
                         CREATE TABLE IF NOT EXISTS ${testTable} (
                         id INT DEFAULT '10',
                         code BIGINT SUM DEFAULT '0')
-                        DISTRIBUTED BY HASH(id) BUCKETS 10
+                        DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
         
@@ -72,7 +72,7 @@ suite("test_json_load", "p0") {
                         id INT DEFAULT '10',
                         city VARCHAR(32) NOT NULL,
                         code BIGINT SUM DEFAULT '0')
-                        DISTRIBUTED BY HASH(id) BUCKETS 10
+                        DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
         
@@ -116,7 +116,7 @@ suite("test_json_load", "p0") {
     
     def load_json_data = {label, strip_flag, read_flag, format_flag, exprs, json_paths, 
                         json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false,
-                        expected_succ_rows = -1 ->
+                        expected_succ_rows = -1, load_to_single_tablet = 'true' ->
         
         // load the json data
         streamLoad {
@@ -132,6 +132,7 @@ suite("test_json_load", "p0") {
             set 'json_root', json_root
             set 'where', where_expr
             set 'fuzzy_parse', fuzzy_flag
+            set 'load_to_single_tablet', load_to_single_tablet
             file file_name // import json file
             time 10000 // limit inflight 10s
             if (expected_succ_rows >= 0) {
@@ -496,13 +497,13 @@ suite("test_json_load", "p0") {
 
         test_invalid_json_array_table.call(testTable)
         load_json_data.call('test_json_load_case17', 'true', '', 'json', '', '',
-                '', '', '', 'invalid_json_array.json', false, 0)
+                '', '', '', 'invalid_json_array.json', false, 0, 'false')
         load_json_data.call('test_json_load_case17_1', 'true', '', 'json', '', '',
-                '$.item', '', '', 'invalid_json_array1.json', false, 0)
+                '$.item', '', '', 'invalid_json_array1.json', false, 0, 'false')
         load_json_data.call('test_json_load_case17_2', 'true', '', 'json', '', '',
-                '$.item', '', '', 'invalid_json_array2.json', false, 0)
+                '$.item', '', '', 'invalid_json_array2.json', false, 0, 'false')
         load_json_data.call('test_json_load_case17_3', 'true', '', 'json', '', '',
-                '$.item', '', '', 'invalid_json_array3.json', false, 0)
+                '$.item', '', '', 'invalid_json_array3.json', false, 0, 'false')
         sql "sync"
         qt_select17 "select * from ${testTable}"
 
