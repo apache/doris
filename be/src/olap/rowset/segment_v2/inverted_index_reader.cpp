@@ -147,9 +147,8 @@ Status FullTextIndexReader::query_internal(const std::string& search_str,
                 stats->inverted_index_query_cache_miss++;
                 term_match_bitmap = new roaring::Roaring();
                 // unique_ptr with custom deleter
-                std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
-                        _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
-                        [](lucene::index::Term* term) { _CLDECDELETE(term); }};
+                CLTermType term {_CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
+                                 termDeleter};
                 query.reset(new lucene::search::TermQuery(term.get()));
 
                 InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -200,7 +199,6 @@ Status FullTextIndexReader::query_internal(const std::string& search_str,
             }
             case InvertedIndexQueryOp::MATCH_PHRASE_QUERY: {
                 return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-                break;
             }
             default: {
                 LOG(ERROR) << "fulltext query do not support query type other "
@@ -209,8 +207,8 @@ Status FullTextIndexReader::query_internal(const std::string& search_str,
             }
             }
         }
-
-        bit_map->swap(query_match_bitmap);
+        *bit_map |= query_match_bitmap;
+        //bit_map->swap(query_match_bitmap);
         return Status::OK();
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "CLuceneError occured, error msg: " << e.what();
