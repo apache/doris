@@ -60,7 +60,10 @@ public:
 
     Status init();
 
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
+    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+                 bool is_append = false);
+
+    Status append(const vectorized::Block* block);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

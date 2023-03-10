@@ -28,7 +28,7 @@ suite("load") {
     for (String table in tables) {
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     }
-
+    
     for (String tableName in tables) {
         streamLoad {
             // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
@@ -59,4 +59,46 @@ suite("load") {
             }
         }
     }
-}
+
+    // nested array with join
+    def test_nested_array_2_depths = {
+        def tableName = "nested_array_test_2_vectorized"
+
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `key` INT,
+                value ARRAY<ARRAY<INT>>
+            ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
+            PROPERTIES ('replication_num' = '1')
+        """
+
+        sql "INSERT INTO ${tableName} VALUES (1, [])"
+        sql "INSERT INTO ${tableName} VALUES (2, [null])"
+        sql "INSERT INTO ${tableName} VALUES (3, [[]])"
+        sql "INSERT INTO ${tableName} VALUES (4, [[1, 2, 3], [4, 5, 6]])"
+        sql "INSERT INTO ${tableName} VALUES (5, [[1, 2, 3], null, [4, 5, 6]])"
+        sql "INSERT INTO ${tableName} VALUES (6, [[1, 2, null], null, [4, null, 6], null, [null, 8, 9]])"
+       
+        sql """
+            INSERT INTO ${tableName} VALUES
+                (1, []),
+                (2, [null]),
+                (3, [[]]),
+                (4, [[1, 2, 3], [4, 5, 6]]),
+                (5, [[1, 2, 3], null, [4, 5, 6]]),
+                (6, [[1, 2, null], null, [4, null, 6], null, [null, 8, 9]])
+        """ 
+
+         sql """
+            INSERT INTO ${tableName} VALUES
+                (1, []),
+                (2, [null]),
+                (3, [[]]),
+                (4, [[1, 2, 3], [4, 5, 6]]),
+                (5, [[1, 2, 3], null, [4, 5, 6]]),
+                (6, [[1, 2, null], null, [4, null, 6], null, [null, 8, 9]])
+        """ 
+    }
+    test_nested_array_2_depths.call()
+    }
