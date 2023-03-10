@@ -159,6 +159,9 @@ ReplayedJournalId: 49292
 
 1. If the IsMaster, Join and Alive columns are true, the node is normal.
 
+#### Connect FE via TLS
+aaa
+
 #### Stop FE
 
 The stopping of Doris FE can be done with the following command

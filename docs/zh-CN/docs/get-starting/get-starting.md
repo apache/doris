@@ -163,6 +163,11 @@ ReplayedJournalId: 49292
 
 1. 如果 IsMaster、Join 和 Alive 三列均为true，则表示节点正常。
 
+#### 加密连接 FE
+
+由于
+
+
 #### 停止 FE 节点
 
 Doris FE 的停止可以通过下面的命令完成
