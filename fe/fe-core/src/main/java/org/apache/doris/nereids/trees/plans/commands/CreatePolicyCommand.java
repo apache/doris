@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.PolicyTypeEnum;
 
@@ -26,13 +27,14 @@ import java.util.Optional;
 /**
  * Create policy command.
  */
-public class CreatePolicyCommand implements Command {
+public class CreatePolicyCommand extends Command {
 
     private PolicyTypeEnum type;
 
     private final Optional<Expression> wherePredicate;
 
     public CreatePolicyCommand(PolicyTypeEnum type, Expression expr) {
+        super(PlanType.CREATE_POLICY_COMMAND);
         this.type = type;
         this.wherePredicate = Optional.of(expr);
     }

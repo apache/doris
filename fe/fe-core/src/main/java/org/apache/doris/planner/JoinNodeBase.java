@@ -58,6 +58,7 @@ public abstract class JoinNodeBase extends PlanNode {
 
     protected final TableRef innerRef;
     protected final JoinOperator joinOp;
+    protected final boolean isMark;
     protected TupleDescriptor vOutputTupleDesc;
     protected ExprSubstitutionMap vSrcToOutputSMap;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
@@ -85,10 +86,11 @@ public abstract class JoinNodeBase extends PlanNode {
         } else if (joinOp.equals(JoinOperator.RIGHT_OUTER_JOIN)) {
             nullableTupleIds.addAll(outer.getTupleIds());
         }
+        this.isMark = this.innerRef != null && innerRef.isMark();
     }
 
     public boolean isMarkJoin() {
-        return innerRef != null && innerRef.isMark();
+        return isMark;
     }
 
     public JoinOperator getJoinOp() {
@@ -474,10 +476,12 @@ public abstract class JoinNodeBase extends PlanNode {
     /**
      * Only for Nereids.
      */
-    public JoinNodeBase(PlanNodeId id, String planNodeName, StatisticalType statisticalType, JoinOperator joinOp) {
+    public JoinNodeBase(PlanNodeId id, String planNodeName,
+                        StatisticalType statisticalType, JoinOperator joinOp, boolean isMark) {
         super(id, planNodeName, statisticalType);
         this.innerRef = null;
         this.joinOp = joinOp;
+        this.isMark = isMark;
     }
 
     public TableRef getInnerRef() {
@@ -585,5 +589,37 @@ public abstract class JoinNodeBase extends PlanNode {
      */
     public void setvSrcToOutputSMap(List<Expr> lhs) {
         this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
+    }
+
+    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
+        outputSmap = smap;
+        ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(Lists.newArrayList(vSrcToOutputSMap.getRhs()),
+                Lists.newArrayList(vSrcToOutputSMap.getLhs()));
+        List<Expr> newRhs = Lists.newArrayList();
+        boolean bSmapChanged = false;
+        for (Expr expr : smap.getRhs()) {
+            if (expr instanceof SlotRef) {
+                newRhs.add(expr);
+            } else {
+                // we need do project in the join node
+                // add a new slot for projection result and add the project expr to vSrcToOutputSMap
+                SlotDescriptor slotDesc = analyzer.addSlotDescriptor(vOutputTupleDesc);
+                slotDesc.initFromExpr(expr);
+                slotDesc.setIsMaterialized(true);
+                // the project expr is from smap, which use the slots of hash join node's output tuple
+                // we need substitute it to make sure the project expr use slots from intermediate tuple
+                expr.substitute(tmpSmap);
+                vSrcToOutputSMap.getLhs().add(expr);
+                SlotRef slotRef = new SlotRef(slotDesc);
+                vSrcToOutputSMap.getRhs().add(slotRef);
+                newRhs.add(slotRef);
+                bSmapChanged = true;
+            }
+        }
+
+        if (bSmapChanged) {
+            outputSmap.updateRhsExprs(newRhs);
+            vOutputTupleDesc.computeStatAndMemLayout();
+        }
     }
 }

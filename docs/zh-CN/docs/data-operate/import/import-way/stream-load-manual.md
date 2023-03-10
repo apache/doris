@@ -65,7 +65,9 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 ## 支持数据格式
 
-目前 Stream Load 支持数据格式：CSV（文本）、JSON、<version since="1.2" type="inline"> PARQUET 和 ORC</version>。
+目前 Stream Load 支持数据格式：CSV（文本）、JSON
+
+<version since="1.2"> 1.2+ 支持PARQUET 和 ORC</version> 1.2+ 支持PARQUET 和 ORC
 
 ## 基本操作
 
@@ -149,6 +151,11 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 - columns
 
   待导入数据的函数变换配置，目前 Stream load 支持的函数变换方法包含列的顺序变化以及表达式变换，其中表达式变换的方法与查询语句的一致。
+
+- format
+
+  指定导入数据格式，支持csv、json，默认是csv
+  <version since="1.2"> format </version> 1.2 支持csv_with_names(支持csv文件行首过滤)、csv_with_names_and_types(支持csv文件前两行过滤)、parquet、orc
 
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）

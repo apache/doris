@@ -228,7 +228,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             throw new AnalysisException("Multi partition time interval mush be larger than zero.");
         }
         try {
-            this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType);
+            this.timeUnitType = TimestampArithmeticExpr.TimeUnit.valueOf(timeType.toUpperCase());
         } catch (Exception e) {
             throw new AnalysisException("Multi build partition got an unknow time interval type: "
                     + timeType);

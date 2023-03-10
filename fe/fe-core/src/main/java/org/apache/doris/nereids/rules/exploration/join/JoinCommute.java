@@ -20,10 +20,14 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import java.util.List;
 
@@ -47,14 +51,16 @@ public class JoinCommute extends OneExplorationRuleFactory {
         return logicalJoin()
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
+                .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
                             join.getOtherJoinConjuncts(),
-                            JoinHint.NONE,
-                            join.right(), join.left(),
-                            join.getJoinReorderContext());
+                            join.getHint(),
+                            join.right(), join.left());
+                    newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
@@ -92,5 +98,25 @@ public class JoinCommute extends OneExplorationRuleFactory {
         // TODO: tmp way to judge containJoin
         List<Slot> output = groupPlan.getOutput();
         return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+    }
+
+    /**
+     * bitmap runtime filter requires bitmap column on right.
+     */
+    private boolean joinOrderMatchBitmapRuntimeFilterOrder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        if (!ConnectContext.get().getSessionVariable().isRuntimeFilterTypeEnabled(TRuntimeFilterType.BITMAP)) {
+            return false;
+        }
+        for (Expression expr : join.getOtherJoinConjuncts()) {
+            if (expr instanceof Not) {
+                expr = expr.child(0);
+            }
+            if (expr instanceof BitmapContains) {
+                BitmapContains bitmapContains = (BitmapContains) expr;
+                return (join.right().getOutputSet().containsAll(bitmapContains.child(0).getInputSlots())
+                        && join.left().getOutputSet().containsAll(bitmapContains.child(1).getInputSlots()));
+            }
+        }
+        return false;
     }
 }

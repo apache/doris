@@ -212,7 +212,6 @@ public:
         have_nulls = true;
         return 0;
     }
-    size_t operator()(const Int128I& x) { LOG(FATAL) << "not implemented"; }
     template <typename T>
     size_t operator()(const T&) {
         Field::EnumToType<Field::Types::Array>::Type a;

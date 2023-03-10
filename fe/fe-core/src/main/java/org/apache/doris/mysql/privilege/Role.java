@@ -118,6 +118,10 @@ public class Role implements Writable, GsonPostProcessable {
 
     }
 
+    public static boolean isDefaultRoleName(String roleName) {
+        return roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX);
+    }
+
     public String getRoleName() {
         return roleName;
     }
@@ -532,6 +536,45 @@ public class Role implements Writable, GsonPostProcessable {
         tablePrivTable.revoke(entry, false, true);
     }
 
+    /**
+     * eg:
+     * Before, tblPatternToPrivs has 1 entry: ctl.*.* -> SELECT_PRIV, ADMIN_PRIV, ALTER_PRIV
+     * After, tblPatternToPrivs has 2 entries:
+     * *.*.* -> ADMIN_PRIV
+     * ctl.*.* -> SELECT_PRIV, ALTER_PRIV
+     */
+    public void rectifyPrivs() {
+        PrivBitSet modifiedGlobalPrivs = new PrivBitSet();
+        for (Map.Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
+            TablePattern tblPattern = entry.getKey();
+            PrivBitSet privs = entry.getValue();
+            if (privs.containsPrivs(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV, Privilege.USAGE_PRIV)
+                    && tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
+                LOG.debug("rectify privs {}: {} -> {}", roleName, tblPattern, privs);
+                PrivBitSet copiedPrivs = privs.copy();
+                copiedPrivs.and(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV, Privilege.USAGE_PRIV));
+                modifiedGlobalPrivs.or(copiedPrivs);
+                // remove these privs from non global table pattern's priv set
+                privs.unset(Privilege.USAGE_PRIV.getIdx());
+                privs.unset(Privilege.NODE_PRIV.getIdx());
+                privs.unset(Privilege.ADMIN_PRIV.getIdx());
+                LOG.debug("alter rectify privs {}: {} -> {}, modified global priv: {}",
+                        roleName, tblPattern, privs, modifiedGlobalPrivs);
+            }
+        }
+        if (!modifiedGlobalPrivs.isEmpty()) {
+            PrivBitSet privBitSet = tblPatternToPrivs.get(TablePattern.ALL);
+            if (privBitSet == null) {
+                tblPatternToPrivs.put(TablePattern.ALL, modifiedGlobalPrivs);
+            } else {
+                privBitSet.or(modifiedGlobalPrivs);
+            }
+        }
+
+        // rebuild these priv tables
+        rebuildPrivTables();
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -586,7 +629,16 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     @Override
-    public void gsonPostProcess() throws IOException {
+    public void gsonPostProcess() {
+        rebuildPrivTables();
+    }
+
+    private void rebuildPrivTables() {
+        globalPrivTable = new GlobalPrivTable();
+        catalogPrivTable = new CatalogPrivTable();
+        dbPrivTable = new DbPrivTable();
+        tablePrivTable = new TablePrivTable();
+        resourcePrivTable = new ResourcePrivTable();
         for (Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());

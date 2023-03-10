@@ -90,22 +90,15 @@ public class CreateFunctionTest {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
-        String createFuncStr = "create function db1.my_add(VARCHAR(1024)) RETURNS BOOLEAN properties\n"
-                + "(\n"
-                + "\"symbol\" =  \"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_9StringValE\",\n"
-                + "\"prepare_fn\" = \"_ZN9doris_udf13AddUdfPrepareEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n"
-                + "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n"
-                + "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n"
-                + ");";
-
+        // create alias function
+        String createFuncStr = "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         List<Function> functions = db.getFunctions();
         Assert.assertEquals(1, functions.size());
-        Assert.assertTrue(functions.get(0).isUdf());
 
-        String queryStr = "select db1.my_add(null)";
+        String queryStr = "select db1.id_masking(13888888888);";
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
@@ -116,29 +109,6 @@ public class CreateFunctionTest {
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
         UnionNode unionNode =  (UnionNode) fragment.getPlanRoot();
         List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
-        Assert.assertEquals(1, constExprLists.size());
-        Assert.assertEquals(1, constExprLists.get(0).size());
-        Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
-
-        // create alias function
-        createFuncStr = "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
-        createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Env.getCurrentEnv().createFunction(createFunctionStmt);
-
-        functions = db.getFunctions();
-        Assert.assertEquals(2, functions.size());
-
-        queryStr = "select db1.id_masking(13888888888);";
-        ctx.getState().reset();
-        stmtExecutor = new StmtExecutor(ctx, queryStr);
-        stmtExecutor.execute();
-        Assert.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
-        planner = stmtExecutor.planner();
-        Assert.assertEquals(1, planner.getFragments().size());
-        fragment = planner.getFragments().get(0);
-        Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode) fragment.getPlanRoot();
-        constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
@@ -154,7 +124,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
-        Assert.assertEquals(3, functions.size());
+        Assert.assertEquals(2, functions.size());
 
         queryStr = "select db1.decimal(333, 4, 1);";
         ctx.getState().reset();
@@ -184,7 +154,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
-        Assert.assertEquals(4, functions.size());
+        Assert.assertEquals(3, functions.size());
 
         queryStr = "select db1.varchar(333, 4);";
         ctx.getState().reset();
@@ -211,7 +181,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
-        Assert.assertEquals(5, functions.size());
+        Assert.assertEquals(4, functions.size());
 
         queryStr = "select db1.char(333, 4);";
         ctx.getState().reset();

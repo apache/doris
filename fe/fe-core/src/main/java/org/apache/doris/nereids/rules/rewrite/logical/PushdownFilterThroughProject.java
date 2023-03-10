@@ -19,11 +19,16 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Push down filter through project.
@@ -32,18 +37,38 @@ import org.apache.doris.nereids.util.ExpressionUtils;
  * output:
  * project(c+d as a, e as b) -> filter(c+d>2, e=0).
  */
-public class PushdownFilterThroughProject extends OneRewriteRuleFactory {
+public class PushdownFilterThroughProject implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return logicalFilter(logicalProject()).then(filter -> {
-            LogicalProject<GroupPlan> project = filter.child();
-            return new LogicalProject<>(
-                    project.getProjects(),
-                    new LogicalFilter<>(
-                            ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                            project.child()
-                    )
-            );
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT.build(
+                    logicalFilter(logicalProject()).then(filter -> {
+                        LogicalProject<Plan> project = filter.child();
+                        return new LogicalProject<>(
+                                project.getProjects(),
+                                new LogicalFilter<>(
+                                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
+                                        project.child()
+                                )
+                        );
+                    })
+            ),
+            // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
+            // then we should change filter(limit(project)) to project(filter(limit))
+            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT.build(
+                    logicalFilter(logicalLimit(logicalProject())).then(filter -> {
+                        LogicalLimit<LogicalProject<Plan>> limit = filter.child();
+                        LogicalProject<Plan> project = limit.child();
+
+                        return new LogicalProject<>(
+                                project.getProjects(),
+                                new LogicalFilter<>(
+                                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
+                                        limit.withChildren(project.child())
+                                )
+                        );
+                    })
+            )
+        );
     }
 }

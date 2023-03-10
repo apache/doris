@@ -13,6 +13,7 @@
 
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h" // for TStatus
+#include "service/backend_options.h"
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
@@ -299,6 +300,7 @@ public:
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
         }
+        _be_ip = rhs._be_ip;
         return *this;
     }
 
@@ -400,8 +402,6 @@ public:
 
     bool ok() const { return _code == ErrorCode::OK; }
 
-    bool is_blocked_by_rf() const { return _code == ErrorCode::PIP_WAIT_FOR_RF; }
-
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
@@ -477,10 +477,13 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
+    std::string_view _be_ip = BackendOptions::get_localhost();
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
-    ostr << '[' << status.code_as_string() << ']' << (status._err_msg ? status._err_msg->_msg : "");
+    ostr << '[' << status.code_as_string() << ']';
+    ostr << '[' << status._be_ip << ']';
+    ostr << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
         ostr << '\n' << status._err_msg->_stack;

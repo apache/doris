@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -28,7 +29,7 @@ import java.util.List;
 /**
  * A DIV B
  */
-public class IntegralDivide extends BinaryArithmetic {
+public class IntegralDivide extends BinaryArithmetic implements AlwaysNullable {
 
     public IntegralDivide(Expression left, Expression right) {
         super(left, right, Operator.INT_DIVIDE);

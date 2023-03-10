@@ -531,7 +531,7 @@ void FunctionLike::remove_escape_character(std::string* search_string) {
     }
 }
 
-Status FunctionLike::prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
@@ -590,8 +590,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
     return Status::OK();
 }
 
-Status FunctionRegexp::prepare(FunctionContext* context,
-                               FunctionContext::FunctionStateScope scope) {
+Status FunctionRegexp::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }

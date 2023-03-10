@@ -32,6 +32,7 @@ import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Objects;
 
 /**
  * Describes a STRUCT type. STRUCT types have a list of named struct fields.
@@ -152,12 +153,14 @@ public class StructType extends Type {
             return true;
         }
 
-        if (t.isStructType()) {
+        if (!t.isStructType()) {
             return false;
         }
 
-        if (fields.size() != ((StructType) t).getFields().size()) {
-            return false;
+        StructType other = (StructType) t;
+        if (fields.size() != other.getFields().size()) {
+            // Temp to make NullPredict from fe send to be
+            return other.getFields().size() == 1 && Objects.equals(other.getFields().get(0).name, "null_pred");
         }
 
         for (int i = 0; i < fields.size(); i++) {

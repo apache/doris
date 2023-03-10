@@ -29,7 +29,7 @@ TEST_F(StatusTest, OK) {
     // default
     Status st;
     EXPECT_TRUE(st.ok());
-    EXPECT_EQ("[OK]", st.to_string());
+    EXPECT_TRUE(st.to_string().find("[OK]") != std::string::npos);
     // copy
     {
         Status other = st;
@@ -49,22 +49,26 @@ TEST_F(StatusTest, Error) {
     // default
     Status st = Status::InternalError("123");
     EXPECT_FALSE(st.ok());
-    EXPECT_EQ("[INTERNAL_ERROR]123", st.to_string());
+    EXPECT_TRUE(st.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+    EXPECT_TRUE(st.to_string().find("123") != std::string::npos);
     // copy
     {
         Status other = st;
         EXPECT_FALSE(other.ok());
-        EXPECT_EQ("[INTERNAL_ERROR]123", other.to_string());
+        EXPECT_TRUE(other.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+        EXPECT_TRUE(other.to_string().find("123") != std::string::npos);
     }
     // move assign
     st = Status::InternalError("456");
     EXPECT_FALSE(st.ok());
-    EXPECT_EQ("[INTERNAL_ERROR]456", st.to_string());
+    EXPECT_TRUE(st.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+    EXPECT_TRUE(st.to_string().find("456") != std::string::npos);
     // move construct
     {
         Status other = std::move(st);
         EXPECT_FALSE(other.ok());
-        EXPECT_EQ("[INTERNAL_ERROR]456", other.to_string());
+        EXPECT_TRUE(other.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+        EXPECT_TRUE(other.to_string().find("456") != std::string::npos);
     }
 }
 

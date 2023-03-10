@@ -20,7 +20,11 @@
 
 #include "vec/data_types/data_type_nullable.h"
 
+#include <gen_cpp/Opcodes_types.h>
+
 #include "gen_cpp/data.pb.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -42,25 +46,29 @@ bool DataTypeNullable::only_null() const {
 }
 
 std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
 
-    if (col.is_null_at(row_num)) {
+    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
+    if (col_null.is_null_at(row_num)) {
         return "NULL";
     } else {
-        return nested_data_type->to_string(col.get_nested_column(), row_num);
+        return get_nested_type()->to_string(col_null.get_nested_column(), row_num);
     }
 }
 
 void DataTypeNullable::to_string(const IColumn& column, size_t row_num,
                                  BufferWritable& ostr) const {
-    auto ptr = column.convert_to_full_column_if_const();
-    const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
 
-    if (col.is_null_at(row_num)) {
+    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
+    if (col_null.is_null_at(row_num)) {
         ostr.write("NULL", 4);
     } else {
-        nested_data_type->to_string(col.get_nested_column(), row_num, ostr);
+        get_nested_type()->to_string(col_null.get_nested_column(), row_num, ostr);
     }
 }
 
@@ -161,13 +169,18 @@ DataTypePtr remove_nullable(const DataTypePtr& type) {
 DataTypes remove_nullable(const DataTypes& types) {
     DataTypes no_null_types;
     for (auto& type : types) {
-        if (type->is_nullable()) {
-            no_null_types.push_back(static_cast<const DataTypeNullable&>(*type).get_nested_type());
-        } else {
-            no_null_types.push_back(type);
-        }
+        no_null_types.push_back(remove_nullable(type));
     }
     return no_null_types;
+}
+
+bool have_nullable(const DataTypes& types) {
+    for (auto& type : types) {
+        if (type->is_nullable()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace doris::vectorized

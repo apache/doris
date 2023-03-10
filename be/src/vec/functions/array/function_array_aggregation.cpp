@@ -117,21 +117,8 @@ struct AggregateFunction {
     using Function = typename Derived::template TypeTraits<T>::Function;
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto& data_type = *data_types.front();
-        AggregateFunctionPtr nested_function;
-        if (is_decimal(data_types.front())) {
-            nested_function = AggregateFunctionPtr(
-                    create_with_decimal_type<Function>(data_type, data_type, data_types));
-        } else {
-            nested_function =
-                    AggregateFunctionPtr(create_with_numeric_type<Function>(data_type, data_types));
-        }
-
-        AggregateFunctionPtr function;
-        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}));
-        return function;
+        return AggregateFunctionPtr(creator_with_type::create<Function>(
+                true, DataTypes {make_nullable(data_type_ptr)}));
     }
 };
 
@@ -236,14 +223,8 @@ struct NameArrayMin {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto nested_function = AggregateFunctionPtr(
-                create_aggregate_function_min(NameArrayMin::name, data_types, false));
-
-        AggregateFunctionPtr function;
-        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}));
-        return function;
+        return AggregateFunctionPtr(create_aggregate_function_min(
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, true));
     }
 };
 
@@ -254,14 +235,8 @@ struct NameArrayMax {
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto nested_function = AggregateFunctionPtr(
-                create_aggregate_function_max(NameArrayMax::name, data_types, false));
-
-        AggregateFunctionPtr function;
-        function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}));
-        return function;
+        return AggregateFunctionPtr(create_aggregate_function_max(
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, true));
     }
 };
 

@@ -71,7 +71,7 @@ The Linux swap partition can cause serious performance problems for Doris, so yo
 
 ##### Linux file system
 
-When installing the operating system, we recommend that you select the ext4 file system.
+Both ext4 and xfs file systems are supported.
 
 #### Development Test Environment
 
@@ -159,7 +159,7 @@ Broker currently does not have the `priority_networks` configuration item, nor d
 
 By default, table names in Doris are case-sensitive. If you need to change that, you may do it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
 
-See the `lower_case_table_names` section in [Variables](../../advanced/variables) for details.
+See the `lower_case_table_names` section in [Variables](../advanced/variables.md) for details.
 
 ## Cluster Deployment
 
@@ -246,7 +246,7 @@ See the `lower_case_table_names` section in [Variables](../../advanced/variables
 
 	`fe_host` is the node IP where FE is located;  `query_port` is in fe/conf/fe.conf; the root account is used by default and no password is required in login.
 
-	After login, execute the following command to add all the Best:
+	After login, execute the following command to add all the BE host and heartbeat service port:
 
 	`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port";`
 

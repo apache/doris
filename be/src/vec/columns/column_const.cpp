@@ -20,6 +20,9 @@
 
 #include "vec/columns/column_const.h"
 
+#include <utility>
+
+#include "gutil/port.h"
 #include "runtime/raw_value.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/pod_array.h"
@@ -195,4 +198,16 @@ ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
     return ColumnConst::create(data, limit);
 }
 
+std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
+                                                                const size_t row_num) noexcept {
+    std::pair<ColumnPtr, size_t> result;
+    if (is_column_const(column)) {
+        result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
+        result.second = 0;
+    } else {
+        result.first = column.get_ptr();
+        result.second = row_num;
+    }
+    return result;
+}
 } // namespace doris::vectorized

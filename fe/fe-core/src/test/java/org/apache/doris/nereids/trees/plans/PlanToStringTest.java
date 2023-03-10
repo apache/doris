@@ -46,7 +46,7 @@ public class PlanToStringTest {
 
     @Test
     public void testLogicalLimit(@Mocked Plan child) {
-        LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, child);
+        LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child);
 
         Assertions.assertEquals("LogicalLimit ( limit=0, offset=0 )", plan.toString());
     }
@@ -74,7 +74,7 @@ public class PlanToStringTest {
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 left, right);
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin \\( type=INNER_JOIN, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
+                "LogicalJoin \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
     }
 
     @Test
@@ -82,7 +82,7 @@ public class PlanToStringTest {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
-                        + "output=\\[id#\\d+, name#\\d+], indexName=<index_not_selected>, "
+                        + "indexName=<index_not_selected>, "
                         + "selectedIndexId=-1, preAgg=ON \\)"));
     }
 
@@ -91,7 +91,7 @@ public class PlanToStringTest {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
-        Assertions.assertTrue(plan.toString().matches("LogicalProject \\( projects=\\[a#\\d+], excepts=\\[], canEliminate=true \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject \\( distinct=false, projects=\\[a#\\d+], excepts=\\[], canEliminate=true \\)"));
     }
 
     @Test

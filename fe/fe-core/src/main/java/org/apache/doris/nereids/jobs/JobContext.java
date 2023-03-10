@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.scheduler.ScheduleContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 
@@ -29,21 +30,25 @@ import java.util.Map;
  * Context for one job in Nereids' cascades framework.
  */
 public class JobContext {
-    protected final CascadesContext cascadesContext;
+    protected final ScheduleContext scheduleContext;
     protected final PhysicalProperties requiredProperties;
     protected double costUpperBound;
     protected boolean rewritten = false;
 
     protected Map<RuleType, Integer> ruleInvokeTimes = Maps.newLinkedHashMap();
 
-    public JobContext(CascadesContext cascadesContext, PhysicalProperties requiredProperties, double costUpperBound) {
-        this.cascadesContext = cascadesContext;
+    public JobContext(ScheduleContext scheduleContext, PhysicalProperties requiredProperties, double costUpperBound) {
+        this.scheduleContext = scheduleContext;
         this.requiredProperties = requiredProperties;
         this.costUpperBound = costUpperBound;
     }
 
+    public ScheduleContext getScheduleContext() {
+        return scheduleContext;
+    }
+
     public CascadesContext getCascadesContext() {
-        return cascadesContext;
+        return (CascadesContext) scheduleContext;
     }
 
     public PhysicalProperties getRequiredProperties() {

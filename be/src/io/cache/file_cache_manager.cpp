@@ -218,9 +218,9 @@ FileCachePtr FileCacheManager::new_file_cache(const std::string& cache_dir, int6
                                               io::FileReaderSPtr remote_file_reader,
                                               io::FileCachePolicy cache_type) {
     switch (cache_type) {
-    case io::FileCachePolicy::SUB_FILE_CACHE:
-        return std::make_unique<WholeFileCache>(cache_dir, alive_time_sec, remote_file_reader);
     case io::FileCachePolicy::WHOLE_FILE_CACHE:
+        return std::make_unique<WholeFileCache>(cache_dir, alive_time_sec, remote_file_reader);
+    case io::FileCachePolicy::SUB_FILE_CACHE:
         return std::make_unique<SubFileCache>(cache_dir, alive_time_sec, remote_file_reader);
     default:
         return nullptr;

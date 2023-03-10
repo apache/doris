@@ -221,9 +221,13 @@ public:
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
+    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
 
     virtual int64_t mem_consumption() = 0;
+
+    virtual int64_t get_usage() = 0;
+
+    virtual size_t get_total_capacity() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -339,7 +343,7 @@ public:
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred);
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -409,8 +413,10 @@ public:
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
-    virtual int64_t prune_if(CacheValuePredicate pred) override;
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
+    int64_t get_usage() override;
+    size_t get_total_capacity() override { return _total_capacity; };
 
 private:
     void update_cache_metrics() const;
@@ -426,6 +432,7 @@ private:
     const uint32_t _num_shards;
     LRUCache** _shards;
     std::atomic<uint64_t> _last_id;
+    size_t _total_capacity;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity = nullptr;

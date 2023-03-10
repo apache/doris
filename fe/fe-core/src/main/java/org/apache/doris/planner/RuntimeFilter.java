@@ -148,7 +148,7 @@ public final class RuntimeFilter {
     }
 
     // only for nereids planner
-    public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, HashJoinNode node, Expr srcExpr,
+    public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
             int exprOrder, Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
             TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr, targetSlots, type, filterSizeLimits);

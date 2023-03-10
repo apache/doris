@@ -28,7 +28,7 @@ under the License.
 
 ### Name
 
-SHOW CREATE FUNTION
+SHOW CREATE FUNCTION
 
 ### Description
 
@@ -37,7 +37,7 @@ This statement is used to display the creation statement of the user-defined fun
 grammar:
 
 ```sql
-SHOW CREATE FUNTION function_name(arg_type [, ...]) [FROM db_name]];
+SHOW CREATE FUNCTION function_name(arg_type [, ...]) [FROM db_name]];
 ````
 
 illustrate:

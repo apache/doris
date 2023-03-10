@@ -83,7 +83,7 @@ public class SlotReference extends Slot {
     }
 
     public static SlotReference fromColumn(Column column, List<String> qualifier) {
-        DataType dataType = DataType.convertFromCatalogDataType(column.getType());
+        DataType dataType = DataType.fromCatalogType(column.getType());
         return new SlotReference(NamedExpressionUtil.newExprId(), column.getName(), dataType,
                 column.isAllowNull(), qualifier, column);
     }
@@ -148,7 +148,8 @@ public class SlotReference extends Slot {
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
     @Override
     public int hashCode() {
-        return Objects.hash(exprId);
+        // direct return exprId to speed up
+        return exprId.asInt();
     }
 
     public Optional<Column> getColumn() {

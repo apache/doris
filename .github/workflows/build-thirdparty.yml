@@ -89,6 +89,7 @@ jobs:
             'openjdk-11-jdk'
             'openjdk-11-jdk-headless'
             'maven'
+            'llvm'
           )
 
           sudo apt update

@@ -45,8 +45,8 @@ protected:
     bool _is_key_column(const std::string& col_name) override;
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-                                             StringVal* constant_str,
-                                             doris_udf::FunctionContext** fn_ctx,
+                                             StringRef* constant_str,
+                                             doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
 
     PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
@@ -54,6 +54,8 @@ protected:
     PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
+
+    bool _should_push_down_common_expr() override;
 
     Status _init_scanners(std::list<VScanner*>* scanners) override;
 
@@ -91,6 +93,7 @@ private:
     RuntimeProfile::Counter* _rows_vec_cond_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
+    RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
@@ -109,6 +112,7 @@ private:
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
     RuntimeProfile::Counter* _first_read_timer = nullptr;
+    RuntimeProfile::Counter* _second_read_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_counter = nullptr;
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
@@ -138,7 +142,6 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
-    RuntimeProfile::Counter* _inverted_index_searcher_bitmap_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

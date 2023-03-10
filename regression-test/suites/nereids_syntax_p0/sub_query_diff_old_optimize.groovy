@@ -184,4 +184,12 @@ suite ("sub_query_diff_old_optimize") {
         exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
 
     }
+
+    test {
+        sql """
+            SELECT * FROM sub_query_diff_old_optimize_subquery1 WHERE (k1 IN (SELECT k1 FROM sub_query_diff_old_optimize_subquery3) OR k1 < 10) != true;
+        """
+        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: Not support binaryOperator children at least one is in or exists subquery"
+
+    }
 }

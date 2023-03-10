@@ -97,104 +97,131 @@ Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos)
 }
 
 Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     size_t fill_rowsets_num = std::min(1000ul, rowsets_.size() - _rowsets_idx);
     auto fill_idx_begin = _rowsets_idx;
     auto fill_idx_end = _rowsets_idx + fill_rowsets_num;
+    std::vector<void*> datas(fill_rowsets_num);
     // BACKEND_ID
     {
         int64_t src = backend_id_;
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
-            fill_dest_column(block, &src, _s_tbls_columns[0]);
+            datas[i - fill_idx_begin] = &src;
         }
+        fill_dest_column_for_range(block, 0, datas);
     }
     // ROWSET_ID
     {
+        std::string rowset_ids[fill_rowsets_num];
+        StringRef strs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            std::string rowset_id = rowset->rowset_id().to_string();
-            StringRef str = StringRef(rowset_id.c_str(), rowset_id.size());
-            fill_dest_column(block, &str, _s_tbls_columns[1]);
+            rowset_ids[i - fill_idx_begin] = rowset->rowset_id().to_string();
+            strs[i - fill_idx_begin] = StringRef(rowset_ids[i - fill_idx_begin].c_str(),
+                                                 rowset_ids[i - fill_idx_begin].size());
+            datas[i - fill_idx_begin] = strs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // TABLET_ID
     {
+        int64_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            int64_t src = rowset->rowset_meta()->tablet_id();
-            fill_dest_column(block, &src, _s_tbls_columns[2]);
+            srcs[i - fill_idx_begin] = rowset->rowset_meta()->tablet_id();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // ROWSET_NUM_ROWS
     {
+        int64_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            int64_t src = rowset->num_rows();
-            fill_dest_column(block, &src, _s_tbls_columns[3]);
+            srcs[i - fill_idx_begin] = rowset->num_rows();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 3, datas);
     }
     // TXN_ID
     {
+        int64_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            int64_t src = rowset->txn_id();
-            fill_dest_column(block, &src, _s_tbls_columns[4]);
+            srcs[i - fill_idx_begin] = rowset->txn_id();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 4, datas);
     }
     // NUM_SEGMENTS
     {
+        int64_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            int64_t src = rowset->num_segments();
-            fill_dest_column(block, &src, _s_tbls_columns[5]);
+            srcs[i - fill_idx_begin] = rowset->num_segments();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 5, datas);
     }
     // START_VERSION
     {
+        int64_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            int64_t src = rowset->start_version();
-            fill_dest_column(block, &src, _s_tbls_columns[6]);
+            srcs[i - fill_idx_begin] = rowset->start_version();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 6, datas);
     }
     // END_VERSION
     {
+        int64_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            int64_t src = rowset->end_version();
-            fill_dest_column(block, &src, _s_tbls_columns[7]);
+            srcs[i - fill_idx_begin] = rowset->end_version();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 7, datas);
     }
     // INDEX_DISK_SIZE
     {
+        size_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            size_t src = rowset->index_disk_size();
-            fill_dest_column(block, &src, _s_tbls_columns[8]);
+            srcs[i - fill_idx_begin] = rowset->index_disk_size();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 8, datas);
     }
     // DATA_DISK_SIZE
     {
+        size_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            size_t src = rowset->data_disk_size();
-            fill_dest_column(block, &src, _s_tbls_columns[9]);
+            srcs[i - fill_idx_begin] = rowset->data_disk_size();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 9, datas);
     }
     // CREATION_TIME
     {
+        size_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            size_t src = rowset->creation_time();
-            fill_dest_column(block, &src, _s_tbls_columns[10]);
+            srcs[i - fill_idx_begin] = rowset->creation_time();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 10, datas);
     }
     // NEWEST_WRITE_TIMESTAMP
     {
+        size_t srcs[fill_rowsets_num];
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            size_t src = rowset->newest_write_timestamp();
-            fill_dest_column(block, &src, _s_tbls_columns[12]);
+            srcs[i - fill_idx_begin] = rowset->newest_write_timestamp();
+            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
         }
+        fill_dest_column_for_range(block, 11, datas);
     }
     _rowsets_idx += fill_rowsets_num;
     return Status::OK();

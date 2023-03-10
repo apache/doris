@@ -84,14 +84,16 @@ Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos
 }
 
 Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto row_num = _batch_data.size();
+    std::vector<void*> null_datas(row_num, nullptr);
+    std::vector<void*> datas(row_num);
+
     for (size_t col_idx = 0; col_idx < _columns.size(); ++col_idx) {
         auto it = _col_name_to_type.find(_columns[col_idx].name);
         if (it == _col_name_to_type.end()) {
             if (_columns[col_idx].is_null) {
-                for (int row_idx = 0; row_idx < row_num; ++row_idx) {
-                    fill_dest_column(block, nullptr, _s_tbls_columns[col_idx]);
-                }
+                fill_dest_column_for_range(block, col_idx, null_datas);
             } else {
                 return Status::InternalError(
                         "column {} is not found in BE, and {} is not nullable.",
@@ -99,24 +101,24 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
             }
         } else if (it->second == TYPE_BIGINT) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
-                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].longVal,
-                                 _s_tbls_columns[col_idx]);
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].longVal;
             }
+            fill_dest_column_for_range(block, col_idx, datas);
         } else if (it->second == TYPE_INT) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
-                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].intVal,
-                                 _s_tbls_columns[col_idx]);
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].intVal;
             }
+            fill_dest_column_for_range(block, col_idx, datas);
         } else if (it->second == TYPE_VARCHAR) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
-                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].stringVal,
-                                 _s_tbls_columns[col_idx]);
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].stringVal;
             }
+            fill_dest_column_for_range(block, col_idx, datas);
         } else if (it->second == TYPE_DOUBLE) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
-                fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].doubleVal,
-                                 _s_tbls_columns[col_idx]);
+                datas[row_idx] = &_batch_data[row_idx].column_value[col_idx].doubleVal;
             }
+            fill_dest_column_for_range(block, col_idx, datas);
         } else {
             // other type
         }

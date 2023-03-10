@@ -24,8 +24,10 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -91,6 +93,27 @@ public class ArrayType extends Type {
                 && (((ArrayType) t).containsNull || !containsNull);
     }
 
+    @Override
+    public boolean hasTemplateType() {
+        return itemType.hasTemplateType();
+    }
+
+    @Override
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
+        if (!(specificType instanceof ArrayType)) {
+            throw new TypeException(specificType + " is not ArrayType");
+        }
+
+        ArrayType o = (ArrayType) specificType;
+        Type newItemType = itemType;
+        if (itemType.hasTemplateType()) {
+            newItemType = itemType.specializeTemplateType(o.itemType, specializedTypeMap, useSpecializedType);
+        }
+
+        return new ArrayType(newItemType);
+    }
+
     public static ArrayType create() {
         return new ArrayType();
     }
@@ -138,7 +161,7 @@ public class ArrayType extends Type {
         container.types.add(node);
         Preconditions.checkNotNull(itemType);
         node.setType(TTypeNodeType.ARRAY);
-        node.setContainsNull(containsNull);
+        node.setContainsNulls(Lists.newArrayList(containsNull));
         itemType.toThrift(container);
     }
 

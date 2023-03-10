@@ -42,6 +42,7 @@ suite("test_alter_table_column") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -61,6 +62,7 @@ suite("test_alter_table_column") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -97,6 +99,7 @@ suite("test_alter_table_column") {
     while (max_try_secs--) {
         String res = getJobState(tbName2)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -113,6 +116,47 @@ suite("test_alter_table_column") {
     qt_sql "desc ${tbName2};"
     qt_sql "select * from ${tbName2};"
     sql "DROP TABLE ${tbName2} FORCE;"
+
+    def tbNameAddArray = "alter_table_add_array_column_dup"
+    sql "DROP TABLE IF EXISTS ${tbNameAddArray}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbNameAddArray} (
+                k1 INT,
+                value1 INT
+            )
+            DUPLICATE KEY (k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties(
+                "replication_num" = "1", 
+                "light_schema_change" = "true",
+                "disable_auto_compaction" = "true");
+        """
+
+    sql "insert into ${tbNameAddArray} values(1,2)"
+    sql "insert into ${tbNameAddArray} values(3,4)"
+    sql """
+            ALTER TABLE ${tbNameAddArray} 
+            ADD COLUMN value2 ARRAY<INT> DEFAULT '[]' AFTER value1,
+            ADD COLUMN value3 ARRAY<INT> AFTER value2,
+            ADD COLUMN value4 ARRAY<INT> NOT NULL DEFAULT '[]' AFTER value3;
+        """
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobState(tbNameAddArray)
+        if (res == "FINISHED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED",res)
+            }
+        }
+    }
+    
+    Thread.sleep(200)
+    qt_sql "desc ${tbNameAddArray};"
+    qt_sql "select * from ${tbNameAddArray};"
+    sql "DROP TABLE ${tbNameAddArray} FORCE;"
 
     // vector search
     def check_load_result = {checklabel, testTablex ->
@@ -162,6 +206,7 @@ suite("test_alter_table_column") {
     while (max_try_secs--) {
         String res = getJobState(tbName3)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)
@@ -175,4 +220,5 @@ suite("test_alter_table_column") {
     def res4 = sql "select k1, k2, k3, null from baseall order by k1"
     check2_doris(res3, res4)
     sql "DROP TABLE ${tbName3} FORCE;"
+
 }

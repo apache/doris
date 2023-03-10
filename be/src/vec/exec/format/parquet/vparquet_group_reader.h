@@ -18,7 +18,6 @@
 #include <common/status.h>
 
 #include "exec/text_converter.h"
-#include "io/file_reader.h"
 #include "io/fs/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"

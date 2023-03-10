@@ -490,7 +490,13 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
-    add_compile_options(-fcolor-diagnostics -Wpedantic)
+    add_compile_options(-fcolor-diagnostics 
+                        -Wpedantic
+                        -Wunused-template
+                        -Wunused-private-field
+                        -Wunused-property-ivar
+                        -Wunused-member-function
+                        -Wunused-macros)
     add_compile_options(-Wno-zero-length-array
                         -Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments
@@ -909,6 +915,9 @@ if (${MAKE_TEST} STREQUAL "ON")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
     endif()
     add_definitions(-DBE_TEST)
+    if (ARCH_ARM)
+        add_compile_options(-ffp-contract=off)
+    endif()
 endif ()
 
 get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)

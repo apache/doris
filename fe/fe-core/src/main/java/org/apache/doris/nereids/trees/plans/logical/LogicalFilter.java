@@ -149,5 +149,4 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public boolean isSingleTableExpressionExtracted() {
         return singleTableExpressionExtracted;
     }
-
 }

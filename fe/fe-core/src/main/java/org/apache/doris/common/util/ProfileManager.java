@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
@@ -79,6 +80,12 @@ public class ProfileManager {
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
 
     public static final String TRACE_ID = "Trace ID";
+    public static final String ANALYSIS_TIME = "Analysis Time";
+    public static final String FETCH_RESULT_TIME = "Fetch Result Time";
+    public static final String PLAN_TIME = "Plan Time";
+    public static final String SCHEDULE_TIME = "Schedule Time";
+    public static final String WRITE_RESULT_TIME = "Write Result Time";
+    public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
     public enum ProfileType {
         QUERY,
@@ -88,6 +95,9 @@ public class ProfileManager {
     public static final List<String> PROFILE_HEADERS = Collections.unmodifiableList(
             Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
+    public static final List<String> EXECUTION_HEADERS = Collections.unmodifiableList(
+            Arrays.asList(ANALYSIS_TIME, PLAN_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME,
+              WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME));
 
     private class ProfileElement {
         public ProfileElement(RuntimeProfile profile) {
@@ -101,6 +111,8 @@ public class ProfileManager {
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
+        public double qError;
+
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
             if (profileContent != null) {
@@ -110,6 +122,15 @@ public class ProfileManager {
             profileContent = profile.toString();
             return profileContent;
         }
+
+        public double getqError() {
+            return qError;
+        }
+
+        public void setqError(double qError) {
+            this.qError = qError;
+        }
+
     }
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -146,6 +167,13 @@ public class ProfileManager {
         for (String header : PROFILE_HEADERS) {
             element.infoStrings.put(header, summaryProfile.getInfoString(header));
         }
+        List<Pair<RuntimeProfile, Boolean>> childList = summaryProfile.getChildList();
+        if (!childList.isEmpty()) {
+            RuntimeProfile executionProfile = childList.get(0).first;
+            for (String header : EXECUTION_HEADERS) {
+                element.infoStrings.put(header, executionProfile.getInfoString(header));
+            }
+        }
 
         MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
         try {
@@ -165,8 +193,8 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
-        String key = isQueryProfile(profile) ? element.infoStrings.get(ProfileManager.QUERY_ID)
-                : element.infoStrings.get(ProfileManager.JOB_ID);
+        // 'insert into' does have job_id, put all profiles key with query_id
+        String key = element.infoStrings.get(ProfileManager.QUERY_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
         if (Strings.isNullOrEmpty(key)) {
@@ -215,6 +243,9 @@ public class ProfileManager {
                 for (String str : PROFILE_HEADERS) {
                     row.add(infoStrings.get(str));
                 }
+                for (String str : EXECUTION_HEADERS) {
+                    row.add(infoStrings.get(str));
+                }
                 result.add(row);
             }
         } finally {
@@ -234,6 +265,10 @@ public class ProfileManager {
         } finally {
             readLock.unlock();
         }
+    }
+
+    public ProfileElement findProfileElementObject(String queryId) {
+        return queryIdToProfileMap.get(queryId);
     }
 
     /**
@@ -352,7 +387,10 @@ public class ProfileManager {
         }
     }
 
-    public boolean isQueryProfile(RuntimeProfile profile) {
-        return "Query".equals(profile.getName());
+    public void setQErrorToProfileElementObject(String queryId, double qError) {
+        ProfileElement profileElement = findProfileElementObject(queryId);
+        if (profileElement != null) {
+            profileElement.setqError(qError);
+        }
     }
 }

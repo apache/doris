@@ -187,7 +187,7 @@ if [[ "${RUN_IN_AWS}" -eq 0 ]]; then
 fi
 
 ## set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
@@ -231,7 +231,9 @@ set_tcmalloc_heap_limit() {
 # set_tcmalloc_heap_limit || exit 1
 
 ## set hdfs conf
-export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
+if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
+    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
+fi
 
 # see https://github.com/jemalloc/jemalloc/issues/2366
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof:true,prof_prefix:jeprof.out"

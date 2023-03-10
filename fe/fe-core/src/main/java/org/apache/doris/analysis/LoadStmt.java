@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -121,6 +122,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
+    public static final String KEY_COMMENT = "comment";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -132,6 +135,8 @@ public class LoadStmt extends DdlStmt {
     private boolean isMysqlLoad = false;
 
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
+
+    private String comment;
 
     public static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
             .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
@@ -208,7 +213,7 @@ public class LoadStmt extends DdlStmt {
             })
             .build();
 
-    public LoadStmt(DataDescription dataDescription, Map<String, String> properties) {
+    public LoadStmt(DataDescription dataDescription, Map<String, String> properties, String comment) {
         this.label = new LabelName();
         this.dataDescriptions = Lists.newArrayList(dataDescription);
         this.brokerDesc = null;
@@ -217,10 +222,15 @@ public class LoadStmt extends DdlStmt {
         this.properties = properties;
         this.user = null;
         this.isMysqlLoad = true;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
+                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
@@ -228,10 +238,15 @@ public class LoadStmt extends DdlStmt {
         this.resourceDesc = null;
         this.properties = properties;
         this.user = null;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    ResourceDesc resourceDesc, Map<String, String> properties) {
+                    ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = null;
@@ -239,6 +254,11 @@ public class LoadStmt extends DdlStmt {
         this.resourceDesc = resourceDesc;
         this.properties = properties;
         this.user = null;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LabelName getLabel() {
@@ -410,10 +430,15 @@ public class LoadStmt extends DdlStmt {
                     throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
                             + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
                 } else {
-                    if (!(path.startsWith(Config.mysql_load_server_secure_path))) {
-                        throw new AnalysisException("Local file should be under the secure path of FE.");
+                    File file = new File(path);
+                    try {
+                        if (!(file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path))) {
+                            throw new AnalysisException("Local file should be under the secure path of FE.");
+                        }
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
                     }
-                    if (!new File(path).exists()) {
+                    if (!file.exists()) {
                         throw new AnalysisException("File: " + path + " is not exists.");
                     }
                 }
@@ -448,6 +473,10 @@ public class LoadStmt extends DdlStmt {
         }
 
         user = ConnectContext.get().getQualifiedUser();
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override

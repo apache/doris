@@ -230,6 +230,7 @@ message TabletSchemaPB {
     repeated TabletIndexPB index = 16;
     optional bool store_row_column = 17 [default=false]; // store tuplerow oriented column
     optional bool is_dynamic_schema = 18 [default=false];
+    optional int32 version_col_idx = 19 [default = -1];
 }
 
 enum TabletStatePB {
@@ -297,6 +298,8 @@ message TabletMetaPB {
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
+    optional int64 local_data_size = 27;
+    optional int64 remote_data_size = 28;
 }
 
 message OLAPRawDeltaHeaderMessage {

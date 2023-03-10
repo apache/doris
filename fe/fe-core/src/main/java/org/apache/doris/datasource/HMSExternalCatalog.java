@@ -24,9 +24,11 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
@@ -61,6 +63,40 @@ public class HMSExternalCatalog extends ExternalCatalog {
         props = HMSResource.getPropertiesFromDLF(props);
         props = HMSResource.getPropertiesFromGlue(props);
         catalogProperty = new CatalogProperty(resource, props);
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        // check the dfs.ha properties
+        // 'dfs.nameservices'='your-nameservice',
+        // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+        // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+        // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+        // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
+        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        if (Strings.isNullOrEmpty(dfsNameservices)) {
+            return;
+        }
+        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
+        if (Strings.isNullOrEmpty(namenodes)) {
+            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
+        }
+        String[] names = namenodes.split(",");
+        for (String name : names) {
+            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
+                    "");
+            if (Strings.isNullOrEmpty(address)) {
+                throw new DdlException(
+                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+            }
+        }
+        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
+                "");
+        if (Strings.isNullOrEmpty(failoverProvider)) {
+            throw new DdlException(
+                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+        }
     }
 
     public String getHiveMetastoreUris() {

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -70,6 +71,8 @@ public class ArrayRemove extends ScalarFunction
                     .args(ArrayType.of(DoubleType.INSTANCE), DoubleType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT), DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD))
+                    .args(ArrayType.of(DecimalV3Type.WILDCARD), DecimalV3Type.WILDCARD),
             FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
                     .args(ArrayType.of(DateTimeType.INSTANCE), DateTimeType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))

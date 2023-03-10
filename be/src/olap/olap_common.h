@@ -176,6 +176,7 @@ enum ReaderType {
     READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
     READER_COLD_DATA_COMPACTION = 5,
+    READER_SEGMENT_COMPACTION = 6,
 };
 
 constexpr bool field_is_slice_type(const FieldType& field_type) {
@@ -305,6 +306,7 @@ struct OlapReaderStatistics {
     int64_t block_init_seek_num = 0;
     int64_t block_init_seek_ns = 0;
     int64_t first_read_ns = 0;
+    int64_t second_read_ns = 0;
     int64_t block_first_read_seek_num = 0;
     int64_t block_first_read_seek_ns = 0;
     int64_t lazy_read_ns = 0;
@@ -319,6 +321,7 @@ struct OlapReaderStatistics {
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
+    int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
 
     int64_t rows_key_range_filtered = 0;
@@ -352,7 +355,6 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_bitmap_op_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
-    int64_t inverted_index_searcher_bitmap_timer = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

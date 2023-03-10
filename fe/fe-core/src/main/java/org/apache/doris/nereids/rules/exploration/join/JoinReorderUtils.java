@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -39,24 +38,8 @@ import java.util.stream.Stream;
  * Common
  */
 class JoinReorderUtils {
-    /**
-     * check project inside Join to prevent matching some pattern.
-     * just allow projection is slot or Alias(slot) to prevent reorder when:
-     * - output of project function is in condition, A join (project [abs(B.id), ..] B join C on ..) on abs(B.id)=A.id.
-     * - hyper edge in projection. project A.id + B.id A join B on .. (this project will prevent join reorder).
-     */
-    static boolean checkProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        List<NamedExpression> exprs = project.getProjects();
-        // must be slot or Alias(slot)
-        return exprs.stream().allMatch(expr -> {
-            if (expr instanceof Slot) {
-                return true;
-            }
-            if (expr instanceof Alias) {
-                return ((Alias) expr).child() instanceof Slot;
-            }
-            return false;
-        });
+    static boolean isAllSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
     }
 
     static Map<Boolean, List<NamedExpression>> splitProjection(List<NamedExpression> projects, Plan splitChild) {
@@ -81,6 +64,13 @@ class JoinReorderUtils {
     public static Plan projectOrSelf(List<NamedExpression> projectExprs, Plan plan) {
         if (projectExprs.isEmpty() || projectExprs.stream().map(NamedExpression::getExprId).collect(Collectors.toSet())
                 .equals(plan.getOutputExprIdSet())) {
+            return plan;
+        }
+        return new LogicalProject<>(projectExprs, plan);
+    }
+
+    public static Plan projectOrSelfInOrder(List<NamedExpression> projectExprs, Plan plan) {
+        if (projectExprs.isEmpty() || projectExprs.equals(plan.getOutput())) {
             return plan;
         }
         return new LogicalProject<>(projectExprs, plan);
@@ -118,5 +108,12 @@ class JoinReorderUtils {
                 projects.add(slot);
             }
         });
+    }
+
+    public static Set<Slot> joinChildConditionSlots(LogicalJoin<? extends Plan, ? extends Plan> join, boolean left) {
+        Set<Slot> childSlots = left ? join.left().getOutputSet() : join.right().getOutputSet();
+        return join.getConditionSlot().stream()
+                .filter(childSlots::contains)
+                .collect(Collectors.toSet());
     }
 }

@@ -165,9 +165,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 try {
                     SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
                     index_searcher->_search(
-                            query.get(), [&term_match_bitmap, stats](const int32_t docid,
-                                                                     const float_t /*score*/) {
-                                SCOPED_RAW_TIMER(&stats->inverted_index_searcher_bitmap_timer);
+                            query.get(),
+                            [&term_match_bitmap](const int32_t docid, const float_t /*score*/) {
                                 // docid equal to rowid in segment
                                 term_match_bitmap->add(docid);
                             });
@@ -280,6 +279,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     }
 
     switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
     case InvertedIndexQueryType::EQUAL_QUERY: {
         query.reset(new lucene::search::TermQuery(term.get()));
         break;
@@ -301,12 +302,6 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         break;
     }
     default:
-        LOG(ERROR) << "invalid query type when query untokenized inverted index";
-        if (_is_match_query(query_type)) {
-            LOG(WARNING) << column_name << " is untokenized inverted index"
-                         << ", please use equal query instead of match query";
-            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-        }
         LOG(WARNING) << "invalid query type when query untokenized inverted index";
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -320,9 +315,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         index_searcher->_search(query.get(),
-                                [&result, stats](const int32_t docid, const float_t /*score*/) {
+                                [&result](const int32_t docid, const float_t /*score*/) {
                                     // docid equal to rowid in segment
-                                    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_bitmap_timer);
                                     result.add(docid);
                                 });
     } catch (const CLuceneError& e) {

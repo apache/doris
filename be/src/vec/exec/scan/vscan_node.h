@@ -157,12 +157,14 @@ protected:
 
     virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                      VExprContext* expr_ctx,
-                                                     StringVal* constant_str,
-                                                     doris_udf::FunctionContext** fn_ctx,
+                                                     StringRef* constant_str,
+                                                     doris::FunctionContext** fn_ctx,
                                                      PushDownType& pdt) {
         pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
+
+    virtual bool _should_push_down_common_expr() { return false; }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
@@ -259,6 +261,7 @@ protected:
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    std::unique_ptr<VExprContext*> _common_vexpr_ctxs_pushdown = nullptr;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;

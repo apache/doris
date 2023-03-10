@@ -83,7 +83,7 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
-    if (config::enable_segcompaction && config::enable_storage_vectorization) {
+    if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
                 .set_min_threads(config::seg_compaction_max_threads)
                 .set_max_threads(config::seg_compaction_max_threads)
@@ -699,7 +699,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->compact_segments(segments);
+    writer->get_segcompaction_worker().compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
@@ -712,15 +712,22 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
 
 void StorageEngine::_cooldown_tasks_producer_callback() {
     int64_t interval = config::generate_cooldown_task_interval_sec;
+    // the cooldown replica may be slow to upload it's meta file, so we should wait
+    // until it has done uploaded
+    int64_t skip_failed_interval = interval * 10;
     do {
         // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
+        auto cur_time = time(nullptr);
         // we should skip all the tablets which are not running and those pending to do cooldown
-        auto skip_tablet = [this](const TabletSharedPtr& tablet) -> bool {
+        // also tablets once failed to do follow cooldown
+        auto skip_tablet = [this, skip_failed_interval,
+                            cur_time](const TabletSharedPtr& tablet) -> bool {
             std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-            return TABLET_RUNNING != tablet->tablet_state() ||
-                   _running_cooldown_tablets.find(tablet->tablet_id()) ==
+            return cur_time - tablet->last_failed_follow_cooldown_time() < skip_failed_interval ||
+                   TABLET_RUNNING != tablet->tablet_state() ||
+                   _running_cooldown_tablets.find(tablet->tablet_id()) !=
                            _running_cooldown_tablets.end();
         };
         _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
@@ -797,7 +804,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         tablet_to_follow.reserve(n + 1);
 
         for (auto& t : tablets) {
-            if (t->replica_id() == t->cooldown_replica_id()) {
+            if (t->replica_id() == t->cooldown_conf_unlocked().first) {
                 auto score = t->calc_cold_data_compaction_score();
                 if (score < 4) {
                     continue;

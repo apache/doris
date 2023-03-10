@@ -57,6 +57,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -105,6 +106,12 @@ public class PlanReceiver implements AbstractReceiver {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
 
+        // check if the missed edges can be correctly connected by add it to edges
+        // if not, the plan is invalid because of the missed edges, just return and seek for another valid plan
+        if (!processMissedEdges(left, right, edges)) {
+            return true;
+        }
+
         Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
         if (emitCount > limit) {
@@ -151,7 +158,7 @@ public class PlanReceiver implements AbstractReceiver {
         usdEdges.put(LongBitmap.newBitmapUnion(left, right), usedEdgesBitmap);
         for (Edge edge : hyperGraph.getEdges()) {
             if (!usedEdgesBitmap.get(edge.getIndex())) {
-                outputSlots.addAll(edge.getExpression().getInputSlots());
+                outputSlots.addAll(edge.getInputSlots());
             }
         }
         hyperGraph.getComplexProject()
@@ -160,6 +167,47 @@ public class PlanReceiver implements AbstractReceiver {
                 .flatMap(l -> l.stream())
                 .forEach(expr -> outputSlots.addAll(expr.getInputSlots()));
         return outputSlots;
+    }
+
+    // check if the missed edges can be used to connect left and right together with edges
+    // return true if no missed edge or the missed edge can be used to connect left and right
+    // the returned edges includes missed edges if there is any.
+    private boolean processMissedEdges(long left, long right, List<Edge> edges) {
+        boolean canAddMisssedEdges = true;
+
+        // find all reference nodes assume left and right sub graph is connected
+        BitSet usedEdgesBitmap = new BitSet();
+        usedEdgesBitmap.or(usdEdges.get(left));
+        usedEdgesBitmap.or(usdEdges.get(right));
+        edges.stream().forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
+        long allReferenceNodes = getAllReferenceNodes(usedEdgesBitmap);
+
+        // check all edges
+        // the edge is a missed edge if the edge is not used and its reference nodes is a subset of allReferenceNodes
+        for (Edge edge : hyperGraph.getEdges()) {
+            if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes) && !usedEdgesBitmap.get(
+                    edge.getIndex())) {
+                // check the missed edge can be used to connect left and right together with edges
+                // if the missed edge meet the 2 conditions, it is a valid edge
+                // 1. the edge's left child's referenced nodes is subset of the left
+                // 2. the edge's original right node is subset of right
+                canAddMisssedEdges = canAddMisssedEdges && LongBitmap.isSubset(edge.getLeft(),
+                        left) && LongBitmap.isSubset(edge.getOriginalRight(), right);
+
+                // always add the missed edge to edges
+                // because the caller will return immediately if canAddMisssedEdges is false
+                edges.add(edge);
+            }
+        }
+        return canAddMisssedEdges;
+    }
+
+    private long getAllReferenceNodes(BitSet edgesBitmap) {
+        long nodes = LongBitmap.newBitmap();
+        for (int i = edgesBitmap.nextSetBit(0); i >= 0; i = edgesBitmap.nextSetBit(i + 1)) {
+            nodes = LongBitmap.or(nodes, hyperGraph.getEdge(i).getReferenceNodes());
+        }
+        return nodes;
     }
 
     private void proposeAllDistributedPlans(GroupExpression groupExpression) {
@@ -179,16 +227,19 @@ public class PlanReceiver implements AbstractReceiver {
                 () -> JoinUtils.getJoinOutput(joinType, left, right));
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             return Lists.newArrayList(
-                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts, joinProperties, left,
-                            right),
-                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, joinProperties,
+                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
+                            Optional.empty(), joinProperties,
+                            left, right),
+                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
+                            joinProperties,
                             right, left));
         } else {
             return Lists.newArrayList(
-                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, joinProperties,
-                            left,
-                            right),
+                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, Optional.empty(),
+                            joinProperties,
+                            left, right),
                     new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
+                            Optional.empty(),
                             joinProperties,
                             right, left));
         }
@@ -200,14 +251,26 @@ public class PlanReceiver implements AbstractReceiver {
         for (Edge edge : edges) {
             Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
             joinType = edge.getJoinType();
-            Expression expression = edge.getExpression();
-            if (expression instanceof EqualTo) {
-                hashConjuncts.add(edge.getExpression());
-            } else {
-                otherConjuncts.add(expression);
+            for (Expression expression : edge.getExpressions()) {
+                if (expression instanceof EqualTo) {
+                    hashConjuncts.add(expression);
+                } else {
+                    otherConjuncts.add(expression);
+                }
             }
         }
         return joinType;
+    }
+
+    private boolean extractIsMarkJoin(List<Edge> edges) {
+        boolean isMarkJoin = false;
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            isMarkJoin = edge.getJoin().isMarkJoin() || isMarkJoin;
+            joinType = edge.getJoinType();
+        }
+        return isMarkJoin;
     }
 
     @Override
@@ -231,6 +294,8 @@ public class PlanReceiver implements AbstractReceiver {
     @Override
     public void reset() {
         planTable.clear();
+        projectsOnSubgraph.clear();
+        usdEdges.clear();
         emitCount = 0;
     }
 
@@ -272,8 +337,8 @@ public class PlanReceiver implements AbstractReceiver {
             } else if (physicalPlan instanceof AbstractPhysicalJoin) {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
-                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.child(0),
-                        physicalJoin.child(1));
+                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
+                        physicalJoin.child(0), physicalJoin.child(1));
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }

@@ -152,6 +152,7 @@ suite ("test_rename_column") {
     while (max_try_time--){
         String result = getRollupJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -217,6 +218,7 @@ suite ("test_rename_column") {
     while (max_try_time--){
         String result = getMVJobState(tableName)
         if (result == "FINISHED") {
+            sleep(3000)
             break
         } else {
             sleep(100)
@@ -240,7 +242,10 @@ suite ("test_rename_column") {
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
-    sql """ ALTER TABLE ${tableName} RENAME COLUMN user_id new_user_id """
+    test {
+        sql """ ALTER TABLE ${tableName} RENAME COLUMN user_id new_user_id """
+        exception "errCode = 2,"
+    }
 
     sql """ INSERT INTO ${tableName} VALUES
             (2, '2017-10-01', 'Beijing', 10, 1, 1, 31, 21, hll_hash(2), to_bitmap(2))
@@ -250,9 +255,9 @@ suite ("test_rename_column") {
         """
     qt_desc """ desc ${tableName} """
 
-    qt_select""" select * from ${tableName} order by new_user_id """
+    qt_select""" select * from ${tableName} order by user_id """
 
-    qt_select """ select new_user_id, sum(cost) from ${tableName} group by new_user_id order by new_user_id """
+    qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
     sql """ DROP TABLE ${tableName} """
 

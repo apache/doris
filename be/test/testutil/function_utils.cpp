@@ -31,30 +31,23 @@ FunctionUtils::FunctionUtils() {
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
     _state = new RuntimeState(globals);
-    doris_udf::FunctionContext::TypeDesc return_type;
-    std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
-                                                  false);
+    doris::TypeDescriptor return_type;
+    std::vector<doris::TypeDescriptor> arg_types;
+    _fn_ctx = FunctionContextImpl::create_context(_state, return_type, arg_types);
 }
 
-FunctionUtils::FunctionUtils(const doris_udf::FunctionContext::TypeDesc& return_type,
-                             const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
+FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
+                             const std::vector<doris::TypeDescriptor>& arg_types,
                              int varargs_buffer_size) {
     TQueryGlobals globals;
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
     _state = new RuntimeState(globals);
-    _memory_pool = new MemPool();
-    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types,
-                                                  varargs_buffer_size, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, return_type, arg_types);
 }
 
 FunctionUtils::~FunctionUtils() {
-    _fn_ctx->impl()->close();
-    delete _fn_ctx;
-    delete _memory_pool;
     if (_state) {
         delete _state;
     }

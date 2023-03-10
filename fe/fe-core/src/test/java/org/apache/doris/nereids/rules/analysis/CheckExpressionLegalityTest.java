@@ -23,14 +23,14 @@ import org.apache.doris.nereids.jobs.batch.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Test;
 
-public class CheckExpressionLegalityTest implements PatternMatchSupported {
+public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
     @Test
     public void testAvg() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
@@ -65,7 +65,7 @@ public class CheckExpressionLegalityTest implements PatternMatchSupported {
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Doris hll, bitmap, array, map, struct column must use with specific function", () ->
+                "column must use with specific function", () ->
                         PlanChecker.from(connectContext)
                                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
                                 .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))
