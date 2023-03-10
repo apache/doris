@@ -1191,7 +1191,13 @@ public enum ErrorCode {
      + " table supports time travel in current version"),
 
     ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
-            "SSL mode on but received non-ssl handshake response from client.");
+            "SSL mode on but received non-ssl handshake response from client."),
+
+    ERR_GET_REMOTE_METADATA(5092, new byte[] {'4', '2', '0', '0'},
+            "Can not get remote metadata."),
+
+    ERR_GET_REMOTE_DATA(5093, new byte[] {'4', '2', '0', '0'},
+            "Can not get remote data.");
 
     // This is error code
     private final int code;

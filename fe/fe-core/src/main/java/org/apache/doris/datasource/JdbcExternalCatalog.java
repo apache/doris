@@ -22,6 +22,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.external.jdbc.JdbcClient;
 
 import com.google.common.base.Strings;
@@ -57,7 +58,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void checkProperties() throws DdlException {
+    public void checkProperties() throws UserException {
         super.checkProperties();
         for (String requiredProperty : REQUIRED_PROPERTIES) {
             if (!catalogProperty.getProperties().containsKey(requiredProperty)) {

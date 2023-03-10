@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
@@ -25,6 +26,7 @@ import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
@@ -66,8 +68,24 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void checkProperties() throws DdlException {
+    public void checkProperties() throws UserException {
         super.checkProperties();
+        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        if (!Strings.isNullOrEmpty(dfsNameservices)) {
+            checkHdfsProperties();
+        }
+        String s3IdenProp = catalogProperty.getOrDefault(S3_IDENT_PROP, "");
+        if (!Strings.isNullOrEmpty(s3IdenProp)) {
+            checkS3Properties();
+        }
+
+    }
+
+    private void checkS3Properties() throws UserException {
+        S3Storage.checkS3(getCatalogProperty().getProperties());
+    }
+
+    private void checkHdfsProperties() throws DdlException {
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
