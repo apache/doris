@@ -76,7 +76,7 @@ export default function QueryProfile(params: any) {
     }
 
     function download(profile) {
-        const blob = new Blob([JSON.stringify(profile)], {
+        const blob = new Blob([JSON.stringify(profile, null, 2)], {
             type: "text/plain"
         });
         const tagA = document.createElement("a");
