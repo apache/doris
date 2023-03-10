@@ -1021,22 +1021,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // but BE need left child's output must be before right child's output.
         // So we need to swap the output order of left and right child if necessary.
         // TODO: revert this after Nereids could ensure the output order is correct.
-        List<SlotDescriptor> leftSlots = hashJoin.left()
-                .getOutput()
-                .stream()
-                .map(output -> context.findSlotRef(output.getExprId()).getDesc())
+        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
+        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
                 .collect(Collectors.toList());
-        List<SlotDescriptor> rightSlots = hashJoin.right()
-                .getOutput()
-                .stream()
-                .map(output -> context.findSlotRef(output.getExprId()).getDesc())
+        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightPlanRoot);
+        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
                 .collect(Collectors.toList());
         Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
 
         hashJoin.getOutput().stream()
                 .map(SlotReference.class::cast)
                 .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
-        List<SlotReference> outputSlotReferences = Stream.concat(leftSlots.stream(), rightSlots.stream())
+        List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
                 .map(sd -> context.findExprId(sd.getId()))
                 .map(outputSlotReferenceMap::get)
                 .filter(Objects::nonNull)
@@ -1080,7 +1082,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && (joinType == JoinType.LEFT_ANTI_JOIN
                 || joinType == JoinType.LEFT_SEMI_JOIN
                 || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
-            for (SlotDescriptor leftSlotDescriptor : leftSlots) {
+            for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                 if (!leftSlotDescriptor.isMaterialized()) {
                     continue;
                 }
@@ -1093,7 +1095,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         } else if (hashJoin.getOtherJoinConjuncts().isEmpty()
                 && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
-            for (SlotDescriptor rightSlotDescriptor : rightSlots) {
+            for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                 if (!rightSlotDescriptor.isMaterialized()) {
                     continue;
                 }
@@ -1102,7 +1104,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 rightIntermediateSlotDescriptor.add(sd);
             }
         } else {
-            for (SlotDescriptor leftSlotDescriptor : leftSlots) {
+            for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                 if (!leftSlotDescriptor.isMaterialized()) {
                     continue;
                 }
@@ -1113,7 +1115,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
                 leftIntermediateSlotDescriptor.add(sd);
             }
-            for (SlotDescriptor rightSlotDescriptor : rightSlots) {
+            for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                 if (!rightSlotDescriptor.isMaterialized()) {
                     continue;
                 }
