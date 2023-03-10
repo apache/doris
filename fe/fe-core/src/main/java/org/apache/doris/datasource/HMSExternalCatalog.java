@@ -126,7 +126,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected void tryGetMetadata() throws DdlException {
         try {
             initLocalObjects();
-            client.getAllDatabases();
+            List<String> allDatabases = client.getAllDatabases();
+            LOG.info("TryGetMetadata:{}", allDatabases);
         } catch (Exception e) {
             throw new DdlException("GetMetadata failed.");
         }

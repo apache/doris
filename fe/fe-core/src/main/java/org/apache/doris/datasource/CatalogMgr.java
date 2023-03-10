@@ -249,7 +249,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private void createCatalogDryRun(CreateCatalogStmt stmt) throws UserException {
-        CatalogLog log = CatalogFactory.constructorCatalogLog(-1l, stmt);
+        CatalogLog log = CatalogFactory.constructorCatalogLog(-1L, stmt);
         CatalogIf catalog = CatalogFactory.constructorFromLog(log);
         if (catalog instanceof ExternalCatalog) {
             ((ExternalCatalog) catalog).checkProperties();

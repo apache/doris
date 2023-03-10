@@ -188,6 +188,9 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     protected void tryGetData() throws DdlException {
         StorageType storageType = getStorageType();
+        if (storageType == null) {
+            return;
+        }
         switch (storageType) {
             case S3:
                 tryGetS3Data();
