@@ -145,6 +145,14 @@ public:
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
 
+    // This context is shared by all fragments of this host in a query
+    //
+    // NOTE: _fragments_ctx should be declared at the beginning of members so that
+    // it's destructed last.
+    // Because Objects create in _fragments_ctx.obj_pool maybe used during
+    // destruction, if _fragments_ctx is destructed too early, it will coredump.
+    std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
+
     // Id of this query
     TUniqueId _query_id;
     // Id of this instance
@@ -167,9 +175,6 @@ private:
     int _timeout_second;
     std::atomic<bool> _cancelled {false};
 
-    // This context is shared by all fragments of this host in a query
-    std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
-
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
     // The pipe for data transfering, such as insert.
     std::shared_ptr<StreamLoadPipe> _pipe;
@@ -182,7 +187,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                      const TUniqueId& fragment_instance_id, int backend_num,
                                      ExecEnv* exec_env,
                                      std::shared_ptr<QueryFragmentsCtx> fragments_ctx)
-        : _query_id(query_id),
+        : _fragments_ctx(std::move(fragments_ctx)),
+          _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
@@ -190,8 +196,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
           _set_rsc_info(false),
-          _timeout_second(-1),
-          _fragments_ctx(std::move(fragments_ctx)) {
+          _timeout_second(-1) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
