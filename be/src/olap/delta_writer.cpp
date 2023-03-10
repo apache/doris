@@ -400,6 +400,9 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
     if (_is_cancelled) {
         return Status::OK();
     }
+    if (_rowset_writer && _rowset_writer->is_doing_segcompaction()) {
+        _rowset_writer->wait_flying_segcompaction(); /* already cancel, ignore the return status */
+    }
     _mem_table.reset();
     if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished

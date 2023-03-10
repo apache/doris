@@ -66,7 +66,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
-    _wait_flying_segcompaction();
+    wait_flying_segcompaction();
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
@@ -423,7 +423,7 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_wait_flying_segcompaction() {
+Status BetaRowsetWriter::wait_flying_segcompaction() {
     std::unique_lock<std::mutex> l(_is_doing_segcompaction_lock);
     uint64_t begin_wait = GetCurrentTimeMicros();
     while (_is_doing_segcompaction) {
@@ -468,7 +468,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         }
     }
     Status status;
-    status = _wait_flying_segcompaction();
+    status = wait_flying_segcompaction();
     if (!status.ok()) {
         LOG(WARNING) << "segcompaction failed when build new rowset 1st wait, res=" << status;
         return nullptr;
@@ -478,7 +478,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
         return nullptr;
     }
-    status = _wait_flying_segcompaction();
+    status = wait_flying_segcompaction();
     if (!status.ok()) {
         LOG(WARNING) << "segcompaction failed when build new rowset 2nd wait, res=" << status;
         return nullptr;
