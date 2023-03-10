@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -65,7 +64,7 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalRepeat()).then(filter -> {
-            LogicalRepeat<GroupPlan> repeat = filter.child();
+            LogicalRepeat<Plan> repeat = filter.child();
             Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
             if (commonGroupingSetExpressions.isEmpty()) {
                 return filter;

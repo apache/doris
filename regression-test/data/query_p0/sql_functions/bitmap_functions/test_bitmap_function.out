@@ -65,23 +65,129 @@ false
 -- !sql_bitmap_hash64_3 --
 0
 
--- !sql --
+-- !sql_bitmap_or1 --
 2
 
--- !sql --
+-- !sql_bitmap_or2 --
 1
 
--- !sql --
+-- !sql_bitmap_or3 --
 1,2
 
--- !sql --
-\N
-
--- !sql --
+-- !sql_bitmap_or4 --
 0,1,2,10
 
--- !sql --
+-- !sql_bitmap_or5 --
+0,1,2,10
+
+-- !sql_bitmap_or6 --
 1,2,3,4,5,10
+
+-- !sql_bitmap_or7 --
+1
+
+-- !sql_bitmap_or8 --
+1	2
+2	2
+3	1
+4	1
+
+-- !sql_bitmap_or_count6 --
+1	2
+2	2
+3	1
+4	1
+
+-- !sql_bitmap_or9 --
+1	2
+2	2
+
+-- !sql_bitmap_or_count7 --
+1	2
+2	2
+
+-- !sql_bitmap_or10 --
+1	11,111
+2	22,222
+3	33
+4	44
+
+-- !sql_bitmap_or11 --
+1	11,111
+2	22,222
+
+-- !sql_bitmap_or12 --
+1	2
+2	2
+3	1
+4	1
+
+-- !sql_bitmap_or_count8 --
+1	2
+2	2
+3	1
+4	1
+
+-- !sql_bitmap_or13 --
+1	2
+2	2
+
+-- !sql_bitmap_or_count9 --
+1	2
+2	2
+
+-- !sql_bitmap_or14 --
+1	11,111
+2	22,222
+3	33
+4	44
+
+-- !sql_bitmap_or15 --
+1	11,111
+2	22,222
+
+-- !sql_bitmap_or16_0 --
+false
+
+-- !sql_bitmap_or16_1 --
+true
+
+-- !sql_bitmap_or16 --
+true
+
+-- !sql_bitmap_or17 --
+0
+
+-- !sql_bitmap_or_count10 --
+0
+
+-- !sql_bitmap_or18 --
+\N
+
+-- !sql_bitmap_or19 --
+true
+
+-- !sql_bitmap_or21 --
+\N
+
+-- !sql_bitmap_or22_0 --
+3	1	0
+4	1	0
+
+-- !sql_bitmap_or22_1 --
+5	0	1
+
+-- !sql_bitmap_or22 --
+3	\N	\N	5	true
+4	\N	\N	5	true
+
+-- !sql_bitmap_or_count11 --
+3	\N	\N	5	0
+4	\N	\N	5	0
+
+-- !sql_bitmap_or23 --
+3	\N	\N	5	\N
+4	\N	\N	5	\N
 
 -- !sql --
 0
@@ -101,20 +207,20 @@ false
 -- !sql --
 \N
 
--- !sql --
+-- !sql_bitmap_or_count1 --
 3
 
--- !sql --
+-- !sql_bitmap_or_count2 --
 3
 
--- !sql --
+-- !sql_bitmap_or_count3 --
 5
 
--- !sql --
+-- !sql_bitmap_or_count4 --
 6
 
--- !sql --
-\N
+-- !sql_bitmap_or_count5 --
+6
 
 -- !sql --
 2

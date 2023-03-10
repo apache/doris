@@ -17,22 +17,13 @@
 
 #include "data_type_map.h"
 
-#include "gen_cpp/data.pb.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_nullable.h"
+#include <string>
 
 namespace doris::vectorized {
 
-DataTypeMap::DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_) {
-    key_type = make_nullable(keys_);
-    value_type = make_nullable(values_);
-
-    keys = std::make_shared<DataTypeArray>(key_type);
-    values = std::make_shared<DataTypeArray>(value_type);
+DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_) {
+    key_type = key_type_;
+    value_type = value_type_;
 }
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
@@ -42,42 +33,38 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
 
-    auto& keys_arr = assert_cast<const ColumnArray&>(map_column.get_keys());
-    auto& values_arr = assert_cast<const ColumnArray&>(map_column.get_values());
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
 
-    const IColumn& nested_keys_column = keys_arr.get_data();
-    const IColumn& nested_values_column = values_arr.get_data();
-
-    std::stringstream ss;
-    ss << "{";
+    std::string str;
+    str += "{";
     for (size_t i = offset; i < next_offset; ++i) {
         if (i != offset) {
-            ss << ", ";
+            str += ", ";
         }
         if (nested_keys_column.is_null_at(i)) {
-            ss << "null";
+            str += "null";
         } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
-            ss << "'" << key_type->to_string(nested_keys_column, i) << "'";
+            str += "\"" + key_type->to_string(nested_keys_column, i) + "\"";
         } else {
-            ss << key_type->to_string(nested_keys_column, i);
+            str += key_type->to_string(nested_keys_column, i);
         }
-        ss << ":";
+        str += ":";
         if (nested_values_column.is_null_at(i)) {
-            ss << "null";
+            str += "null";
         } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
-            ss << "'" << value_type->to_string(nested_values_column, i) << "'";
+            str += "\"" + value_type->to_string(nested_values_column, i) + "\"";
         } else {
-            ss << value_type->to_string(nested_values_column, i);
+            str += value_type->to_string(nested_values_column, i);
         }
     }
-    ss << "}";
-    return ss.str();
+    str += "}";
+    return str;
 }
 
-void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                            class doris::vectorized::BufferWritable& ostr) const {
-    std::string ss = to_string(column, row_num);
-    ostr.write(ss.c_str(), strlen(ss.c_str()));
+void DataTypeMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    std::string str = to_string(column, row_num);
+    ostr.write(str.c_str(), str.size());
 }
 
 bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
@@ -164,11 +151,11 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* map_column = assert_cast<ColumnMap*>(column);
 
     if (*rb.position() != '{') {
-        return Status::InvalidArgument("map does not start with '{' character, found '{}'",
+        return Status::InvalidArgument("map does not start with '{}' character, found '{}'", "{",
                                        *rb.position());
     }
     if (*(rb.end() - 1) != '}') {
-        return Status::InvalidArgument("map does not end with '}' character, found '{}'",
+        return Status::InvalidArgument("map does not end with '{}' character, found '{}'", "}",
                                        *(rb.end() - 1));
     }
 
@@ -179,14 +166,10 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
         // {"aaa": 1, "bbb": 20}, need to handle key slot and value slot to make key column arr and value arr
         // skip "{"
         ++rb.position();
-        auto& keys_arr = reinterpret_cast<ColumnArray&>(map_column->get_keys());
-        ColumnArray::Offsets64& key_off = keys_arr.get_offsets();
-        auto& values_arr = reinterpret_cast<ColumnArray&>(map_column->get_values());
-        ColumnArray::Offsets64& val_off = values_arr.get_offsets();
-
-        IColumn& nested_key_column = keys_arr.get_data();
+        ColumnArray::Offsets64& map_off = map_column->get_offsets();
+        IColumn& nested_key_column = map_column->get_keys();
         DCHECK(nested_key_column.is_nullable());
-        IColumn& nested_val_column = values_arr.get_data();
+        IColumn& nested_val_column = map_column->get_values();
         DCHECK(nested_val_column.is_nullable());
 
         size_t element_num = 0;
@@ -194,13 +177,18 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
             StringRef key_element(rb.position(), rb.count());
             bool has_quota = false;
             if (!next_slot_from_string(rb, key_element, has_quota)) {
+                // pop this current row which already put element_num item into this row.
+                map_column->get_keys().pop_back(element_num);
+                map_column->get_values().pop_back(element_num);
                 return Status::InvalidArgument("Cannot read map key from text '{}'",
                                                key_element.to_string());
             }
             if (!is_empty_null_element(key_element, &nested_key_column, has_quota)) {
                 ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
                 if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
-                    map_column->pop_back(element_num);
+                    // pop this current row which already put element_num item into this row.
+                    map_column->get_keys().pop_back(element_num);
+                    map_column->get_values().pop_back(element_num);
                     return st;
                 }
             }
@@ -208,34 +196,38 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
             has_quota = false;
             StringRef value_element(rb.position(), rb.count());
             if (!next_slot_from_string(rb, value_element, has_quota)) {
+                // +1 just because key column already put succeed , but element_num not refresh here
+                map_column->get_keys().pop_back(element_num + 1);
+                map_column->get_values().pop_back(element_num);
                 return Status::InvalidArgument("Cannot read map value from text '{}'",
                                                value_element.to_string());
             }
             if (!is_empty_null_element(value_element, &nested_val_column, has_quota)) {
                 ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
                 if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
-                    map_column->pop_back(element_num);
+                    map_column->get_keys().pop_back(element_num + 1);
+                    map_column->get_values().pop_back(element_num);
                     return st;
                 }
             }
             ++element_num;
         }
-        key_off.push_back(key_off.back() + element_num);
-        val_off.push_back(val_off.back() + element_num);
+        map_off.push_back(map_off.back() + element_num);
     }
     return Status::OK();
 }
 
 MutableColumnPtr DataTypeMap::create_column() const {
-    return ColumnMap::create(keys->create_column(), values->create_column());
+    return ColumnMap::create(key_type->create_column(), value_type->create_column(),
+                             ColumnArray::ColumnOffsets::create());
 }
 
 void DataTypeMap::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     auto key_children = col_meta->add_children();
     auto value_children = col_meta->add_children();
-    keys->to_pb_column_meta(key_children);
-    values->to_pb_column_meta(value_children);
+    key_type->to_pb_column_meta(key_children);
+    value_type->to_pb_column_meta(value_children);
 }
 
 bool DataTypeMap::equals(const IDataType& rhs) const {
@@ -245,11 +237,11 @@ bool DataTypeMap::equals(const IDataType& rhs) const {
 
     const DataTypeMap& rhs_map = static_cast<const DataTypeMap&>(rhs);
 
-    if (!keys->equals(*rhs_map.keys)) {
+    if (!key_type->equals(*rhs_map.key_type)) {
         return false;
     }
 
-    if (!values->equals(*rhs_map.values)) {
+    if (!value_type->equals(*rhs_map.value_type)) {
         return false;
     }
 
@@ -260,8 +252,10 @@ int64_t DataTypeMap::get_uncompressed_serialized_bytes(const IColumn& column,
                                                        int data_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnMap&>(*ptr.get());
-    return get_keys()->get_uncompressed_serialized_bytes(data_column.get_keys(), data_version) +
-           get_values()->get_uncompressed_serialized_bytes(data_column.get_values(), data_version);
+    return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
+           get_key_type()->get_uncompressed_serialized_bytes(data_column.get_keys(), data_version) +
+           get_value_type()->get_uncompressed_serialized_bytes(data_column.get_values(),
+                                                               data_version);
 }
 
 // serialize to binary
@@ -269,15 +263,32 @@ char* DataTypeMap::serialize(const IColumn& column, char* buf, int data_version)
     auto ptr = column.convert_to_full_column_if_const();
     const auto& map_column = assert_cast<const ColumnMap&>(*ptr.get());
 
-    buf = get_keys()->serialize(map_column.get_keys(), buf, data_version);
-    return get_values()->serialize(map_column.get_values(), buf, data_version);
+    // row num
+    *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+    buf += sizeof(ColumnArray::Offset64);
+    // offsets
+    memcpy(buf, map_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
+    buf += column.size() * sizeof(ColumnArray::Offset64);
+    // key value
+    buf = get_key_type()->serialize(map_column.get_keys(), buf, data_version);
+    return get_value_type()->serialize(map_column.get_values(), buf, data_version);
 }
 
 const char* DataTypeMap::deserialize(const char* buf, IColumn* column, int data_version) const {
-    const auto* map_column = assert_cast<const ColumnMap*>(column);
-    buf = get_keys()->deserialize(buf, map_column->get_keys_ptr()->assume_mutable(), data_version);
-    return get_values()->deserialize(buf, map_column->get_values_ptr()->assume_mutable(),
-                                     data_version);
+    auto* map_column = assert_cast<ColumnMap*>(column);
+    auto& map_offsets = map_column->get_offsets();
+    // row num
+    ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+    buf += sizeof(ColumnArray::Offset64);
+    // offsets
+    map_offsets.resize(row_num);
+    memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
+    buf += sizeof(ColumnArray::Offset64) * row_num;
+    // key value
+    buf = get_key_type()->deserialize(buf, map_column->get_keys_ptr()->assume_mutable(),
+                                      data_version);
+    return get_value_type()->deserialize(buf, map_column->get_values_ptr()->assume_mutable(),
+                                         data_version);
 }
 
 } // namespace doris::vectorized

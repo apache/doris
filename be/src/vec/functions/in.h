@@ -62,20 +62,19 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
-        if (context->get_arg_type(0)->type == FunctionContext::Type::TYPE_CHAR ||
-            context->get_arg_type(0)->type == FunctionContext::Type::TYPE_VARCHAR ||
-            context->get_arg_type(0)->type == FunctionContext::Type::TYPE_STRING) {
+        if (context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_CHAR ||
+            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_VARCHAR ||
+            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(new StringValueSet());
         } else {
-            state->hybrid_set.reset(
-                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+            state->hybrid_set.reset(create_set(context->get_arg_type(0)->type));
         }
 
         DCHECK(context->get_num_args() >= 1);
@@ -156,7 +155,6 @@ public:
                 }
 
             } else { // non-nullable
-                DCHECK(!in_state->null_in_set);
 
                 auto search_hash_set = [&](auto* col_ptr) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -177,6 +175,12 @@ public:
                 } else {
                     search_hash_set(materialized_column.get());
                 }
+
+                if (in_state->null_in_set) {
+                    for (size_t i = 0; i < input_rows_count; ++i) {
+                        vec_null_map_to[i] = negative == vec_res[i];
+                    }
+                }
             }
         } else {
             std::vector<ColumnPtr> set_columns;
@@ -192,7 +196,7 @@ public:
                 }
 
                 std::unique_ptr<HybridSetBase> hybrid_set(
-                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                        create_set(context->get_arg_type(0)->type));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {

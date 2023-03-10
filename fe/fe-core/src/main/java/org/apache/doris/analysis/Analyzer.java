@@ -47,6 +47,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
@@ -415,6 +416,7 @@ public class Analyzer {
             rules.add(RewriteImplicitCastRule.INSTANCE);
             rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
+            rules.add(EraseRedundantCastExpr.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(CompoundPredicateWriteRule.INSTANCE);
             rules.add(RewriteDateLiteralRule.INSTANCE);
@@ -1206,7 +1208,8 @@ public class Analyzer {
         }
     }
 
-    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) {
+    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
+        markConstantConjunct(e, false);
         Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
         exprSet.add(e);
     }
@@ -1371,7 +1374,8 @@ public class Analyzer {
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -1848,7 +1852,8 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                final Expr newConjunct = conjunct.getResultValue();
+                Expr newConjunct = conjunct.getResultValue(true);
+                newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
                     if (newConjunct instanceof BoolLiteral) {
@@ -2414,7 +2419,7 @@ public class Analyzer {
 
         if (tids.size() > 1 || globalState.ojClauseByConjunct.containsKey(e.getId())
                 || globalState.outerJoinedTupleIds.containsKey(e.getId()) && whereClauseConjuncts.contains(e.getId())
-                ||  globalState.conjunctsByOjClause.containsKey(e.getId())) {
+                || globalState.conjunctsByOjClause.containsKey(e.getId())) {
             return true;
         }
 

@@ -46,6 +46,7 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
+    SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
@@ -74,6 +75,7 @@ Status SchemaViewsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaViewsScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
     if (nullptr != _param->wild) {
@@ -118,47 +120,52 @@ Status SchemaViewsScanner::get_next_block(vectorized::Block* block, bool* eos) {
 }
 
 Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto tables_num = _table_result.tables.size();
+    std::vector<void*> null_datas(tables_num, nullptr);
+    std::vector<void*> datas(tables_num);
 
     // catalog
-    {
-        for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, nullptr, _s_tbls_columns[0]);
-        }
-    }
+    { fill_dest_column_for_range(block, 0, null_datas); }
     // schema
     {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         StringRef str = StringRef(db_name.c_str(), db_name.size());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[1]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // name
     {
+        StringRef strs[tables_num];
         for (int i = 0; i < tables_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             const std::string* src = &tbl_status.name;
-            StringRef str = StringRef(src->c_str(), src->size());
-            fill_dest_column(block, &str, _s_tbls_columns[2]);
+            strs[i] = StringRef(src->c_str(), src->size());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // definition
     {
+        StringRef strs[tables_num];
         for (int i = 0; i < tables_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             const std::string* src = &tbl_status.ddl_sql;
-            StringRef str = StringRef(src->c_str(), src->length());
-            fill_dest_column(block, &str, _s_tbls_columns[3]);
+            strs[i] = StringRef(src->c_str(), src->length());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 3, datas);
     }
     // check_option
     {
         const std::string check_option = "NONE";
         StringRef str = StringRef(check_option.c_str(), check_option.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[4]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 4, datas);
     }
     // is_updatable
     {
@@ -166,8 +173,9 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string is_updatable = "NO";
         StringRef str = StringRef(is_updatable.c_str(), is_updatable.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[5]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 5, datas);
     }
     // definer
     {
@@ -175,8 +183,9 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string definer = "root@%";
         StringRef str = StringRef(definer.c_str(), definer.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[6]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 6, datas);
     }
     // security_type
     {
@@ -184,8 +193,9 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string security_type = "DEFINER";
         StringRef str = StringRef(security_type.c_str(), security_type.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[7]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 7, datas);
     }
     // character_set_client
     {
@@ -193,15 +203,12 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string encoding = "utf8";
         StringRef str = StringRef(encoding.c_str(), encoding.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _s_tbls_columns[8]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 8, datas);
     }
     // collation_connection
-    {
-        for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, nullptr, _s_tbls_columns[9]);
-        }
-    }
+    { fill_dest_column_for_range(block, 9, null_datas); }
     return Status::OK();
 }
 

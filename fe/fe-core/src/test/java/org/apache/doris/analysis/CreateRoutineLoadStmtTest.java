@@ -123,7 +123,7 @@ public class CreateRoutineLoadStmtTest {
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+                                                                                LoadTask.MergeType.APPEND, "");
 
         new MockUp<StatementBase>() {
             @Mock
@@ -173,7 +173,7 @@ public class CreateRoutineLoadStmtTest {
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+                                                                                LoadTask.MergeType.APPEND, "");
         new MockUp<StatementBase>() {
             @Mock
             public void analyze(Analyzer analyzer1) {

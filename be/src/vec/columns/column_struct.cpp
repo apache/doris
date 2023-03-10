@@ -178,24 +178,6 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
-// void ColumnStruct::update_weak_hash32(WeakHash32 & hash) const {
-//     auto s = size();
-//     if (hash.get_data().size() != s) {
-//         throw Exception("Size of WeakHash32 does not match size of column: column size is " + std::to_string(s) +
-//                         ", hash size is " + std::to_string(hash.getData().size()), ErrorCodes::LOGICAL_ERROR);
-//     }
-
-//     for (const auto & column : columns) {
-//         column->update_weak_hash32(hash);
-//     }
-// }
-
-// void ColumnStruct::update_hash_fast(SipHash & hash) const {
-//     for (const auto & column : columns) {
-//         column->update_hash_fast(hash);
-//     }
-// }
-
 void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_begin,
                                        const int* indices_end) {
     const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
@@ -203,32 +185,6 @@ void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_be
         columns[i]->insert_indices_from(src_concrete.get_column(i), indices_begin, indices_end);
     }
 }
-
-// const char * ColumnStruct::skip_serialized_in_arena(const char * pos) const {
-//     for (const auto & column : columns) {
-//         pos = column->skip_serialized_in_arena(pos);
-//     }
-//     return pos;
-// }
-
-// void ColumnStruct::expand(const Filter & mask, bool inverted)
-// {
-//     for (auto & column : columns) {
-//         column->expand(mask, inverted);
-//     }
-// }
-
-// ColumnPtr ColumnStruct::index(const IColumn & indexes, size_t limit) const
-// {
-//     const size_t tuple_size = columns.size();
-//     Columns new_columns(tuple_size);
-
-//     for (size_t i = 0; i < tuple_size; ++i) {
-//         new_columns[i] = columns[i]->index(indexes, limit);
-//     }
-
-//     return ColumnStruct::create(new_columns);
-// }
 
 void ColumnStruct::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const size_t tuple_size = columns.size();
@@ -258,6 +214,16 @@ size_t ColumnStruct::filter(const Filter& filter) {
         result_size = this_result_size;
     }
     return result_size;
+}
+
+Status ColumnStruct::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    auto to = reinterpret_cast<vectorized::ColumnStruct*>(col_ptr);
+    const size_t tuple_size = columns.size();
+    DCHECK_EQ(to->tuple_size(), tuple_size);
+    for (size_t i = 0; i < tuple_size; ++i) {
+        columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i));
+    }
+    return Status::OK();
 }
 
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
@@ -305,158 +271,6 @@ MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& se
     return res;
 }
 
-// int ColumnStruct::compare_at_impl(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint,
-//                                   const Collator* collator) const {
-//     const size_t tuple_size = columns.size();
-//     for (size_t i = 0; i < tuple_size; ++i) {
-//         int res = 0;
-//         if (collator && columns[i]->is_collation_supported()) {
-//             res = columns[i]->compare_at_with_collation(
-//                     n, m, *assert_cast<const ColumnStruct&>(rhs).columns[i], nan_direction_hint,
-//                     *collator);
-//         } else {
-//             res = columns[i]->compare_at(n, m, *assert_cast<const ColumnStruct&>(rhs).columns[i],
-//                                          nan_direction_hint);
-//         }
-
-//         if (res) {
-//             return res;
-//         }
-//     }
-//     return 0;
-// }
-
-// int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-//     return compare_at_impl(n, m, rhs, nan_direction_hint);
-// }
-
-// void ColumnStruct::compare_column(const IColumn& rhs, size_t rhs_row_num,
-//                                   PaddedPODArray<UInt64>* row_indexes,
-//                                   PaddedPODArray<Int8>& compare_results, int direction,
-//                                   int nan_direction_hint) const {
-//     return do_compare_column<ColumnStruct>(assert_cast<const ColumnStruct&>(rhs), rhs_row_num,
-//                                            row_indexes, compare_results, direction,
-//                                            nan_direction_hint);
-// }
-
-// int ColumnStruct::compare_at_with_collation(size_t n, size_t m, const IColumn& rhs,
-//                                             int nan_direction_hint,
-//                                             const Collator& collator) const {
-//     return compare_at_impl(n, m, rhs, nan_direction_hint, &collator);
-// }
-
-// bool ColumnStruct::has_equal_values() const {
-//     return has_equal_values_impl<ColumnStruct>();
-// }
-
-// template <bool positive>
-// struct ColumnStruct::Less {
-//     TupleColumns columns;
-//     int nan_direction_hint;
-//     const Collator* collator;
-
-//     Less(const TupleColumns& columns_, int nan_direction_hint_, const Collator* collator_ = nullptr)
-//             : columns(columns_), nan_direction_hint(nan_direction_hint_), collator(collator_) {}
-
-//     bool operator()(size_t a, size_t b) const {
-//         for (const auto& column : columns) {
-//             int res;
-//             if (collator && column->isCollationSupported()) {
-//                 res = column->compareAtWithCollation(a, b, *column, nan_direction_hint, *collator);
-//             } else {
-//                 res = column->compareAt(a, b, *column, nan_direction_hint);
-//             }
-//             if (res < 0) {
-//                 return positive;
-//             } else if (res > 0) {
-//                 return !positive;
-//             }
-//         }
-//         return false;
-//     }
-// };
-
-// void ColumnStruct::get_permutation_impl(IColumn::PermutationSortDirection direction,
-//                                         IColumn::PermutationSortStability stability, size_t limit,
-//                                         int nan_direction_hint, Permutation& res,
-//                                         const Collator* collator) const {
-//     size_t rows = size();
-//     res.resize(rows);
-//     for (size_t i = 0; i < rows; ++i) {
-//         res[i] = i;
-//     }
-
-//     if (limit >= rows) {
-//         limit = 0;
-//     }
-
-//     EqualRange ranges;
-//     ranges.emplace_back(0, rows);
-//     update_permutation_impl(direction, stability, limit, nan_direction_hint, res, ranges, collator);
-// }
-
-// void ColumnStruct::update_permutation_impl(IColumn::PermutationSortDirection direction,
-//                                            IColumn::PermutationSortStability stability,
-//                                            size_t limit, int nan_direction_hint,
-//                                            IColumn::Permutation& res, EqualRanges& equal_ranges,
-//                                            const Collator* collator) const {
-//     if (equal_ranges.empty()) {
-//         return;
-//     }
-
-//     for (const auto& column : columns) {
-//         while (!equal_ranges.empty() && limit && limit <= equal_ranges.back().first) {
-//             equal_ranges.pop_back();
-//         }
-
-//         if (collator && column->isCollationSupported()) {
-//             column->update_permutation_with_collation(*collator, direction, stability, limit,
-//                                                       nan_direction_hint, res, equal_ranges);
-//         } else {
-//             column->update_permutation(direction, stability, limit, nan_direction_hint, res,
-//                                        equal_ranges);
-//         }
-//         if (equal_ranges.empty()) {
-//             break;
-//         }
-//     }
-// }
-
-// void ColumnStruct::get_permutation(IColumn::PermutationSortDirection direction,
-//                                    IColumn::PermutationSortStability stability, size_t limit,
-//                                    int nan_direction_hint, Permutation& res) const {
-//     get_permutation_impl(direction, stability, limit, nan_direction_hint, res, nullptr);
-// }
-
-// void ColumnStruct::update_permutation(IColumn::PermutationSortDirection direction,
-//                                       IColumn::PermutationSortStability stability, size_t limit,
-//                                       int nan_direction_hint, IColumn::Permutation& res,
-//                                       EqualRanges& equal_ranges) const {
-//     update_permutation_impl(direction, stability, limit, nan_direction_hint, res, equal_ranges);
-// }
-
-// void ColumnStruct::get_permutation_with_collation(const Collator& collator,
-//                                                   IColumn::PermutationSortDirection direction,
-//                                                   IColumn::PermutationSortStability stability,
-//                                                   size_t limit, int nan_direction_hint,
-//                                                   Permutation& res) const {
-//     get_permutation_impl(direction, stability, limit, nan_direction_hint, res, &collator);
-// }
-
-// void ColumnStruct::update_permutation_with_collation(const Collator& collator,
-//                                                      IColumn::PermutationSortDirection direction,
-//                                                      IColumn::PermutationSortStability stability,
-//                                                      size_t limit, int nan_direction_hint,
-//                                                      Permutation& res,
-//                                                      EqualRanges& equal_ranges) const {
-//     update_permutation_impl(direction, stability, limit, nan_direction_hint, res, equal_ranges,
-//                             &collator);
-// }
-
-// void ColumnStruct::gather(ColumnGathererStream& gatherer) {
-//     gatherer.gather(*this);
-// }
-
 void ColumnStruct::reserve(size_t n) {
     const size_t tuple_size = columns.size();
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -471,21 +285,6 @@ size_t ColumnStruct::byte_size() const {
     }
     return res;
 }
-
-// size_t ColumnStruct::byte_size_at(size_t n) const {
-//     size_t res = 0;
-//     for (const auto& column : columns) {
-//         res += column->byte_size_at(n);
-//     }
-//     return res;
-// }
-
-// void ColumnStruct::ensure_ownership() {
-//     const size_t tuple_size = columns.size();
-//     for (size_t i = 0; i < tuple_size; ++i) {
-//         get_column(i).ensure_ownership();
-//     }
-// }
 
 size_t ColumnStruct::allocated_bytes() const {
     size_t res = 0;
@@ -538,60 +337,5 @@ bool ColumnStruct::structure_equals(const IColumn& rhs) const {
         return false;
     }
 }
-
-// void ColumnStruct::for_each_subcolumn_recursively(ColumnCallback callback) {
-//     for (auto& column : columns) {
-//         callback(column);
-//         column->for_each_subcolumn_recursively(callback);
-//     }
-// }
-
-// bool ColumnStruct::is_collation_supported() const {
-//     for (const auto& column : columns) {
-//         if (column->is_collation_supported()) {
-//             return true;
-//         }
-//     }
-//     return false;
-// }
-
-// ColumnPtr ColumnStruct::compress() const {
-//     size_t byte_size = 0;
-//     Columns compressed;
-//     compressed.reserve(columns.size());
-//     for (const auto& column : columns) {
-//         auto compressed_column = column->compress();
-//         byte_size += compressed_column->byteSize();
-//         compressed.emplace_back(std::move(compressed_column));
-//     }
-
-//     return ColumnCompressed::create(size(), byte_size,
-//                                     [compressed = std::move(compressed)]() mutable {
-//                                         for (auto& column : compressed) {
-//                                             column = column->decompress();
-//                                         }
-//                                         return ColumnStruct::create(compressed);
-//                                     });
-// }
-
-// double ColumnStruct::get_ratio_of_default_rows(double sample_ratio) const {
-//     return get_ratio_of_default_rows_impl<ColumnStruct>(sample_ratio);
-// }
-
-// void ColumnStruct::get_indices_of_nondefault_rows(Offsets& indices, size_t from,
-//                                                   size_t limit) const {
-//     return get_indices_of_nondefault_rows_impl<ColumnStruct>(indices, from, limit);
-// }
-
-// void ColumnStruct::finalize() {
-//     for (auto& column : columns) {
-//         column->finalize();
-//     }
-// }
-
-// bool ColumnStruct::is_finalized() const {
-//     return std::all_of(columns.begin(), columns.end(),
-//                        [](const auto& column) { return column->is_finalized(); });
-// }
 
 } // namespace doris::vectorized

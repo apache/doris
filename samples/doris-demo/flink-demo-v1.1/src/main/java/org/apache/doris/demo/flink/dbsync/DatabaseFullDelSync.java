@@ -48,6 +48,7 @@ import java.util.HashMap;
  * Synchronize the full database through flink cdc
  *
  */
+@Deprecated
 public class DatabaseFullDelSync {
 
     private static String SOURCE_DB = "custom_db";//db

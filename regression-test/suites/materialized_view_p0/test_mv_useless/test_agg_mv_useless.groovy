@@ -57,49 +57,8 @@ suite ("test_agg_mv_useless") {
         exception "errCode = 2,"
     }
 
-    sql "create materialized view k1_u1 as select k1 from ${testTable} group by k1;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(testTable)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-
-    sql "create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(testTable)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-
-    sql "create materialized view k1_sumk3 as select k1,sum(k3) from ${testTable} group by k1;"
-    max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(testTable)
-        if (res == "FINISHED") {
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+    createMV("create materialized view k1_u1 as select k1 from ${testTable} group by k1;")
+    createMV("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
+    createMV("create materialized view k1_sumk3 as select k1,sum(k3) from ${testTable} group by k1;")
     sql "insert into ${testTable} select 4,4,4;"
 }

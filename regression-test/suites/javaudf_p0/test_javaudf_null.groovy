@@ -63,8 +63,8 @@ suite("test_javaudf_null") {
         qt_select """ SELECT java_udf_null_test(1) result; """
         qt_select """ SELECT java_udf_null_test(user_id) result FROM ${tableName} ORDER BY result; """
 
-        sql """ DROP FUNCTION java_udf_null_test(int); """
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_null_test(int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

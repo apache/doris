@@ -676,8 +676,9 @@ TEST(function_string_test, function_sm3sum_test) {
 TEST(function_string_test, function_aes_encrypt_test) {
     std::string func_name = "aes_encrypt";
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
 
+        const char* mode = "AES_128_ECB";
         const char* key = "doris";
         const char* src[6] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee", ""};
         std::string r[5];
@@ -692,13 +693,13 @@ TEST(function_string_test, function_aes_encrypt_test) {
             r[i] = std::string(p, outlen);
         }
 
-        DataSet data_set = {{{std::string(src[0]), std::string(key)}, r[0]},
-                            {{std::string(src[1]), std::string(key)}, r[1]},
-                            {{std::string(src[2]), std::string(key)}, r[2]},
-                            {{std::string(src[3]), std::string(key)}, r[3]},
-                            {{std::string(src[4]), std::string(key)}, r[4]},
-                            {{std::string(src[5]), std::string(key)}, Null()},
-                            {{Null(), std::string(key)}, Null()}};
+        DataSet data_set = {{{std::string(src[0]), std::string(key), std::string(mode)}, r[0]},
+                            {{std::string(src[1]), std::string(key), std::string(mode)}, r[1]},
+                            {{std::string(src[2]), std::string(key), std::string(mode)}, r[2]},
+                            {{std::string(src[3]), std::string(key), std::string(mode)}, r[3]},
+                            {{std::string(src[4]), std::string(key), std::string(mode)}, r[4]},
+                            {{std::string(src[5]), std::string(key), std::string(mode)}, Null()},
+                            {{Null(), std::string(key), std::string(mode)}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -743,8 +744,9 @@ TEST(function_string_test, function_aes_encrypt_test) {
 TEST(function_string_test, function_aes_decrypt_test) {
     std::string func_name = "aes_decrypt";
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
 
+        const char* mode = "AES_128_ECB";
         const char* key = "doris";
         const char* src[5] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee"};
         std::string r[5];
@@ -759,12 +761,12 @@ TEST(function_string_test, function_aes_decrypt_test) {
             r[i] = std::string(p, outlen);
         }
 
-        DataSet data_set = {{{r[0], std::string(key)}, std::string(src[0])},
-                            {{r[1], std::string(key)}, std::string(src[1])},
-                            {{r[2], std::string(key)}, std::string(src[2])},
-                            {{r[3], std::string(key)}, std::string(src[3])},
-                            {{r[4], std::string(key)}, std::string(src[4])},
-                            {{Null(), std::string(key)}, Null()}};
+        DataSet data_set = {{{r[0], std::string(key), std::string(mode)}, std::string(src[0])},
+                            {{r[1], std::string(key), std::string(mode)}, std::string(src[1])},
+                            {{r[2], std::string(key), std::string(mode)}, std::string(src[2])},
+                            {{r[3], std::string(key), std::string(mode)}, std::string(src[3])},
+                            {{r[4], std::string(key), std::string(mode)}, std::string(src[4])},
+                            {{Null(), std::string(key), std::string(mode)}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -806,29 +808,39 @@ TEST(function_string_test, function_aes_decrypt_test) {
 TEST(function_string_test, function_sm4_encrypt_test) {
     std::string func_name = "sm4_encrypt";
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
+                                    TypeIndex::String};
 
         const char* key = "doris";
+        const char* iv = "0123456789abcdef";
+        const char* mode = "SM4_128_ECB";
         const char* src[6] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee", ""};
         std::string r[5];
 
         for (int i = 0; i < 5; i++) {
             int cipher_len = strlen(src[i]) + 16;
             char p[cipher_len];
-
-            int outlen = EncryptionUtil::encrypt(
-                    EncryptionMode::SM4_128_ECB, (unsigned char*)src[i], strlen(src[i]),
-                    (unsigned char*)key, strlen(key), nullptr, 0, true, (unsigned char*)p);
+            int iv_len = 32;
+            std::unique_ptr<char[]> init_vec;
+            init_vec.reset(new char[iv_len]);
+            std::memset(init_vec.get(), 0, strlen(iv) + 1);
+            memcpy(init_vec.get(), iv, strlen(iv));
+            int outlen =
+                    EncryptionUtil::encrypt(EncryptionMode::SM4_128_ECB, (unsigned char*)src[i],
+                                            strlen(src[i]), (unsigned char*)key, strlen(key),
+                                            init_vec.get(), strlen(iv), true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
-        DataSet data_set = {{{std::string(src[0]), std::string(key)}, r[0]},
-                            {{std::string(src[1]), std::string(key)}, r[1]},
-                            {{std::string(src[2]), std::string(key)}, r[2]},
-                            {{std::string(src[3]), std::string(key)}, r[3]},
-                            {{std::string(src[4]), std::string(key)}, r[4]},
-                            {{std::string(src[5]), std::string(key)}, Null()},
-                            {{Null(), std::string(key)}, Null()}};
+        DataSet data_set = {
+                {{std::string(src[0]), std::string(key), std::string(iv), std::string(mode)}, r[0]},
+                {{std::string(src[1]), std::string(key), std::string(iv), std::string(mode)}, r[1]},
+                {{std::string(src[2]), std::string(key), std::string(iv), std::string(mode)}, r[2]},
+                {{std::string(src[3]), std::string(key), std::string(iv), std::string(mode)}, r[3]},
+                {{std::string(src[4]), std::string(key), std::string(iv), std::string(mode)}, r[4]},
+                {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)},
+                 Null()},
+                {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -875,28 +887,37 @@ TEST(function_string_test, function_sm4_encrypt_test) {
 TEST(function_string_test, function_sm4_decrypt_test) {
     std::string func_name = "sm4_decrypt";
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
+                                    TypeIndex::String};
 
         const char* key = "doris";
+        const char* iv = "0123456789abcdef";
+        const char* mode = "SM4_128_ECB";
         const char* src[5] = {"aaaaaa", "bbbbbb", "cccccc", "dddddd", "eeeeee"};
         std::string r[5];
 
         for (int i = 0; i < 5; i++) {
             int cipher_len = strlen(src[i]) + 16;
             char p[cipher_len];
-
-            int outlen = EncryptionUtil::encrypt(
-                    EncryptionMode::SM4_128_ECB, (unsigned char*)src[i], strlen(src[i]),
-                    (unsigned char*)key, strlen(key), nullptr, 0, true, (unsigned char*)p);
+            int iv_len = 32;
+            std::unique_ptr<char[]> init_vec;
+            init_vec.reset(new char[iv_len]);
+            std::memset(init_vec.get(), 0, strlen(iv) + 1);
+            memcpy(init_vec.get(), iv, strlen(iv));
+            int outlen =
+                    EncryptionUtil::encrypt(EncryptionMode::SM4_128_ECB, (unsigned char*)src[i],
+                                            strlen(src[i]), (unsigned char*)key, strlen(key),
+                                            init_vec.get(), strlen(iv), true, (unsigned char*)p);
             r[i] = std::string(p, outlen);
         }
 
-        DataSet data_set = {{{r[0], std::string(key)}, std::string(src[0])},
-                            {{r[1], std::string(key)}, std::string(src[1])},
-                            {{r[2], std::string(key)}, std::string(src[2])},
-                            {{r[3], std::string(key)}, std::string(src[3])},
-                            {{r[4], std::string(key)}, std::string(src[4])},
-                            {{Null(), std::string(key)}, Null()}};
+        DataSet data_set = {
+                {{r[0], std::string(key), std::string(iv), std::string(mode)}, std::string(src[0])},
+                {{r[1], std::string(key), std::string(iv), std::string(mode)}, std::string(src[1])},
+                {{r[2], std::string(key), std::string(iv), std::string(mode)}, std::string(src[2])},
+                {{r[3], std::string(key), std::string(iv), std::string(mode)}, std::string(src[3])},
+                {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
+                {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }

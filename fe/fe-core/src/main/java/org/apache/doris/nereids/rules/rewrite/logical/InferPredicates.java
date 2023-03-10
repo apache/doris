@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -49,9 +50,14 @@ import java.util.stream.Collectors;
  * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
  *   round of predicate push-down
  */
-public class InferPredicates extends DefaultPlanRewriter<JobContext> {
+public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
     private final PredicatePropagation propagation = new PredicatePropagation();
     private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
+
+    @Override
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, jobContext);
+    }
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {

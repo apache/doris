@@ -141,7 +141,7 @@ public class UdfExecutor extends BaseExecutor {
     }
 
     @Override
-    protected long getCurrentOutputOffset(long row) {
+    protected long getCurrentOutputOffset(long row, boolean isArrayType) {
         return outputOffset;
     }
 

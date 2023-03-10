@@ -17,31 +17,14 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -51,9 +34,7 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Test for es util.
@@ -61,16 +42,6 @@ import java.util.Map;
 public class EsUtilTest extends EsTestCase {
 
     private List<Column> columns = new ArrayList<>();
-
-    private String jsonStr = "{\"settings\": {\n" + "               \"index\": {\n" + "                  \"bpack\": {\n"
-            + "                     \"partition\": {\n" + "                        \"upperbound\": \"12\"\n"
-            + "                     }\n" + "                  },\n" + "                  \"number_of_shards\": \"5\",\n"
-            + "                  \"provided_name\": \"indexa\",\n"
-            + "                  \"creation_date\": \"1539328532060\",\n"
-            + "                  \"number_of_replicas\": \"1\",\n"
-            + "                  \"uuid\": \"plNNtKiiQ9-n6NpNskFzhQ\",\n" + "                  \"version\": {\n"
-            + "                     \"created\": \"5050099\"\n" + "                  }\n" + "               }\n"
-            + "            }}";
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -150,188 +121,30 @@ public class EsUtilTest extends EsTestCase {
     }
 
     @Test
-    public void testGetJsonObject() {
-        JSONObject json = (JSONObject) JSONValue.parse(jsonStr);
-        JSONObject upperBoundSetting = EsUtil.getJsonObject(json, "settings.index.bpack.partition", 0);
-        Assertions.assertTrue(upperBoundSetting.containsKey("upperbound"));
-        Assertions.assertEquals("12", (String) upperBoundSetting.get("upperbound"));
-
-        JSONObject unExistKey = EsUtil.getJsonObject(json, "set", 0);
-        Assertions.assertNull(unExistKey);
-
-        JSONObject singleKey = EsUtil.getJsonObject(json, "settings", 0);
-        Assertions.assertTrue(singleKey.containsKey("index"));
-    }
-
-    @Test(expected = ClassCastException.class)
-    public void testGetJsonObjectWithException() {
-        JSONObject json = (JSONObject) JSONValue.parse(jsonStr);
-        // only support json object could not get string value directly from this api, exception will be threw
-        EsUtil.getJsonObject(json, "settings.index.bpack.partition.upperbound", 0);
-    }
-
-    @Test
-    public void testBinaryPredicateConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
-        IntLiteral intLiteral = new IntLiteral(3);
-        Expr eqExpr = new BinaryPredicate(Operator.EQ, k1, intLiteral);
-        Expr neExpr = new BinaryPredicate(Operator.NE, k1, intLiteral);
-        Expr leExpr = new BinaryPredicate(Operator.LE, k1, intLiteral);
-        Expr geExpr = new BinaryPredicate(Operator.GE, k1, intLiteral);
-        Expr ltExpr = new BinaryPredicate(Operator.LT, k1, intLiteral);
-        Expr gtExpr = new BinaryPredicate(Operator.GT, k1, intLiteral);
-        Expr efnExpr = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "k1"), new IntLiteral(3));
-        Assertions.assertEquals("{\"term\":{\"k1\":3}}", QueryBuilders.toEsDsl(eqExpr).toJson());
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
-                QueryBuilders.toEsDsl(neExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", QueryBuilders.toEsDsl(leExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", QueryBuilders.toEsDsl(geExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", QueryBuilders.toEsDsl(ltExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", QueryBuilders.toEsDsl(gtExpr).toJson());
-        Assertions.assertEquals("{\"term\":{\"k1\":3}}", QueryBuilders.toEsDsl(efnExpr).toJson());
-    }
-
-    @Test
-    public void testCompoundPredicateConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
-        IntLiteral intLiteral1 = new IntLiteral(3);
-        SlotRef k2 = new SlotRef(null, "k2");
-        IntLiteral intLiteral2 = new IntLiteral(5);
-        BinaryPredicate binaryPredicate1 = new BinaryPredicate(Operator.EQ, k1, intLiteral1);
-        BinaryPredicate binaryPredicate2 = new BinaryPredicate(Operator.GT, k2, intLiteral2);
-        CompoundPredicate andPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1,
-                binaryPredicate2);
-        CompoundPredicate orPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, binaryPredicate1,
-                binaryPredicate2);
-        CompoundPredicate notPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT, binaryPredicate1, null);
-        Assertions.assertEquals("{\"bool\":{\"must\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
-                QueryBuilders.toEsDsl(andPredicate).toJson());
-        Assertions.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
-                QueryBuilders.toEsDsl(orPredicate).toJson());
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
-                QueryBuilders.toEsDsl(notPredicate).toJson());
-    }
-
-    @Test
-    public void testIsNullPredicateConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
-        IsNullPredicate isNullPredicate = new IsNullPredicate(k1, false);
-        IsNullPredicate isNotNullPredicate = new IsNullPredicate(k1, true);
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"k1\"}}}}",
-                QueryBuilders.toEsDsl(isNullPredicate).toJson());
-        Assertions.assertEquals("{\"exists\":{\"field\":\"k1\"}}", QueryBuilders.toEsDsl(isNotNullPredicate).toJson());
-    }
-
-    @Test
-    public void testLikePredicateConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
-        StringLiteral stringLiteral1 = new StringLiteral("%1%");
-        StringLiteral stringLiteral2 = new StringLiteral("*1*");
-        StringLiteral stringLiteral3 = new StringLiteral("1_2");
-        LikePredicate likePredicate1 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
-        LikePredicate regexPredicate = new LikePredicate(LikePredicate.Operator.REGEXP, k1, stringLiteral2);
-        LikePredicate likePredicate2 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral3);
-        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", QueryBuilders.toEsDsl(likePredicate1).toJson());
-        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", QueryBuilders.toEsDsl(regexPredicate).toJson());
-        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", QueryBuilders.toEsDsl(likePredicate2).toJson());
-        List<Expr> notPushDownList = new ArrayList<>();
-        Assertions.assertNull(QueryBuilders.toEsDsl(likePredicate2, notPushDownList, new HashMap<>(), BuilderOptions.builder().likePushDown(false).build()));
-        Assertions.assertFalse(notPushDownList.isEmpty());
-    }
-
-    @Test
-    public void testInPredicateConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
-        IntLiteral intLiteral1 = new IntLiteral(3);
-        IntLiteral intLiteral2 = new IntLiteral(5);
-        List<Expr> intLiterals = new ArrayList<>();
-        intLiterals.add(intLiteral1);
-        intLiterals.add(intLiteral2);
-        InPredicate isInPredicate = new InPredicate(k1, intLiterals, false);
-        InPredicate isNotInPredicate = new InPredicate(k1, intLiterals, true);
-        Assertions.assertEquals("{\"terms\":{\"k1\":[3,5]}}", QueryBuilders.toEsDsl(isInPredicate).toJson());
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
-                QueryBuilders.toEsDsl(isNotInPredicate).toJson());
-    }
-
-    @Test
-    public void testFunctionCallConvertEsDsl() {
-        SlotRef k1 = new SlotRef(null, "k1");
-        String str = "{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}";
-        StringLiteral stringLiteral = new StringLiteral(str);
-        List<Expr> exprs = new ArrayList<>();
-        exprs.add(k1);
-        exprs.add(stringLiteral);
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs);
-        Assertions.assertEquals(str, QueryBuilders.toEsDsl(functionCallExpr).toJson());
-
-        SlotRef k2 = new SlotRef(null, "k2");
-        IntLiteral intLiteral = new IntLiteral(5);
-        BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
-        CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate,
-                functionCallExpr);
-        Assertions.assertEquals(
-                "{\"bool\":{\"must\":[{\"term\":{\"k2\":5}},{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}]}}",
-                QueryBuilders.toEsDsl(compoundPredicate).toJson());
-    }
-
-    @Test
-    public void testCastConvertEsDsl() {
-        FloatLiteral floatLiteral = new FloatLiteral(3.14);
-        CastExpr castExpr = new CastExpr(Type.INT, floatLiteral);
-        BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
-        List<Expr> notPushDownList = new ArrayList<>();
-        Map<String, String> fieldsContext = new HashMap<>();
-        BuilderOptions builderOptions = BuilderOptions.builder()
-                .likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE)).build();
-        Assertions.assertNull(QueryBuilders.toEsDsl(castPredicate, notPushDownList, fieldsContext, builderOptions));
-        Assertions.assertEquals(1, notPushDownList.size());
-
-        SlotRef k2 = new SlotRef(null, "k2");
-        IntLiteral intLiteral = new IntLiteral(5);
-        BinaryPredicate eqPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
-        CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, castPredicate,
-                eqPredicate);
-
-        QueryBuilders.toEsDsl(compoundPredicate, notPushDownList, fieldsContext, builderOptions);
-        Assertions.assertEquals(3, notPushDownList.size());
-
-        SlotRef k3 = new SlotRef(null, "k3");
-        k3.setType(Type.FLOAT);
-        CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3);
-        BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
-                new FloatLiteral(3.0, Type.DOUBLE));
-        QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions);
-        Assertions.assertEquals(3, notPushDownList.size());
-    }
-
-    @Test
     public void testEs6Mapping() throws IOException, URISyntaxException {
-        JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_aliases_mapping.json"),
+        ObjectNode testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_aliases_mapping.json"),
                 "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testAliases.toString());
 
-        JSONObject testAliasesNoType = EsUtil.getMappingProps("test",
+        ObjectNode testAliasesNoType = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es6_aliases_mapping.json"), null);
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testAliasesNoType.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testAliasesNoType.toString());
 
-        JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_index_mapping.json"),
+        ObjectNode testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_index_mapping.json"),
                 "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testIndex.toString());
 
-        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test",
+        ObjectNode testDynamicTemplates = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es6_dynamic_templates_mapping.json"), "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testDynamicTemplates.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testDynamicTemplates.toString());
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
@@ -344,31 +157,29 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testEs7Mapping() throws IOException, URISyntaxException {
-        JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_aliases_mapping.json"),
+        ObjectNode testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_aliases_mapping.json"),
                 null);
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testAliases.toString());
 
-        JSONObject testAliasesErrorType = EsUtil.getMappingProps("test",
+        ObjectNode testAliasesErrorType = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es7_aliases_mapping.json"), "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testAliasesErrorType.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testAliasesErrorType.toString());
 
-        JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_index_mapping.json"),
+        ObjectNode testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_index_mapping.json"),
                 "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testIndex.toString());
 
-        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test",
+        ObjectNode testDynamicTemplates = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es7_dynamic_templates_mapping.json"), null);
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testDynamicTemplates.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testDynamicTemplates.toString());
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
@@ -377,35 +188,66 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testEs8Mapping() throws IOException, URISyntaxException {
-        JSONObject testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_aliases_mapping.json"),
+        ObjectNode testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_aliases_mapping.json"),
                 null);
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testAliases.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testAliases.toString());
 
-        JSONObject testAliasesErrorType = EsUtil.getMappingProps("test",
+        ObjectNode testAliasesErrorType = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es8_aliases_mapping.json"), "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testAliasesErrorType.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testAliasesErrorType.toString());
 
-        JSONObject testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_index_mapping.json"),
+        ObjectNode testIndex = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_index_mapping.json"),
                 "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testIndex.toString());
 
-        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test",
+        ObjectNode testDynamicTemplates = EsUtil.getMappingProps("test",
                 loadJsonFromFile("data/es/es8_dynamic_templates_mapping.json"), "doc");
-        Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
-                testDynamicTemplates.toJSONString());
+        Assertions.assertEquals(
+                "{\"test1\":{\"type\":\"keyword\"},\"test2\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"test3\":{\"type\":\"double\"},\"test4\":{\"type\":\"date\"}}",
+                testDynamicTemplates.toString());
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
         EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_only_dynamic_templates_mapping.json"), "doc");
+    }
+
+    @Test
+    public void testDateType() throws IOException, URISyntaxException {
+        ObjectNode testDateFormat = EsUtil.getRootSchema(
+                EsUtil.getMapping(loadJsonFromFile("data/es/test_date_format.json")), null, new ArrayList<>());
+        List<Column> parseColumns = EsUtil.genColumnsFromEs("test_date_format", null, testDateFormat, false, new ArrayList<>());
+        Assertions.assertEquals(8, parseColumns.size());
+        for (Column column : parseColumns) {
+            String name = column.getName();
+            String type = column.getType().toSql();
+            if ("test2".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test3".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test4".equals(name)) {
+                Assertions.assertEquals("datev2", type);
+            }
+            if ("test5".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test6".equals(name)) {
+                Assertions.assertEquals("datev2", type);
+            }
+            if ("test7".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test8".equals(name)) {
+                Assertions.assertEquals("bigint(20)", type);
+            }
+        }
     }
 
 }

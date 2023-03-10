@@ -57,6 +57,9 @@ protected:
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
+    // Not virtual, all child will call this method explictly
+    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+
 public:
     VScanNode* get_parent() { return _parent; }
 
@@ -117,7 +120,6 @@ public:
 protected:
     void _discard_conjuncts() {
         if (_vconjunct_ctx) {
-            _vconjunct_ctx->mark_as_stale();
             _stale_vexpr_ctxs.push_back(_vconjunct_ctx);
             _vconjunct_ctx = nullptr;
         }
@@ -151,6 +153,7 @@ protected:
     // Cloned from _vconjunct_ctx of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContext* _vconjunct_ctx = nullptr;
+    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
     // Late arriving runtime filters will update _vconjunct_ctx.
     // The old _vconjunct_ctx will be temporarily placed in _stale_vexpr_ctxs
     // and will be destroyed at the end.

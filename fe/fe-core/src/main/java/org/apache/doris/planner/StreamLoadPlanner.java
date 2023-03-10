@@ -206,8 +206,9 @@ public class StreamLoadPlanner {
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
         }
+        // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns());
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);

@@ -54,13 +54,14 @@ public class MetaService extends RestBaseController {
 
     private static final String VERSION = "version";
     private static final String HOST = "host";
+    private static final String HOSTNAME = "hostname";
     private static final String PORT = "port";
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
     private boolean isFromValidFe(HttpServletRequest request) {
         String clientHost = request.getRemoteHost();
-        Frontend fe = Env.getCurrentEnv().getFeByHost(clientHost);
+        Frontend fe = Env.getCurrentEnv().getFeByIp(clientHost);
         if (fe == null) {
             LOG.warn("request is not from valid FE. client: {}", clientHost);
             return false;
@@ -184,12 +185,15 @@ public class MetaService extends RestBaseController {
     @RequestMapping(path = "/role", method = RequestMethod.GET)
     public Object role(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         checkFromValidFe(request);
-
+        // For upgrade compatibility, the host parameter name remains the same
+        // and the new hostname parameter is added.
+        // host = ip
         String host = request.getParameter(HOST);
+        String hostname = request.getParameter(HOSTNAME);
         String portString = request.getParameter(PORT);
         if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
             int port = Integer.parseInt(portString);
-            Frontend fe = Env.getCurrentEnv().checkFeExist(host, port);
+            Frontend fe = Env.getCurrentEnv().checkFeExist(host, hostname, port);
             if (fe == null) {
                 response.setHeader("role", FrontendNodeType.UNKNOWN.name());
             } else {
@@ -225,6 +229,10 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all
          * the jobs' read lock. This will guarantee the consistency of database and job queues.

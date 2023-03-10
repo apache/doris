@@ -26,6 +26,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -44,6 +45,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergApiSource;
 import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
@@ -55,6 +57,7 @@ import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -72,6 +75,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ExternalFileScanNode for the file access type of catalog, now only support
@@ -158,9 +162,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType,
+            List<String> hiddenColumns) {
         FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
-                fileGroup, fileStatus, strictMode, fileType);
+                fileGroup, fileStatus, strictMode, fileType, hiddenColumns);
         fileGroupInfos.add(fileGroupInfo);
         this.type = Type.LOAD;
     }
@@ -249,7 +254,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
      * In the projection process, some slots may be removed. So call this to update the slots info.
      */
     @Override
-    public void updateRequiredSlots() throws UserException {
+    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
+            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
         for (int i = 0; i < contexts.size(); i++) {
             ParamCreateContext context = contexts.get(i);
             FileScanProviderIf scanProvider = scanProviders.get(i);
@@ -307,6 +313,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         switch (catalogType) {
             case IcebergExternalCatalog.ICEBERG_HMS:
             case IcebergExternalCatalog.ICEBERG_REST:
+            case IcebergExternalCatalog.ICEBERG_DLF:
+            case IcebergExternalCatalog.ICEBERG_GLUE:
                 IcebergSource icebergSource = new IcebergApiSource(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);
@@ -417,7 +425,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    public void finalizeForNerieds() throws UserException {
+    @Override
+    public void finalizeForNereids() throws UserException {
         Preconditions.checkState(contexts.size() == scanProviders.size(),
                 contexts.size() + " vs. " + scanProviders.size());
         for (int i = 0; i < contexts.size(); ++i) {
@@ -482,7 +491,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 }
             } else {
                 if (column.isAllowNull()) {
-                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    if (type == Type.LOAD) {
+                        // In load process, the source type is string.
+                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    } else {
+                        expr = NullLiteral.create(column.getType());
+                    }
                 } else {
                     expr = null;
                 }
@@ -701,6 +715,24 @@ public class ExternalFileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
+        if (detailLevel == TExplainLevel.VERBOSE) {
+            output.append(prefix).append("backends:").append("\n");
+            for (TScanRangeLocations locations : scanRangeLocations) {
+                output.append(prefix).append("  ").append(locations.getLocations().get(0).backend_id).append("\n");
+                List<TFileRangeDesc> files = locations.getScanRange().getExtScanRange().getFileScanRange().getRanges();
+                for (int i = 0; i < 3; i++) {
+                    if (i >= files.size()) {
+                        break;
+                    }
+                    TFileRangeDesc file = files.get(i);
+                    output.append(prefix).append("    ").append(file.getPath())
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getFileSize())
+                            .append("\n");
+                }
+            }
+        }
+
         output.append(prefix);
         if (cardinality > 0) {
             output.append(String.format("cardinality=%s, ", cardinality));
@@ -713,6 +745,4 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
-
-
 

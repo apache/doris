@@ -36,18 +36,22 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
     } else if (argument_types.size() == 1) {
         return std::make_shared<AggFunctionOrthBitmapFunc<Impl<StringRef>>>(argument_types);
     } else {
-        const IDataType& argument_type = *argument_types[1];
-        AggregateFunctionPtr res(create_with_numeric_type<AggFunctionOrthBitmapFunc, Impl>(
-                argument_type, argument_types));
+        WhichDataType which(*remove_nullable(argument_types[1]));
 
-        WhichDataType which(argument_type);
-
+        AggregateFunctionPtr res(
+                creator_with_type_base<true, true, false, 1>::create<AggFunctionOrthBitmapFunc,
+                                                                     Impl>(result_is_nullable,
+                                                                           argument_types));
         if (res) {
             return res;
         } else if (which.is_string_or_fixed_string()) {
-            return std::make_shared<AggFunctionOrthBitmapFunc<Impl<std::string_view>>>(
-                    argument_types);
+            res.reset(
+                    creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<std::string_view>>>(
+                            result_is_nullable, argument_types));
+            return res;
         }
+
+        const IDataType& argument_type = *argument_types[1];
         LOG(WARNING) << "Incorrect Type " << argument_type.get_name()
                      << " of arguments for aggregate function " << name;
         return nullptr;
@@ -81,15 +85,12 @@ AggregateFunctionPtr create_aggregate_function_orthogonal_bitmap_union_count(
 }
 
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("orthogonal_bitmap_intersect",
-                              create_aggregate_function_orthogonal_bitmap_intersect);
-
-    factory.register_function("orthogonal_bitmap_intersect_count",
-                              create_aggregate_function_orthogonal_bitmap_intersect_count);
-
-    factory.register_function("orthogonal_bitmap_union_count",
-                              create_aggregate_function_orthogonal_bitmap_union_count);
-
-    factory.register_function("intersect_count", create_aggregate_function_intersect_count);
+    factory.register_function_both("orthogonal_bitmap_intersect",
+                                   create_aggregate_function_orthogonal_bitmap_intersect);
+    factory.register_function_both("orthogonal_bitmap_intersect_count",
+                                   create_aggregate_function_orthogonal_bitmap_intersect_count);
+    factory.register_function_both("orthogonal_bitmap_union_count",
+                                   create_aggregate_function_orthogonal_bitmap_union_count);
+    factory.register_function_both("intersect_count", create_aggregate_function_intersect_count);
 }
 } // namespace doris::vectorized

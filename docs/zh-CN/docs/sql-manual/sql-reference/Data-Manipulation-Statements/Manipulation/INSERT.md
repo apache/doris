@@ -126,8 +126,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
       如果 insert 对应 select 语句的结果集为空，则返回如下：
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from empty_tbl;
       Query OK, 0 rows affected (0.02 sec)
@@ -140,8 +138,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
       在结果集不为空的情况下。返回结果分为如下几种情况：
 
       1. Insert 执行成功并可见：
-
-         
 
          ```sql
          mysql> insert into tbl1 select * from tbl2;
@@ -165,8 +161,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
          同时会返回一个 json 串：
 
-         
-
          ```json
          {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
          {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
@@ -183,8 +177,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
          当需要查看被过滤的行时，用户可以通过如下语句
 
-         
-
          ```sql
          show load where label="xxx";
          ```
@@ -194,8 +186,6 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
          **数据不可见是一个临时状态，这批数据最终是一定可见的**
 
          可以通过如下语句查看这批数据的可见状态：
-
-         
 
          ```sql
          show transaction where id=4005;
@@ -207,16 +197,12 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
       执行失败表示没有任何数据被成功导入，并返回如下：
 
-      
-
       ```sql
       mysql> insert into tbl1 select * from tbl2 where k1 = "a";
       ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0bf8a2
       ```
 
       其中 `ERROR 1064 (HY000): all partitions have no load data` 显示失败原因。后面的 url 可以用于查询错误的数据：
-
-      
 
       ```sql
       show load warnings on "url";
@@ -226,6 +212,7 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
 2. 超时时间
 
+   <version since="dev"></version>
    INSERT 操作的超时时间由 [会话变量](../../../../advanced/variables.md) `insert_timeout` 控制。默认为4小时。超时则作业会被取消。
 
 3. Label 和原子性

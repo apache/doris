@@ -70,7 +70,7 @@ public class Telemetry {
             throw new Exception("unknown value " + Config.trace_exporter + " of trace_exporter in fe.conf");
         }
 
-        String serviceName = "FRONTEND:" + Env.getCurrentEnv().getSelfNode().first;
+        String serviceName = "FRONTEND:" + Env.getCurrentEnv().getSelfNode().getIp();
         Resource serviceNameResource = Resource.create(
                 Attributes.of(AttributeKey.stringKey("service.name"), serviceName));
         // Send a batch of spans if ScheduleDelay time or MaxExportBatchSize is reached

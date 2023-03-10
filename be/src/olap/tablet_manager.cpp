@@ -91,12 +91,6 @@ TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
-void TabletManager::add_tablet(const TabletSharedPtr& tablet) {
-    auto& tablet_map = _get_tablet_map(tablet->tablet_id());
-    std::lock_guard wlock(_get_tablets_shard_lock(tablet->tablet_id()));
-    tablet_map[tablet->tablet_id()] = tablet;
-}
-
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force) {
     Status res = Status::OK();
@@ -1302,20 +1296,19 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
                 tablets_shard.tablet_map.begin(), tablets_shard.tablet_map.end(),
                 [&candidates](auto& tablet_pair) { candidates.emplace_back(tablet_pair.second); });
     }
-    std::for_each(
-            candidates.begin(), candidates.end(),
-            [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
-                const TabletSharedPtr& tablet = t.lock();
-                if (UNLIKELY(nullptr == tablet)) {
-                    return;
-                }
-                std::shared_lock rdlock(tablet->get_header_lock());
-                int64_t cooldown_timestamp = -1;
-                size_t file_size = -1;
-                if (skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-                    sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
-                }
-            });
+    auto get_cooldown_tablet = [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
+        const TabletSharedPtr& tablet = t.lock();
+        if (UNLIKELY(nullptr == tablet)) {
+            return;
+        }
+        std::shared_lock rdlock(tablet->get_header_lock());
+        int64_t cooldown_timestamp = -1;
+        size_t file_size = -1;
+        if (!skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
+            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+        }
+    };
+    std::for_each(candidates.begin(), candidates.end(), get_cooldown_tablet);
 
     std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end());
 

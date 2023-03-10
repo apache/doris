@@ -169,10 +169,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_MAP:
         DCHECK(col_desc.children.size() == 2);
-        // todo. (Amory) Support Map contains_nulls in FE MapType.java Later PR
+        DCHECK_EQ(col_desc.contains_nulls.size(), 2);
         nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(col_desc.children[0], true),
-                create_data_type(col_desc.children[1], true));
+                create_data_type(col_desc.children[0], col_desc.contains_nulls[0]),
+                create_data_type(col_desc.children[1], col_desc.contains_nulls[1]));
         break;
     case TYPE_STRUCT: {
         DCHECK(col_desc.children.size() >= 1);
@@ -363,9 +363,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::MAP:
         DCHECK(pcolumn.children_size() == 2);
         // here to check pcolumn is list?
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(pcolumn.children(0).children(0)),
-                create_data_type(pcolumn.children(1).children(0)));
+        nested = std::make_shared<vectorized::DataTypeMap>(create_data_type(pcolumn.children(0)),
+                                                           create_data_type(pcolumn.children(1)));
         break;
     case PGenericType::STRUCT: {
         size_t col_size = pcolumn.children_size();

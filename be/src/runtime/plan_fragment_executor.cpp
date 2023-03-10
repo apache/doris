@@ -64,7 +64,9 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _is_report_success(false),
           _is_report_on_cancel(true),
           _collect_query_statistics_with_every_batch(false),
-          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {}
+          _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
+    _report_thread_future = _report_thread_promise.get_future();
+}
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
     close();
@@ -228,7 +230,10 @@ Status PlanFragmentExecutor::open() {
     // at end, otherwise the coordinator hangs in case we finish w/ an error
     if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        _report_thread = std::thread(&PlanFragmentExecutor::report_profile, this);
+        _exec_env->send_report_thread_pool()->submit_func([this] {
+            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
+            this->report_profile();
+        });
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
@@ -456,7 +461,10 @@ void PlanFragmentExecutor::stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    _report_thread.join();
+    // Wait infinitly until the thread is stopped and the future is set.
+    // The reporting thread depends on the PlanFragmentExecutor object, if not wait infinitly here, the reporting
+    // thread may crashed because the PlanFragmentExecutor is destroyed.
+    _report_thread_future.wait();
 }
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {

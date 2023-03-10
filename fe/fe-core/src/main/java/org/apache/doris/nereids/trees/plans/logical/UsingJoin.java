@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -46,23 +47,28 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     private final ImmutableList<Expression> otherJoinConjuncts;
     private final ImmutableList<Expression> hashJoinConjuncts;
     private final JoinHint hint;
+    private final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
     public UsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> expressions, List<Expression> hashJoinConjuncts,
             JoinHint hint) {
         this(joinType, leftChild, rightChild, expressions,
-                hashJoinConjuncts, Optional.empty(), Optional.empty(), hint);
+                hashJoinConjuncts, Optional.empty(), Optional.empty(), hint, Optional.empty());
     }
 
+    /**
+     * Constructor.
+     */
     public UsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> expressions, List<Expression> hashJoinConjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            JoinHint hint) {
+            JoinHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference) {
         super(PlanType.LOGICAL_USING_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = joinType;
         this.otherJoinConjuncts = ImmutableList.copyOf(expressions);
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.hint = hint;
+        this.markJoinSlotReference = markJoinSlotReference;
     }
 
     @Override
@@ -107,19 +113,19 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UsingJoin(joinType, child(0), child(1), otherJoinConjuncts,
-                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint);
+                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint, markJoinSlotReference);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new UsingJoin(joinType, child(0), child(1), otherJoinConjuncts,
-                hashJoinConjuncts, groupExpression, logicalProperties, hint);
+                hashJoinConjuncts, groupExpression, logicalProperties, hint, markJoinSlotReference);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new UsingJoin(joinType, children.get(0), children.get(1), otherJoinConjuncts,
-                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint);
+                hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint, markJoinSlotReference);
     }
 
     @Override
@@ -149,6 +155,14 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
 
     public JoinHint getHint() {
         return hint;
+    }
+
+    public boolean isMarkJoin() {
+        return markJoinSlotReference.isPresent();
+    }
+
+    public Optional<MarkJoinSlotReference> getMarkJoinSlotReference() {
+        return markJoinSlotReference;
     }
 
     @Override

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/key_holder_helpers.h"
@@ -31,122 +33,180 @@
 
 namespace doris::vectorized {
 
-template <typename T>
+template <typename T, typename HasLimit>
 struct AggregateFunctionCollectSetData {
     using ElementType = T;
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
     using ElementNativeType = typename NativeType<T>::Type;
+    using SelfType = AggregateFunctionCollectSetData;
     using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
-    Set set;
+    Set data_set;
+    Int64 max_size = -1;
+
+    size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& vec = assert_cast<const ColVecType&>(column).get_data();
-        set.insert(vec[row_num]);
+        data_set.insert(assert_cast<const ColVecType&>(column).get_data()[row_num]);
     }
-    void merge(const AggregateFunctionCollectSetData& rhs) { set.merge(rhs.set); }
-    void write(BufferWritable& buf) const { set.write(buf); }
-    void read(BufferReadable& buf) { set.read(buf); }
-    void reset() { set.clear(); }
+
+    void merge(const SelfType& rhs) {
+        if constexpr (HasLimit::value) {
+            for (auto& rhs_elem : rhs.data_set) {
+                if (size() >= max_size) {
+                    return;
+                }
+                data_set.insert(rhs_elem.get_value());
+            }
+        } else {
+            data_set.merge(rhs.data_set);
+        }
+    }
+
+    void write(BufferWritable& buf) const { data_set.write(buf); }
+
+    void read(BufferReadable& buf) { data_set.read(buf); }
+
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
-        vec.reserve(set.size());
-        for (auto item : set) {
+        vec.reserve(size());
+        for (const auto& item : data_set) {
             vec.push_back(item.key);
         }
     }
+
+    void reset() { data_set.clear(); }
 };
 
-template <>
-struct AggregateFunctionCollectSetData<StringRef> {
+template <typename HasLimit>
+struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
+    using SelfType = AggregateFunctionCollectSetData<ElementType, HasLimit>;
     using Set = HashSetWithSavedHashWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
-    Set set;
+    Set data_set;
+    Int64 max_size = -1;
+
+    size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num, Arena* arena) {
         Set::LookupResult it;
         bool inserted;
         auto key_holder = get_key_holder<true>(column, row_num, *arena);
-        set.emplace(key_holder, it, inserted);
+        data_set.emplace(key_holder, it, inserted);
     }
 
-    void merge(const AggregateFunctionCollectSetData& rhs, Arena* arena) {
-        Set::LookupResult it;
+    void merge(const SelfType& rhs, Arena* arena) {
         bool inserted;
-        for (const auto& elem : rhs.set) {
-            set.emplace(ArenaKeyHolder {elem.get_value(), *arena}, it, inserted);
+        Set::LookupResult it;
+        for (auto& rhs_elem : rhs.data_set) {
+            if constexpr (HasLimit::value) {
+                if (size() >= max_size) {
+                    return;
+                }
+            }
+            assert(arena != nullptr);
+            data_set.emplace(ArenaKeyHolder {rhs_elem.get_value(), *arena}, it, inserted);
         }
     }
+
     void write(BufferWritable& buf) const {
-        write_var_uint(set.size(), buf);
-        for (const auto& elem : set) {
+        write_var_uint(size(), buf);
+        for (const auto& elem : data_set) {
             write_string_binary(elem.get_value(), buf);
         }
     }
-    void read(BufferReadable& buf) {
-        UInt64 rows;
-        read_var_uint(rows, buf);
 
+    void read(BufferReadable& buf) {
+        UInt64 size;
+        read_var_uint(size, buf);
         StringRef ref;
-        for (size_t i = 0; i < rows; ++i) {
+        for (size_t i = 0; i < size; ++i) {
             read_string_binary(ref, buf);
-            set.insert(ref);
+            data_set.insert(ref);
         }
     }
-    void reset() { set.clear(); }
+
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to);
-        vec.reserve(set.size());
-        for (const auto& item : set) {
+        vec.reserve(size());
+        for (const auto& item : data_set) {
             vec.insert_data(item.key.data, item.key.size);
         }
     }
+
+    void reset() { data_set.clear(); }
 };
 
-template <typename T>
+template <typename T, typename HasLimit>
 struct AggregateFunctionCollectListData {
     using ElementType = T;
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
+    using SelfType = AggregateFunctionCollectListData<ElementType, HasLimit>;
     PaddedPODArray<ElementType> data;
+    Int64 max_size = -1;
+
+    size_t size() const { return data.size(); }
 
     void add(const IColumn& column, size_t row_num) {
         const auto& vec = assert_cast<const ColVecType&>(column).get_data();
         data.push_back(vec[row_num]);
     }
-    void merge(const AggregateFunctionCollectListData& rhs) {
-        data.insert(rhs.data.begin(), rhs.data.end());
+
+    void merge(const SelfType& rhs) {
+        if constexpr (HasLimit::value) {
+            for (auto& rhs_elem : rhs.data) {
+                if (size() >= max_size) {
+                    return;
+                }
+                data.push_back(rhs_elem);
+            }
+        } else {
+            data.insert(rhs.data.begin(), rhs.data.end());
+        }
     }
+
     void write(BufferWritable& buf) const {
-        write_var_uint(data.size(), buf);
-        buf.write(data.raw_data(), data.size() * sizeof(ElementType));
+        write_var_uint(size(), buf);
+        buf.write(data.raw_data(), size() * sizeof(ElementType));
     }
+
     void read(BufferReadable& buf) {
         UInt64 rows = 0;
         read_var_uint(rows, buf);
         data.resize(rows);
         buf.read(reinterpret_cast<char*>(data.data()), rows * sizeof(ElementType));
     }
+
     void reset() { data.clear(); }
+
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         size_t old_size = vec.size();
-        vec.resize(old_size + data.size());
-        memcpy(vec.data() + old_size, data.data(), data.size() * sizeof(ElementType));
+        vec.resize(old_size + size());
+        memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
     }
 };
 
-template <>
-struct AggregateFunctionCollectListData<StringRef> {
+template <typename HasLimit>
+struct AggregateFunctionCollectListData<StringRef, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     MutableColumnPtr data;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectListData() { data = ColVecType::create(); }
+
+    size_t size() const { return data->size(); }
 
     void add(const IColumn& column, size_t row_num) { data->insert_from(column, row_num); }
 
     void merge(const AggregateFunctionCollectListData& rhs) {
-        data->insert_range_from(*rhs.data, 0, rhs.data->size());
+        if constexpr (HasLimit::value) {
+            data->insert_range_from(*rhs.data, 0,
+                                    std::min(static_cast<size_t>(max_size - size()), rhs.size()));
+        } else {
+            data->insert_range_from(*rhs.data, 0, rhs.size());
+        }
     }
 
     void write(BufferWritable& buf) const {
@@ -177,23 +237,27 @@ struct AggregateFunctionCollectListData<StringRef> {
 
     void insert_result_into(IColumn& to) const {
         auto& to_str = assert_cast<ColVecType&>(to);
-        to_str.insert_range_from(*data, 0, data->size());
+        to_str.insert_range_from(*data, 0, size());
     }
 };
 
-template <typename Data>
-class AggregateFunctionCollect final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data>> {
-public:
-    static constexpr bool alloc_memory_in_arena =
-            std::is_same_v<Data, AggregateFunctionCollectSetData<StringRef>>;
+template <typename Data, typename HasLimit>
+class AggregateFunctionCollect
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>> {
+    using GenericType = AggregateFunctionCollectSetData<StringRef, HasLimit>;
 
-    AggregateFunctionCollect(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data>>(argument_types_),
-              _argument_type(argument_types_[0]) {}
+    static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
+
+public:
+    AggregateFunctionCollect(const DataTypes& argument_types,
+                             UInt64 max_size_ = std::numeric_limits<UInt64>::max())
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>>(
+                      {argument_types}),
+              return_type(argument_types[0]) {}
 
     std::string get_name() const override {
-        if constexpr (std::is_same_v<AggregateFunctionCollectListData<typename Data::ElementType>,
+        if constexpr (std::is_same_v<AggregateFunctionCollectListData<typename Data::ElementType,
+                                                                      HasLimit>,
                                      Data>) {
             return "collect_list";
         } else {
@@ -202,27 +266,38 @@ public:
     }
 
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeArray>(make_nullable(_argument_type));
+        return std::make_shared<DataTypeArray>(make_nullable(return_type));
     }
+
+    bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
-        assert(!columns[0]->is_null_at(row_num));
-        if constexpr (alloc_memory_in_arena) {
-            this->data(place).add(*columns[0], row_num, arena);
+        auto& data = this->data(place);
+        if constexpr (HasLimit::value) {
+            if (data.max_size == -1) {
+                data.max_size =
+                        (UInt64) static_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+            }
+            if (data.size() >= data.max_size) {
+                return;
+            }
+        }
+        if constexpr (ENABLE_ARENA) {
+            data.add(*columns[0], row_num, arena);
         } else {
-            this->data(place).add(*columns[0], row_num);
+            data.add(*columns[0], row_num);
         }
     }
 
-    void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
-
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena* arena) const override {
-        if constexpr (alloc_memory_in_arena) {
-            this->data(place).merge(this->data(rhs), arena);
+        auto& data = this->data(place);
+        auto& rhs_data = this->data(rhs);
+        if constexpr (ENABLE_ARENA) {
+            data.merge(rhs_data, arena);
         } else {
-            this->data(place).merge(this->data(rhs));
+            data.merge(rhs_data);
         }
     }
 
@@ -248,10 +323,8 @@ public:
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
-    bool allocates_memory_in_arena() const override { return alloc_memory_in_arena; }
-
 private:
-    DataTypePtr _argument_type;
+    DataTypePtr return_type;
 };
 
 } // namespace doris::vectorized

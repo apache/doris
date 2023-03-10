@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -208,10 +209,14 @@ public class Utils {
         if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
             if (binaryExpression.right() instanceof SlotReference) {
                 slots.add(binaryExpression.right());
+            } else if (binaryExpression.right() instanceof Cast) {
+                slots.add(((Cast) binaryExpression.right()).child());
             }
         } else {
             if (binaryExpression.left() instanceof SlotReference) {
                 slots.add(binaryExpression.left());
+            } else if (binaryExpression.left() instanceof Cast) {
+                slots.add(((Cast) binaryExpression.left()).child());
             }
         }
         return slots;
@@ -244,6 +249,7 @@ public class Utils {
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i) == item) {
                 list.remove(i);
+                i--;
                 return;
             }
         }

@@ -32,12 +32,14 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -122,7 +125,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-        return expr.getResultValue();
+        return expr.getResultValue(false);
     }
 
     /**
@@ -133,7 +136,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @return
      * @throws AnalysisException
      */
-    public boolean apply(Map<String, Expr> exprMap, Analyzer analyzer, boolean changed)
+    public boolean apply(Map<String, Expr> exprMap, Analyzer analyzer, boolean changed, TQueryOptions tQueryOptions)
             throws AnalysisException {
         // root_expr_id_string:
         //     child_expr_id_string : texpr
@@ -174,7 +177,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
         }
 
         if (!paramMap.isEmpty()) {
-            Map<String, Map<String, Expr>> resultMap = calcConstExpr(paramMap, allConstMap, analyzer.getContext());
+            Map<String, Map<String, Expr>> resultMap = calcConstExpr(paramMap, allConstMap, analyzer.getContext(),
+                    tQueryOptions);
 
             if (!resultMap.isEmpty()) {
                 putBackConstExpr(exprMap, resultMap);
@@ -195,7 +199,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
      */
     // public only for unit test
     public void getConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
-                              Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
+            Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
             throws AnalysisException {
         if (expr.isConstant()) {
             // Do not constant fold cast(null as dataType) because we cannot preserve the
@@ -338,8 +342,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @return
      */
     private Map<String, Map<String, Expr>> calcConstExpr(Map<String, Map<String, TExpr>> map,
-                                                         Map<String, Expr> allConstMap,
-                                                         ConnectContext context) {
+            Map<String, Expr> allConstMap,
+            ConnectContext context, TQueryOptions tQueryOptions) {
         TNetworkAddress brpcAddress = null;
         Map<String, Map<String, Expr>> resultMap = new HashMap<>();
         try {
@@ -364,6 +368,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
+            tParams.setQueryOptions(tQueryOptions);
+            tParams.setQueryId(context.queryId());
 
             Future<InternalService.PConstantExprResult> future
                     = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
@@ -375,14 +381,37 @@ public class FoldConstantsRule implements ExprRewriteRule {
                     Map<String, Expr> tmp = new HashMap<>();
                     for (Map.Entry<String, InternalService.PExprResult> entry1
                             : entry.getValue().getMapMap().entrySet()) {
-                        TPrimitiveType type = TPrimitiveType.findByValue(entry1.getValue().getType().getType());
+                        PScalarType scalarType = entry1.getValue().getType();
+                        TPrimitiveType ttype = TPrimitiveType.findByValue(scalarType.getType());
                         Expr retExpr = null;
                         if (entry1.getValue().getSuccess()) {
+                            Type type = null;
+                            if (ttype == TPrimitiveType.CHAR) {
+                                Preconditions.checkState(scalarType.hasLen());
+                                type = ScalarType.createCharType(scalarType.getLen());
+                            } else if (ttype == TPrimitiveType.VARCHAR) {
+                                Preconditions.checkState(scalarType.hasLen());
+                                type = ScalarType.createVarcharType(scalarType.getLen());
+                            } else if (ttype == TPrimitiveType.DECIMALV2) {
+                                type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                                        scalarType.getScale());
+                            } else if (ttype == TPrimitiveType.DATETIMEV2) {
+                                type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                            } else if (ttype == TPrimitiveType.DECIMAL32
+                                    || ttype == TPrimitiveType.DECIMAL64
+                                    || ttype == TPrimitiveType.DECIMAL128I) {
+                                type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
+                                        scalarType.getScale());
+                            } else {
+                                type = ScalarType.createType(
+                                        PrimitiveType.fromThrift(ttype));
+                            }
                             retExpr = LiteralExpr.create(entry1.getValue().getContent(),
-                                    Type.fromPrimitiveType(PrimitiveType.fromThrift(type)));
+                                    type);
                         } else {
                             retExpr = allConstMap.get(entry1.getKey());
                         }
+                        LOG.debug("retExpr: " + retExpr.toString());
                         tmp.put(entry1.getKey(), retExpr);
                     }
                     if (!tmp.isEmpty()) {

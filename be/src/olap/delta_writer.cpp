@@ -17,10 +17,12 @@
 
 #include "olap/delta_writer.h"
 
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
@@ -156,8 +158,13 @@ Status DeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
-    if (UNLIKELY(row_idxs.empty())) {
+Status DeltaWriter::append(const vectorized::Block* block) {
+    return write(block, {}, true);
+}
+
+Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+                          bool is_append) {
+    if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -175,8 +182,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::Error<ALREADY_CLOSED>();
     }
 
-    _total_received_rows += row_idxs.size();
-    _mem_table->insert(block, row_idxs);
+    if (is_append) {
+        _total_received_rows += block->rows();
+    } else {
+        _total_received_rows += row_idxs.size();
+    }
+    _mem_table->insert(block, row_idxs, is_append);
 
     if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();
@@ -346,7 +357,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     if (_tablet->enable_unique_key_merge_on_write()) {
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
+                dynamic_cast<BetaRowsetWriter*>(_rowset_writer.get())->get_num_mow_keys());
     }
 
     _delta_written_success = true;

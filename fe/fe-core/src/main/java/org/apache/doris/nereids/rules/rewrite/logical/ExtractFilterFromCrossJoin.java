@@ -21,8 +21,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -40,9 +40,9 @@ public class ExtractFilterFromCrossJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return crossLogicalJoin()
                 .then(join -> {
-                    LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
+                    LogicalJoin<Plan, Plan> newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
                             ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, join.getHint(),
-                            join.left(), join.right());
+                            join.getMarkJoinSlotReference(), join.left(), join.right());
                     Set<Expression> predicates = Stream.concat(join.getHashJoinConjuncts().stream(),
                                     join.getOtherJoinConjuncts().stream())
                             .collect(ImmutableSet.toImmutableSet());

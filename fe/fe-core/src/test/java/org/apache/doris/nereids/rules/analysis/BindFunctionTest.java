@@ -21,13 +21,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-public class BindFunctionTest extends TestWithFeService implements PatternMatchSupported {
+public class BindFunctionTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     private final NereidsParser parser = new NereidsParser();
 

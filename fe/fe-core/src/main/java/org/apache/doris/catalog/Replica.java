@@ -36,6 +36,7 @@ import java.util.Comparator;
 public class Replica implements Writable {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
+    public static final IdComparator<Replica> ID_COMPARATOR = new IdComparator<Replica>();
 
     public enum ReplicaState {
         NORMAL,
@@ -110,6 +111,7 @@ public class Replica implements Writable {
     private boolean bad = false;
 
     private TUniqueId cooldownMetaId;
+    private long cooldownTerm = -1;
 
     /*
      * If set to true, with means this replica need to be repaired. explicitly.
@@ -243,6 +245,14 @@ public class Replica implements Writable {
 
     public void setCooldownMetaId(TUniqueId cooldownMetaId) {
         this.cooldownMetaId = cooldownMetaId;
+    }
+
+    public long getCooldownTerm() {
+        return cooldownTerm;
+    }
+
+    public void setCooldownTerm(long cooldownTerm) {
+        this.cooldownTerm = cooldownTerm;
     }
 
     public boolean needFurtherRepair() {
@@ -534,6 +544,22 @@ public class Replica implements Writable {
                 return 0;
             } else {
                 return -1;
+            }
+        }
+    }
+
+    private static class IdComparator<T extends Replica> implements Comparator<T> {
+        public IdComparator() {
+        }
+
+        @Override
+        public int compare(T replica1, T replica2) {
+            if (replica1.getId() < replica2.getId()) {
+                return -1;
+            } else if (replica1.getId() == replica2.getId()) {
+                return 0;
+            } else {
+                return 1;
             }
         }
     }

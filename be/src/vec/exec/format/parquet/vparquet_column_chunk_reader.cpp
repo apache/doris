@@ -65,11 +65,25 @@ Status ColumnChunkReader::next_page() {
         RETURN_IF_ERROR(_decode_dict_page());
         // parse the real first data page
         return next_page();
+    } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
+        _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
+        _state = HEADER_PARSED;
+        return Status::OK();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
         _state = HEADER_PARSED;
         return Status::OK();
     }
+}
+
+void ColumnChunkReader::_get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2,
+                                                 Slice& page_data) {
+    int32_t rl = page_v2.repetition_levels_byte_length;
+    int32_t dl = page_v2.definition_levels_byte_length;
+    _v2_rep_levels = Slice(page_data.data, rl);
+    _v2_def_levels = Slice(page_data.data + rl, dl);
+    page_data.data += dl + rl;
+    page_data.size -= dl + rl;
 }
 
 Status ColumnChunkReader::load_page_data() {
@@ -83,31 +97,58 @@ Status ColumnChunkReader::load_page_data() {
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
         RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
-        // check decompressed buffer size
-        _reserve_decompress_buf(uncompressed_size);
-        _page_data = Slice(_decompress_buf.get(), uncompressed_size);
-        SCOPED_RAW_TIMER(&_statistics.decompress_time);
-        _statistics.decompress_cnt++;
-        RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
+        if (header.__isset.data_page_header_v2) {
+            tparquet::DataPageHeaderV2 header_v2 = header.data_page_header_v2;
+            uncompressed_size -= header_v2.repetition_levels_byte_length +
+                                 header_v2.definition_levels_byte_length;
+            _get_uncompressed_levels(header_v2, compressed_data);
+        }
+        bool is_v2_compressed =
+                header.__isset.data_page_header_v2 && header.data_page_header_v2.is_compressed;
+        if (header.__isset.data_page_header || is_v2_compressed) {
+            // check decompressed buffer size
+            _reserve_decompress_buf(uncompressed_size);
+            _page_data = Slice(_decompress_buf.get(), uncompressed_size);
+            SCOPED_RAW_TIMER(&_statistics.decompress_time);
+            _statistics.decompress_cnt++;
+            RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
+        } else {
+            // Don't need decompress
+            _page_data = Slice(compressed_data.data, compressed_data.size);
+        }
     } else {
         RETURN_IF_ERROR(_page_reader->get_page_data(_page_data));
+        if (header.__isset.data_page_header_v2) {
+            tparquet::DataPageHeaderV2 header_v2 = header.data_page_header_v2;
+            _get_uncompressed_levels(header_v2, _page_data);
+        }
     }
 
     // Initialize repetition level and definition level. Skip when level = 0, which means required field.
     if (_max_rep_level > 0) {
         SCOPED_RAW_TIMER(&_statistics.decode_level_time);
-        RETURN_IF_ERROR(_rep_level_decoder.init(&_page_data,
-                                                header.data_page_header.repetition_level_encoding,
-                                                _max_rep_level, _remaining_num_values));
+        if (header.__isset.data_page_header_v2) {
+            RETURN_IF_ERROR(_rep_level_decoder.init_v2(_v2_rep_levels, _max_rep_level,
+                                                       _remaining_num_values));
+        } else {
+            RETURN_IF_ERROR(_rep_level_decoder.init(
+                    &_page_data, header.data_page_header.repetition_level_encoding, _max_rep_level,
+                    _remaining_num_values));
+        }
     }
     if (_max_def_level > 0) {
         SCOPED_RAW_TIMER(&_statistics.decode_level_time);
-        RETURN_IF_ERROR(_def_level_decoder.init(&_page_data,
-                                                header.data_page_header.definition_level_encoding,
-                                                _max_def_level, _remaining_num_values));
+        if (header.__isset.data_page_header_v2) {
+            RETURN_IF_ERROR(_def_level_decoder.init_v2(_v2_def_levels, _max_def_level,
+                                                       _remaining_num_values));
+        } else {
+            RETURN_IF_ERROR(_def_level_decoder.init(
+                    &_page_data, header.data_page_header.definition_level_encoding, _max_def_level,
+                    _remaining_num_values));
+        }
     }
-
-    auto encoding = header.data_page_header.encoding;
+    auto encoding = header.__isset.data_page_header_v2 ? header.data_page_header_v2.encoding
+                                                       : header.data_page_header.encoding;
     // change the deprecated encoding to RLE_DICTIONARY
     if (encoding == tparquet::Encoding::PLAIN_DICTIONARY) {
         encoding = tparquet::Encoding::RLE_DICTIONARY;

@@ -169,10 +169,6 @@ public class TupleDescriptor {
         return byteSize;
     }
 
-    public boolean getIsMaterialized() {
-        return isMaterialized;
-    }
-
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
     }
@@ -203,7 +199,7 @@ public class TupleDescriptor {
     }
 
     public TableName getAliasAsName() {
-        return (aliases != null) ? new TableName(null, null, aliases[0]) : null;
+        return (aliases != null) ? new TableName(aliases[0]) : null;
     }
 
     public TTupleDescriptor toThrift() {

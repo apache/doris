@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -40,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -48,13 +48,12 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * function binder
  */
-class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
+public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
     public <E extends Expression> E bind(E expression, CascadesContext context) {
@@ -69,7 +68,7 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         if (expr instanceof ImplicitCastInputTypes) {
             List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
             if (!expectedInputTypes.isEmpty()) {
-                return visitImplicitCastInputTypes(expr, expectedInputTypes);
+                return TypeCoercionUtils.implicitCastInputTypes(expr, expectedInputTypes);
             }
         }
         return expr;
@@ -96,12 +95,7 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
 
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
-
-        // check
-        boundFunction.checkLegalityBeforeTypeCoercion();
-
-        // type coercion
-        return visitImplicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+        return TypeCoercionUtils.processBoundFunction(boundFunction);
     }
 
     /**
@@ -171,17 +165,8 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
     public Expression visitCompoundPredicate(CompoundPredicate compoundPredicate, CascadesContext context) {
         Expression left = compoundPredicate.left().accept(this, context);
         Expression right = compoundPredicate.right().accept(this, context);
-        Expression ret = compoundPredicate.withChildren(left, right);
-        ret.children().forEach(e -> {
-                    if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()) {
-                        throw new AnalysisException(String.format(
-                                "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                                        + "returns type '%s'.",
-                                e.toSql(), ret.toSql(), e.getDataType()));
-                    }
-                }
-        );
-        return ret;
+        CompoundPredicate ret = (CompoundPredicate) compoundPredicate.withChildren(left, right);
+        return TypeCoercionUtils.processCompoundPredicate(ret);
     }
 
     @Override
@@ -208,33 +193,8 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         List<Expression> rewrittenChildren = caseWhen.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren);
-
-        // check
         newCaseWhen.checkLegalityBeforeTypeCoercion();
-
-        // type coercion
-        List<DataType> dataTypesForCoercion = newCaseWhen.dataTypesForCoercion();
-        if (dataTypesForCoercion.size() <= 1) {
-            return newCaseWhen;
-        }
-        DataType first = dataTypesForCoercion.get(0);
-        if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
-            return newCaseWhen;
-        }
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion);
-        return optionalCommonType
-                .map(commonType -> {
-                    List<Expression> newChildren
-                            = newCaseWhen.getWhenClauses().stream()
-                            .map(wc -> wc.withChildren(wc.getOperand(),
-                                    TypeCoercionUtils.castIfNotMatchType(wc.getResult(), commonType)))
-                            .collect(Collectors.toList());
-                    newCaseWhen.getDefaultValue()
-                            .map(dv -> TypeCoercionUtils.castIfNotMatchType(dv, commonType))
-                            .ifPresent(newChildren::add);
-                    return newCaseWhen.withChildren(newChildren);
-                })
-                .orElse(newCaseWhen);
+        return TypeCoercionUtils.processCaseWhen(newCaseWhen);
     }
 
     @Override
@@ -242,26 +202,14 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
-
-        // type coercion
-        if (newInPredicate.getOptions().stream().map(Expression::getDataType)
-                .allMatch(dt -> dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
-            return newInPredicate;
-        }
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(newInPredicate.children()
-                .stream().map(Expression::getDataType).collect(Collectors.toList()));
-
-        return optionalCommonType
-                .map(commonType -> {
-                    List<Expression> newChildren = newInPredicate.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
-                            .collect(Collectors.toList());
-                    return newInPredicate.withChildren(newChildren);
-                })
-                .orElse(newInPredicate);
+        return TypeCoercionUtils.processInPredicate(newInPredicate);
     }
 
-    private Expression visitImplicitCastInputTypes(Expression expr, List<AbstractDataType> expectedInputTypes) {
-        return TypeCoercionUtils.implicitCastInputTypes(expr, expectedInputTypes);
+    @Override
+    public Expression visitBetween(Between between, CascadesContext context) {
+        List<Expression> rewrittenChildren = between.children().stream()
+                .map(e -> e.accept(this, context)).collect(Collectors.toList());
+        Between newBetween = between.withChildren(rewrittenChildren);
+        return TypeCoercionUtils.processBetween(newBetween);
     }
 }

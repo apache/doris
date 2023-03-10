@@ -198,6 +198,12 @@ struct TQueryOptions {
   61: optional i32 insert_timeout = 14400
 
   62: optional i32 execution_timeout = 3600
+
+  // For debug purpose, skip delete bitmap when reading data
+  63: optional bool skip_delete_bitmap = false
+  64: optional bool dry_run_query = false
+
+  65: optional bool enable_common_expr_pushdown = false;
 }
     
 
@@ -425,6 +431,8 @@ struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
   3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
 }
 
 // TransmitData

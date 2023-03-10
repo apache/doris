@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -68,7 +67,8 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                         || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderUtils.checkProject(join.left()))
+                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topSemiJoin.left();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = project.child();
@@ -96,19 +96,12 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                    /      \
                          *  A      B                  A        C
                          */
-                        // Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
-                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
-                            // when bottom join is right outer join, we change it to inner join
-                            // if we want to do this trans. However, we do not allow different logical properties
-                            // in one group. So we need to change it to inner join in rewrite step.
-                            return null;
-                        }
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(), conjuncts.first, conjuncts.second, JoinHint.NONE, a, c);
+                        // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
+                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE, newBottomSemiJoin, b);
+                        Plan newBottomSemiJoin = topSemiJoin.withConjunctsChildren(conjuncts.first, conjuncts.second,
+                                a, c);
+                        Plan newTopJoin = bottomJoin.withChildren(newBottomSemiJoin, b);
                         return project.withChildren(newTopJoin);
                     } else {
                         if (leftDeep) {
@@ -123,18 +116,12 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                               /      \
                          *  A      B                             B       C
                          */
-                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
-                            // when bottom join is left outer join, we change it to inner join
-                            // if we want to do this trans. However, we do not allow different logical properties
-                            // in one group. So we need to change it to inner join in rewrite step.
-                            return null;
-                        }
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(), conjuncts.first, conjuncts.second, JoinHint.NONE, b, c);
+                        // LEFT_OUTER_JOIN should be eliminated in rewrite phase
+                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.LEFT_OUTER_JOIN);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE, a, newBottomSemiJoin);
+                        Plan newBottomSemiJoin = topSemiJoin.withConjunctsChildren(conjuncts.first, conjuncts.second,
+                                b, c);
+                        Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);
                         return project.withChildren(newTopJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);

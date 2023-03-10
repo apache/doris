@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -40,7 +42,7 @@ import java.util.Map;
  *
  * change avg( distinct a ) into sum( distinct a ) / count( distinct a ) if there are more than 1 distinct arguments
  */
-public class AvgDistinctToSumDivCount extends OneAnalysisRuleFactory {
+public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return RuleType.AVG_DISTINCT_TO_SUM_DIV_COUNT.build(
@@ -49,9 +51,11 @@ public class AvgDistinctToSumDivCount extends OneAnalysisRuleFactory {
                             .stream()
                             .filter(function -> function instanceof Avg && function.isDistinct())
                             .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
-                                Sum sum = new Sum(true, ((Avg) function).child());
-                                Count count = new Count(true, ((Avg) function).child());
-                                return new Divide(sum, count);
+                                Sum sum = (Sum) TypeCoercionUtils.processBoundFunction(
+                                        new Sum(true, ((Avg) function).isAlwaysNullable(), ((Avg) function).child()));
+                                Count count = (Count) TypeCoercionUtils.processBoundFunction(
+                                        new Count(true, ((Avg) function).child()));
+                                return TypeCoercionUtils.processDivide(new Divide(sum, count), sum, count);
                             }));
                     if (!avgToSumDivCount.isEmpty()) {
                         List<NamedExpression> newOutput = agg.getOutputExpressions().stream()

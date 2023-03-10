@@ -68,27 +68,88 @@ CREATE CATALOG es PROPERTIES (
 
 ## 列类型映射
 
-| ES Type | Doris Type | Comment |
-|---|---|---|
+| ES Type | Doris Type | Comment                                                    |
+|---|---|------------------------------------------------------------|
 |null| null||
-| boolean | boolean | |
-| byte| tinyint| |
-| short| smallint| |
-| integer| int| |
-| long| bigint| |
-| unsigned_long| largeint | |
-| float| float| |
-| half_float| float| |
-| double | double | |
-| scaled_float| double | |
-| date | date | |
-| keyword | string | |
-| text |string | |
-| ip |string | |
-| nested |string | |
-| object |string | |
+| boolean | boolean |                                                            |
+| byte| tinyint|                                                            |
+| short| smallint|                                                            |
+| integer| int|                                                            |
+| long| bigint|                                                            |
+| unsigned_long| largeint |                                                            |
+| float| float|                                                            |
+| half_float| float|                                                            |
+| double | double |                                                            |
+| scaled_float| double |                                                            |
+| date | date | 仅支持 default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis 格式 |
+| keyword | string |                                                            |
+| text |string |                                                            |
+| ip |string |                                                            |
+| nested |string |                                                            |
+| object |string |                                                            |
 |other| unsupported ||
 
+<version since="dev">
+### Array 类型
+
+Elasticsearch 没有明确的数组类型，但是它的某个字段可以含有[0个或多个值](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html)。
+为了表示一个字段是数组类型，可以在索引映射的[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-meta-field.html)部分添加特定的`doris`结构注释。
+对于 Elasticsearch 6.x 及之前版本，请参考[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/6.8/mapping-meta-field.html)。
+
+举例说明，假设有一个索引`doc`包含以下的数据结构：
+
+```json
+{
+  "array_int_field": [1, 2, 3, 4],
+  "array_string_field": ["doris", "is", "the", "best"],
+  "id_field": "id-xxx-xxx",
+  "timestamp_field": "2022-11-12T12:08:56Z",
+  "array_object_field": [
+    {
+      "name": "xxx",
+      "age": 18
+    }
+  ]
+}
+```
+
+该结构的数组字段可以通过使用以下命令将字段属性定义添加到目标索引映射的`_meta.doris`属性来定义。
+
+```bash
+# ES 7.x and above
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type:application/json' -d '
+{
+    "_meta": {
+        "doris":{
+            "array_fields":[
+                "array_int_field",
+                "array_string_field",
+                "array_object_field"
+            ]
+        }
+    }
+}'
+
+# ES 6.x and before
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/json' -d '
+{
+    "_doc": {
+        "_meta": {
+            "doris":{
+                "array_fields":[
+                    "array_int_field",
+                    "array_string_field",
+                    "array_object_field"
+                ]
+            }
+    }
+    }
+}
+```
+
+`array_fields`：用来表示是数组类型的字段。
+
+</version>
 ## 最佳实践
 
 ### 过滤条件下推

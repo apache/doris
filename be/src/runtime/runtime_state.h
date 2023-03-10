@@ -118,6 +118,11 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
+    bool enable_common_expr_pushdown() const {
+        return _query_options.__isset.enable_common_expr_pushdown &&
+               _query_options.enable_common_expr_pushdown;
+    }
+
     Status query_status() {
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
@@ -293,6 +298,10 @@ public:
 
     bool skip_delete_predicate() const {
         return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
+    }
+
+    bool skip_delete_bitmap() const {
+        return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
     int partitioned_hash_join_rows_threshold() const {

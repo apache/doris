@@ -17,17 +17,16 @@
 
 #include <gtest/gtest.h>
 
-#include "common/logging.h"
-#include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_histogram.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/common/arena.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
 
@@ -44,11 +43,11 @@ public:
 
     template <typename DataType>
     void agg_histogram_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place,
-                                    size_t input_rows, double sample_rate, size_t max_bucket_num) {
+                                    size_t input_rows, size_t max_num_buckets) {
         using FieldType = typename DataType::FieldType;
         auto type = std::make_shared<DataType>();
 
-        if (sample_rate == 0 || max_bucket_num == 0) {
+        if (max_num_buckets == 0) {
             auto input_col = type->create_column();
             for (size_t i = 0; i < input_rows; ++i) {
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
@@ -70,10 +69,9 @@ public:
             return;
         }
 
-        MutableColumns columns(3);
+        MutableColumns columns(2);
         columns[0] = type->create_column();
-        columns[1] = ColumnFloat64::create();
-        columns[2] = ColumnInt32::create();
+        columns[1] = ColumnInt32::create();
 
         for (size_t i = 0; i < input_rows; ++i) {
             if constexpr (std::is_same_v<DataType, DataTypeString>) {
@@ -83,28 +81,25 @@ public:
                 auto item = FieldType(static_cast<uint64_t>(i));
                 columns[0]->insert_data(reinterpret_cast<const char*>(&item), 0);
             }
-            columns[1]->insert_data(reinterpret_cast<char*>(&sample_rate), sizeof(sample_rate));
-            columns[2]->insert_data(reinterpret_cast<char*>(&max_bucket_num),
-                                    sizeof(max_bucket_num));
+            columns[1]->insert_data(reinterpret_cast<char*>(&max_num_buckets),
+                                    sizeof(max_num_buckets));
         }
 
         EXPECT_EQ(columns[0]->size(), input_rows);
 
-        const IColumn* column[3] = {columns[0].get(), columns[1].get(), columns[2].get()};
+        const IColumn* column[2] = {columns[0].get(), columns[1].get()};
         for (int i = 0; i < input_rows; i++) {
             agg_function->add(place, column, i, &_agg_arena_pool);
         }
     }
 
     template <typename DataType>
-    void test_agg_histogram(size_t input_rows = 0, double sample_rate = 0,
-                            size_t max_bucket_num = 0) {
+    void test_agg_histogram(size_t input_rows = 0, size_t max_num_buckets = 0) {
         DataTypes data_types1 = {(DataTypePtr)std::make_shared<DataType>()};
-        DataTypes data_types3 = {(DataTypePtr)std::make_shared<DataType>(),
-                                 std::make_shared<DataTypeFloat64>(),
+        DataTypes data_types2 = {(DataTypePtr)std::make_shared<DataType>(),
                                  std::make_shared<DataTypeInt32>()};
 
-        auto data_types = (sample_rate == 0 || max_bucket_num == 0) ? data_types1 : data_types3;
+        auto data_types = (max_num_buckets == 0) ? data_types1 : data_types2;
         LOG(INFO) << "test_agg_histogram for type"
                   << "(" << data_types[0]->get_name() << ")";
 
@@ -115,8 +110,7 @@ public:
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        agg_histogram_add_elements<DataType>(agg_function, place, input_rows, sample_rate,
-                                             max_bucket_num);
+        agg_histogram_add_elements<DataType>(agg_function, place, input_rows, max_num_buckets);
 
         ColumnString buf;
         VectorBufferWriter buf_writer(buf);
@@ -128,8 +122,7 @@ public:
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
-        agg_histogram_add_elements<DataType>(agg_function, place2, input_rows, sample_rate,
-                                             max_bucket_num);
+        agg_histogram_add_elements<DataType>(agg_function, place2, input_rows, max_num_buckets);
         agg_function->merge(place, place2, &_agg_arena_pool);
 
         auto column_result1 = ColumnString::create();
@@ -146,10 +139,8 @@ public:
         LOG(INFO) << column_result2->get_data_at(0).to_string();
 
         // test empty data
-        if (input_rows == 0 && sample_rate == 0 && max_bucket_num == 0) {
-            std::string expect_empty_result =
-                    "{\"sample_rate\":0.2,\"max_bucket_num\":128,\"bucket_num\":0,\"buckets\":[]"
-                    "}";
+        if (input_rows == 0 && max_num_buckets == 0) {
+            std::string expect_empty_result = "{\"num_buckets\":0,\"buckets\":[]}";
             std::string empty_result1 = column_result1->get_data_at(0).to_string();
             std::string empty_result2 = column_result2->get_data_at(0).to_string();
             EXPECT_EQ(empty_result1, expect_empty_result);
@@ -157,10 +148,10 @@ public:
         }
 
         // test with data
-        if (input_rows == 1000 && sample_rate == 0.5 && max_bucket_num == 5) {
+        if (input_rows == 1000 && max_num_buckets == 5) {
             if constexpr (std::is_same_v<DataType, DataTypeInt32>) {
                 std::string expect_result1 =
-                        "{\"sample_rate\":0.5,\"max_bucket_num\":5,\"bucket_num\":5,\"buckets\":["
+                        "{\"num_buckets\":5,\"buckets\":["
                         "{\"lower\":\"0\",\"upper\":\"189\",\"count\":200,\"pre_sum\":0,\"ndv\":"
                         "151},"
                         "{\"lower\":\"190\",\"upper\":\"380\",\"count\":200,\"pre_sum\":200,"
@@ -172,7 +163,7 @@ public:
                         "{\"lower\":\"797\",\"upper\":\"999\",\"count\":200,\"pre_sum\":800,"
                         "\"ndv\":147}]}";
                 std::string expect_result2 =
-                        "{\"sample_rate\":0.5,\"max_bucket_num\":5,\"bucket_num\":5,\"buckets\":["
+                        "{\"num_buckets\":5,\"buckets\":["
                         "{\"lower\":\"0\",\"upper\":\"207\",\"count\":100,\"pre_sum\":0,\"ndv\":"
                         "100},"
                         "{\"lower\":\"209\",\"upper\":\"410\",\"count\":100,\"pre_sum\":100,"
@@ -199,40 +190,39 @@ private:
 };
 
 TEST_F(VAggHistogramTest, test_empty) {
-    // test_agg_histogram<DataTypeInt8>();
-    // test_agg_histogram<DataTypeInt16>();
-    // test_agg_histogram<DataTypeInt32>();
-    // test_agg_histogram<DataTypeInt64>();
-    // test_agg_histogram<DataTypeInt128>();
+    test_agg_histogram<DataTypeInt8>();
+    test_agg_histogram<DataTypeInt16>();
+    test_agg_histogram<DataTypeInt32>();
+    test_agg_histogram<DataTypeInt64>();
+    test_agg_histogram<DataTypeInt128>();
 
-    // test_agg_histogram<DataTypeFloat32>();
-    // test_agg_histogram<DataTypeFloat64>();
+    test_agg_histogram<DataTypeFloat32>();
+    test_agg_histogram<DataTypeFloat64>();
 
-    // test_agg_histogram<DataTypeDate>();
-    // test_agg_histogram<DataTypeDateTime>();
-    // test_agg_histogram<DataTypeString>();
-    // test_agg_histogram<DataTypeDecimal<Decimal128>>();
+    test_agg_histogram<DataTypeDate>();
+    test_agg_histogram<DataTypeDateTime>();
+    test_agg_histogram<DataTypeString>();
+    test_agg_histogram<DataTypeDecimal<Decimal128>>();
 }
 
 TEST_F(VAggHistogramTest, test_with_data) {
-    // rows 1000, sample rate 0.5, max bucket size 5
-    // test_agg_histogram<DataTypeString>(1000, 0.5, 5);
+    // rows 1000, max bucket size 5
+    test_agg_histogram<DataTypeString>(1000, 5);
+    test_agg_histogram<DataTypeInt8>(100, 5);
+    test_agg_histogram<DataTypeInt16>(100, 5);
+    test_agg_histogram<DataTypeInt32>(100, 5);
+    test_agg_histogram<DataTypeInt64>(100, 5);
+    test_agg_histogram<DataTypeInt128>(100, 5);
+    test_agg_histogram<DataTypeFloat32>(100, 5);
+    test_agg_histogram<DataTypeFloat64>(100, 5);
 
-    // test_agg_histogram<DataTypeInt8>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeInt16>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeInt32>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeInt64>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeInt128>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeFloat32>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeFloat64>(100, 0.5, 5);
+    test_agg_histogram<DataTypeDate>(100, 5);
+    test_agg_histogram<DataTypeDateV2>(100, 5);
 
-    // test_agg_histogram<DataTypeDate>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeDateV2>(100, 0.5, 5);
+    test_agg_histogram<DataTypeDateTime>(100, 5);
+    test_agg_histogram<DataTypeDateTimeV2>(100, 5);
 
-    // test_agg_histogram<DataTypeDateTime>(100, 0.5, 5);
-    // test_agg_histogram<DataTypeDateTimeV2>(100, 0.5, 5);
-
-    // test_agg_histogram<DataTypeDecimal<Decimal128>>(100, 0.5, 5);
+    test_agg_histogram<DataTypeDecimal<Decimal128>>(100, 5);
 }
 
 } // namespace doris::vectorized

@@ -19,21 +19,25 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class EliminateDedupJoinConditionTest implements PatternMatchSupported {
+class EliminateDedupJoinConditionTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
     @Test
     void testEliminate() {
-        LogicalPlan plan = new LogicalPlanBuilder(PlanConstructor.scan1)
-                .join(PlanConstructor.scan2, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(0, 0)))
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(0, 0)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

@@ -66,6 +66,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    _init_system_properties();
+    _init_file_description();
 }
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -85,7 +87,26 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
-          _io_ctx(io_ctx) {}
+          _io_ctx(io_ctx) {
+    _init_system_properties();
+    _init_file_description();
+}
+
+void NewJsonReader::_init_system_properties() {
+    _system_properties.system_type = _params.file_type;
+    _system_properties.properties = _params.properties;
+    _system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        _system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                   _params.broker_addresses.end());
+    }
+}
+
+void NewJsonReader::_init_file_description() {
+    _file_description.path = _range.path;
+    _file_description.start_offset = _range.start_offset;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+}
 
 Status NewJsonReader::init_reader() {
     if (config::enable_simdjson_reader) {
@@ -306,26 +327,13 @@ Status NewJsonReader::_open_file_reader() {
     }
 
     _current_offset = start_offset;
-
-    FileSystemProperties system_properties;
-    system_properties.system_type = _params.file_type;
-    system_properties.properties = _params.properties;
-    system_properties.hdfs_params = _params.hdfs_params;
-    if (_params.__isset.broker_addresses) {
-        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
-                                                  _params.broker_addresses.end());
-    }
-
-    FileDescription file_description;
-    file_description.path = _range.path;
-    file_description.start_offset = start_offset;
-    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
-                                                        file_description, &_file_system,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
                                                         &_file_reader, _io_ctx));
     }
     return Status::OK();
@@ -1042,9 +1050,10 @@ Status NewJsonReader::_simdjson_init_reader() {
     }
     _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index.emplace(_file_slot_descs[i]->col_name(), i);
+        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
+    _prev_positions.resize(_file_slot_descs.size());
     return Status::OK();
 }
 
@@ -1303,27 +1312,50 @@ Status NewJsonReader::_simdjson_handle_nested_complex_json(
     return Status::OK();
 }
 
+size_t NewJsonReader::_column_index(const StringRef& name, size_t key_index) {
+    /// Optimization by caching the order of fields (which is almost always the same)
+    /// and a quick check to match the next expected field, instead of searching the hash table.
+    if (_prev_positions.size() > key_index && _prev_positions[key_index] &&
+        name == _prev_positions[key_index]->get_first()) {
+        return _prev_positions[key_index]->get_second();
+    } else {
+        auto* it = _slot_desc_index.find(name);
+        if (it) {
+            if (key_index < _prev_positions.size()) {
+                _prev_positions[key_index] = it;
+            }
+            return it->get_second();
+        } else {
+            return size_t(-1);
+        }
+    }
+}
+
 Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* value,
                                                  std::vector<MutableColumnPtr>& columns,
                                                  const std::vector<SlotDescriptor*>& slot_descs,
                                                  bool* valid) {
     // set
+    _seen_columns.assign(columns.size(), false);
     size_t cur_row_count = columns[0]->size();
     bool has_valid_value = false;
     // iterate through object, simdjson::ondemond will parsing on the fly
+    size_t key_index = 0;
     for (auto field : *value) {
         std::string_view key = field.unescaped_key();
-        auto iter = _slot_desc_index.find(std::string(key));
-        if (iter == _slot_desc_index.end()) {
+        StringRef name_ref(key.data(), key.size());
+        const size_t column_index = _column_index(name_ref, key_index++);
+        if (UNLIKELY(ssize_t(column_index) < 0)) {
             // This key is not exist in slot desc, just ignore
             continue;
         }
         simdjson::ondemand::value val = field.value();
-        RETURN_IF_ERROR(_simdjson_write_data_to_column(val, slot_descs[iter->second],
-                                                       columns[iter->second].get(), valid));
+        RETURN_IF_ERROR(_simdjson_write_data_to_column(val, slot_descs[column_index],
+                                                       columns[column_index].get(), valid));
         if (!(*valid)) {
             return Status::OK();
         }
+        _seen_columns[column_index] = true;
         has_valid_value = true;
     }
     if (!has_valid_value) {
@@ -1334,13 +1366,15 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
 
     // fill missing slot
     int nullcount = 0;
-    int ctx_idx = 0;
-    for (auto slot_desc : slot_descs) {
+    for (size_t i = 0; i < slot_descs.size(); ++i) {
+        if (_seen_columns[i]) {
+            continue;
+        }
+        auto slot_desc = slot_descs[i];
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = columns[dest_index].get();
+        auto* column_ptr = columns[i].get();
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
             column_ptr->assume_mutable()->insert_default();
@@ -1348,6 +1382,13 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
         DCHECK(column_ptr->size() == cur_row_count + 1);
     }
+
+#ifndef NDEBUG
+    // Check all columns rows matched
+    for (size_t i = 0; i < columns.size(); ++i) {
+        DCHECK_EQ(columns[i]->size(), cur_row_count + 1);
+    }
+#endif
     // There is at least one valid value here
     DCHECK(nullcount < columns.size());
     *valid = true;
@@ -1389,27 +1430,13 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         }
         break;
     }
-    case simdjson::ondemand::json_type::object:
-    case simdjson::ondemand::json_type::array: {
-        auto str_view = simdjson::to_json_string(value).value();
-        std::string value_str(str_view.data(), str_view.size());
-        // compact json value
-        value_str.erase(std::remove_if(value_str.begin(), value_str.end(),
-                                       [](const char& c) {
-                                           // white space
-                                           return c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
-                                                  c == '\f' || c == '\v';
-                                       }),
-                        value_str.end());
-        nullable_column->get_null_map_data().push_back(0);
-        column_string->insert_data(value_str.data(), value_str.length());
-        break;
-    }
     default: {
         auto str_view = simdjson::to_json_string(value).value();
         if (value.type() == simdjson::ondemand::json_type::string) {
+            nullable_column->get_null_map_data().push_back(0);
             // trim
-            str_view = str_view.substr(1, str_view.length() - 2);
+            column_string->insert_data(str_view.data() + 1, str_view.length() - 2);
+            break;
         }
         nullable_column->get_null_map_data().push_back(0);
         column_string->insert_data(str_view.data(), str_view.length());

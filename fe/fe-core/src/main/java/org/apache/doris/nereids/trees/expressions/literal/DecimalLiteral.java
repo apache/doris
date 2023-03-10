@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV2Type;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
@@ -34,6 +35,11 @@ public class DecimalLiteral extends Literal {
     public DecimalLiteral(BigDecimal value) {
         super(DecimalV2Type.createDecimalV2Type(value));
         this.value = Objects.requireNonNull(value);
+    }
+
+    public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
+        super(DecimalV2Type.createDecimalV2Type(dataType.getPrecision(), dataType.getScale()));
+        this.value = Objects.requireNonNull(value.setScale(dataType.getScale(), RoundingMode.DOWN));
     }
 
     @Override

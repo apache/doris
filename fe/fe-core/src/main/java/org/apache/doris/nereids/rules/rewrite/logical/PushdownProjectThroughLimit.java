@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -48,11 +48,11 @@ public class PushdownProjectThroughLimit extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalLimit(group())).thenApply(ctx -> {
-            LogicalProject<LogicalLimit<GroupPlan>> logicalProject = ctx.root;
-            LogicalLimit<GroupPlan> logicalLimit = logicalProject.child();
-            return new LogicalLimit<LogicalProject<GroupPlan>>(logicalLimit.getLimit(),
-                    logicalLimit.getOffset(), new LogicalProject<>(logicalProject.getProjects(),
+        return logicalProject(logicalLimit(any())).thenApply(ctx -> {
+            LogicalProject<LogicalLimit<Plan>> logicalProject = ctx.root;
+            LogicalLimit<Plan> logicalLimit = logicalProject.child();
+            return new LogicalLimit<>(logicalLimit.getLimit(), logicalLimit.getOffset(),
+                    logicalLimit.getPhase(), new LogicalProject<>(logicalProject.getProjects(),
                     logicalLimit.child()));
         }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_LIMIT);
     }

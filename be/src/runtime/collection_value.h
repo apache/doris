@@ -21,13 +21,13 @@
 
 #include "runtime/primitive_type.h"
 
-namespace doris_udf {
+namespace doris {
 class FunctionContext;
-} // namespace doris_udf
+} // namespace doris
 
 namespace doris {
 
-using doris_udf::FunctionContext;
+using doris::FunctionContext;
 
 using MemFootprint = std::pair<int64_t, uint8_t*>;
 using GenMemFootprintFunc = std::function<MemFootprint(int64_t size)>;

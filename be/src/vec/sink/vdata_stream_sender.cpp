@@ -287,6 +287,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
+    _enable_pipeline_exec = state->enable_pipeline_exec();
 
     for (int i = 0; i < destinations.size(); ++i) {
         // Select first dest as transfer chain.
@@ -294,7 +295,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
         const auto& fragment_instance_id = destinations[i].fragment_instance_id;
         if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
             fragment_id_to_channel_index.end()) {
-            if (state->enable_pipeline_exec()) {
+            if (_enable_pipeline_exec) {
                 _channel_shared_ptrs.emplace_back(new PipChannel(
                         this, row_desc, destinations[i].brpc_server, fragment_instance_id,
                         sink.dest_node_id, per_channel_buffer_size, is_transfer_chain,
@@ -314,7 +315,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
         }
     }
     _name = "VDataStreamSender";
-    if (state->enable_pipeline_exec()) {
+    if (_enable_pipeline_exec) {
         _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
         _broadcast_pb_block_idx = 0;
     } else {
@@ -323,6 +324,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
 }
 
 VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
+                                     PlanNodeId dest_node_id,
                                      const std::vector<TPlanFragmentDestination>& destinations,
                                      int per_channel_buffer_size,
                                      bool send_query_statistics_with_every_batch)
@@ -330,6 +332,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _pool(pool),
           _row_desc(row_desc),
           _current_channel_idx(0),
+          _part_type(TPartitionType::UNPARTITIONED),
           _ignore_not_found(true),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
@@ -342,9 +345,23 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _split_block_distribute_by_channel_timer(nullptr),
           _blocks_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
-          _dest_node_id(0) {
+          _dest_node_id(dest_node_id) {
     _cur_pb_block = &_pb_block1;
     _name = "VDataStreamSender";
+    std::map<int64_t, int64_t> fragment_id_to_channel_index;
+    for (int i = 0; i < destinations.size(); ++i) {
+        const auto& fragment_instance_id = destinations[i].fragment_instance_id;
+        if (fragment_id_to_channel_index.find(fragment_instance_id.lo) ==
+            fragment_id_to_channel_index.end()) {
+            _channel_shared_ptrs.emplace_back(
+                    new Channel(this, row_desc, destinations[i].brpc_server, fragment_instance_id,
+                                _dest_node_id, per_channel_buffer_size, false,
+                                send_query_statistics_with_every_batch));
+        }
+        fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
+                                             _channel_shared_ptrs.size() - 1);
+        _channels.push_back(_channel_shared_ptrs.back().get());
+    }
 }
 
 VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -472,7 +489,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             for (auto channel : _channels) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
-        } else if (state->enable_pipeline_exec()) {
+        } else if (_enable_pipeline_exec) {
             BroadcastPBlockHolder* block_holder = nullptr;
             RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
             {

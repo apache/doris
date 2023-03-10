@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 import com.google.common.base.Preconditions;
 
@@ -33,6 +34,7 @@ import java.util.Objects;
 public class DateTimeV2Type extends DateLikeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
+    public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
 
     private static final int WIDTH = 8;
 
@@ -61,6 +63,24 @@ public class DateTimeV2Type extends DateLikeType {
             return t1;
         }
         return t2;
+    }
+
+    /**
+     * return proper type of datetimev2 for other type
+     */
+    public static DateTimeV2Type forType(DataType dataType) {
+        if (dataType instanceof DateTimeV2Type) {
+            return (DateTimeV2Type) dataType;
+        }
+        if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType) {
+            return SYSTEM_DEFAULT;
+        }
+        return MAX;
+    }
+
+    @Override
+    public String toSql() {
+        return super.toSql() + "(" + scale + ")";
     }
 
     @Override

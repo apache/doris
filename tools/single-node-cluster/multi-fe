@@ -198,8 +198,10 @@ function start_fe() {
 
 	prepare "${port}" "${doris_home}" "${log_dir}"
 
-	local classpath
-	read -r -a classpath <<<"$(find "${libs_path}" -exec echo {} \+)"
+	declare -a classpath=("${libs_path}")
+	for lib in "${libs_path}"/*.jar; do
+		classpath+=("${lib}")
+	done
 
 	if [[ "${id}" -gt 1 ]]; then
 		helper="-helper 127.0.0.1:$((PORT + 1))"

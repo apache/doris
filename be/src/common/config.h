@@ -60,7 +60,9 @@ CONF_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-CONF_String(mem_limit, "80%");
+// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
+// 6.4G is the maximum memory reserved for the system by default.
+CONF_String(mem_limit, "auto");
 
 // Soft memory limit as a fraction of hard memory limit.
 CONF_Double(soft_mem_limit_frac, "0.9");
@@ -220,7 +222,7 @@ CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-CONF_mInt32(cache_clean_interval, "1800");
+CONF_mInt32(cache_clean_interval, "60");
 // the clean interval of tablet lookup cache
 CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
@@ -246,8 +248,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
-// check row nums for BE/CE and schema change. true is open, false is closed.
-CONF_mBool(row_nums_check, "true");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -267,8 +267,6 @@ CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 CONF_Bool(disable_storage_row_cache, "true");
 
-CONF_Bool(enable_storage_vectorization, "true");
-
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
@@ -276,10 +274,6 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
-// whether enable vectorized compaction
-CONF_Bool(enable_vectorized_compaction, "true");
-// whether enable vectorized schema change/material-view/rollup task.
-CONF_Bool(enable_vectorized_alter_table, "true");
 // whether enable vertical compaction
 CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction
@@ -500,7 +494,11 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "100");
+
+// After full gc, no longer full gc and minor gc during sleep.
+// After minor gc, no minor gc during sleep, but full gc is possible.
+CONF_mInt32(memory_gc_sleep_time_s, "1");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -575,6 +573,7 @@ CONF_mInt32(path_gc_check_interval_second, "86400");
 CONF_mInt32(path_gc_check_step, "1000");
 CONF_mInt32(path_gc_check_step_interval_ms, "10");
 CONF_mInt32(path_scan_interval_second, "86400");
+CONF_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -834,7 +833,8 @@ CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
 // "whole_file_cache": the whole file.
 CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
-    return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
+    return config == "sub_file_cache" || config == "whole_file_cache" || config == "" ||
+           config == "file_block_cache";
 });
 CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
@@ -924,6 +924,9 @@ CONF_Int32(max_depth_in_bkd_tree, "32");
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// max depth of expression tree allowed.
+CONF_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
 CONF_mInt64(max_tablet_io_errors, "-1");

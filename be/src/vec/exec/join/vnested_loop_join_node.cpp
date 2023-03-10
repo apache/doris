@@ -96,7 +96,6 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
     RETURN_IF_ERROR(
             vectorized::VExpr::create_expr_trees(_pool, filter_src_exprs, &_filter_src_expr_ctxs));
-    DCHECK(!filter_src_exprs.empty() == _is_output_left_side_only);
     return Status::OK();
 }
 
@@ -189,6 +188,13 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
     if (eos) {
         COUNTER_UPDATE(_build_rows_counter, _build_rows);
         RuntimeFilterBuild(this)(state);
+
+        // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
+        if (_is_output_left_side_only &&
+            ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN && _build_blocks.empty()) ||
+             (_join_op == TJoinOp::type::LEFT_ANTI_JOIN && !_build_blocks.empty()))) {
+            _left_side_eos = true;
+        }
     }
 
     return Status::OK();
@@ -525,9 +531,9 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
         DCHECK((*_vjoin_conjunct_ptr) != nullptr);
         int result_column_id = -1;
         RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->execute(block, &result_column_id));
-        ColumnPtr filter_column = block->get_by_position(result_column_id).column;
+        const auto& filter_column = block->get_by_position(result_column_id).column;
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-            ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+            const auto& nested_column = nullable_column->get_nested_column_ptr();
 
             MutableColumnPtr mutable_holder =
                     nested_column->use_count() == 1

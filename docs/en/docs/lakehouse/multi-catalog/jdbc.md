@@ -37,11 +37,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Create Catalog
 
-<version since="1.2.0">
-
 1. MySQL
 
-</version>
+<version since="1.2.0"></version>
 
    ```sql
    CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -54,11 +52,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    )
    ```
 
-<version since="1.2.2">
-
 2. PostgreSQL
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -70,6 +66,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
        "driver_class" = "org.postgresql.Driver"
    );
    ```
+> Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
 
    As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
 
@@ -79,11 +76,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | Schema     |
    | Table    | Table      |
 
-<version since="1.2.2">
-
 3. Oracle
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -96,19 +91,17 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User (for example, "helowin" in `jdbc_url`  above), and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
+   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
 
-   | Doris    | PostgreSQL |
+   | Doris    | Oracle |
    | -------- | ---------- |
    | Catalog  | Database   |
    | Database | User       |
    | Table    | Table      |
 
-<version since="1.2.2">
-
 4. Clickhouse
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -121,11 +114,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-<version since="1.2.2">
-
 5. SQLServer
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG sqlserver_catalog PROPERTIES (
@@ -145,12 +136,10 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Catalog  | Database  |
    | Database | Schema    |
    | Table    | Table     |
-
-<version since="dev">
     
 6. Doris
 
-</version>
+<version since="dev"></version>
 
 Jdbc Catalog also support to connect another Doris database:
 
@@ -176,6 +165,8 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 | `jdbc_url `     | Yes             |               | JDBC connection string                             |
 | `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
+| `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
+| `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
 
 > `driver_url` can be specified in three ways:
 >
@@ -185,11 +176,17 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 >
 > 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
+> `only_specified_database`:
+>
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. `only_specified_database` specifies whether only the database specified to be synchronized.
+> 
+> If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
+
 
 ## Query
 
 ```
-select * from mysql_table where k1 > 1000 and k3 ='term';
+select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
 ```
 
 In some cases, the keywords in the database might be used as the field names. For queries to function normally in these cases, Doris will add escape characters to the field names and tables names in SQL statements based on the rules of different databases, such as (``) for MySQL, ([]) for SQLServer, and ("") for PostgreSQL and Oracle. This might require extra attention on case sensitivity. You can view the query statements sent to these various databases via ```explain sql```.
@@ -203,8 +200,8 @@ After creating a JDBC Catalog in Doris, you can write data or query results to i
 Example:
 
 ```
-insert into mysql_table values(1, "doris");
-insert into mysql_table select * from table;
+insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
+insert into mysql_catalog.mysql_database.mysql_table select * from table;
 ```
 
 ### Transaction
@@ -276,9 +273,11 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 | ORACLE Type                   | Doris Type  | Comment                                                      |
 | ----------------------------- | ----------- | ------------------------------------------------------------ |
-| number(p) / number(p,0)       |             | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
-| number(p,s)                   | DECIMAL     |                                                              |
-| decimal                       | DECIMAL     |                                                              |
+| number(p) / number(p,0)       | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
+| number(p,s), [ if(s>0 && p>s) ] | DECIMAL(p,s) | |
+| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s) |  |
+| number(p,s), [ if(s<0) ] | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | if s<0, Doris will set `p` to `p+|s|`, and perform the same mapping as `number(p) / number(p,0)`. |
+| number |  | Doris does not support Oracle `NUMBER` type that does not specified p and s |
 | float/real                    | DOUBLE      |                                                              |
 | DATE                          | DATETIME    |                                                              |
 | TIMESTAMP                     | DATETIME    |                                                              |
@@ -431,6 +430,6 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
    To reduce memory usage, Doris obtains one batch of query results at a time, and has a size limit for each batch. However, MySQL conducts one-off loading of all query results by default, which means the "loading in batches" method won't work. To solve this, you need to specify "jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true" in the URL.
 
- 7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
+7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
 
-    If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
+   If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.

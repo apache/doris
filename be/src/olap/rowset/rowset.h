@@ -282,8 +282,8 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-           RowsetMetaSharedPtr rowset_meta);
+    Rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+           const RowsetMetaSharedPtr& rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;

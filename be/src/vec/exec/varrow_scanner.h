@@ -31,6 +31,7 @@
 #include "exec/arrow/parquet_reader.h"
 #include "exec/base_scanner.h"
 #include "gen_cpp/Types_types.h"
+#include "io/file_factory.h"
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 
@@ -58,7 +59,7 @@ public:
 
 protected:
     virtual ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                                               FileReader* file_reader,
+                                               io::FileReaderSPtr file_reader,
                                                int32_t num_of_columns_from_file,
                                                int64_t range_start_offset, int64_t range_size) = 0;
 
@@ -70,6 +71,8 @@ private:
     Status _init_src_block() override;
     Status _append_batch_to_src_block(Block* block);
     Status _cast_src_block(Block* block);
+    void _init_system_properties(const TBrokerRangeDesc& range);
+    void _init_file_description(const TBrokerRangeDesc& range);
 
 private:
     // Reader
@@ -77,6 +80,9 @@ private:
     bool _cur_file_eof; // is read over?
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
+    std::shared_ptr<io::FileSystem> _file_system;
 
     RuntimeProfile::Counter* _filtered_row_groups_counter;
     RuntimeProfile::Counter* _filtered_rows_counter;

@@ -48,6 +48,7 @@ public interface RequireTrivialTypes {
 
     // todo: add JsonBType
     ImmutableList<DataType> trivialTypes = ImmutableList.of(
+            BooleanType.INSTANCE,
             TinyIntType.INSTANCE,
             SmallIntType.INSTANCE,
             IntegerType.INSTANCE,
@@ -56,18 +57,15 @@ public interface RequireTrivialTypes {
             FloatType.INSTANCE,
             DoubleType.INSTANCE,
             DecimalV2Type.SYSTEM_DEFAULT,
-            DecimalV3Type.DEFAULT_DECIMAL32,
-            DecimalV3Type.DEFAULT_DECIMAL64,
-            DecimalV3Type.DEFAULT_DECIMAL128,
-            BooleanType.INSTANCE,
-            VarcharType.INSTANCE,
-            StringType.INSTANCE,
-            CharType.INSTANCE,
+            DecimalV3Type.WILDCARD,
             DateType.INSTANCE,
             DateTimeType.INSTANCE,
             DateV2Type.INSTANCE,
             DateTimeV2Type.SYSTEM_DEFAULT,
             TimeType.INSTANCE,
-            TimeV2Type.INSTANCE
+            TimeV2Type.INSTANCE,
+            CharType.SYSTEM_DEFAULT,
+            VarcharType.SYSTEM_DEFAULT,
+            StringType.INSTANCE
     );
 }

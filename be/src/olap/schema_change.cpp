@@ -197,11 +197,9 @@ private:
     RowRefComparator _cmp;
 };
 
-RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema,
-                                 const DeleteHandler* delete_handler, DescriptorTbl desc_tbl)
+RowBlockChanger::RowBlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
     _schema_mapping.resize(tablet_schema->num_columns());
-    _delete_handler = delete_handler;
 }
 
 RowBlockChanger::~RowBlockChanger() {
@@ -259,7 +257,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
-            DCHECK(ref_block->get_by_position(result_column_id).column->size() == row_size)
+            CHECK(ref_block->get_by_position(result_column_id).column->size() == row_size)
                     << new_block->get_by_position(idx).name << " size invalid"
                     << ", expect=" << row_size
                     << ", real=" << ref_block->get_by_position(result_column_id).column->size();
@@ -288,7 +286,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
             // not nullable to nullable
             if (new_col_nullable) {
                 auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        std::move(*new_col.column).mutate().get());
+                        new_col.column->assume_mutable().get());
 
                 new_nullable_col->swap_nested_column(ref_col.column);
                 new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
@@ -299,7 +297,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
                 auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        std::move(*ref_col.column).mutate().get());
+                        ref_col.column->assume_mutable().get());
 
                 ref_nullable_col->swap_nested_column(new_col.column);
             }
@@ -582,9 +580,7 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 SchemaChangeForInvertedIndex::SchemaChangeForInvertedIndex(
         const std::vector<TOlapTableIndex>& alter_inverted_indexs,
         const TabletSchemaSPtr& tablet_schema)
-        : SchemaChange(),
-          _alter_inverted_indexs(alter_inverted_indexs),
-          _tablet_schema(tablet_schema) {
+        : _alter_inverted_indexs(alter_inverted_indexs), _tablet_schema(tablet_schema) {
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
 }
 
@@ -627,8 +623,14 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
             DCHECK_EQ(inverted_index.columns.size(), 1);
             auto index_id = inverted_index.index_id;
             auto column_name = inverted_index.columns[0];
-            auto column = _tablet_schema->column(column_name);
             auto column_idx = _tablet_schema->field_index(column_name);
+            if (column_idx < 0) {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name << " referenced_column=" << column_idx
+                             << "]";
+                return Status::Error<CE_CMD_PARAMS_ERROR>();
+            }
+            auto column = _tablet_schema->column(column_idx);
             return_columns.emplace_back(column_idx);
             _olap_data_convertor->add_column_data_convertor(column);
 
@@ -670,7 +672,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
 
         std::shared_ptr<vectorized::Block> block =
                 std::make_shared<vectorized::Block>(_tablet_schema->create_block(return_columns));
-        do {
+        while (true) {
             res = iter->next_batch(block.get());
             if (!res.ok()) {
                 if (res.is<END_OF_FILE>()) {
@@ -687,7 +689,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
                 return res;
             }
             block->clear_column_data();
-        } while (true);
+        }
 
         // finish write inverted index, flush data to compound file
         for (auto& writer_sign : inverted_index_writer_signs) {
@@ -718,10 +720,11 @@ Status SchemaChangeForInvertedIndex::_add_nullable(
     auto next_run_step = [&]() {
         size_t step = 1;
         for (auto i = offset + 1; i < num_rows; ++i) {
-            if (null_map[offset] == null_map[i])
+            if (null_map[offset] == null_map[i]) {
                 step++;
-            else
+            } else {
                 break;
+            }
         }
         return step;
     };
@@ -782,7 +785,13 @@ Status SchemaChangeForInvertedIndex::_write_inverted_index(int32_t segment_idx,
     int idx = 0;
     for (auto& inverted_index : _alter_inverted_indexs) {
         auto column_name = inverted_index.columns[0];
-        auto column = _tablet_schema->column(column_name);
+        auto column_idx = _tablet_schema->field_index(column_name);
+        if (column_idx < 0) {
+            LOG(WARNING) << "referenced column was missing. "
+                         << "[column=" << column_name << " referenced_column=" << column_idx << "]";
+            return Status::Error<CE_CMD_PARAMS_ERROR>();
+        }
+        auto column = _tablet_schema->column(column_idx);
         auto index_id = inverted_index.index_id;
 
         auto converted_result = _olap_data_convertor->convert_column_data(idx++);
@@ -865,8 +874,6 @@ Status SchemaChangeHandler::process_alter_inverted_index(const TAlterInvertedInd
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
-std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap",
-                                                                   "to_bitmap_with_check"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
@@ -1043,7 +1050,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
             reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.is_vec = config::enable_vectorized_alter_table;
             reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
             for (auto& rs_reader : rs_readers) {
@@ -1093,16 +1099,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
 
                 if (item.__isset.mv_expr) {
-                    if (item.mv_expr.nodes[0].node_type == TExprNodeType::FUNCTION_CALL) {
-                        mv_param.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
-                        if (!config::enable_vectorized_alter_table &&
-                            !_supported_functions.count(mv_param.mv_expr)) {
-                            return Status::NotSupported("Unknow materialized view expr " +
-                                                        mv_param.mv_expr);
-                        }
-                    } else if (item.mv_expr.nodes[0].node_type == TExprNodeType::CASE_EXPR) {
-                        mv_param.mv_expr = "count_field";
-                    }
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
                 }
                 sc_params.materialized_params_map.insert(
@@ -1275,6 +1271,11 @@ Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
         DCHECK_EQ(inverted_index.columns.size(), 1);
         auto column_name = inverted_index.columns[0];
         auto idx = tablet_schema->field_index(column_name);
+        if (idx < 0) {
+            LOG(WARNING) << "referenced column was missing. "
+                         << "[column=" << column_name << " referenced_column=" << idx << "]";
+            return Status::Error<CE_CMD_PARAMS_ERROR>();
+        }
         return_columns.emplace_back(idx);
     }
 
@@ -1345,7 +1346,6 @@ Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
             reader_context.is_unique = tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-            reader_context.is_vec = config::enable_vectorized_alter_table;
             reader_context.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
 
@@ -1382,7 +1382,14 @@ Status SchemaChangeHandler::_drop_inverted_index(std::vector<RowsetReaderSharedP
                                                                      rowset_meta->rowset_id(), i);
             for (auto& inverted_index : alter_inverted_indexs) {
                 auto column_name = inverted_index.columns[0];
-                auto column = tablet_schema->column(column_name);
+                auto column_idx = tablet_schema->field_index(column_name);
+                if (column_idx < 0) {
+                    LOG(WARNING) << "referenced column was missing. "
+                                 << "[column=" << column_name << " referenced_column=" << column_idx
+                                 << "]";
+                    return Status::Error<CE_CMD_PARAMS_ERROR>();
+                }
+                auto column = tablet_schema->column(column_idx);
                 auto index_id = inverted_index.index_id;
 
                 std::string inverted_index_file =
@@ -1508,14 +1515,17 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // Add filter information in change, and filter column information will be set in _parse_request
     // And filter some data every time the row block changes
-    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), sc_params.delete_handler,
-                               *sc_params.desc_tbl);
+    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), *sc_params.desc_tbl);
 
     bool sc_sorting = false;
     bool sc_directly = false;
 
     // a.Parse the Alter request and convert it into an internal representation
     Status res = _parse_request(sc_params, &rb_changer, &sc_sorting, &sc_directly);
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly
+              << ", base_tablet=" << sc_params.base_tablet->full_name()
+              << ", new_tablet=" << sc_params.new_tablet->full_name();
 
     auto process_alter_exit = [&]() -> Status {
         {
@@ -1643,7 +1653,6 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 
         if (materialized_function_map.find(column_name) != materialized_function_map.end()) {
             auto mvParam = materialized_function_map.find(column_name)->second;
-            column_mapping->materialized_function = mvParam.mv_expr;
             column_mapping->expr = mvParam.expr;
             int32_t column_index = base_tablet_schema->field_index(mvParam.origin_column_name);
             if (column_index >= 0) {

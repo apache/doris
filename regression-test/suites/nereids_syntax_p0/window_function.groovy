@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_window_function") {
+suite("window_function") {
     sql "SET enable_nereids_planner=true"
 
     sql "DROP TABLE IF EXISTS window_test"
@@ -67,6 +67,8 @@ suite("test_window_function") {
     order_qt_last_value "SELECT last_value(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_lead "SELECT lead(c1, 1, 111) over(partition by c3 order by c2) FROM window_test"
     order_qt_lag "SELECT lag(c1, 1, 222) over(partition by c3 order by c2) FROM window_test"
+    order_qt_lead "SELECT lead(c1, 3, null) over(partition by c3 order by c2) FROM window_test"
+    order_qt_lag "SELECT lag(c1, 2, null) over(partition by c3 order by c2) FROM window_test"
     order_qt_max "SELECT max(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_min "SELECT min(c1) over(partition by c3 order by c2) FROM window_test"
 
@@ -115,5 +117,35 @@ suite("test_window_function") {
     order_qt_window_use_agg """
         SELECT sum(sum(c1)) over(partition by avg(c2))
         FROM window_test
+    """
+
+    order_qt_winExpr_not_agg_expr """
+        select sum(c1+1), sum(c1+1) over (partition by avg(c2))
+        from window_test
+        group by c1, c2
+    """
+
+    order_qt_on_notgroupbycolumn """
+        select sum(sum(c3)) over (partition by avg(c2) order by c1)
+        from window_test
+        group by c1, c2
+    """
+
+    order_qt_orderby """
+        select c1, sum(c1+1), sum(c1+1) over (partition by avg(c2) order by c1)
+        from window_test
+        group by c1, c2
+    """
+
+    order_qt_winExpr_with_others """
+        select sum(c1)/sum(c1+1) over (partition by c2 order by c1)
+        from window_test
+        group by c1, c2
+    """
+
+    order_qt_winExpr_with_others2"""
+        select sum(c1)/sum(c1+1) over (partition by c2 order by c1)
+        from window_test
+        group by c1, c2
     """
 }

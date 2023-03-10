@@ -18,7 +18,6 @@
 #include <common/status.h>
 
 #include "exec/text_converter.h"
-#include "io/file_reader.h"
 #include "io/fs/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
@@ -132,11 +131,12 @@ private:
             Block* block, size_t rows,
             const std::unordered_map<std::string, VExprContext*>& missing_columns);
     Status _build_pos_delete_filter(size_t read_rows);
-    Status _filter_block(Block* block, const ColumnPtr filter_column, int column_to_keep,
+    Status _filter_block(Block* block, const ColumnPtr& filter_column, int column_to_keep,
                          std::vector<uint32_t> columns_to_filter);
     Status _filter_block(Block* block, int column_to_keep,
                          const vector<uint32_t>& columns_to_filter);
-    Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter);
+    Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter,
+                                  const IColumn::Filter& filter);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
@@ -154,7 +154,7 @@ private:
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
     std::unique_ptr<TextConverter> _text_converter = nullptr;
-    std::unique_ptr<IColumn::Filter> _filter_ptr = nullptr;
+    std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr = nullptr;
     int64_t _total_read_rows = 0;
 };
 } // namespace doris::vectorized

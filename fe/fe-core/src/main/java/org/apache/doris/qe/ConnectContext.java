@@ -28,11 +28,13 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -47,8 +49,9 @@ import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.xnio.StreamConnection;
 
-import java.nio.channels.SocketChannel;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,7 +63,9 @@ import java.util.Set;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
+
+    private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -98,8 +103,6 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
-    // Serializer used to pack MySQL packet.
-    protected volatile MysqlSerializer serializer;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Scheduler this connection belongs to
@@ -128,7 +131,7 @@ public class ConnectContext {
     // This is used to statistic the current query details.
     // This property will only be set when the query starts to execute.
     // So in the query planning stage, do not use any value in this attribute.
-    protected QueryDetail queryDetail;
+    protected QueryDetail queryDetail = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -150,16 +153,21 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    // This context is used for SSL connection between server and mysql client.
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
+
     private long userQueryTimeout;
 
     /**
      * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
      * <p>
      * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
-     * then it is set to max(query_timeout, insert_timeout) with {@link #resetExecTimeout()} in
-     * {@link ConnectProcessor#handleQuery()} after the StmtExecutor is specified.
+     * then it is set to max(executionTimeoutS, insert_timeout) using {@link #setExecTimeout(int timeout)} at
+     * {@link StmtExecutor}.
      */
     private int executionTimeoutS;
+
+    private StatsErrorEstimator statsErrorEstimator;
 
     public void setUserQueryTimeout(long queryTimeout) {
         this.userQueryTimeout = queryTimeout;
@@ -170,6 +178,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public MysqlSslContext getMysqlSslContext() {
+        return mysqlSslContext;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -213,19 +225,18 @@ public class ConnectContext {
         this(null);
     }
 
-    public ConnectContext(SocketChannel channel) {
+    public ConnectContext(StreamConnection connection) {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
-        mysqlChannel = new MysqlChannel(channel);
-        serializer = MysqlSerializer.newInstance();
+        if (connection != null) {
+            mysqlChannel = new MysqlChannel(connection);
+        } else {
+            mysqlChannel = new DummyMysqlChannel();
+        }
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
-        if (channel != null) {
-            remoteIP = mysqlChannel.getRemoteIp();
-        }
-        queryDetail = null;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
@@ -403,10 +414,6 @@ public class ConnectContext {
         returnRows = 0;
     }
 
-    public MysqlSerializer getSerializer() {
-        return serializer;
-    }
-
     public int getConnectionId() {
         return connectionId;
     }
@@ -484,7 +491,9 @@ public class ConnectContext {
     }
 
     public void cleanup() {
-        mysqlChannel.close();
+        if (mysqlChannel != null) {
+            mysqlChannel.close();
+        }
         threadLocalInfo.remove();
         returnRows = 0;
     }
@@ -644,16 +653,13 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
-    public String getRemoteIp() {
-        return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
+    public void setExecTimeout(int timeout) {
+        executionTimeoutS = timeout;
     }
 
-    public void resetExecTimeout() {
-        if (executor != null && executor.isInsertStmt()) {
-            // particular timeout for insert stmt, we can make other particular timeout in the same way.
-            // set the execution timeout as max(insert_timeout,query_timeout) to be compatible with older versions
-            executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), executionTimeoutS);
-        }
+    public long resetExecTimeoutByInsert() {
+        executionTimeoutS = Math.max(executionTimeoutS, sessionVariable.getInsertTimeoutS());
+        return executionTimeoutS;
     }
 
     public int getExecTimeout() {
@@ -686,9 +692,33 @@ public class ConnectContext {
         }
     }
 
+
+    public void startAcceptQuery(ConnectProcessor connectProcessor) {
+        mysqlChannel.startAcceptQuery(this, connectProcessor);
+    }
+
+    public void suspendAcceptQuery() {
+        mysqlChannel.suspendAcceptQuery();
+    }
+
+    public void resumeAcceptQuery() {
+        mysqlChannel.resumeAcceptQuery();
+    }
+
+    public void stopAcceptQuery() throws IOException {
+        mysqlChannel.stopAcceptQuery();
+    }
+
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    public StatsErrorEstimator getStatsErrorEstimator() {
+        return statsErrorEstimator;
+    }
+
+    public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+        this.statsErrorEstimator = statsErrorEstimator;
+    }
 }
 

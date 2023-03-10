@@ -68,12 +68,43 @@ Then submit a Broker Load import request and wait until the import execution com
 We can get the Profile list first with the following command:
 
 ```sql
-mysql> show load profile "/";
-+---------+------+-----------+------+------------+- --------------------+---------------------------------+------- ----+------------+
-| QueryId | User | DefaultDb | SQL | QueryType | StartTime | EndTime | TotalTime | QueryState |
-+---------+------+-----------+------+------------+- --------------------+---------------------------------+------- ----+------------+
-| 10441 | N/A | N/A | N/A | Load | 2021-04-10 22:15:37 | 2021-04-10 22:18:54 | 3m17s | N/A |
-+---------+------+-----------+------+------------+- --------------------+---------------------------------+------- ----+------------+
+mysql> show load profile "/"\G
+*************************** 1. row ***************************
+                 JobId: 20010
+               QueryId: 980014623046410a-af5d36f23381017f
+                  User: root
+             DefaultDb: default_cluster:test
+                   SQL: LOAD LABEL xxx
+             QueryType: Load
+             StartTime: 2023-03-07 19:48:24
+               EndTime: 2023-03-07 19:50:45
+             TotalTime: 2m21s
+            QueryState: N/A
+               TraceId:
+          AnalysisTime: NULL
+              PlanTime: NULL
+          ScheduleTime: NULL
+       FetchResultTime: NULL
+       WriteResultTime: NULL
+WaitAndFetchResultTime: NULL
+*************************** 2. row ***************************
+                 JobId: N/A
+               QueryId: 7cc2d0282a7a4391-8dd75030185134d8
+                  User: root
+             DefaultDb: default_cluster:test
+                   SQL: insert into xxx
+             QueryType: Load
+             StartTime: 2023-03-07 19:49:15
+               EndTime: 2023-03-07 19:49:15
+             TotalTime: 102ms
+            QueryState: OK
+               TraceId:
+          AnalysisTime: 825.277us
+              PlanTime: 4.126ms
+          ScheduleTime: N/A
+       FetchResultTime: 0ns
+       WriteResultTime: 0ns
+WaitAndFetchResultTime: N/A
 ````
 
 This command will list all currently saved import profiles. Each line corresponds to one import. where the QueryId column is the ID of the import job. This ID can also be viewed through the SHOW LOAD statement. We can select the QueryId corresponding to the Profile we want to see to see the specific situation.
@@ -87,15 +118,15 @@ This command will list all currently saved import profiles. Each line correspond
 
 
    ```sql
-   mysql> show load profile "/10441";
+   mysql> show load profile "/980014623046410a-af5d36f23381017f";
    +-----------------------------------+------------+
-   | TaskId | ActiveTime |
+   | TaskId                            | ActiveTime |
    +-----------------------------------+------------+
-   | 980014623046410a-88e260f0c43031f1 | 3m14s |
+   | 980014623046410a-af5d36f23381017f | 3m14s      |
    +-----------------------------------+------------+
    ````
 
-As shown in the figure above, it means that the import job 10441 has a total of one subtask, in which ActiveTime indicates the execution time of the longest instance in this subtask.
+As shown in the figure above, it means that the import job `980014623046410a-af5d36f23381017f` has a total of one subtask, in which ActiveTime indicates the execution time of the longest instance in this subtask.
 
 2. View the Instance overview of the specified subtask
 
@@ -104,18 +135,18 @@ As shown in the figure above, it means that the import job 10441 has a total of 
 
 
    ```sql
-   mysql> show load profile "/10441/980014623046410a-88e260f0c43031f1";
-   +-----------------------------------+------------- -----+------------+
-   | Instances | Host | ActiveTime |
-   +-----------------------------------+------------- -----+------------+
-   | 980014623046410a-88e260f0c43031f2 | 10.81.85.89:9067 | 3m7s |
-   | 980014623046410a-88e260f0c43031f3 | 10.81.85.89:9067 | 3m6s |
-   | 980014623046410a-88e260f0c43031f4 | 10.81.85.89:9067 | 3m10s |
-   | 980014623046410a-88e260f0c43031f5 | 10.81.85.89:9067 | 3m14s |
-   +-----------------------------------+------------- -----+------------+
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f";
+   +-----------------------------------+------------------+------------+
+   | Instances                         | Host             | ActiveTime |
+   +-----------------------------------+------------------+------------+
+   | 980014623046410a-88e260f0c43031f2 | 10.81.85.89:9067 | 3m7s       |
+   | 980014623046410a-88e260f0c43031f3 | 10.81.85.89:9067 | 3m6s       |
+   | 980014623046410a-88e260f0c43031f4 | 10.81.85.89:9067 | 3m10s      |
+   | 980014623046410a-88e260f0c43031f5 | 10.81.85.89:9067 | 3m14s      |
+   +-----------------------------------+------------------+------------+
    ````
 
-This shows the time-consuming of four instances of the subtask 980014623046410a-88e260f0c43031f1, and also shows the execution node where the instance is located.
+This shows the time-consuming of four instances of the subtask 980014623046410a-af5d36f23381017f, and also shows the execution node where the instance is located.
 
 3. View the specific Instance
 
@@ -124,7 +155,7 @@ This shows the time-consuming of four instances of the subtask 980014623046410a-
 
 
    ```sql
-   mysql> show load profile "/10441/980014623046410a-88e260f0c43031f1/980014623046410a-88e260f0c43031f5"\G
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f/980014623046410a-88e260f0c43031f5"\G
    **************************** 1. row ******************** ******
    Instance:
          ┌-----------------------------------------┐
@@ -166,6 +197,6 @@ This shows the time-consuming of four instances of the subtask 980014623046410a-
    └------------------------------------------------- ----┘
    ````
 
-The figure above shows the specific profiles of each operator of Instance 980014623046410a-88e260f0c43031f5 in subtask 980014623046410a-88e260f0c43031f1.
+The figure above shows the specific profiles of each operator of Instance 980014623046410a-af5d36f23381017f in subtask 980014623046410a-88e260f0c43031f5.
 
 Through the above three steps, we can gradually check the execution bottleneck of an import task.
