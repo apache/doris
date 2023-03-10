@@ -23,12 +23,26 @@ import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
 @Data
-public class HiveSplit extends Split {
-    public HiveSplit() {}
+public class FileSplit extends Split {
+    protected Path path;
+    protected long start;
+    protected long length;
+    protected TableFormatType tableFormatType;
 
-    public HiveSplit(Path file, long start, long length, String[] hosts) {
-        super(file, start, length, hosts);
+    public FileSplit() {}
+
+    public FileSplit(Path path, long start, long length, String[] hosts) {
+        this.path = path;
+        this.start = start;
+        this.length = length;
+        this.hosts = hosts;
     }
 
-    protected TableFormatType tableFormatType;
+    public String[] getHosts() {
+        if (this.hosts == null) {
+            return new String[]{};
+        } else {
+            return this.hosts;
+        }
+    }
 }

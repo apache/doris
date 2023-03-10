@@ -47,7 +47,7 @@ public class TVFSplitter implements Splitter {
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             Path path = new Path(fileStatus.getPath());
-            Split split = new Split(path, 0, fileStatus.getSize(), new String[0]);
+            Split split = new FileSplit(path, 0, fileStatus.getSize(), new String[0]);
             splits.add(split);
         }
         return splits;

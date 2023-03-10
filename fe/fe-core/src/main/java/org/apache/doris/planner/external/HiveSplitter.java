@@ -131,7 +131,7 @@ public class HiveSplitter implements Splitter {
         }
         allFiles.addAll(files.stream().map(file -> {
             FileSplit fs = (FileSplit) file;
-            Split split = new Split();
+            org.apache.doris.planner.external.FileSplit split = new org.apache.doris.planner.external.FileSplit();
             split.setPath(fs.getPath());
             split.setStart(fs.getStart());
             // file size of orc files is not correct get by FileSplit.getLength(),

@@ -18,32 +18,14 @@
 package org.apache.doris.planner;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 @Data
-public class Split {
-
-    private Path path;
-    private long start;
-    private long length;
-    private String[] hosts;
-    private long id;
+public abstract class Split {
+    protected String[] hosts;
 
     public Split() {}
 
-    public Split(Path path, long start, long length, String[] hosts) {
-        this.path = path;
-        this.start = start;
-        this.length = length;
+    public Split(String[] hosts) {
         this.hosts = hosts;
     }
-
-    public String[] getHosts() {
-        if (this.hosts == null) {
-            return new String[]{};
-        } else {
-            return this.hosts;
-        }
-    }
-
 }

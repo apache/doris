@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.planner.Split;
 
 public class FileSplitStrategy {
     private long totalSplitSize;
@@ -29,7 +28,7 @@ public class FileSplitStrategy {
         this.splitNum = 0;
     }
 
-    public void update(Split split) {
+    public void update(FileSplit split) {
         totalSplitSize += split.getLength();
         splitNum++;
     }

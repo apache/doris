@@ -67,7 +67,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         if (inputSplits.isEmpty()) {
             return;
         }
-        Split inputSplit = inputSplits.get(0);
+        FileSplit inputSplit = (FileSplit) inputSplits.get(0);
         TFileType locationType = getLocationType();
         context.params.setFileType(locationType);
         TFileFormatType fileFormatType = getFileFormatType();
@@ -109,29 +109,30 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
 
         for (Split split : inputSplits) {
+            FileSplit fileSplit = (FileSplit) split;
             List<String> pathPartitionKeys = getPathPartitionKeys();
-            List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(split.getPath().toString(),
+            List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                     pathPartitionKeys, false);
 
-            TFileRangeDesc rangeDesc = createFileRangeDesc(split, partitionValuesFromPath, pathPartitionKeys);
+            TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
-            if (split instanceof IcebergSplit) {
-                IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) split);
+            if (fileSplit instanceof IcebergSplit) {
+                IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
-                    curLocations.getLocations().get(0).getBackendId(), split.getPath(), split.getStart(),
-                    split.getLength(), Joiner.on("|").join(split.getHosts()));
+                    curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
+                    fileSplit.getLength(), Joiner.on("|").join(fileSplit.getHosts()));
 
-            fileSplitStrategy.update(split);
+            fileSplitStrategy.update(fileSplit);
             // Add a new location when it's can be split
             if (fileSplitStrategy.hasNext()) {
                 scanRangeLocations.add(curLocations);
                 curLocations = newLocations(context.params, backendPolicy);
                 fileSplitStrategy.next();
             }
-            this.inputFileSize += split.getLength();
+            this.inputFileSize += fileSplit.getLength();
         }
         if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
             scanRangeLocations.add(curLocations);
@@ -174,7 +175,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         return locations;
     }
 
-    private TFileRangeDesc createFileRangeDesc(Split fileSplit, List<String> columnsFromPath,
+    private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
             List<String> columnsFromPathKeys)
             throws DdlException, MetaNotFoundException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
