@@ -44,8 +44,10 @@
 #include "util/arrow/utils.h"
 #include "util/types.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
 
 namespace doris {
 
@@ -86,9 +88,10 @@ public:
     // process string-transformable field
     arrow::Status Visit(const arrow::StringType& type) override {
         auto& builder = assert_cast<arrow::StringBuilder &>(*_cur_builder);
+        size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-        for (size_t i = 0; i < num_rows; ++i) {
+        for (size_t i = start; i < start + num_rows; ++i) {
             bool is_null = _cur_col->is_null_at(i);
             if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -161,6 +164,7 @@ public:
     // process doris Decimal
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
         auto& builder = assert_cast<arrow::Decimal128Builder &>(*_cur_builder);
+        size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         if (auto* decimalv2_column = vectorized::check_and_get_column<
                     vectorized::ColumnDecimal<vectorized::Decimal128>>(
@@ -168,7 +172,7 @@ public:
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(27, 9);
             ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-            for (size_t i = 0; i < num_rows; ++i) {
+            for (size_t i = start; i < start + num_rows; ++i) {
                 bool is_null = _cur_col->is_null_at(i);
                 if (is_null) {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -188,7 +192,7 @@ public:
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(38, decimal128_column->get_scale());
             ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-            for (size_t i = 0; i < num_rows; ++i) {
+            for (size_t i = start; i < start + num_rows; ++i) {
                 bool is_null = _cur_col->is_null_at(i);
                 if (is_null) {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -208,7 +212,7 @@ public:
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(8, decimal32_column->get_scale());
             ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-            for (size_t i = 0; i < num_rows; ++i) {
+            for (size_t i = start; i < start + num_rows; ++i) {
                 bool is_null = _cur_col->is_null_at(i);
                 if (is_null) {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -227,7 +231,7 @@ public:
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(18, decimal64_column->get_scale());
             ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-            for (size_t i = 0; i < num_rows; ++i) {
+            for (size_t i = start; i < start + num_rows; ++i) {
                 bool is_null = _cur_col->is_null_at(i);
                 if (is_null) {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -247,9 +251,10 @@ public:
     // process boolean
     arrow::Status Visit(const arrow::BooleanType& type) override {
         auto& builder = assert_cast<arrow::BooleanBuilder &>(*_cur_builder);
+        size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-        for (size_t i = 0; i < num_rows; ++i) {
+        for (size_t i = start; i < start + num_rows; ++i) {
             bool is_null = _cur_col->is_null_at(i);
             if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -264,19 +269,17 @@ public:
     // process array type
     arrow::Status Visit(const arrow::ListType& type) override {
         auto& builder = assert_cast<arrow::ListBuilder &>(*_cur_builder);
+        auto orignal_col = _cur_col;
+        size_t start = _cur_start;
         size_t num_rows = _cur_rows;
-        auto saved_field_idx = _cur_field_idx;
-        auto saved_col = _cur_col;
-        auto saved_cur_type = _cur_type;
-        auto saved_builder = _cur_builder;
 
         const vectorized::ColumnArray* array_column = nullptr;
-        if (_cur_col->is_nullable()) {
-            auto nullable_array = assert_cast<const vectorized::ColumnNullable*>(_cur_col.get());
+        if (orignal_col->is_nullable()) {
+            auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(orignal_col.get());
             array_column =
-                    assert_cast<const vectorized::ColumnArray*>(&nullable_array->get_nested_column());
+                    assert_cast<const vectorized::ColumnArray*>(&nullable_column->get_nested_column());
         } else {
-            array_column = assert_cast<const vectorized::ColumnArray*>(_cur_col.get());
+            array_column = assert_cast<const vectorized::ColumnArray*>(orignal_col.get());
         }
         const auto& offsets = array_column->get_offsets();
         vectorized::ColumnPtr nested_column = array_column->get_data_ptr();
@@ -286,31 +289,28 @@ public:
         if (_cur_type->is_nullable()) {
             auto nullable_type =
                 assert_cast<const vectorized::DataTypeNullable *>(_cur_type.get());
-            _cur_type = assert_cast<const vectorized::DataTypeArray *>
+            _cur_type = assert_cast<const vectorized::DataTypeArray*>
                             (nullable_type->get_nested_type().get())->get_nested_type();
         } else {
-            _cur_type = assert_cast<const vectorized::DataTypeArray *>
+            _cur_type = assert_cast<const vectorized::DataTypeArray*>
                             (_cur_type.get())->get_nested_type();
         }
         _cur_builder = builder.value_builder();
 
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
-        for (size_t i = 0; i < num_rows; ++i) {
-            bool is_null = saved_col->is_null_at(i);
+        for (size_t i = start; i < start + num_rows; ++i) {
+            bool is_null = orignal_col->is_null_at(i);
             if (is_null) {
                 ARROW_RETURN_NOT_OK(builder.AppendNull());
                 continue;
             }
-            // append array child item in row i
+            // append array elements in row i
             ARROW_RETURN_NOT_OK(builder.Append());
+            _cur_start = offsets[i - 1];
             _cur_rows = offsets[i] - offsets[i - 1];
             ARROW_RETURN_NOT_OK(arrow::VisitTypeInline(*type.value_type(), this));
         }
-        _cur_field_idx = saved_field_idx;
-        _cur_rows = num_rows;
-        _cur_col = saved_col;
-        _cur_type = saved_cur_type;
-        _cur_builder = saved_builder;
+
         return arrow::Status::OK();
     }
 
@@ -320,10 +320,11 @@ private:
     template <typename T>
     arrow::Status _visit(const T& type) {
         auto& builder = assert_cast<arrow::NumericBuilder<T> &>(*_cur_builder);
+        size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         if (_cur_col->is_nullable()) {
-            for (size_t i = 0; i < num_rows; ++i) {
+            for (size_t i = start; i < start + num_rows; ++i) {
                 bool is_null = _cur_col->is_null_at(i);
                 if (is_null) {
                     ARROW_RETURN_NOT_OK(builder.AppendNull());
@@ -334,7 +335,7 @@ private:
             }
         } else {
             ARROW_RETURN_NOT_OK(builder.AppendValues(
-                    (const typename T::c_type*)_cur_col->get_data_at(0).data, num_rows));
+                    (const typename T::c_type*)_cur_col->get_data_at(start).data, num_rows));
         }
         return arrow::Status::OK();
     }
@@ -344,6 +345,7 @@ private:
     arrow::MemoryPool* _pool;
 
     size_t _cur_field_idx;
+    size_t _cur_start;
     size_t _cur_rows;
     vectorized::ColumnPtr _cur_col;
     vectorized::DataTypePtr _cur_type;
@@ -364,6 +366,7 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
 
     for (size_t idx = 0; idx < num_fields; ++idx) {
         _cur_field_idx = idx;
+        _cur_start = 0;
         _cur_rows = _block.rows();
         _cur_col = _block.get_by_position(idx).column;
         _cur_type = _block.get_by_position(idx).type;
