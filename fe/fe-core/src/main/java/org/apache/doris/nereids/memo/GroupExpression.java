@@ -56,6 +56,9 @@ public class GroupExpression {
 
     private long estOutputRowCount = -1;
 
+    //Record the rule that generate this plan. It's used for debugging
+    private Rule fromRule;
+
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     // key is the physical properties the group expression support for its parent
     // and value is cost and request physical properties to its children.
@@ -97,6 +100,10 @@ public class GroupExpression {
 
     public int arity() {
         return children.size();
+    }
+
+    public void setFromRule(Rule rule) {
+        this.fromRule = rule;
     }
 
     public Group getOwnerGroup() {
