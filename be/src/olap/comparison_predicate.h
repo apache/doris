@@ -263,8 +263,16 @@ public:
                                                  : dict_column_ptr->find_code(_value);
                     auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
-                                                 dict_code);
+                    do {
+                        if constexpr (PT == PredicateType::EQ) {
+                            if (dict_code == -2) {
+                                memset(flags, 0, size);
+                                break;
+                            }
+                        }
+                        _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
+                                                     dict_code);
+                    } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
@@ -286,7 +294,15 @@ public:
                                                  : dict_column_ptr->find_code(_value);
                     auto* data_array = dict_column_ptr->get_data().data();
 
-                    _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
+                    do {
+                        if constexpr (PT == PredicateType::EQ) {
+                            if (dict_code == -2) {
+                                memset(flags, 0, size);
+                                break;
+                            }
+                        }
+                        _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
+                    } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
@@ -511,6 +527,11 @@ private:
                                                        _value, _is_greater(), _is_eq())
                                              : dict_column_ptr->find_code(_value);
 
+                if constexpr (PT == PredicateType::EQ) {
+                    if (dict_code == -2 && !_opposite) {
+                        return 0;
+                    }
+                }
                 return _base_loop<is_nullable>(sel, size, null_map, data_array, dict_code);
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
