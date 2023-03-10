@@ -205,7 +205,7 @@ Status PipelineTask::finalize() {
     SCOPED_CPU_TIMER(_task_cpu_timer);
     Defer defer {[&]() {
         if (_task_queue) {
-            _task_queue->update_statistics(this, time_spent);
+            _task_queue->update_statistics(this, _finalize_timer->value());
         }
     }};
     SCOPED_TIMER(_finalize_timer);
@@ -220,7 +220,7 @@ Status PipelineTask::close() {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
-            _task_queue->update_statistics(this, time_spent);
+            _task_queue->update_statistics(this, close_ns);
         }
     }};
     Status s;
