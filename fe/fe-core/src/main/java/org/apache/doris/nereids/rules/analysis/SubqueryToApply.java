@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -42,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -290,11 +290,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
         @Override
         public Expression visitScalarSubquery(ScalarSubquery scalar, SubqueryContext context) {
-            context.setSubqueryCorrespondingConject(scalar, scalar.getQueryPlan().getOutput().get(0));
+            context.setSubqueryCorrespondingConject(scalar, scalar.getSubqueryOutput());
             // When there is only one scalarSubQuery and CorrelateSlots is empty
             // it will not be processed by MarkJoin, so it can be returned directly
             if (context.onlySingleSubquery() && scalar.getCorrelateSlots().isEmpty()) {
-                return scalar.getQueryPlan().getOutput().get(0);
+                return scalar.getSubqueryOutput();
             }
 
             MarkJoinSlotReference markJoinSlotReference =
@@ -302,19 +302,17 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             if (isMarkJoin) {
                 context.setSubqueryToMarkJoinSlot(scalar, Optional.of(markJoinSlotReference));
             }
-            return isMarkJoin ? markJoinSlotReference : scalar.getQueryPlan().getOutput().get(0);
+            return isMarkJoin ? markJoinSlotReference : scalar.getSubqueryOutput();
         }
 
         @Override
         public Expression visitNot(Not not, SubqueryContext context) {
             // Need to re-update scalarSubQuery unequal conditions into subqueryCorrespondingConject
             if (not.child() instanceof BinaryOperator
-                    && (((BinaryOperator) not.child()).left() instanceof ScalarSubquery
-                    || ((BinaryOperator) not.child()).right() instanceof ScalarSubquery)) {
+                    && (((BinaryOperator) not.child()).left().containsType(ScalarSubquery.class)
+                    || ((BinaryOperator) not.child()).right().containsType(ScalarSubquery.class))) {
                 Expression newChild = replace(not.child(), context);
-                ScalarSubquery subquery = ((BinaryOperator) not.child()).left() instanceof ScalarSubquery
-                        ? (ScalarSubquery) ((BinaryOperator) not.child()).left()
-                        : (ScalarSubquery) ((BinaryOperator) not.child()).right();
+                ScalarSubquery subquery = collectScalarSubqueryForBinaryOperator((BinaryOperator) not.child());
                 context.updateSubqueryCorrespondingConjunctInNot(subquery);
                 return context.getSubqueryToMarkJoinSlotValue(subquery).isPresent() ? newChild : new Not(newChild);
             }
@@ -324,8 +322,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
         @Override
         public Expression visitBinaryOperator(BinaryOperator binaryOperator, SubqueryContext context) {
-            boolean atLeastOneChildIsScalarSubquery =
-                    binaryOperator.left() instanceof ScalarSubquery || binaryOperator.right() instanceof ScalarSubquery;
+            boolean atLeastOneChildContainsScalarSubquery =
+                    binaryOperator.left().containsType(ScalarSubquery.class)
+                        || binaryOperator.right().containsType(ScalarSubquery.class);
             boolean currentMarkJoin = ((binaryOperator.left().anyMatch(SubqueryExpr.class::isInstance)
                                         || binaryOperator.right().anyMatch(SubqueryExpr.class::isInstance))
                                       && (binaryOperator instanceof Or)) || isMarkJoin;
@@ -334,9 +333,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             isMarkJoin = currentMarkJoin;
             Expression right = replace(binaryOperator.right(), context);
 
-            if (atLeastOneChildIsScalarSubquery) {
+            if (atLeastOneChildContainsScalarSubquery && !(binaryOperator instanceof CompoundPredicate)) {
                 return context.replaceBinaryOperator(binaryOperator, left, right, isProject);
             }
+
             return binaryOperator.withChildren(left, right);
         }
     }
@@ -406,36 +406,36 @@ public class SubqueryToApply implements AnalysisRuleFactory {
          *  logicalFilter(predicate=k1 > scalarSub or exists)
          *  -->
          *  logicalFilter(predicate=$c$1 or $c$2)
-         *
-         * For non-MarkJoin scalarSubQuery, do implicit type conversion.
-         *  e.g.
-         *  logicalFilter(predicate=k1 > scalarSub(sum(k2)))
-         *  -->
-         *  logicalFilter(predicate=Cast(k1[#0] as BIGINT) = sum(k2)[#1])
          */
         public Expression replaceBinaryOperator(BinaryOperator binaryOperator,
                                                 Expression left,
                                                 Expression right,
                                                 boolean isProject) {
-            boolean leftIsScalar = binaryOperator.left() instanceof ScalarSubquery;
-            ScalarSubquery subquery = leftIsScalar
-                    ? (ScalarSubquery) binaryOperator.left() : (ScalarSubquery) binaryOperator.right();
+            boolean leftContaionsScalar = binaryOperator.left().containsType(ScalarSubquery.class);
+            ScalarSubquery subquery = collectScalarSubqueryForBinaryOperator(binaryOperator);
 
-            // Perform implicit type conversion on the connection condition of scalarSubQuery,
-            // and record the result in subqueryCorrespondingConjunct
-            Expression newLeft = leftIsScalar && subqueryToMarkJoinSlot.get(subquery).isPresent()
-                    ? ((ScalarSubquery) binaryOperator.left()).getQueryPlan().getOutput().get(0) : left;
-            Expression newRight = !leftIsScalar && subqueryToMarkJoinSlot.get(subquery).isPresent()
-                    ? ((ScalarSubquery) binaryOperator.right()).getQueryPlan().getOutput().get(0) : right;
-            Expression newBinary = TypeCoercionUtils.processComparisonPredicate(
-                    (ComparisonPredicate) binaryOperator.withChildren(newLeft, newRight), newLeft, newRight);
+            // record the result in subqueryCorrespondingConjunct
+            Expression newLeft = leftContaionsScalar && subqueryToMarkJoinSlot.get(subquery).isPresent()
+                    ? subqueryCorrespondingConjunct.get(subquery) : left;
+            Expression newRight = !leftContaionsScalar && subqueryToMarkJoinSlot.get(subquery).isPresent()
+                    ? subqueryCorrespondingConjunct.get(subquery) : right;
+            Expression newBinary = binaryOperator.withChildren(newLeft, newRight);
             subqueryCorrespondingConjunct.put(subquery,
-                    (isProject ? (leftIsScalar ? newLeft : newRight) : newBinary));
+                    (isProject ? (leftContaionsScalar ? newLeft : newRight) : newBinary));
 
-            if (subqueryToMarkJoinSlot.get(subquery).isPresent()) {
+            if (subqueryToMarkJoinSlot.get(subquery).isPresent() && binaryOperator instanceof ComparisonPredicate) {
                 return subqueryToMarkJoinSlot.get(subquery).get();
             }
             return newBinary;
         }
+    }
+
+    private static ScalarSubquery collectScalarSubqueryForBinaryOperator(BinaryOperator binaryOperator) {
+        boolean leftContaionsScalar = binaryOperator.left().containsType(ScalarSubquery.class);
+        return leftContaionsScalar
+                ? (ScalarSubquery) ((ImmutableSet) binaryOperator.left()
+                .collect(ScalarSubquery.class::isInstance)).asList().get(0)
+                : (ScalarSubquery) ((ImmutableSet) binaryOperator.right()
+                .collect(ScalarSubquery.class::isInstance)).asList().get(0);
     }
 }
