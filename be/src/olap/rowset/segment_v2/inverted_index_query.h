@@ -22,7 +22,6 @@
 #include <variant>
 
 #include "common/status.h"
-#include "olap/column_predicate.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
@@ -304,7 +303,6 @@ const typename InvertedIndexQuery<field_type>::CppType InvertedIndexQuery<field_
 class InvertedIndexQueryRangeTypeFactory {
 public:
     // Create an inverted index query range for the specified column description
-    //template <FieldType field_type>
     template <PrimitiveType field_type>
     static InvertedIndexQueryType* create_inverted_index_query_range(const TypeInfo* type_info) {
         return new InvertedIndexQueryType(InvertedIndexQuery<field_type>(type_info));

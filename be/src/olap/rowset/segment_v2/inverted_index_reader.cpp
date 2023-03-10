@@ -965,5 +965,24 @@ InvertedIndexReaderType InvertedIndexIterator::get_inverted_index_reader_type() 
     return _reader->type();
 }
 
+template class InvertedIndexVisitor<TYPE_BOOLEAN>;
+template class InvertedIndexVisitor<TYPE_TINYINT>;
+template class InvertedIndexVisitor<TYPE_SMALLINT>;
+template class InvertedIndexVisitor<TYPE_INT>;
+template class InvertedIndexVisitor<TYPE_BIGINT>;
+template class InvertedIndexVisitor<TYPE_LARGEINT>;
+template class InvertedIndexVisitor<TYPE_FLOAT>;
+template class InvertedIndexVisitor<TYPE_DOUBLE>;
+template class InvertedIndexVisitor<TYPE_DECIMALV2>;
+template class InvertedIndexVisitor<TYPE_DATEV2>;
+template class InvertedIndexVisitor<TYPE_DATE>;
+template class InvertedIndexVisitor<TYPE_DATETIME>;
+template class InvertedIndexVisitor<TYPE_DATETIMEV2>;
+template class InvertedIndexVisitor<TYPE_CHAR>;
+template class InvertedIndexVisitor<TYPE_VARCHAR>;
+template class InvertedIndexVisitor<TYPE_STRING>;
+template class InvertedIndexVisitor<TYPE_DECIMAL32>;
+template class InvertedIndexVisitor<TYPE_DECIMAL64>;
+template class InvertedIndexVisitor<TYPE_DECIMAL128I>;
 } // namespace segment_v2
 } // namespace doris
