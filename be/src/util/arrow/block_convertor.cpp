@@ -302,6 +302,7 @@ public:
                 continue;
             }
             // append array child item in row i
+            ARROW_RETURN_NOT_OK(builder.Append());
             _cur_rows = offsets[i] - offsets[i - 1];
             ARROW_RETURN_NOT_OK(arrow::VisitTypeInline(*type.value_type(), this));
         }
