@@ -116,7 +116,7 @@ def generate_fe_datatype(str_type, template_types):
 
     # process template
     if str_type in template_types:
-        return 'new TemplateType("{}")'.format(str_type)
+        return 'new TemplateType("{0}")'.format(str_type)
 
     # process Array, Map, Struct template
     template_start = str_type.find('<')
@@ -125,10 +125,10 @@ def generate_fe_datatype(str_type, template_types):
         # exclude <>
         template = str_type[template_start + 1 : template_end]
         if str_type.startswith("ARRAY<"):
-            return 'new ArrayType({})'.format(generate_fe_datatype(template, template_types))
+            return 'new ArrayType({0})'.format(generate_fe_datatype(template, template_types))
         elif str_type.startswith("MAP<"):
             types = template.split(',', 2)
-            return 'new MapType({}, {})'.format(generate_fe_datatype(types[0], template_types), generate_fe_datatype(types[1], template_types))
+            return 'new MapType({0}, {1})'.format(generate_fe_datatype(types[0], template_types), generate_fe_datatype(types[1], template_types))
 
     # lagacy Array, Map syntax
     if str_type.startswith("ARRAY_"):
