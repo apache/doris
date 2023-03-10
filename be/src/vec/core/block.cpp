@@ -321,8 +321,8 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
         if (rows == -1) {
             rows = size;
         } else if (rows != size) {
-            LOG(FATAL) << fmt::format("Sizes of columns doesn't match: {}:{},{}:{}",
-                                      data.front().name, rows, elem.name, size);
+            LOG(FATAL) << fmt::format("Sizes of columns doesn't match: {}:{},{}:{}, col size: {}",
+                                      data.front().name, rows, elem.name, size, each_col_size());
         }
     }
 }
@@ -337,7 +337,7 @@ size_t Block::rows() const {
     return 0;
 }
 
-std::string Block::each_col_size() {
+std::string Block::each_col_size() const {
     std::stringstream ss;
     for (const auto& elem : data) {
         if (elem.column) {
@@ -438,6 +438,11 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
+            if (data[i].column->empty()) {
+                out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
+                    << std::right;
+                continue;
+            }
             std::string s = "";
             if (data[i].column) {
                 s = data[i].to_string(row_num);
@@ -959,6 +964,11 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     // content
     for (size_t row_num = 0; row_num < rows() && row_num < row_limit; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
+            if (_columns[i].get()->empty()) {
+                out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
+                    << std::right;
+                continue;
+            }
             std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
             if (s.length() > headers_size[i]) {
                 s = s.substr(0, headers_size[i] - 3) + "...";
