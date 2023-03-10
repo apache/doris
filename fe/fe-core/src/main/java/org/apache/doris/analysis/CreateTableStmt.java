@@ -467,8 +467,7 @@ public class CreateTableStmt extends DdlStmt {
                         && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
-                                                + " column can't support aggregation "
-                                                + columnDef.getAggregateType());
+                            + " column can't support aggregation " + columnDef.getAggregateType());
                 }
                 if (columnDef.isKey()) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
