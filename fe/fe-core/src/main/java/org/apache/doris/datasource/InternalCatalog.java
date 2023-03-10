@@ -2656,11 +2656,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // which is the right behavior.
                 long oldPartitionId = entry.getValue();
                 long newPartitionId = idGeneratorBuffer.getNextId();
-                String storagePolicy = olapTable.getStoragePolicy();
-                if (!Strings.isNullOrEmpty(olapTable.getPartitionInfo().getDataProperty(oldPartitionId)
-                        .getStoragePolicy())) {
-                    storagePolicy = olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy();
-                }
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(), db.getId(), copiedTbl.getId(),
                         copiedTbl.getBaseIndexId(), newPartitionId, entry.getKey(), copiedTbl.getIndexIdToMeta(),
                         partitionsDistributionInfo.get(oldPartitionId),
@@ -2670,7 +2665,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
-                        storagePolicy, idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                        olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
+                        idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.storeRowColumn(), olapTable.isDynamicSchema());
                 newPartitions.add(newPartition);
             }
