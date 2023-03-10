@@ -181,8 +181,8 @@ public abstract class BulkLoadJob extends LoadJob {
                         .orElse(String.valueOf(tableId)))
                 .collect(Collectors.toSet());
     }
-    @ExceptionLog
 
+    @ExceptionLog
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
