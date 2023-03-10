@@ -291,6 +291,7 @@
                                 "sql-manual/sql-functions/array-functions/array_join",
                                 "sql-manual/sql-functions/array-functions/array_with_constant",
                                 "sql-manual/sql-functions/array-functions/array_enumerate",
+                                "sql-manual/sql-functions/array-functions/array_enumerate_uniq",
                                 "sql-manual/sql-functions/array-functions/array_popback",
                                 "sql-manual/sql-functions/array-functions/array_popfront",
                                 "sql-manual/sql-functions/array-functions/array_compact",
