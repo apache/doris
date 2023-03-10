@@ -251,7 +251,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         Plan plan = generatePlan(joinType, hasProject);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(plan)
-                .applyTopDown(new InnerToCrossJoin())
+                .applyTopDown(new ConvertInnerOrCrossJoin())
                 .applyTopDown(new PushdownLimit())
                 .matchesFromRoot(pattern);
     }

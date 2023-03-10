@@ -186,6 +186,7 @@ public enum RuleType {
     BUILD_AGG_FOR_UNION(RuleTypeClass.REWRITE),
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
+    CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // split limit
