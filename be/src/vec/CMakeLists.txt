@@ -148,7 +148,6 @@ set(VEC_FILES
   exprs/vbitmap_predicate.cpp
   exprs/vruntimefilter_wrapper.cpp
   exprs/vtuple_is_null_predicate.cpp
-  exprs/varray_map_expr.cpp
   exprs/vslot_ref.cpp
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
@@ -159,6 +158,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
+  exprs/lambda_function/varray_map_function.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp

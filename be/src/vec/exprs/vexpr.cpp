@@ -25,7 +25,6 @@
 #include "gen_cpp/Exprs_types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/varray_literal.h"
-#include "vec/exprs/varray_map_expr.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcolumn_ref.h"
@@ -33,6 +32,7 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
@@ -157,19 +157,16 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
         *expr = pool->add(new VcompoundPred(texpr_node));
         break;
     }
+    case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
+        *expr = pool->add(new VLambdaFunctionCallExpr(texpr_node));
+        break;
+    }
     case doris::TExprNodeType::ARITHMETIC_EXPR:
     case doris::TExprNodeType::BINARY_PRED:
     case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
-    case doris::TExprNodeType::MATCH_PRED: {
-        *expr = pool->add(new VectorizedFnCall(texpr_node));
-        break;
-    }
+    case doris::TExprNodeType::MATCH_PRED: 
     case doris::TExprNodeType::FUNCTION_CALL: {
-        if (texpr_node.fn.name.function_name == "array_map") {
-            *expr = pool->add(new VArrayMapExpr(texpr_node));
-        } else {
-            *expr = pool->add(new VectorizedFnCall(texpr_node));
-        }
+        *expr = pool->add(new VectorizedFnCall(texpr_node));
         break;
     }
     case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {

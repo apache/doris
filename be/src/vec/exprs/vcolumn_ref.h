@@ -29,7 +29,7 @@ public:
     //columnref: is columnid = slotid, not used to find, so you should know this column placed in block
     VColumnRef(const doris::TExprNode& node)
             : VExpr(node),
-              _column_id(node.column_ref.slot_id),
+              _column_id(node.column_ref.column_id),
               _column_name(node.column_ref.column_name) {
         if (node.__isset.is_nullable) {
             _is_nullable = node.is_nullable;

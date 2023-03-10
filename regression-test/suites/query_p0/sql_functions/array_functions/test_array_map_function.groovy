@@ -60,7 +60,9 @@ suite("test_array_map_function") {
         qt_select_14 "select array_map(x -> x,[]);"
         qt_select_15 "select array_map(x -> x,[null]);"
         qt_select_16 "select array_map(x -> x,[1]);"
+        qt_select_17 "select array_map(x -> x is null, [null, 1, 2]);"
+        qt_select_18 "select array_map(x -> abs(x), [null, 1, 2]);"
 
-
+        
         sql "DROP TABLE IF EXISTS ${tableName}"
 }

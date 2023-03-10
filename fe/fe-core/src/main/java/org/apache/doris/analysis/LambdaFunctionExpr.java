@@ -34,13 +34,13 @@ public class LambdaFunctionExpr extends Expr {
     private ArrayList<String> names = new ArrayList<>();
     private ArrayList<Expr> slotExpr = new ArrayList<>();
     private ArrayList<Expr> params = new ArrayList<>();
-    private int slotId = 0;
+    private int columnId = 0;
 
     public LambdaFunctionExpr(Expr e, String arg, List<Expr> params) {
         this.names.add(arg);
         this.slotExpr.add(e);
         this.params.addAll(params);
-        slotId = 0;
+        columnId = 0;
         this.setType(Type.LAMBDA_FUNCTION);
     }
 
@@ -48,7 +48,7 @@ public class LambdaFunctionExpr extends Expr {
         this.names.addAll(args);
         this.slotExpr.add(e);
         this.params.addAll(params);
-        slotId = 0;
+        columnId = 0;
         this.setType(Type.LAMBDA_FUNCTION);
     }
 
@@ -57,7 +57,7 @@ public class LambdaFunctionExpr extends Expr {
         this.names.addAll(rhs.names);
         this.slotExpr.addAll(rhs.slotExpr);
         this.params.addAll(rhs.params);
-        this.slotId = rhs.slotId;
+        this.columnId = rhs.columnId;
     }
 
     @Override
@@ -79,14 +79,14 @@ public class LambdaFunctionExpr extends Expr {
                         "The lambda function of params must be array type, now " + (i + 1) + "th is "
                                 + paramType.toString());
             }
-            // this ColumnRefExpr record the unique slotId, which is used for BE
+            // this ColumnRefExpr record the unique columnId, which is used for BE
             // so could insert nested column by order.
             ColumnRefExpr column = new ColumnRefExpr();
             column.setName(names.get(i));
-            column.setSlotId(slotId);
+            column.setcolumnId(columnId);
             column.setNullable(true);
             column.setType(((ArrayType) paramType).getItemType());
-            slotId = slotId + 1;
+            columnId = columnId + 1;
             replaceExpr(names.get(i), column, slotExpr);
         }
         if (slotExpr.size() != params.size() + 1) {

@@ -16,26 +16,26 @@
 // under the License.
 
 #pragma once
-#include "common/global_types.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
+
+#include <fmt/core.h>
+
+#include "common/status.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-class VArrayMapExpr final : public VExpr {
+class VExpr;
+class LambdaFunction {
 public:
-    VArrayMapExpr(const TExprNode& node);
-    ~VArrayMapExpr() override = default;
+    virtual ~LambdaFunction() = default;
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override;
+    virtual std::string get_name() const = 0;
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VArrayMapExpr(*this));
-    }
-
-    const std::string& expr_name() const override { return _expr_name; }
-
-private:
-    const std::string _expr_name = "varray_map_expr";
+    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
+                                  int* result_column_id, DataTypePtr result_type,
+                                  const std::vector<VExpr*>& children) = 0;
 };
+
+using LambdaFunctionPtr = std::shared_ptr<LambdaFunction>;
+
 } // namespace doris::vectorized

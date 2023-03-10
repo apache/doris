@@ -5993,7 +5993,7 @@ function_call_expr ::=
     List<Expr> exprs = params.exprs();
     LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, id, exprs);
     exprs.add(lambda);
-    RESULT = new FunctionCallExpr(fn_name, exprs); 
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs); 
   :}
   | function_name:fn_name LPAREN LPAREN ident:id COMMA ident_list:idList RPAREN ARROW expr:e COMMA function_params:params RPAREN
   {:
@@ -6001,7 +6001,7 @@ function_call_expr ::=
     idList.add(0, id);
     LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, idList, exprs);
     exprs.add(lambda);
-    RESULT = new FunctionCallExpr(fn_name, exprs); 
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs);
   :}
   ;
 

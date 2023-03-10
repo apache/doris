@@ -71,6 +71,7 @@ enum TExprNodeType {
   SCHEMA_CHANGE_EXPR,
   // for lambda function expr
   LAMBDA_FUNCTION_EXPR,
+  LAMBDA_FUNCTION_CALL_EXPR,
   // for column_ref expr
   COLUMN_REF,
 }
@@ -160,7 +161,7 @@ struct TSlotRef {
 }
 
 struct TColumnRef {
-  1: optional Types.TSlotId slot_id
+  1: optional Types.TSlotId column_id
   2: optional bool is_nullable
   3: optional string column_name
 }

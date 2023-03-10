@@ -28,23 +28,23 @@ import org.apache.logging.log4j.Logger;
 public class ColumnRefExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ColumnRefExpr.class);
     private String columnName;
-    private int slotId;
+    private int columnId;
     private boolean isNullable;
 
     public ColumnRefExpr() {
         super();
     }
 
-    public ColumnRefExpr(int slotId, String columnName, boolean isNullable) {
+    public ColumnRefExpr(int columnId, String columnName, boolean isNullable) {
         super();
-        this.slotId = slotId;
+        this.columnId = columnId;
         this.columnName = columnName;
         this.isNullable = isNullable;
     }
 
     public ColumnRefExpr(ColumnRefExpr rhs) {
         super(rhs);
-        this.slotId = rhs.slotId;
+        this.columnId = rhs.columnId;
         this.columnName = rhs.columnName;
         this.isNullable = rhs.isNullable;
     }
@@ -57,12 +57,12 @@ public class ColumnRefExpr extends Expr {
         this.columnName = name;
     }
 
-    public int getSlotId() {
-        return slotId;
+    public int getcolumnId() {
+        return columnId;
     }
 
-    public void setSlotId(int id) {
-        this.slotId = id;
+    public void setcolumnId(int id) {
+        this.columnId = id;
     }
 
     @Override
@@ -77,14 +77,14 @@ public class ColumnRefExpr extends Expr {
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         LOG.info("protected void analyzeImpl(Analyzer analyzer)");
-        if (slotId < 0) {
-            throw new AnalysisException("the slotId is invalid : " + slotId);
+        if (columnId < 0) {
+            throw new AnalysisException("the columnId is invalid : " + columnId);
         }
     }
 
     @Override
     protected String toSqlImpl() {
-        return columnName + "(" + slotId + ")";
+        return columnName + "(" + columnId + ")";
     }
 
     @Override
@@ -92,7 +92,7 @@ public class ColumnRefExpr extends Expr {
         LOG.info("protected void toThrift(TExprNode msg)");
         msg.node_type = TExprNodeType.COLUMN_REF;
         TColumnRef columnRef = new TColumnRef();
-        columnRef.setSlotId(slotId);
+        columnRef.setColumnId(columnId);
         columnRef.setColumnName(columnName);
         msg.column_ref = columnRef;
     }
@@ -102,7 +102,12 @@ public class ColumnRefExpr extends Expr {
         return new ColumnRefExpr(this);
     }
 
+    @Override
+    protected boolean isConstantImpl() {
+        return false;
+    }
+
     public String debugString() {
-        return columnName + " (" + slotId + ")id";
+        return columnName + " (" + columnId + ")id";
     }
 }
