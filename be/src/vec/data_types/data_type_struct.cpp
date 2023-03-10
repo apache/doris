@@ -159,6 +159,9 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
 
     // here need handle the empty struct '{}'
     if (rb.count() == 2) {
+        for (size_t i = 0; i < struct_column->tuple_size(); ++i) {
+            struct_column->get_column(i).insert_default();
+        }
         return Status::OK();
     }
 
