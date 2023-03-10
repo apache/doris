@@ -17,8 +17,7 @@
 
 suite("test_join2", "query,p0") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def DBname = "regression_test_join2"
     def TBname1 = "J1_TBL"
     def TBname2 = "J2_TBL"

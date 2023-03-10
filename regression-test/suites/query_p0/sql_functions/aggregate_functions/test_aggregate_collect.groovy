@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_aggregate_collect") {
-
-    sql "set enable_vectorized_engine = true"
-
     def tableName = "collect_test"
     def tableCTAS1 = "collect_set_test_ctas1"
     def tableCTAS2 = "collect_set_test_ctas2"

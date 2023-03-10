@@ -127,7 +127,6 @@ origin_runtime_filter_mode=$(
     set -e
     run_sql 'select @@runtime_filter_mode;' | sed -n '3p'
 )
-run_sql "set global enable_vectorized_engine=1;"
 run_sql "set global parallel_fragment_exec_instance_num=8;"
 run_sql "set global exec_mem_limit=48G;"
 run_sql "set global batch_size=4096;"
@@ -151,7 +150,6 @@ echo "total time: ${sum} seconds"
 
 echo '============================================'
 echo "restore session variables"
-run_sql "set global enable_vectorized_engine=${origin_enable_vectorized_engine};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel_fragment_exec_instance_num};"
 run_sql "set global exec_mem_limit=${origin_exec_mem_limit};"
 run_sql "set global batch_size=${origin_batch_size};"
