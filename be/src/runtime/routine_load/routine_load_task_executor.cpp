@@ -331,8 +331,9 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
 
         std::vector<RdKafka::TopicPartition*> topic_partitions;
         for (auto& kv : ctx->kafka_info->cmt_offset) {
-            RdKafka::TopicPartition* tp1 =
-                    RdKafka::TopicPartition::create(ctx->kafka_info->topic, kv.first, kv.second);
+            // The offsets you commit are the offsets of the messages you want to read next
+            RdKafka::TopicPartition* tp1 = RdKafka::TopicPartition::create(
+                    ctx->kafka_info->topic, kv.first, kv.secondi + 1);
             topic_partitions.push_back(tp1);
         }
 
