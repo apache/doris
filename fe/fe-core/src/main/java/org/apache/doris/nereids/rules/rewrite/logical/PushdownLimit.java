@@ -97,10 +97,10 @@ public class PushdownLimit implements RewriteRuleFactory {
                 logicalLimit(logicalOneRowRelation())
                         .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
                                 ? limit.child() : new LogicalEmptyRelation(limit.child().getOutput()))
-                        .toRule(RuleType.PUSH_LIMIT_THROUGH_ONE_ROW_RELATION),
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
                 logicalLimit(logicalEmptyRelation())
                         .then(UnaryNode::child)
-                        .toRule(RuleType.PUSH_LIMIT_THROUGH_EMPTY_RELATION),
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION),
                 new MergeLimits().build()
         );
     }
