@@ -19,19 +19,32 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.JoinType;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Convert invalid inner join to cross join.
  * Like: A inner join B on true -> A cross join B on true;
+ * Or
+ * Convert invalid cross join to inner join.
+ * Like: A cross join B on A.id > 1 -> A inner join B on A.id > 1;
  */
-public class InnerToCrossJoin extends OneRewriteRuleFactory {
+public class ConvertInnerOrCrossJoin implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return innerLogicalJoin()
-                .when(join -> join.getHashJoinConjuncts().size() == 0)
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            innerLogicalJoin()
+                .when(join -> join.getHashJoinConjuncts().size() == 0 && join.getOtherJoinConjuncts().size() == 0)
                 .then(join -> join.withJoinType(JoinType.CROSS_JOIN))
-                .toRule(RuleType.INNER_TO_CROSS_JOIN);
+                .toRule(RuleType.INNER_TO_CROSS_JOIN),
+            crossLogicalJoin()
+                .when(join -> join.getHashJoinConjuncts().size() != 0 || join.getOtherJoinConjuncts().size() != 0)
+                .then(join -> join.withJoinType(JoinType.INNER_JOIN))
+                .toRule(RuleType.CROSS_TO_INNER_JOIN)
+        );
     }
 }
