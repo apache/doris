@@ -38,13 +38,13 @@ Doris开启SSL功能需要配置密钥证书，默认的密钥证书文件位于
 openssl req -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out certificate.pem
 ```
 
-2.查看创建的证书
+2.查看创建的证书。
 
 ```bash
 openssl x509 -text -noout -in certificate.pem
 ```
 
-3.将您的密钥和证书合并到 PKCS#12 (P12) 包中
+3.将您的密钥和证书合并到 PKCS#12 (P12) 包中。
 
 ```bash
  openssl pkcs12 -inkey key.pem -in certificate.pem -export -out certificate.p12
