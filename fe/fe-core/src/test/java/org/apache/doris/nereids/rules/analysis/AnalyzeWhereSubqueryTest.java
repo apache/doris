@@ -39,8 +39,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -120,7 +120,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
 
     @Override
     protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
     }
 
     @Test
@@ -134,7 +134,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
 
         for (String sql : testSql) {
             try {
-                NamedExpressionUtil.clear();
+                StatementScopeIdGenerator.clear();
                 StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
                 PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
                         parser.parseSingle(sql),

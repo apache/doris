@@ -19,15 +19,16 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 
 import java.util.Objects;
 
 /**
  * relation id
  */
-public class RelationId extends Id<RelationId> {
+public class ObjectId extends Id<ObjectId> {
 
-    public RelationId(int id) {
+    public ObjectId(int id) {
         super(id);
     }
 
@@ -39,18 +40,18 @@ public class RelationId extends Id<RelationId> {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        RelationId relationId = (RelationId) o;
+        ObjectId relationId = (ObjectId) o;
         return id == relationId.id;
     }
 
     /**
-     * Should be only called by {@link org.apache.doris.nereids.trees.expressions.NamedExpressionUtil}.
+     * Should be only called by {@link StatementScopeIdGenerator}.
      */
-    public static IdGenerator<RelationId> createGenerator() {
-        return new IdGenerator<RelationId>() {
+    public static IdGenerator<ObjectId> createGenerator() {
+        return new IdGenerator<ObjectId>() {
             @Override
-            public RelationId getNextId() {
-                return new RelationId(nextId++);
+            public ObjectId getNextId() {
+                return new ObjectId(nextId++);
             }
         };
     }

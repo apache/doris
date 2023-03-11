@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -25,7 +26,7 @@ import com.google.common.annotations.VisibleForTesting;
 /**
  * The util of named expression.
  */
-public class NamedExpressionUtil {
+public class StatementScopeIdGenerator {
 
     // for test only
     private static StatementContext statementContext = new StatementContext();
@@ -36,6 +37,14 @@ public class NamedExpressionUtil {
             return statementContext.getNextExprId();
         }
         return ConnectContext.get().getStatementContext().getNextExprId();
+    }
+
+    public static ObjectId newObjectId() {
+        // this branch is for test only
+        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
+            return statementContext.getNextObjectId();
+        }
+        return ConnectContext.get().getStatementContext().getNextObjectId();
     }
 
     /**

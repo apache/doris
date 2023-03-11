@@ -22,8 +22,8 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -43,7 +43,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalJdbcScan.
      */
-    public PhysicalJdbcScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, qualifier, groupExpression, logicalProperties);
@@ -54,7 +54,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalJdbcScan.
      */
-    public PhysicalJdbcScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
                             StatsDeriveResult statsDeriveResult) {

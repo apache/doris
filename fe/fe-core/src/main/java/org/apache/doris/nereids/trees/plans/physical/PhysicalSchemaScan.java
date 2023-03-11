@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -39,13 +39,13 @@ public class PhysicalSchemaScan extends PhysicalRelation implements Scan {
 
     private final Table table;
 
-    public PhysicalSchemaScan(RelationId id, Table table, List<String> qualifier,
+    public PhysicalSchemaScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, qualifier, groupExpression, logicalProperties);
         this.table = table;
     }
 
-    public PhysicalSchemaScan(RelationId id, Table table, List<String> qualifier,
+    public PhysicalSchemaScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,

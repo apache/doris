@@ -21,9 +21,9 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -36,11 +36,11 @@ import java.util.Optional;
  */
 public class LogicalSchemaScan extends LogicalRelation implements Scan {
 
-    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
+    public LogicalSchemaScan(ObjectId id, TableIf table, List<String> qualifier) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier);
     }
 
-    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
+    public LogicalSchemaScan(ObjectId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
     }

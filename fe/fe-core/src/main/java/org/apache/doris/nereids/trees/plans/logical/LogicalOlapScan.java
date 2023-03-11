@@ -28,9 +28,9 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -104,32 +104,32 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     ///////////////////////////////////////////////////////////////////////////
     private final List<String> hints;
 
-    public LogicalOlapScan(RelationId id, OlapTable table) {
+    public LogicalOlapScan(ObjectId id, OlapTable table) {
         this(id, table, ImmutableList.of());
     }
 
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
+    public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
                 ImmutableList.of(), false,
                 -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of());
     }
 
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<String> hints) {
+    public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
                 ImmutableList.of(), false,
                 -1, false, PreAggStatus.on(), ImmutableList.of(), hints);
     }
 
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
+    public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
             List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 specifiedPartitions, false, ImmutableList.of(), false,
                 -1, false, PreAggStatus.on(), specifiedPartitions, hints);
     }
 
-    public LogicalOlapScan(RelationId id, Table table, List<String> qualifier) {
+    public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false,
                 -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of());
@@ -138,7 +138,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     /**
      * Constructor for LogicalOlapScan.
      */
-    public LogicalOlapScan(RelationId id, Table table, List<String> qualifier,
+    public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds, boolean partitionPruned,
             List<Long> selectedTabletIds, boolean tabletPruned,
