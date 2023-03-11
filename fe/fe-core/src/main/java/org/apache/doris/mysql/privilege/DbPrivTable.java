@@ -18,8 +18,10 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -53,7 +55,8 @@ public class DbPrivTable extends PrivTable {
             }
 
             // check db
-            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db)) {
+            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db) && !dbPrivEntry.getDbPattern()
+                    .match(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db))) {
                 continue;
             }
 
