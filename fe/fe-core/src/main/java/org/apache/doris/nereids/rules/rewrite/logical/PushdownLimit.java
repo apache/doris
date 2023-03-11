@@ -20,9 +20,11 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -85,15 +87,20 @@ public class PushdownLimit implements RewriteRuleFactory {
                 // limit -> sort ==> topN
                 logicalLimit(logicalSort())
                         .then(limit -> {
-                            LogicalSort<Plan> sort = limit.child();
-                            return new LogicalTopN<>(sort.getOrderKeys(),
+                            LogicalSort sort = limit.child();
+                            LogicalTopN topN = new LogicalTopN(sort.getOrderKeys(),
                                     limit.getLimit(),
                                     limit.getOffset(),
                                     sort.child(0));
+                            return topN;
                         }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
-                new EliminateLimit().build(),
-                new EliminateLimitOnOneRowRelation().build(),
-                new EliminateLimitOnEmptyRelation().build(),
+                logicalLimit(logicalOneRowRelation())
+                        .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
+                                ? limit.child() : new LogicalEmptyRelation(limit.child().getOutput()))
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
+                logicalLimit(logicalEmptyRelation())
+                        .then(UnaryNode::child)
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION),
                 new MergeLimits().build()
         );
     }
