@@ -283,6 +283,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
+    public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
+
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
@@ -759,6 +761,9 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is -1, which means not fix replica
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
+
+    @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
+    public boolean dumpNereidsMemo = false;
 
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -1846,5 +1851,13 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
+    }
+
+    public boolean isDumpNereidsMemo() {
+        return dumpNereidsMemo;
+    }
+
+    public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
+        this.dumpNereidsMemo = dumpNereidsMemo;
     }
 }

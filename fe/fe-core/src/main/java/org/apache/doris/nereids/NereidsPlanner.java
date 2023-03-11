@@ -61,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -180,10 +181,23 @@ public class NereidsPlanner extends Planner {
 
             optimize();
 
+            //print memo before choose plan.
+            //if chooseNthPlan failed, we could get memo to debug
+            if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
+                String memo = cascadesContext.getMemo().toString();
+                LOG.info(memo);
+            }
+
             int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
             PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
+
+            if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
+                String tree = physicalPlan.treeString();
+                LOG.info(tree);
+            }
+
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 optimizedPlan = physicalPlan;
             }
@@ -293,8 +307,8 @@ public class NereidsPlanner extends Planner {
             if (!(plan instanceof PhysicalPlan)) {
                 throw new AnalysisException("Result plan must be PhysicalPlan");
             }
-
-            // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
+            // add groupExpression to plan so that we could print group id in plan.treeString()
+            plan = plan.withGroupExpression(Optional.of(groupExpression));
             PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
                     groupExpression.getOutputProperties(physicalProperties),
                     groupExpression.getOwnerGroup().getStatistics());

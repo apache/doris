@@ -26,6 +26,8 @@ import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -34,6 +36,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.text.DecimalFormat;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,8 @@ public class GroupExpression {
 
     // After mergeGroup(), source Group was cleaned up, but it may be in the Job Stack. So use this to mark and skip it.
     private boolean isUnused = false;
+
+    private ObjectId id = StatementScopeIdGenerator.newObjectId();
 
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
@@ -306,15 +311,17 @@ public class GroupExpression {
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        StringBuilder builder = new StringBuilder("id:");
+        builder.append(id.asInt());
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
 
-        builder.append(" cost=").append((long) cost);
-
+        DecimalFormat decimalFormat = new DecimalFormat();
+        decimalFormat.setGroupingSize(3);
+        builder.append(" cost=").append(decimalFormat.format((long) cost));
         builder.append(" estRows=").append(estOutputRowCount);
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {

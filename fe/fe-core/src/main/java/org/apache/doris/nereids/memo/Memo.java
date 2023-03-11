@@ -693,7 +693,7 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group).append("\n");
+            builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             StatsDeriveResult stats = group.getStatistics();
             if (stats != null && !group.getLogicalExpressions().isEmpty()
@@ -702,12 +702,18 @@ public class Memo {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
             }
-            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
-            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
+
+            builder.append("  lowest Plan(cost, properties, plan)");
+            group.getAllProperties().forEach(
+                    prop -> {
+                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
+                        if (costAndGroupExpression.isPresent()) {
+                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
+                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                        }
+                    }
+            );
+            builder.append("\n");
         }
         return builder.toString();
     }

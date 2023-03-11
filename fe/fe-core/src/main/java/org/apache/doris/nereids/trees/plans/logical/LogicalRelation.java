@@ -24,8 +24,8 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -41,15 +41,15 @@ import java.util.Optional;
  */
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
-    protected final RelationId id;
+    protected final ObjectId id;
     protected final TableIf table;
     protected final ImmutableList<String> qualifier;
 
-    public LogicalRelation(RelationId id, PlanType type, TableIf table, List<String> qualifier) {
+    public LogicalRelation(ObjectId id, PlanType type, TableIf table, List<String> qualifier) {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty());
     }
 
-    public LogicalRelation(RelationId id, PlanType type, Optional<GroupExpression> groupExpression,
+    public LogicalRelation(ObjectId id, PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         this(id, type, new OlapTable(), ImmutableList.of(), groupExpression, logicalProperties);
     }
@@ -60,7 +60,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param table Doris table
      * @param qualifier qualified relation name
      */
-    public LogicalRelation(RelationId id, PlanType type, TableIf table, List<String> qualifier,
+    public LogicalRelation(ObjectId id, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(type, groupExpression, logicalProperties);
         this.id = id;
@@ -128,7 +128,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         return Utils.qualifiedName(qualifier, table.getName());
     }
 
-    public RelationId getId() {
+    public ObjectId getId() {
         return id;
     }
 }
