@@ -101,6 +101,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -198,6 +199,7 @@ public class StmtExecutor implements ProfileWriter {
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
     private String stmtName;
     private PrepareStmt prepareStmt;
+    private String mysqlLoadId;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -441,6 +443,10 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        SessionVariable sessionVariable = context.getSessionVariable();
+        if (sessionVariable.enableProfile && sessionVariable.isEnableNereidsPlanner()) {
+            ConnectContext.get().setStatsErrorEstimator(new StatsErrorEstimator());
+        }
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
@@ -590,7 +596,7 @@ public class StmtExecutor implements ProfileWriter {
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
-                        queryType = "Insert";
+                        queryType = "Load";
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail: {}", t.getMessage());
@@ -638,7 +644,6 @@ public class StmtExecutor implements ProfileWriter {
         } finally {
             // revert Session Value
             try {
-                SessionVariable sessionVariable = context.getSessionVariable();
                 VariableMgr.revertSessionValue(sessionVariable);
                 // origin value init
                 sessionVariable.setIsSingleSetVar(false);
@@ -1005,6 +1010,9 @@ public class StmtExecutor implements ProfileWriter {
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();
+        }
+        if (mysqlLoadId != null) {
+            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
     }
 
@@ -1896,8 +1904,10 @@ public class StmtExecutor implements ProfileWriter {
                             + " to load client local file.");
                     return;
                 }
+                String loadId = UUID.randomUUID().toString();
+                mysqlLoadId = loadId;
                 LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
-                        .executeMySqlLoadJobFromStmt(context, loadStmt);
+                        .executeMySqlLoadJobFromStmt(context, loadStmt, loadId);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());
             } else {

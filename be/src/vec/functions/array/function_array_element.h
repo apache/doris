@@ -97,12 +97,7 @@ public:
 
 private:
     //=========================== map element===========================//
-    ColumnPtr _get_mapped_idx(const ColumnArray& key_column,
-                              const ColumnWithTypeAndName& argument) {
-        return _mapped_key(key_column, argument);
-    }
-
-    ColumnPtr _mapped_key(const ColumnArray& column, const ColumnWithTypeAndName& argument) {
+    ColumnPtr _get_mapped_idx(const ColumnArray& column, const ColumnWithTypeAndName& argument) {
         auto right_column = argument.column->convert_to_full_column_if_const();
         const ColumnArray::Offsets64& offsets = column.get_offsets();
         ColumnPtr nested_ptr = nullptr;
@@ -236,25 +231,28 @@ private:
                            const UInt8* src_null_map, UInt8* dst_null_map) {
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
         DataTypePtr val_type =
-                reinterpret_cast<const DataTypeMap&>(*arguments[0].type).get_values();
+                reinterpret_cast<const DataTypeMap&>(*arguments[0].type).get_value_type();
         const auto& map_column = reinterpret_cast<const ColumnMap&>(*left_column);
 
-        const ColumnArray& column_keys = assert_cast<const ColumnArray&>(map_column.get_keys());
+        // create column array to find keys
+        auto key_arr = ColumnArray::create(map_column.get_keys_ptr(), map_column.get_offsets_ptr());
+        auto val_arr =
+                ColumnArray::create(map_column.get_values_ptr(), map_column.get_offsets_ptr());
 
-        const auto& offsets = column_keys.get_offsets();
+        const auto& offsets = map_column.get_offsets();
         const size_t rows = offsets.size();
 
         if (rows <= 0) {
             return nullptr;
         }
 
-        ColumnPtr matched_indices = _get_mapped_idx(column_keys, arguments[1]);
+        ColumnPtr matched_indices = _get_mapped_idx(*key_arr, arguments[1]);
         if (!matched_indices) {
             return nullptr;
         }
         DataTypePtr indices_type(std::make_shared<vectorized::DataTypeInt8>());
         ColumnWithTypeAndName indices(matched_indices, indices_type, "indices");
-        ColumnWithTypeAndName data(map_column.get_values_ptr(), val_type, "value");
+        ColumnWithTypeAndName data(val_arr, val_type, "value");
         ColumnsWithTypeAndName args = {data, indices};
         return _execute_non_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }

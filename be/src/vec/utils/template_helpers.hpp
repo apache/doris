@@ -69,17 +69,6 @@
 
 namespace doris::vectorized {
 
-template <template <typename> typename ClassTemplate, typename... TArgs>
-IAggregateFunction* create_class_with_type(const IDataType& argument_type, TArgs&&... args) {
-    WhichDataType which(argument_type);
-#define DISPATCH(TYPE, COLUMN_TYPE)   \
-    if (which.idx == TypeIndex::TYPE) \
-        return new ClassTemplate<COLUMN_TYPE>(std::forward<TArgs>(args)...);
-    TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-    return nullptr;
-}
-
 template <typename LoopType, LoopType start, LoopType end, template <LoopType> typename Reducer>
 struct constexpr_loop_match {
     template <typename... TArgs>
@@ -127,10 +116,6 @@ struct constexpr_2_loop_match {
     }
 };
 
-template <template <bool, bool> typename Reducer>
-using constexpr_2_bool_match =
-        constexpr_2_loop_match<bool, false, true, Reducer, constexpr_bool_match>;
-
 template <typename LoopType, LoopType start, LoopType end,
           template <LoopType, LoopType, LoopType> typename Reducer,
           template <template <LoopType, LoopType> typename> typename InnerMatch>
@@ -153,11 +138,7 @@ struct constexpr_3_loop_match {
     }
 };
 
-template <template <bool, bool, bool> typename Reducer>
-using constexpr_3_bool_match =
-        constexpr_3_loop_match<bool, false, true, Reducer, constexpr_2_bool_match>;
-
-std::variant<std::false_type, std::true_type> static inline make_bool_variant(bool condition) {
+std::variant<std::false_type, std::true_type> inline make_bool_variant(bool condition) {
     if (condition) {
         return std::true_type {};
     } else {

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -88,6 +89,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -199,6 +201,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitSlot(slotReference, context);
     }
 
+    public R visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, C context) {
+        return visitSlotReference(markJoinSlotReference, context);
+    }
+
     public R visitLiteral(Literal literal, C context) {
         return visit(literal, context);
     }
@@ -245,6 +251,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitDecimalLiteral(DecimalLiteral decimalLiteral, C context) {
         return visitLiteral(decimalLiteral, context);
+    }
+
+    public R visitDecimalV3Literal(DecimalV3Literal decimalV3Literal, C context) {
+        return visitLiteral(decimalV3Literal, context);
     }
 
     public R visitFloatLiteral(FloatLiteral floatLiteral, C context) {

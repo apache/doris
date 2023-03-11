@@ -48,7 +48,6 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
-    _reader_context.is_vec = true;
     _reader_context.is_vertical_compaction = true;
     for (auto& rs_reader : read_params.rs_readers) {
         // segment iterator will be inited here

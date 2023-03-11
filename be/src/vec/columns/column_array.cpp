@@ -38,14 +38,6 @@ extern const int LOGICAL_ERROR;
 extern const int TOO_LARGE_ARRAY_SIZE;
 } // namespace ErrorCodes
 
-/** Obtaining array as Field can be slow for large arrays and consume vast amount of memory.
-  * Just don't allow to do it.
-  * You can increase the limit if the following query:
-  *  SELECT range(10000000)
-  * will take less than 500ms on your machine.
-  */
-static constexpr size_t max_array_size_as_field = 1000000;
-
 template <typename T>
 ColumnPtr ColumnArray::index_impl(const PaddedPODArray<T>& indexes, size_t limit) const {
     assert(limit <= indexes.size());
@@ -624,19 +616,19 @@ size_t ColumnArray::filter_generic(const Filter& filter) {
     }
 
     data->filter(nested_filter);
-
-    auto& res_offsets = get_offsets();
-    res_offsets.set_end_ptr(res_offsets.data());
-
+    // Make a new offset to avoid inplace operation
+    auto res_offset = ColumnOffsets::create();
+    auto& res_offset_data = res_offset->get_data();
+    res_offset_data.reserve(size);
     size_t current_offset = 0;
     for (size_t i = 0; i < size; ++i) {
         if (filter[i]) {
             current_offset += size_at(i);
-            res_offsets.push_back(current_offset);
+            res_offset_data.push_back(current_offset);
         }
     }
-
-    return res_offsets.size();
+    get_offsets().swap(res_offset_data);
+    return get_offsets().size();
 }
 
 ColumnPtr ColumnArray::filter_nullable(const Filter& filt, ssize_t result_size_hint) const {
@@ -750,14 +742,22 @@ void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn&
     if (col_size == 0) {
         return;
     }
-
-    IColumn::Offsets replicate_offsets(col_size);
+    // |---------------------|-------------------------|-------------------------|
+    // [0, begin)             [begin, begin + count_sz)  [begin + count_sz, size())
+    //  do not need to copy    copy counts[n] times       do not need to copy
+    IColumn::Offsets replicate_offsets(get_offsets().size(), 0);
     size_t cur_offset = 0;
     size_t end = begin + col_size;
+    // copy original data at offset n counts[n] times
     for (size_t i = begin; i < end; ++i) {
         cur_offset += counts[i];
-        replicate_offsets[i - begin] = cur_offset;
+        replicate_offsets[i] = cur_offset;
     }
+    // ignored
+    for (size_t i = end; i < size(); ++i) {
+        replicate_offsets[i] = replicate_offsets[i - 1];
+    }
+
     if (cur_offset != target_size) {
         LOG(WARNING) << "ColumnArray replicate input target_size:" << target_size
                      << " not equal SUM(counts):" << cur_offset;
@@ -949,7 +949,9 @@ ColumnPtr ColumnArray::replicate_generic(const IColumn::Offsets& replicate_offse
         size_t size_to_replicate = replicate_offsets[i] - prev_offset;
         prev_offset = replicate_offsets[i];
 
-        for (size_t j = 0; j < size_to_replicate; ++j) res_concrete.insert_from(*this, i);
+        for (size_t j = 0; j < size_to_replicate; ++j) {
+            res_concrete.insert_from(*this, i);
+        }
     }
 
     return res;

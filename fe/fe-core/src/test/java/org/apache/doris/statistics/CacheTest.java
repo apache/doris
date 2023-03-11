@@ -167,7 +167,7 @@ public class CacheTest extends TestWithFeService {
                 values.add("-1");
                 values.add("4");
                 values.add("0.2");
-                String buckets = "{\"max_bucket_num\":128,\"bucket_num\":5,\"sample_rate\":1.0,\"buckets\":"
+                String buckets = "{\"num_buckets\":5,\"buckets\":"
                         + "[{\"lower\":\"2022-09-21 17:30:29\",\"upper\":\"2022-09-21 22:30:29\","
                         + "\"count\":9,\"pre_sum\":0,\"ndv\":1},"
                         + "{\"lower\":\"2022-09-22 17:30:29\",\"upper\":\"2022-09-22 22:30:29\","
@@ -190,8 +190,7 @@ public class CacheTest extends TestWithFeService {
         Thread.sleep(1000);
         histogram = statisticsCache.getHistogram(0, "col");
         Assertions.assertEquals("DATETIME", histogram.dataType.toString());
-        Assertions.assertEquals(128, histogram.maxBucketNum);
-        Assertions.assertEquals(5, histogram.bucketNum);
+        Assertions.assertEquals(5, histogram.numBuckets);
         Assertions.assertEquals(0.2, histogram.sampleRate);
         Assertions.assertEquals(5, histogram.buckets.size());
     }

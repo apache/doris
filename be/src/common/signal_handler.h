@@ -216,21 +216,6 @@ public:
         cursor_ += i;
     }
 
-    // Formats "number" as hexadecimal number, and updates the internal
-    // cursor.  Padding will be added in front if needed.
-    void AppendHexWithPadding(uint64 number, int width) {
-        char* start = cursor_;
-        AppendString("0x");
-        AppendUint64(number, 16);
-        // Move to right and add padding in front if needed.
-        if (cursor_ < start + width) {
-            const int64 delta = start + width - cursor_;
-            std::copy(start, cursor_, start + delta);
-            std::fill(start, start + delta, ' ');
-            cursor_ = start + width;
-        }
-    }
-
 private:
     char* buffer_;
     char* cursor_;

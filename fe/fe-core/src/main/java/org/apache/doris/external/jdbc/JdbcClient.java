@@ -24,11 +24,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -56,8 +56,7 @@ public class JdbcClient {
 
     private URLClassLoader classLoader = null;
 
-    private HikariDataSource dataSource = null;
-
+    private DruidDataSource dataSource = null;
     private boolean isOnlySpecifiedDatabase = false;
 
     private boolean isLowerCaseTableNames = false;
@@ -81,21 +80,26 @@ public class JdbcClient {
             //  and URLClassLoader may load the jar package directly into memory
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
-            classLoader = URLClassLoader.newInstance(urls, null);
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
+            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                    parent, oldClassLoader, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
-            HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
-            config.setJdbcUrl(jdbcUrl);
-            config.setUsername(jdbcUser);
-            config.setPassword(password);
-            config.setMaximumPoolSize(1);
+            dataSource = new DruidDataSource();
+            dataSource.setDriverClassLoader(classLoader);
+            dataSource.setDriverClassName(driverClass);
+            dataSource.setUrl(jdbcUrl);
+            dataSource.setUsername(jdbcUser);
+            dataSource.setPassword(password);
+            dataSource.setMinIdle(1);
+            dataSource.setInitialSize(2);
+            dataSource.setMaxActive(5);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            config.setConnectionTimeout(5000);
-            dataSource = new HikariDataSource(config);
+            dataSource.setMaxWait(5000);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
@@ -177,8 +181,8 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
-                            + "where schema_owner='" + jdbcUser + "';");
+                    rs = stmt.executeQuery("SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
+                            + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
@@ -373,7 +377,8 @@ public class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s", e, tableName);
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+                    Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }

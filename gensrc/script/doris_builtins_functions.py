@@ -25,13 +25,17 @@
 # It contains all the meta data that describes the function.
 
 # The format is:
-#   [sql aliases], <return_type>, [<args>], <nullable mode>
+#   [sql aliases], <return_type>, [<args>], <nullable mode>, [template_types]
 #
 # 'sql aliases' are the function names that can be used from sql. There must be at least
 # one per function.
 #
 # 'nullable mode' reflects whether the return value of the function is null. See @Function.NullableMode
 # for the specific mode and meaning.
+#
+# 'template_types' is for template function just like C++. It is optional list.
+# eg. [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+#     'K' and 'V' is type template and will be specialized at runtime in FE to match specific args.
 #
 visible_functions = [
     # Bit and Byte functions
@@ -100,7 +104,7 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
 
     # map element
-    [['element_at', '%element_extract%'], 'INT', ['MAP_STRING_INT', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
@@ -158,6 +162,25 @@ visible_functions = [
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_DECIMAL128'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_VARCHAR'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_STRING'], ''],
+
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_BOOLEAN', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_TINYINT', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_SMALLINT', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_INT', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_BIGINT', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_LARGEINT', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DATETIME', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DATE', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DATETIMEV2', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DATEV2', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_FLOAT', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DOUBLE', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DECIMALV2', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DECIMAL32', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DECIMAL64', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_DECIMAL128', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_VARCHAR', '...'], ''],
+    [['array_enumerate_uniq'], 'ARRAY_BIGINT', ['ARRAY_STRING', '...'], ''],
 
     [['countequal'], 'BIGINT', ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['countequal'], 'BIGINT', ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
@@ -411,6 +434,25 @@ visible_functions = [
     [['array_apply'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', 'VARCHAR', 'DATETIMEV2'], ''],
     [['array_apply'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', 'VARCHAR', 'DATEV2'], ''],
 
+    [['array_concat'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', '...'],  ''],
+    [['array_concat'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', '...'],  ''],
+    [['array_concat'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', '...'], ''],
+    [['array_concat'], 'ARRAY_INT',      ['ARRAY_INT', '...'], ''],
+    [['array_concat'], 'ARRAY_BIGINT',   ['ARRAY_BIGINT', '...'],   ''],
+    [['array_concat'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT', '...'], ''],
+    [['array_concat'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT', '...'],  ''],
+    [['array_concat'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64', '...'], ''],
+    [['array_concat'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', '...'], ''],
+    [['array_concat'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME', '...'], ''],
+    [['array_concat'], 'ARRAY_DATE',      ['ARRAY_DATE', '...'], ''],
+    [['array_concat'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', '...'], ''],
+    [['array_concat'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', '...'], ''],
+    [['array_concat'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', '...'], ''],
+    [['array_concat'], 'ARRAY_STRING',    ['ARRAY_STRING', '...'], ''],
+
     [['array_except'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  ''],
     [['array_except'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  ''],
     [['array_except'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], ''],
@@ -523,6 +565,25 @@ visible_functions = [
     [['array_popback'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_popback'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popback'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
+
+    [['array_popfront'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], ''],
+    [['array_popfront'], 'ARRAY_TINYINT', ['ARRAY_TINYINT'], ''],
+    [['array_popfront'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT'], ''],
+    [['array_popfront'], 'ARRAY_INT', ['ARRAY_INT'], ''],
+    [['array_popfront'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], ''],
+    [['array_popfront'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT'], ''],
+    [['array_popfront'], 'ARRAY_DATETIME', ['ARRAY_DATETIME'], ''],
+    [['array_popfront'], 'ARRAY_DATE', ['ARRAY_DATE'], ''],
+    [['array_popfront'], 'ARRAY_DATETIMEV2', ['ARRAY_DATETIMEV2'], ''],
+    [['array_popfront'], 'ARRAY_DATEV2', ['ARRAY_DATEV2'], ''],
+    [['array_popfront'], 'ARRAY_FLOAT', ['ARRAY_FLOAT'], ''],
+    [['array_popfront'], 'ARRAY_DOUBLE', ['ARRAY_DOUBLE'], ''],
+    [['array_popfront'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], ''],
+    [['array_popfront'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32'], ''],
+    [['array_popfront'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64'], ''],
+    [['array_popfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
+    [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
+    [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
 
     [['array_with_constant'], 'ARRAY_BOOLEAN', ['BIGINT', 'BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
     [['array_with_constant'], 'ARRAY_TINYINT', ['BIGINT', 'TINYINT'], 'ALWAYS_NOT_NULLABLE'],
@@ -1184,7 +1245,32 @@ visible_functions = [
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], 'CUSTOM'],
     [['coalesce'], 'STRING', ['STRING', '...'], 'CUSTOM'],
 
+    # esquery's first arg is suitable for all types
+    [['esquery'], 'BOOLEAN', ['BOOLEAN', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['TINYINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['SMALLINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['INT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['BIGINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['LARGEINT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['FLOAT', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DOUBLE', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATE', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATETIME', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['CHAR', 'VARCHAR'], ''],
     [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMALV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL32', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL64', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL128', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['TIME', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATEV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['DATETIMEV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['ARRAY', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['MAP', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'], ''],
+    [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'], ''],
 
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
@@ -1450,21 +1536,21 @@ visible_functions = [
     [['murmur_hash3_64'], 'BIGINT', ['STRING', '...'], ''],
 
     # aes and base64 function
-    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['from_base64'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['aes_encrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['aes_decrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['from_base64'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],

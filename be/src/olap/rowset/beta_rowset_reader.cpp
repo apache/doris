@@ -66,6 +66,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
+    _read_options.common_vexpr_ctxs_pushdown = _context->common_vexpr_ctxs_pushdown;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
@@ -250,19 +251,15 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    if (config::enable_storage_vectorization && _context->is_vec) {
-        do {
-            auto s = _iterator->next_block_view(block_view);
-            if (!s.ok()) {
-                if (!s.is<END_OF_FILE>()) {
-                    LOG(WARNING) << "failed to read next block view: " << s.to_string();
-                }
-                return s;
+    do {
+        auto s = _iterator->next_block_view(block_view);
+        if (!s.ok()) {
+            if (!s.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
-        } while (block_view->empty());
-    } else {
-        return Status::NotSupported("block view only support enable_storage_vectorization");
-    }
+            return s;
+        }
+    } while (block_view->empty());
 
     return Status::OK();
 }

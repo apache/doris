@@ -677,6 +677,18 @@ public class DateLiteral extends LiteralExpr {
         second = 0;
     }
 
+    public boolean hasTimePart() {
+        if (this.type.isDateV2() || this.type.isDate()) {
+            return false;
+        } else {
+            if (hour != 0 || minute != 0 || second != 0) {
+                return true;
+            } else {
+                return !this.type.isDatetime() && microsecond != 0;
+            }
+        }
+    }
+
     private long makePackedDatetime() {
         long ymd = ((year * 13 + month) << 5) | day;
         long hms = (hour << 12) | (minute << 6) | second;

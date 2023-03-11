@@ -106,7 +106,6 @@ protected:
     int _rows = 0;
     int _num_of_columns_from_file;
 
-    bool _src_block_mem_reuse = false;
     bool _strict_mode;
 
     bool _src_block_init = false;

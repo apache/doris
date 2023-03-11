@@ -35,7 +35,7 @@ RUN apt-get update && \
     cd /opt && \
     mv apache_hdfs_broker /opt/apache-doris/broker
 
-ADD ./resource/init_be.sh /opt/apache-doris/broker/bin
+ADD ./resource/init_broker.sh /opt/apache-doris/broker/bin
 RUN chmod 755 /opt/apache-doris/broker/bin/init_broker.sh
 
 ENTRYPOINT ["/opt/apache-doris/broker/bin/init_broker.sh"]

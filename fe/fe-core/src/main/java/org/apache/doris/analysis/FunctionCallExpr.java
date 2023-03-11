@@ -217,10 +217,6 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
-    // TODO: this field will be removed when we support analyze aggregate function
-    // in the nereids framework.
-    private boolean shouldFinalizeForNereids = true;
-
     // this field is set by nereids, so we would not get arg types by the children.
     private Optional<List<Type>> argTypesForNereids = Optional.empty();
 
@@ -341,7 +337,6 @@ public class FunctionCallExpr extends Expr {
         this.children.addAll(children);
         this.originChildSize = children.size();
         this.isMergeAggFn = isMergeAggFn;
-        this.shouldFinalizeForNereids = false;
     }
 
     // Constructs the same agg function with new params.
@@ -939,7 +934,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))
-                && children.size() == 3) {
+                && (children.size() == 2 || children.size() == 3)) {
             String blockEncryptionMode = "";
             Set<String> aesModes = new HashSet<>(Arrays.asList(
                     "AES_128_ECB",
@@ -985,6 +980,12 @@ public class FunctionCallExpr extends Expr {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with aes");
 
                     }
+                    if (children.size() == 2 && !blockEncryptionMode.toUpperCase().equals("AES_128_ECB")
+                            && !blockEncryptionMode.toUpperCase().equals("AES_192_ECB")
+                            && !blockEncryptionMode.toUpperCase().equals("AES_256_ECB")) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'aes_encrypt' or 'aes_decrypt'");
+                    }
                 }
                 if (fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
                         || fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
@@ -994,6 +995,10 @@ public class FunctionCallExpr extends Expr {
                     if (!sm4Modes.contains(blockEncryptionMode.toUpperCase())) {
                         throw new AnalysisException("session variable block_encryption_mode is invalid with sm4");
 
+                    }
+                    if (children.size() == 2) {
+                        throw new AnalysisException("Incorrect parameter count in the call to native function "
+                                + "'sm4_encrypt' or 'sm4_decrypt'");
                     }
                 }
             }
@@ -1012,7 +1017,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_union")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
-                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")) {
+                || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1072,7 +1078,8 @@ public class FunctionCallExpr extends Expr {
      * @throws AnalysisException
      */
     public void analyzeImplForDefaultValue(Type type) throws AnalysisException {
-        fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        fn = new Function(getBuiltinFunction(fnName.getFunction(), new Type[0],
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF));
         fn.setReturnType(type);
         this.type = type;
         for (int i = 0; i < children.size(); ++i) {
@@ -1369,37 +1376,34 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (!fn.getFunctionName().getFunction().equals(ELEMENT_EXTRACT_FN_NAME)) {
-            Type[] args = fn.getArgs();
-            if (args.length > 0) {
-                // Implicitly cast all the children to match the function if necessary
-                for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
-                    // For varargs, we must compare with the last type in callArgs.argTypes.
-                    int ix = Math.min(args.length - 1, i);
-                    if (fnName.getFunction().equalsIgnoreCase("money_format")
-                            && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
-                        continue;
-                    } else if (fnName.getFunction().equalsIgnoreCase("array")
-                            && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
-                                    || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
-                        continue;
-                    } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
-                            .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
-                            && ((
-                            children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
-                                    .isDecimalV3())
-                                    || (children.get(0).getType().isDatetimeV2()
-                                            && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
-                                    || (children.get(0).getType().isDecimalV2()
-                                            && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
-                        continue;
-                    } else if (!argTypes[i].matchesType(args[ix])
-                            && !(argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
-                            && (!fn.getReturnType().isDecimalV3()
-                                    || (argTypes[i].isValid() && !argTypes[i].isDecimalV3()
-                                            && args[ix].isDecimalV3()))) {
-                        uncheckedCastChild(args[ix], i);
-                    }
+        Type[] args = fn.getArgs();
+        if (args.length > 0) {
+            // Implicitly cast all the children to match the function if necessary
+            for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
+                // For varargs, we must compare with the last type in callArgs.argTypes.
+                int ix = Math.min(args.length - 1, i);
+                if (fnName.getFunction().equalsIgnoreCase("money_format")
+                        && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
+                    continue;
+                } else if (fnName.getFunction().equalsIgnoreCase("array")
+                        && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
+                        || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
+                    continue;
+                } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
+                        .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
+                        && ((
+                        children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
+                                .isDecimalV3())
+                        || (children.get(0).getType().isDatetimeV2()
+                        && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
+                        || (children.get(0).getType().isDecimalV2()
+                        && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
+                    continue;
+                } else if (!argTypes[i].matchesType(args[ix]) && !(
+                        argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
+                        && (!fn.getReturnType().isDecimalV3()
+                        || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
+                    uncheckedCastChild(args[ix], i);
                 }
             }
         }
@@ -1492,9 +1496,11 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_compact")
                 || fnName.getFunction().equalsIgnoreCase("array_slice")
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
+                || fnName.getFunction().equalsIgnoreCase("array_popfront")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
-                || fnName.getFunction().equalsIgnoreCase("array_except")) {
+                || fnName.getFunction().equalsIgnoreCase("array_except")
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }
@@ -1773,43 +1779,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public void finalizeImplForNereids() throws AnalysisException {
-        // return if nereids already analyzed out of the FunctionCallExpr.
-        if (!shouldFinalizeForNereids) {
-            return;
-        }
 
-        List<Type> argTypes = getArgTypesForNereids();
-        // TODO: support other functions
-        // TODO: Supports type conversion to match the type of the function's parameters
-        if (fnName.getFunction().equalsIgnoreCase("sum")) {
-            // Prevent the cast type in vector exec engine
-            Type childType = argTypes.get(0).getMaxResolutionType();
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[] { childType },
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("count")) {
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("substring")
-                || fnName.getFunction().equalsIgnoreCase("cast")) {
-            Type[] childTypes = argTypes.stream().toArray(Type[]::new);
-            fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("year")
-                || fnName.getFunction().equalsIgnoreCase("max")
-                || fnName.getFunction().equalsIgnoreCase("min")
-                || fnName.getFunction().equalsIgnoreCase("avg")
-                || fnName.getFunction().equalsIgnoreCase("weekOfYear")) {
-            Type childType = argTypes.get(0);
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[] { childType },
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else {
-            Type[] inputTypes = argTypes.stream().toArray(Type[]::new);
-            // nereids already compute the correct signature, so we can find the
-            fn = getBuiltinFunction(fnName.getFunction(), inputTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        }
     }
 
     private List<Type> getArgTypesForNereids() {

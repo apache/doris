@@ -94,6 +94,7 @@ public class TableRef implements ParseNode, Writable {
     // Indicates whether this table ref is given an explicit alias,
     protected boolean hasExplicitAlias;
     protected JoinOperator joinOp;
+    protected boolean isInBitmap;
     // for mark join
     protected boolean isMark;
     // we must record mark tuple name for re-analyze
@@ -278,6 +279,14 @@ public class TableRef implements ParseNode, Writable {
 
     public void setJoinOp(JoinOperator op) {
         this.joinOp = op;
+    }
+
+    public boolean isInBitmap() {
+        return isInBitmap;
+    }
+
+    public void setInBitmap(boolean inBitmap) {
+        isInBitmap = inBitmap;
     }
 
     public boolean isMark() {

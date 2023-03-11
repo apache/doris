@@ -38,15 +38,6 @@ import java.util.stream.Stream;
  * Common
  */
 class JoinReorderUtils {
-    /**
-     * check project Expression Input Slot just contains one slot, like:
-     * - one SlotReference like a.id
-     * - Input Slot size == 1, like abs(a.id) + 1
-     */
-    static boolean isOneSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        return project.getProjects().stream().allMatch(expr -> expr.getInputSlotExprIds().size() == 1);
-    }
-
     static boolean isAllSlotProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
         return project.getProjects().stream().allMatch(expr -> expr instanceof Slot);
     }
@@ -73,6 +64,13 @@ class JoinReorderUtils {
     public static Plan projectOrSelf(List<NamedExpression> projectExprs, Plan plan) {
         if (projectExprs.isEmpty() || projectExprs.stream().map(NamedExpression::getExprId).collect(Collectors.toSet())
                 .equals(plan.getOutputExprIdSet())) {
+            return plan;
+        }
+        return new LogicalProject<>(projectExprs, plan);
+    }
+
+    public static Plan projectOrSelfInOrder(List<NamedExpression> projectExprs, Plan plan) {
+        if (projectExprs.isEmpty() || projectExprs.equals(plan.getOutput())) {
             return plan;
         }
         return new LogicalProject<>(projectExprs, plan);
@@ -110,5 +108,12 @@ class JoinReorderUtils {
                 projects.add(slot);
             }
         });
+    }
+
+    public static Set<Slot> joinChildConditionSlots(LogicalJoin<? extends Plan, ? extends Plan> join, boolean left) {
+        Set<Slot> childSlots = left ? join.left().getOutputSet() : join.right().getOutputSet();
+        return join.getConditionSlot().stream()
+                .filter(childSlots::contains)
+                .collect(Collectors.toSet());
     }
 }

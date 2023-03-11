@@ -52,7 +52,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.InnerToCrossJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
@@ -60,7 +59,9 @@ import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
 
 import java.util.List;
 
@@ -83,7 +84,6 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new AvgDistinctToSumDivCount(),
                     new CountDistinctRewrite(),
 
-                    new NormalizeAggregate(),
                     new ExtractFilterFromCrossJoin()
                 ),
 
@@ -113,6 +113,14 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new CorrelateApplyToUnCorrelateApply(),
                     new ApplyToJoin()
                 )
+            ),
+
+            // The rule modification needs to be done after the subquery is unnested,
+            // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
+            // but when normalizeAggregate is performed, the members in apply cannot be obtained,
+            // resulting in inconsistent output results and results in apply
+            topDown(
+                new NormalizeAggregate()
             ),
 
             topDown(
@@ -191,7 +199,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new PruneOlapScanTablet(),
                     new EliminateAggregate(),
                     new MergeSetOperations(),
-                    new LimitPushDown(),
+                    new PushdownLimit(),
+                    new SplitLimit(),
                     new BuildAggForUnion()
             )),
 

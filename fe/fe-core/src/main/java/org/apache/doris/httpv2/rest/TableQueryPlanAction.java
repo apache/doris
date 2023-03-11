@@ -236,9 +236,10 @@ public class TableQueryPlanAction extends RestBaseController {
         tQueryPlanInfo.tablet_info = tabletInfo;
 
         // serialize TQueryPlanInfo and encode plan with Base64 to string in order to translate by json format
-        TSerializer serializer = new TSerializer();
+        TSerializer serializer;
         String opaquedQueryPlan;
         try {
+            serializer = new TSerializer();
             byte[] queryPlanStream = serializer.serialize(tQueryPlanInfo);
             opaquedQueryPlan = Base64.getEncoder().encodeToString(queryPlanStream);
         } catch (TException e) {

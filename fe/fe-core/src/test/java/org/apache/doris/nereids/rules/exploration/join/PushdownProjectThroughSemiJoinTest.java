@@ -95,4 +95,31 @@ class PushdownProjectThroughSemiJoinTest implements MemoPatternMatchSupported {
                         ).when(project -> project.getProjects().size() == 2)
                 );
     }
+
+    @Test
+    void pushComplexProject() {
+        // project (t1.id + t1.name) as complex
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(new Add(scan1.getOutput().get(0), scan1.getOutput().get(1)), "complex"));
+        // complex projection contain ti.id, which is in Join Condition
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .projectExprs(projectExprs)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushdownProjectThroughSemiJoin.INSTANCE.build())
+                .printlnOrigin()
+                .printlnExploration()
+                .matchesExploration(
+                    logicalProject(
+                        leftSemiLogicalJoin(
+                            logicalProject()
+                                .when(project -> project.getProjects().get(0).toSql().equals("(id + name) AS `complex`")
+                                    && project.getProjects().get(1).toSql().equals("id")),
+                            logicalOlapScan()
+                        )
+                    ).when(project -> project.getProjects().get(0).toSql().equals("complex"))
+                );
+    }
 }

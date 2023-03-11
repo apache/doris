@@ -38,7 +38,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Base class for all functions.
@@ -161,6 +163,26 @@ public class Function implements Writable {
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
                     boolean hasVarArgs, boolean vectorized, NullableMode mode) {
         this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
+    }
+
+    public Function(Function other) {
+        if (other == null) {
+            return;
+        }
+        this.id = other.id;
+        this.name = new FunctionName(other.name.getDb(), other.name.getFunction());
+        this.hasVarArgs = other.hasVarArgs;
+        this.retType = other.retType;
+        this.userVisible = other.userVisible;
+        this.nullableMode = other.nullableMode;
+        this.vectorized = other.vectorized;
+        this.binaryType = other.binaryType;
+        this.location = other.location;
+        if (other.argTypes != null) {
+            this.argTypes = new Type[other.argTypes.length];
+            System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
+        }
+        this.checksum = other.checksum;
     }
 
     public FunctionName getFunctionName() {
@@ -813,5 +835,40 @@ public class Function implements Writable {
         } catch (Throwable t) {
             throw new UserException("failed to serialize function: " + functionName(), t);
         }
+    }
+
+    public boolean hasTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.hasTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Function function = (Function) o;
+        return id == function.id && hasVarArgs == function.hasVarArgs && userVisible == function.userVisible
+                && vectorized == function.vectorized && Objects.equals(name, function.name)
+                && Objects.equals(retType, function.retType) && Arrays.equals(argTypes,
+                function.argTypes) && Objects.equals(location, function.location)
+                && binaryType == function.binaryType && nullableMode == function.nullableMode && Objects.equals(
+                checksum, function.checksum);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hash(id, name, retType, hasVarArgs, userVisible, location, binaryType, nullableMode,
+                vectorized, checksum);
+        result = 31 * result + Arrays.hashCode(argTypes);
+        return result;
     }
 }
