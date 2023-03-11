@@ -192,10 +192,6 @@ public class SystemInfoService {
     public void addBackends(List<HostInfo> hostInfos, boolean isFree, String destCluster,
             Map<String, String> tagMap) throws UserException {
         for (HostInfo hostInfo : hostInfos) {
-            //if not enable_fqdn,ignore hostName
-            if (!Config.enable_fqdn_mode) {
-                hostInfo.setHostName(null);
-            }
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(hostInfo.getHostName())) {
                 throw new DdlException("backend's hostName should not be empty while enable_fqdn_mode is true");
             }
