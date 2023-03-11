@@ -18,8 +18,8 @@
 #include "util/arrow/block_convertor.h"
 
 #include <arrow/array.h>
-#include <arrow/array/builder_primitive.h>
 #include <arrow/array/builder_nested.h>
+#include <arrow/array/builder_primitive.h>
 #include <arrow/buffer.h>
 #include <arrow/builder.h>
 #include <arrow/io/memory.h>
@@ -87,7 +87,7 @@ public:
 
     // process string-transformable field
     arrow::Status Visit(const arrow::StringType& type) override {
-        auto& builder = assert_cast<arrow::StringBuilder &>(*_cur_builder);
+        auto& builder = assert_cast<arrow::StringBuilder&>(*_cur_builder);
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
@@ -163,7 +163,7 @@ public:
 
     // process doris Decimal
     arrow::Status Visit(const arrow::Decimal128Type& type) override {
-        auto& builder = assert_cast<arrow::Decimal128Builder &>(*_cur_builder);
+        auto& builder = assert_cast<arrow::Decimal128Builder&>(*_cur_builder);
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         if (auto* decimalv2_column = vectorized::check_and_get_column<
@@ -250,7 +250,7 @@ public:
     }
     // process boolean
     arrow::Status Visit(const arrow::BooleanType& type) override {
-        auto& builder = assert_cast<arrow::BooleanBuilder &>(*_cur_builder);
+        auto& builder = assert_cast<arrow::BooleanBuilder&>(*_cur_builder);
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
@@ -268,16 +268,17 @@ public:
 
     // process array type
     arrow::Status Visit(const arrow::ListType& type) override {
-        auto& builder = assert_cast<arrow::ListBuilder &>(*_cur_builder);
+        auto& builder = assert_cast<arrow::ListBuilder&>(*_cur_builder);
         auto orignal_col = _cur_col;
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
 
         const vectorized::ColumnArray* array_column = nullptr;
         if (orignal_col->is_nullable()) {
-            auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(orignal_col.get());
-            array_column =
-                    assert_cast<const vectorized::ColumnArray*>(&nullable_column->get_nested_column());
+            auto nullable_column =
+                    assert_cast<const vectorized::ColumnNullable*>(orignal_col.get());
+            array_column = assert_cast<const vectorized::ColumnArray*>(
+                    &nullable_column->get_nested_column());
         } else {
             array_column = assert_cast<const vectorized::ColumnArray*>(orignal_col.get());
         }
@@ -287,13 +288,13 @@ public:
         // set current col/type/builder to nested
         _cur_col = nested_column;
         if (_cur_type->is_nullable()) {
-            auto nullable_type =
-                assert_cast<const vectorized::DataTypeNullable *>(_cur_type.get());
-            _cur_type = assert_cast<const vectorized::DataTypeArray*>
-                            (nullable_type->get_nested_type().get())->get_nested_type();
+            auto nullable_type = assert_cast<const vectorized::DataTypeNullable*>(_cur_type.get());
+            _cur_type = assert_cast<const vectorized::DataTypeArray*>(
+                                nullable_type->get_nested_type().get())
+                                ->get_nested_type();
         } else {
-            _cur_type = assert_cast<const vectorized::DataTypeArray*>
-                            (_cur_type.get())->get_nested_type();
+            _cur_type = assert_cast<const vectorized::DataTypeArray*>(_cur_type.get())
+                                ->get_nested_type();
         }
         _cur_builder = builder.value_builder();
 
@@ -319,7 +320,7 @@ public:
 private:
     template <typename T>
     arrow::Status _visit(const T& type) {
-        auto& builder = assert_cast<arrow::NumericBuilder<T> &>(*_cur_builder);
+        auto& builder = assert_cast<arrow::NumericBuilder<T>&>(*_cur_builder);
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));

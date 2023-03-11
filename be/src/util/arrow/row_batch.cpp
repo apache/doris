@@ -114,7 +114,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         for (size_t i = 0; i < type.children.size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
             convert_to_arrow_type(type.children[i], &field_type);
-            fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type, type.contains_nulls[i]));
+            fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
+                                                            type.contains_nulls[i]));
         }
         *result = std::make_shared<arrow::StructType>(fields);
         break;
