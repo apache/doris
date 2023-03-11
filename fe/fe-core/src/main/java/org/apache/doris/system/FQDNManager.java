@@ -34,7 +34,7 @@ import java.net.UnknownHostException;
 public class FQDNManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(FQDNManager.class);
 
-    public static final String  UNKNOWN_HOST_IP = "unknown";
+    public static final String UNKNOWN_HOST_IP = "unknown";
 
     private SystemInfoService nodeMgr;
 
