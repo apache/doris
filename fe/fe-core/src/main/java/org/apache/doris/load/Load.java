@@ -859,7 +859,12 @@ public class Load {
                 if (hasSequenceCol && column.isSequenceColumn()) {
                     continue;
                 }
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                ImportColumnDesc columnDesc = null;
+                if (formatType == TFileFormatType.FORMAT_JSON) {
+                    columnDesc = new ImportColumnDesc(column.getName());
+                } else {
+                    columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                }
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
