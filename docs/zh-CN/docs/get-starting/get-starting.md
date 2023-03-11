@@ -165,7 +165,7 @@ ReplayedJournalId: 49292
 
 #### 加密连接 FE
 
-由于
+Doris支持基于SSL的加密连接，
 
 
 #### 停止 FE 节点
