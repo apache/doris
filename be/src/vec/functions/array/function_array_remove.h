@@ -298,6 +298,8 @@ private:
                 assert_cast<const DataTypeArray&>(*arguments[0].type).get_nested_type());
         auto right_type = remove_nullable((arguments[1]).type);
 
+        LOG(INFO) << "aaaaaaaaaaaa   right_type "<< is_nothing(right_type);
+
         ColumnPtr res = nullptr;
         if (is_string(right_type) && is_string(left_element_type)) {
             res = _execute_string(offsets, *nested_column, *right_column, nested_null_map);
