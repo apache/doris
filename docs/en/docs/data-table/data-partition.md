@@ -305,6 +305,12 @@ Range partitioning also supports batch partitioning. For example, you can create
   PARTITION BY LIST(`id`, `city`)
   (
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
+      PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
+      PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
+  )
+  ```
+
+  In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns, so the resulting partitions will be as follows:
 
   ```
   * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
