@@ -179,7 +179,9 @@ Doris支持基于SSL的加密连接，当前支持TLS1.2，TLS1.3协议，可以
 >注意：
 >`--ssl-mode`参数是mysql5.7.11版本引入的，低于此版本的mysql客户端请参考[这里](https://dev.mysql.com/doc/refman/5.7/en/connection-options.html#option_general_ssl-mode)。
 
+Doris开启SSL加密连接需要证书文件验证，默认的证书文件位于`Doris/fe/mysql_ssl_default_certificate/certificate.p12`，默认密码为`doris`，您可以通过修改FE配置文件`conf/fe.conf`，添加`mysql_ssl_default_certificate = /path/to/your/certificate`修改证书文件，同时也可以通过`mysql_ssl_default_certificate_password = your_password`添加对应您自定义证书文件的密码。
 
+证书文件的生成请参考[证书配置](../admin-manual/certificate.md)。
 
 #### 停止 FE 节点
 
