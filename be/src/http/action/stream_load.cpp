@@ -574,6 +574,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_trim_double_quotes(false);
         }
     }
+    if (!http_req->header(HTTP_ESCAPE_DOUBLE_QUOTES).empty()) {
+        if (iequal(http_req->header(HTTP_ESCAPE_DOUBLE_QUOTES), "true")) {
+            request.__set_escape_double_quotes(true);
+        } else {
+            request.__set_escape_double_quotes(false);
+        }
+    }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
         request.__set_skip_lines(std::stoi(http_req->header(HTTP_SKIP_LINES)));
     }

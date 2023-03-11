@@ -120,6 +120,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    public static final String KEY_Escape_DOUBLE_QUOTES = "escape_double_quotes";
 
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
@@ -201,6 +202,12 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(KEY_TRIM_DOUBLE_QUOTES, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(KEY_ESCAPE_DOUBLE_QUOTES, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);

@@ -106,6 +106,7 @@ public class BrokerFileGroup implements Writable {
     private boolean readJsonByLine = false;
     private boolean numAsString = false;
     private boolean trimDoubleQuotes = false;
+    private boolean escapeDoubleQuotes = false;
     private int skipLines;
 
     // for unit test and edit log persistence
@@ -265,6 +266,7 @@ public class BrokerFileGroup implements Writable {
             numAsString = dataDescription.isNumAsString();
         }
         trimDoubleQuotes = dataDescription.getTrimDoubleQuotes();
+        escapeDoubleQuotes = dataDescription.getEscapeDoubleQuotes();
         skipLines = dataDescription.getSkipLines();
     }
 
@@ -422,6 +424,10 @@ public class BrokerFileGroup implements Writable {
 
     public boolean getTrimDoubleQuotes() {
         return trimDoubleQuotes;
+    }
+
+    public boolean getEscapeDoubleQuotes() {
+        return escapeDoubleQuotes;
     }
 
     public int getSkipLines() {

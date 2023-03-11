@@ -156,6 +156,9 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
     }
+    if (_params.file_attributes.__isset.escape_double_quotes) {
+        _escape_double_quotes = _params.file_attributes.escape_double_quotes;
+    }
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -465,19 +468,7 @@ void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
         bool quoted = false;
 
         for (; cur_pos < size; ++cur_pos) {
-            if (_trim_double_quotes && *(value + cur_pos) == '\"') {
-                if (cur_pos == start_field) {
-                    // start_field is ", mark quoted true
-                    quoted = true;
-                } else if (*(value + cur_pos - 1) != '\\' && quoted) {
-                    // cur_pos is ", mark quoted finished
-                    quoted = !quoted;
-                }
-                continue;
-            } else if (_trim_double_quotes && quoted) {
-                // when use _trim_double_quotes option, prevent content from being splitted by delimiter
-                continue;
-            } else if (*(value + cur_pos) == _value_separator[0]) {
+            if (*(value + cur_pos) == _value_separator[0]) {
                 size_t non_space = cur_pos;
                 if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
                     while (non_space > start_field && *(value + non_space - 1) == ' ') {
@@ -533,7 +524,7 @@ void CsvReader::_split_line(const Slice& line) {
         //     curpos
 
         while (curpos < line.size) {
-            if (_trim_double_quotes && *(value + curpos) == '\"') {
+            if (_escape_double_quotes && *(value + curpos) == '\"') {
                 if (curpos == start) {
                     // start is ", mark quoted true
                     quoted = true;
@@ -542,8 +533,8 @@ void CsvReader::_split_line(const Slice& line) {
                     quoted = !quoted;
                 }
                 curpos++;
-            } else if (_trim_double_quotes && quoted) {
-                // when use _trim_double_quotes option, prevent content from being splitted by delimiter
+            } else if (_escape_double_quotes && quoted) {
+                // when use _escape_double_quotes option, prevent content from being splitted by delimiter
                 curpos++;
             } else if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
                 // Not match, move forward:

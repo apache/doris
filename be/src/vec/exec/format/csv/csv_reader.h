@@ -121,6 +121,7 @@ private:
     int _value_separator_length;
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
+    bool _escape_double_quotes = false;
 
     IOContext* _io_ctx;
 

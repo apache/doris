@@ -132,6 +132,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileAttributes.setReadByColumnDef(true);
         fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
         fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
+        fileAttributes.setEscapeDoubleQuotes(fileGroup.getEscapeDoubleQuotes());
         fileAttributes.setSkipLines(fileGroup.getSkipLines());
     }
 

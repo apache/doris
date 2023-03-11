@@ -101,6 +101,10 @@ public interface LoadTaskInfo {
         return false;
     }
 
+    default boolean getEscapeDoubleQuotes() {
+        return false;
+    }
+
     default int getSkipLines() {
         return 0;
     }

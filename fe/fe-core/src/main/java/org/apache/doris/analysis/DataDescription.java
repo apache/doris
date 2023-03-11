@@ -150,6 +150,7 @@ public class DataDescription {
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
+    private boolean escapeDoubleQuotes = false;
     private boolean isMysqlLoad = false;
     private int skipLines = 0;
 
@@ -294,6 +295,7 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.escapeDoubleQuotes = taskInfo.getEscapeDoubleQuotes();
         this.skipLines = taskInfo.getSkipLines();
         columnsNameToLowerCase(fileFieldNames);
     }
@@ -706,6 +708,10 @@ public class DataDescription {
         return trimDoubleQuotes;
     }
 
+    public boolean getEscapeDoubleQuotes() {
+        return escapeDoubleQuotes;
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }
@@ -942,6 +948,11 @@ public class DataDescription {
         if (analysisMap.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
             trimDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES));
         }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_ESCAPE_DOUBLE_QUOTES)) {
+            escapeDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_ESCAPE_DOUBLE_QUOTES));
+        }
+
         if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
             skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
         }

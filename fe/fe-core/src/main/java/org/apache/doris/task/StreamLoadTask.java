@@ -83,6 +83,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String headerType = "";
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
+    private boolean escapeDoubleQuotes = false;
 
     private int skipLines = 0;
 
@@ -259,6 +260,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return trimDoubleQuotes;
     }
 
+    @Override
+    public boolean getEscapeDoubleQuotes() {
+        return escapeDoubleQuotes;
+    }
+
     public int getSkipLines() {
         return skipLines;
     }
@@ -364,6 +370,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetTrimDoubleQuotes()) {
             trimDoubleQuotes = request.isTrimDoubleQuotes();
+        }
+        if (request.isSetEscapeDoubleQuotes()) {
+            escapeDoubleQuotes = request.isEscapeDoubleQuotes();
         }
         if (request.isSetSkipLines()) {
             skipLines = request.getSkipLines();
