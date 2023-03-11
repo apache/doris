@@ -165,7 +165,20 @@ ReplayedJournalId: 49292
 
 #### 加密连接 FE
 
-Doris支持基于SSL的加密连接，
+Doris支持基于SSL的加密连接，当前支持TLS1.2，TLS1.3协议，可以通过以下配置开启Doris的SSL模式：
+修改FE配置文件`conf/fe.conf`，添加`enable_ssl = true`即可。
+
+接下来通过`mysql`客户端连接Doris，mysql支持三种SSL模式：
+
+1.`mysql -uroot -P9030 -h127.0.0.1`与`mysql --ssl-mode=PREFERRED -uroot -P9030 -h127.0.0.1`一样，都是一开始试图建立SSL加密连接，如果失败，则尝试使用普通连接。
+
+2.`mysql --ssl-mode=DISABLE -uroot -P9030 -h127.0.0.1`，不使用SSL加密连接，直接使用普通连接。
+
+3.`mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1`，强制使用SSL加密连接。
+
+>注意：
+>`--ssl-mode`参数是mysql5.7.11版本引入的，低于此版本的mysql客户端请参考[这里](https://dev.mysql.com/doc/refman/5.7/en/connection-options.html#option_general_ssl-mode)。
+
 
 
 #### 停止 FE 节点
