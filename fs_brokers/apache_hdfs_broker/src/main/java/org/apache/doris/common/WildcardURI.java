@@ -20,8 +20,7 @@ package org.apache.doris.common;
 import org.apache.doris.broker.hdfs.BrokerException;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -41,7 +40,7 @@ import java.nio.charset.StandardCharsets;
  * getPath() will return: /testdata/20180[8-9]*
  */
 public class WildcardURI {
-    private static Logger logger = LogManager.getLogger(WildcardURI.class.getName());
+    private static Logger logger = Logger.getLogger(WildcardURI.class.getName());
 
     private URI uri;
 
