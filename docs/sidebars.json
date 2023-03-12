@@ -1032,6 +1032,7 @@
                 "admin-manual/query-profile",
                 "admin-manual/tracing",
                 "admin-manual/optimization",
+                "admin-manual/certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",
