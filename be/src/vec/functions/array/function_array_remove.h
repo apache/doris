@@ -54,7 +54,7 @@ public:
         ColumnsWithTypeAndName args = {block.get_by_position(arguments[0]),
                                        block.get_by_position(arguments[1])};
 
-        bool is_process_null = true;
+        bool is_process_null = false;
         if (arguments.size() == 3) {
             if (!is_column_const(*block.get_by_position(arguments[2]).column)) {
                 return Status::RuntimeError(
