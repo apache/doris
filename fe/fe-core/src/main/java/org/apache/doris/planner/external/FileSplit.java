@@ -15,28 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.iceberg;
+package org.apache.doris.planner.external;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.planner.external.FileSplit;
+import org.apache.doris.planner.Split;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
 
-import java.util.List;
-
 @Data
-public class IcebergSplit extends FileSplit {
-    public IcebergSplit(Path file, long start, long length, String[] hosts) {
-        super(file, start, length, hosts);
+public class FileSplit extends Split {
+    protected Path path;
+    protected long start;
+    protected long length;
+    protected TableFormatType tableFormatType;
+
+    public FileSplit() {}
+
+    public FileSplit(Path path, long start, long length, String[] hosts) {
+        this.path = path;
+        this.start = start;
+        this.length = length;
+        this.hosts = hosts;
     }
 
-    private Analyzer analyzer;
-    private String dataFilePath;
-    private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
+    public String[] getHosts() {
+        if (this.hosts == null) {
+            return new String[]{};
+        } else {
+            return this.hosts;
+        }
+    }
 }
-
-
-
-
