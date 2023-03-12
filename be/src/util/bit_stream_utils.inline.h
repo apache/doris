@@ -26,6 +26,7 @@
 #include "util/alignment.h"
 #include "util/bit_packing.inline.h"
 #include "util/bit_stream_utils.h"
+#include "util/bit_util.h"
 
 using doris::BitUtil;
 
@@ -150,6 +151,18 @@ inline void BitReader::Rewind(int num_bits) {
     memcpy(&buffered_values_, buffer_ + byte_offset_, 8);
 }
 
+inline bool BitReader::Advance(int64_t num_bits) {
+    int64_t bits_required = bit_offset_ + num_bits;
+    int64_t bytes_required = (bits_required >> 3) + ((bits_required & 7) != 0);
+    if (bytes_required > max_bytes_ - byte_offset_) {
+        return false;
+    }
+    byte_offset_ += static_cast<int>(bits_required >> 3);
+    bit_offset_ = static_cast<int>(bits_required & 7);
+    BufferValues();
+    return true;
+}
+
 inline void BitReader::SeekToBit(unsigned int stream_position) {
     DCHECK_LE(stream_position, max_bytes_ * 8);
 
@@ -195,17 +208,52 @@ inline bool BitReader::GetAligned(int num_bytes, T* v) {
     return true;
 }
 
-inline bool BitReader::GetVlqInt(int32_t* v) {
-    *v = 0;
-    int shift = 0;
-    int num_bytes = 0;
-    uint8_t byte = 0;
-    do {
+inline bool BitReader::GetVlqInt(uint32_t* v) {
+    uint32_t tmp = 0;
+    for (int num_bytes = 0; num_bytes < MAX_VLQ_BYTE_LEN; num_bytes++) {
+        uint8_t byte = 0;
         if (!GetAligned<uint8_t>(1, &byte)) return false;
-        *v |= (byte & 0x7F) << shift;
-        shift += 7;
-        DCHECK_LE(++num_bytes, MAX_VLQ_BYTE_LEN);
-    } while ((byte & 0x80) != 0);
+        tmp |= static_cast<uint32_t>(byte & 0x7F) << (7 * num_bytes);
+        if ((byte & 0x80) == 0) {
+            *v = tmp;
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool BitReader::GetZigZagVlqInt(int32_t* v) {
+    uint32_t u;
+    if (!GetVlqInt(&u)) {
+        return false;
+    }
+    u = (u >> 1) ^ (~(u & 1) + 1);
+    // copy uint32_t to int32_t
+    std::memcpy(v, &u, sizeof(uint32_t));
+    return true;
+}
+
+inline bool BitReader::GetVlqInt(uint64_t* v) {
+    uint64_t tmp = 0;
+    for (int num_bytes = 0; num_bytes < MAX_VLQ_BYTE_LEN_FOR_INT64; num_bytes++) {
+        uint8_t byte = 0;
+        if (!GetAligned<uint8_t>(1, &byte)) return false;
+        tmp |= static_cast<uint64_t>(byte & 0x7F) << (7 * num_bytes);
+        if ((byte & 0x80) == 0) {
+            *v = tmp;
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool BitReader::GetZigZagVlqInt(int64_t* v) {
+    uint64_t u;
+    if (!GetVlqInt(&u)) {
+        return false;
+    }
+    u = (u >> 1) ^ (~(u & 1) + 1);
+    std::memcpy(v, &u, sizeof(uint64_t));
     return true;
 }
 
@@ -227,12 +275,14 @@ inline int BatchedBitReader::UnpackBatch(int bit_width, int num_values, T* v) {
 
 inline bool BatchedBitReader::SkipBatch(int bit_width, int num_values_to_skip) {
     DCHECK(buffer_pos_ != nullptr);
-    DCHECK_GT(bit_width, 0);
+    DCHECK_GE(bit_width, 0);
     DCHECK_LE(bit_width, MAX_BITWIDTH);
-    DCHECK_GT(num_values_to_skip, 0);
+    DCHECK_GE(num_values_to_skip, 0);
 
     int skip_bytes = BitUtil::RoundUpNumBytes(bit_width * num_values_to_skip);
-    if (skip_bytes > buffer_end_ - buffer_pos_) return false;
+    if (skip_bytes > buffer_end_ - buffer_pos_) {
+        return false;
+    }
     buffer_pos_ += skip_bytes;
     return true;
 }
