@@ -229,7 +229,7 @@ inline bool RleDecoder<T>::ReadHeader() {
     if (PREDICT_FALSE(literal_count_ == 0 && repeat_count_ == 0)) {
         // Read the next run's indicator int, it could be a literal or repeated run
         // The int is encoded as a vlq-encoded value.
-        int32_t indicator_value = 0;
+        uint32_t indicator_value = 0;
         bool result = bit_reader_.GetVlqInt(&indicator_value);
         if (PREDICT_FALSE(!result)) {
             return false;
