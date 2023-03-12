@@ -368,7 +368,7 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 }
 
 void BackendService::get_column_ids_by_tablet_ids(TFetchColIdsResponse& response,
-                                        const TFetchColIdsRequest& request) {
+                                                  const TFetchColIdsRequest& request) {
     TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
     for (TTabletId tablet_id : request.tablet_ids) {
         TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
@@ -379,7 +379,7 @@ void BackendService::get_column_ids_by_tablet_ids(TFetchColIdsResponse& response
         const std::vector<TabletColumn>& columns = tablet->tablet_schema()->columns();
         TFetchColIdsEntry entry;
         entry.tablet_id = tablet_id;
-        for(const TabletColumn& column : columns) {
+        for (const TabletColumn& column : columns) {
             entry.col_ids.push_back(column.unique_id());
         }
         response.result_list.push_back(entry);
