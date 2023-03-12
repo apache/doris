@@ -60,7 +60,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
                 .applyTopDown(new EliminateUnnecessaryProject())
-                .matches(logicalProject());
+                .matchesFromRoot(logicalFilter(logicalProject()));
     }
 
     @Test
@@ -71,7 +71,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
                 .applyTopDown(new EliminateUnnecessaryProject())
-                .matches(logicalOlapScan());
+                .matchesFromRoot(logicalOlapScan());
     }
 
     @Test
@@ -82,7 +82,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), necessaryProject)
                 .applyTopDown(new EliminateUnnecessaryProject())
-                .matches(logicalProject());
+                .matchesFromRoot(logicalProject());
     }
 
     @Test
@@ -94,7 +94,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
                 .applyTopDown(new EliminateUnnecessaryProject())
-                .matches(logicalEmptyRelation());
+                .matchesFromRoot(logicalEmptyRelation());
     }
 
     // TODO: uncomment this after the Elimination project rule is correctly implemented
