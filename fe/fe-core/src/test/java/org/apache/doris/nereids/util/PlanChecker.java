@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -124,6 +125,12 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(RuleFactory ruleFactory) {
         return applyTopDown(ruleFactory.buildRules());
+    }
+
+    public PlanChecker applyTopDown(CustomRewriter customRewriter) {
+        cascadesContext.topDownRewrite(customRewriter);
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
     }
 
     public PlanChecker applyTopDown(List<Rule> rule) {
