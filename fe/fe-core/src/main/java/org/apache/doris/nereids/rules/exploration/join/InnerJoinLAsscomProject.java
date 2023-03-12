@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -83,17 +81,16 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
-                    Preconditions.checkState(!newTopHashConjuncts.isEmpty(), "newTopHashConjuncts is empty");
-                    if (newBottomHashConjuncts.size() == 0) {
-                        return null;
-                    }
 
                     /* ********** split OtherConjuncts ********** */
                     Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjunctsWithAlias(
-                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
-                            bExprIdSet);
+                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
+
+                    if (newBottomOtherConjuncts.isEmpty() && newBottomHashConjuncts.isEmpty()) {
+                        return null;
+                    }
 
                     // Add all slots used by OnCondition when projects not empty.
                     Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
