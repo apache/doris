@@ -24,9 +24,14 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
                                                                     const DataTypes& argument_types,
                                                                     const bool result_is_nullable) {
-    return std::make_shared<
-            AggregateFunctionQuantileStateOp<AggregateFunctionQuantileStateUnionOp, double>>(
-            argument_types);
+    const bool arg_is_nullable = argument_types[0]->is_nullable();
+    if (arg_is_nullable) {
+        return std::make_shared<AggregateFunctionQuantileStateOp<
+                true, AggregateFunctionQuantileStateUnionOp, double>>(argument_types);
+    } else {
+        return std::make_shared<AggregateFunctionQuantileStateOp<
+                false, AggregateFunctionQuantileStateUnionOp, double>>(argument_types);
+    }
 }
 
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory) {

@@ -83,10 +83,11 @@ struct AggregateFunctionQuantileStateData {
     DataType& get() { return value; }
 };
 
-template <typename Op, typename InternalType>
+template <bool arg_is_nullable, typename Op, typename InternalType>
 class AggregateFunctionQuantileStateOp final
-        : public IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op, InternalType>,
-                                              AggregateFunctionQuantileStateOp<Op, InternalType>> {
+        : public IAggregateFunctionDataHelper<
+                  AggregateFunctionQuantileStateData<Op, InternalType>,
+                  AggregateFunctionQuantileStateOp<arg_is_nullable, Op, InternalType>> {
 public:
     using ResultDataType = QuantileState<InternalType>;
     using ColVecType = ColumnQuantileState<InternalType>;
@@ -95,8 +96,9 @@ public:
     String get_name() const override { return Op::name; }
 
     AggregateFunctionQuantileStateOp(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op, InternalType>,
-                                           AggregateFunctionQuantileStateOp<Op, InternalType>>(
+            : IAggregateFunctionDataHelper<
+                      AggregateFunctionQuantileStateData<Op, InternalType>,
+                      AggregateFunctionQuantileStateOp<arg_is_nullable, Op, InternalType>>(
                       argument_types_) {}
 
     DataTypePtr get_return_type() const override {
@@ -105,8 +107,17 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(column.get_data()[row_num]);
+        if constexpr (arg_is_nullable) {
+            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (!nullable_column.is_null_at(row_num)) {
+                const auto& column =
+                        static_cast<const ColVecType&>(nullable_column.get_nested_column());
+                this->data(place).add(column.get_data()[row_num]);
+            }
+        } else {
+            const auto& column = static_cast<const ColVecType&>(*columns[0]);
+            this->data(place).add(column.get_data()[row_num]);
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
