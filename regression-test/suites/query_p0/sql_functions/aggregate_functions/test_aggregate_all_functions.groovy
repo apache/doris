@@ -504,7 +504,7 @@ suite("test_aggregate_all_functions") {
         CREATE TABLE IF NOT EXISTS ${tableName_21} (
         	 `dt` int(11) NULL COMMENT "",
         	 `id` int(11) NULL COMMENT "",
-        	 `price` quantile_state QUANTILE_UNION NULL COMMENT ""
+        	 `price` quantile_state QUANTILE_UNION NOT NULL COMMENT ""
         	) ENGINE=OLAP
         	AGGREGATE KEY(`dt`, `id`)
         	COMMENT "OLAP"
