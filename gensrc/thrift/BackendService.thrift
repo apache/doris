@@ -121,6 +121,19 @@ struct TCheckStorageFormatResult {
     2: optional list<i64> v2_tablets;
 }
 
+struct TFetchColIdsRequest {
+    1: required set<i64> tablet_ids
+}
+
+struct TFetchColIdsEntry {
+    1: required i64 tablet_id
+    2: required list<i32> col_ids
+}
+
+struct TFetchColIdsResponse {
+    1: required list<TFetchColIdsEntry> result_list
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -174,4 +187,6 @@ service BackendService {
 
     // check tablet rowset type
     TCheckStorageFormatResult check_storage_format();
+
+    TFetchColIdsResponse get_column_ids_by_tablet_ids(1: TFetchColIdsRequest request);
 }

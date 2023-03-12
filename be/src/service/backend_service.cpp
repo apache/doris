@@ -18,6 +18,7 @@
 #include "service/backend_service.h"
 
 #include <arrow/record_batch.h>
+#include <gen_cpp/BackendService_types.h>
 #include <gperftools/heap-profiler.h>
 #include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/processor/TMultiplexedProcessor.h>
@@ -26,6 +27,7 @@
 #include <map>
 #include <memory>
 
+#include "backend_service.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -35,6 +37,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/export_task_mgr.h"
@@ -362,5 +365,24 @@ void BackendService::clean_trash() {
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
+}
+
+void BackendService::get_column_ids_by_tablet_ids(TFetchColIdsResponse& response,
+                                        const TFetchColIdsRequest& request) {
+    TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+    for (TTabletId tablet_id : request.tablet_ids) {
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(WARNING) << "cannot get tablet by id:" << tablet_id;
+            continue;
+        }
+        const std::vector<TabletColumn>& columns = tablet->tablet_schema()->columns();
+        TFetchColIdsEntry entry;
+        entry.tablet_id = tablet_id;
+        for(const TabletColumn& column : columns) {
+            entry.col_ids.push_back(column.unique_id());
+        }
+        response.result_list.push_back(entry);
+    }
 }
 } // namespace doris

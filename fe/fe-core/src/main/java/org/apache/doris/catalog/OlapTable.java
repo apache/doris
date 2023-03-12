@@ -2058,4 +2058,8 @@ public class OlapTable extends Table {
                 || (getKeysType() == KeysType.UNIQUE_KEYS
                 && getEnableUniqueKeyMergeOnWrite());
     }
+
+    public void updateIndexMeta(long id, MaterializedIndexMeta indexMeta) {
+        indexIdToMeta.computeIfPresent(id, (idxId, idx) -> indexMeta);
+    }
 }
