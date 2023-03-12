@@ -267,8 +267,7 @@ public class Coordinator {
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(backend.getIp().getBytes(StandardCharsets.UTF_8));
-            primitiveSink.putInt(backend.getBePort());
+            primitiveSink.putLong(backend.getId());
         }
     }
 
