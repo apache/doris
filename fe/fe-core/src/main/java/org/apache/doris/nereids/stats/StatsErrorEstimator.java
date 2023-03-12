@@ -77,6 +77,9 @@ public class StatsErrorEstimator {
             double rowsReturned = runtimeProfileNode.counters.stream()
                     .filter(p -> p.name.equals("RowsReturned")).mapToDouble(p -> (double) p.getValue()).sum();
             Pair<Double, Double> pair = legacyPlanIdToPhysicalPlan.get(planId);
+            if (pair == null) {
+                continue;
+            }
             pair.second = pair.second + rowsReturned;
         }
         double qError = calculateQError();
