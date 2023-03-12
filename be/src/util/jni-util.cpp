@@ -77,6 +77,8 @@ void FindOrCreateJavaVM() {
                 {const_cast<char*>(classpath.c_str()), nullptr},
                 {const_cast<char*>(heap_size.c_str()), nullptr},
                 {const_cast<char*>(log_path.c_str()), nullptr},
+                // avoid BE crash, the reason is still unknown.
+                {const_cast<char*>("-Djava.compiler=NONE"), nullptr},
 #ifdef __APPLE__
                 // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
                 // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
