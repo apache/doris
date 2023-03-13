@@ -159,7 +159,7 @@ suite ("sub_query_diff_old_optimize") {
     """*/
 
     //----------subquery with limit----------
-    qt_exists_subquery_with_limit """
+    order_qt_exists_subquery_with_limit """
         select * from sub_query_diff_old_optimize_subquery1 where exists (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 limit 1);
     """
 
@@ -172,7 +172,7 @@ suite ("sub_query_diff_old_optimize") {
     }
 
     //----------subquery with order and limit-------
-    qt_exists_subquery_with_order_and_limit """
+    order_qt_exists_subquery_with_order_and_limit """
         select * from sub_query_diff_old_optimize_subquery1 where exists (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 order by k1 limit 1);
     """
 

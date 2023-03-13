@@ -368,58 +368,58 @@ inline bool is_nothing(const DataTypePtr& data_type) {
 }
 
 template <typename T>
-inline bool is_uint8(const T& data_type) {
+bool is_uint8(const T& data_type) {
     return WhichDataType(data_type).is_uint8();
 }
 
 template <typename T>
-inline bool is_unsigned_integer(const T& data_type) {
+bool is_unsigned_integer(const T& data_type) {
     return WhichDataType(data_type).is_uint();
 }
 
 template <typename T>
-inline bool is_integer(const T& data_type) {
+bool is_integer(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint();
 }
 
 template <typename T>
-inline bool is_float(const T& data_type) {
+bool is_float(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_float();
 }
 
 template <typename T>
-inline bool is_native_number(const T& data_type) {
+bool is_native_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_native_int() || which.is_native_uint() || which.is_float();
 }
 
 template <typename T>
-inline bool is_number(const T& data_type) {
+bool is_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_decimal();
 }
 
 template <typename T>
-inline bool is_columned_as_number(const T& data_type) {
+bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
            which.is_uuid() || which.is_date_v2_or_datetime_v2();
 }
 
 template <typename T>
-inline bool is_string(const T& data_type) {
+bool is_string(const T& data_type) {
     return WhichDataType(data_type).is_string();
 }
 
 template <typename T>
-inline bool is_fixed_string(const T& data_type) {
+bool is_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_fixed_string();
 }
 
 template <typename T>
-inline bool is_string_or_fixed_string(const T& data_type) {
+bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
 }
 

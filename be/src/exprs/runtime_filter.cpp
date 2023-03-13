@@ -43,56 +43,6 @@
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
-// PrimitiveType->TExprNodeType
-// TODO: use constexpr if we use c++14
-TExprNodeType::type get_expr_node_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-        return TExprNodeType::BOOL_LITERAL;
-
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-        return TExprNodeType::INT_LITERAL;
-
-    case TYPE_LARGEINT:
-        return TExprNodeType::LARGE_INT_LITERAL;
-        break;
-
-    case TYPE_NULL:
-        return TExprNodeType::NULL_LITERAL;
-
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_TIME:
-    case TYPE_TIMEV2:
-        return TExprNodeType::FLOAT_LITERAL;
-        break;
-
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMALV2:
-        return TExprNodeType::DECIMAL_LITERAL;
-
-    case TYPE_DATETIME:
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
-        return TExprNodeType::DATE_LITERAL;
-
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_HLL:
-    case TYPE_OBJECT:
-    case TYPE_STRING:
-        return TExprNodeType::STRING_LITERAL;
-
-    default:
-        DCHECK(false) << "Invalid type.";
-        return TExprNodeType::NULL_LITERAL;
-    }
-}
 
 // PrimitiveType-> PColumnType
 // TODO: use constexpr if we use c++14

@@ -18,7 +18,7 @@
 package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.planner.external.HiveSplit;
+import org.apache.doris.planner.external.FileSplit;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
@@ -26,7 +26,7 @@ import org.apache.hadoop.fs.Path;
 import java.util.List;
 
 @Data
-public class IcebergSplit extends HiveSplit {
+public class IcebergSplit extends FileSplit {
     public IcebergSplit(Path file, long start, long length, String[] hosts) {
         super(file, start, length, hosts);
     }

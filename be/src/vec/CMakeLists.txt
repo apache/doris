@@ -313,13 +313,14 @@ set(VEC_FILES
   exec/format/table/iceberg_reader.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
   exec/format/file_reader/new_plain_binary_line_reader.cpp
+  exec/format/parquet/delta_bit_pack_decoder.cpp
+  exec/format/parquet/bool_rle_decoder.cpp
   )
 
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
-            exec/scan/mysql_scanner.cpp
-            )
+            exec/scan/mysql_scanner.cpp)
 endif ()
 
 add_library(Vec STATIC

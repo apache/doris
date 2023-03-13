@@ -417,7 +417,7 @@ struct UnixTimeStampDateImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        const ColumnPtr col_source = block.get_by_position(arguments[0]).column;
+        const ColumnPtr& col_source = block.get_by_position(arguments[0]).column;
         auto col_result = ColumnVector<Int32>::create();
         auto null_map = ColumnVector<UInt8>::create();
         auto& col_result_data = col_result->get_data();

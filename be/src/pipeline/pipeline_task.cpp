@@ -135,6 +135,9 @@ Status PipelineTask::execute(bool* eos) {
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
+            } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
+                return Status::OK();
             }
             RETURN_IF_ERROR(st);
         }
