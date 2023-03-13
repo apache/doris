@@ -187,6 +187,18 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_compact(k6) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_compact(k7) from ${tableName} ORDER BY k1"
 
+    qt_select "SELECT k1, array_pushfront(k2, k1) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k2, 1) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k3, 'a') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k3, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k4, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k5, 'hi') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k5, 'hi222') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k6, null) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k8, cast('2023-03-05' as datev2)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k10, cast('2023-03-08 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k10, null) FROM ${tableName} ORDER BY k1"
+
     qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
     
     def tableName3 = "tbl_test_array_set"
