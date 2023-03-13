@@ -1934,13 +1934,15 @@ public class SchemaChangeHandler extends AlterHandler {
         // write meta
         resultList.forEach(entry -> {
             final long tabletId = entry.getTabletId();
-            final List<Integer> colIds = entry.getColIds();
+            final Map<String, Integer> colNameToId = entry.getColNameToId();
             final MaterializedIndex index = tabletIdToIdx.get(tabletId);
             final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(index.getId());
             final List<Column> columns = indexMeta.getSchema();
-            // TODO: think about can we ensure the order consistency of columns?
-            for (int i = 0; i < colIds.size(); i++) {
-                columns.get(i).setUniqueId(colIds.get(i));
+            for (Column column : columns) {
+                final String columnName = column.getName();
+                final Integer columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
+                        "column id of column:{" + columnName + "} should be not null");
+                column.setUniqueId(columnId);
             }
             olapTable.updateIndexMeta(index.getId(), indexMeta);
         });

@@ -380,7 +380,7 @@ void BackendService::get_column_ids_by_tablet_ids(TFetchColIdsResponse& response
         TFetchColIdsEntry entry;
         entry.tablet_id = tablet_id;
         for (const TabletColumn& column : columns) {
-            entry.col_ids.push_back(column.unique_id());
+            entry.col_name_to_id[column.name()] = column.unique_id();
         }
         response.result_list.push_back(entry);
     }

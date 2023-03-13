@@ -127,7 +127,7 @@ struct TFetchColIdsRequest {
 
 struct TFetchColIdsEntry {
     1: required i64 tablet_id
-    2: required list<i32> col_ids
+    2: required map<string,i32> col_name_to_id
 }
 
 struct TFetchColIdsResponse {
