@@ -21,7 +21,7 @@
 
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 
 namespace doris {
 

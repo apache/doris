@@ -380,7 +380,7 @@ Status VExpr::init_function_context(VExprContext* context,
             RETURN_IF_ERROR(c->get_const_col(context, &const_col));
             constant_cols.push_back(const_col);
         }
-        fn_ctx->impl()->set_constant_cols(constant_cols);
+        fn_ctx->set_constant_cols(constant_cols);
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
