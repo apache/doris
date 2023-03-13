@@ -48,7 +48,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                 .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             JSONAlterTableMessage alterTableMessage =
-                    (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
+                    (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
