@@ -68,10 +68,6 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
     return new_context;
 }
 
-FunctionContext::FunctionContext() {
-    _impl = std::make_unique<doris::FunctionContextImpl>();
-}
-
 void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {
     switch (scope) {
     case THREAD_LOCAL:

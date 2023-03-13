@@ -95,7 +95,7 @@ void VExprContext::clone_fn_contexts(VExprContext* other) {
 int VExprContext::register_function_context(RuntimeState* state,
                                             const doris::TypeDescriptor& return_type,
                                             const std::vector<doris::TypeDescriptor>& arg_types) {
-    _fn_contexts.push_back(FunctionContextImpl::create_context(state, return_type, arg_types));
+    _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
 }

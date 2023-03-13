@@ -145,7 +145,7 @@ public:
     ~FunctionContext() = default;
 
 private:
-    FunctionContext();
+    FunctionContext() = default;
 
     // Disable copy ctor and assignment operator
     FunctionContext(const FunctionContext& other);
