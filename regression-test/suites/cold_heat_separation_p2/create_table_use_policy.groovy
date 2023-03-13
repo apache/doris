@@ -16,6 +16,35 @@
 // under the License.
 
 suite("create_table_use_policy") {
+    def fetchBeHttp = { check_func, meta_url ->
+        def i = meta_url.indexOf("/api")
+        String endPoint = meta_url.substring(0, i)
+        String metaUri = meta_url.substring(i)
+        i = endPoint.lastIndexOf('/')
+        endPoint = endPoint.substring(i + 1)
+        httpTest {
+            endpoint endPoint
+            uri metaUri
+            op "get"
+            check check_func
+        }
+    }
+    // data_sizes is one arrayList<Long>, t is tablet
+    def fetchDataSize = { data_sizes, t ->
+        def tabletId = t[0]
+        String meta_url = t[16]
+        def clos = {  respCode, body ->
+            logger.info("test ttl expired resp Code {}", "${respCode}".toString())
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def obj = new JsonSlurper().parseText(out)
+            data_sizes[0] = obj.local_data_size
+            data_sizes[1] = obj.remote_data_size
+        }
+        fetchBeHttp(clos, meta_url)
+    }
+    // used as passing out parameter to fetchDataSize
+    List<Long> sizes = [-1, -1]
     def tableName = "lineitem2"
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -162,7 +191,8 @@ suite("create_table_use_policy") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    def LocalDataSize1 = tablets[0][8]
+    fetchDataSize(sizes, tablets[0])
+    def LocalDataSize1 = sizes[0]
 
     // 等待10min，show tablets from table, 预期RemoteDataSize 不为0，且等于LocalDataSize1，预期LocalDataSize 为0
     sleep(600000)
@@ -172,18 +202,20 @@ suite("create_table_use_policy") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
     }
     assertTrue(tablets.size() > 0)
     log.info( "test remote size not zero")
-    assertEquals(LocalDataSize1, tablets[0][9])
+    assertEquals(LocalDataSize1, sizes[1])
     log.info( "test local size is zero")
-    assertEquals("0", tablets[0][8])
+    assertEquals("0", sizes[0])
 
 
     sql """
@@ -225,7 +257,8 @@ suite("create_table_use_policy") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    LocalDataSize1 = tablets[0][8]
+    fetchDataSize(sizes, tablets[0])
+    LocalDataSize1 = sizes[0]
 
     // 等待10min，show tablets from table, 预期RemoteDataSize 不为0，且等于LocalDataSize1，预期LocalDataSize 为0
     sleep(600000)
@@ -235,18 +268,20 @@ suite("create_table_use_policy") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
     }
     assertTrue(tablets.size() > 0)
     log.info( "test remote size not zero")
-    assertEquals(LocalDataSize1, tablets[0][9])
+    assertEquals(LocalDataSize1, sizes[1])
     log.info( "test local size is zero")
-    assertEquals("0", tablets[0][8])
+    assertEquals("0", sizes[0])
 
 
     sql """

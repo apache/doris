@@ -16,6 +16,35 @@
 // under the License.
 
 suite("table_modify_resouce") {
+    def fetchBeHttp = { check_func, meta_url ->
+        def i = meta_url.indexOf("/api")
+        String endPoint = meta_url.substring(0, i)
+        String metaUri = meta_url.substring(i)
+        i = endPoint.lastIndexOf('/')
+        endPoint = endPoint.substring(i + 1)
+        httpTest {
+            endpoint endPoint
+            uri metaUri
+            op "get"
+            check check_func
+        }
+    }
+    // data_sizes is one arrayList<Long>, t is tablet
+    def fetchDataSize = { data_sizes, t ->
+        def tabletId = t[0]
+        String meta_url = t[16]
+        def clos = {  respCode, body ->
+            logger.info("test ttl expired resp Code {}", "${respCode}".toString())
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def obj = new JsonSlurper().parseText(out)
+            data_sizes[0] = obj.local_data_size
+            data_sizes[1] = obj.remote_data_size
+        }
+        fetchBeHttp(clos, meta_url)
+    }
+    // used as passing out parameter to fetchDataSize
+    List<Long> sizes = [-1, -1]
     def tableName = "lineitem4"
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -163,7 +192,8 @@ suite("table_modify_resouce") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    while (tablets[0][8] != "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[0] != "0") {
         log.info( "test local size is not zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -173,7 +203,9 @@ suite("table_modify_resouce") {
     // 所有的local data size为0
     log.info( "test all local size is zero")
     for (int i = 0; i < tablets.size(); i++) {
-        assertEquals(tablets[i][8], "0")
+        fetchDataSize(sizes, tablets[i])
+        assertEquals(sizes[0], "0")
+        tablets[i][9] = sizes[1]
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
@@ -200,7 +232,8 @@ suite("table_modify_resouce") {
     // [8] local data size, [9] remote data size
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
-        assertEquals(tablets2[i][9], tablets[i][9])
+        fetchDataSize(sizes, tablets2[i])
+        assertEquals(sizes[1], tablets[i][9])
     }
 
 
@@ -245,17 +278,21 @@ suite("table_modify_resouce") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    while (tablets[0][8] != "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[0] != "0") {
         log.info( "test local size not zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
     }
     // 所有的local data size为0
     log.info( "test all local size is zero")
     for (int i = 0; i < tablets.size(); i++) {
-        assertEquals(tablets[i][8], "0")
+        fetchDataSize(sizes, tablets[i])
+        assertEquals(sizes[0], "0")
+        tablets[i][9] = sizes[1]
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
@@ -282,7 +319,8 @@ suite("table_modify_resouce") {
     // [8] local data size, [9] remote data size
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
-        assertEquals(tablets2[i][9], tablets[i][9])
+        fetchDataSize(sizes, tablets2[i])
+        assertEquals(sizes[1], tablets[i][9])
     }
 
 

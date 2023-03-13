@@ -16,6 +16,35 @@
 // under the License.
 
 suite("create_table_use_partition_policy") {
+    def fetchBeHttp = { check_func, meta_url ->
+        def i = meta_url.indexOf("/api")
+        String endPoint = meta_url.substring(0, i)
+        String metaUri = meta_url.substring(i)
+        i = endPoint.lastIndexOf('/')
+        endPoint = endPoint.substring(i + 1)
+        httpTest {
+            endpoint endPoint
+            uri metaUri
+            op "get"
+            check check_func
+        }
+    }
+    // data_sizes is one arrayList<Long>, t is tablet
+    def fetchDataSize = { data_sizes, t ->
+        def tabletId = t[0]
+        String meta_url = t[16]
+        def clos = {  respCode, body ->
+            logger.info("test ttl expired resp Code {}", "${respCode}".toString())
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def obj = new JsonSlurper().parseText(out)
+            data_sizes[0] = obj.local_data_size
+            data_sizes[1] = obj.remote_data_size
+        }
+        fetchBeHttp(clos, meta_url)
+    }
+    // used as passing out parameter to fetchDataSize
+    List<Long> sizes = [-1, -1]
     def tableName = "lineitem1"
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -167,8 +196,9 @@ suite("create_table_use_partition_policy") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    def LocalDataSize1 = tablets[0][8]
-    def RemoteDataSize1 = tablets[0][9]
+    fetchDataSize(sizes, tablets[0])
+    def LocalDataSize1 = sizes[0]
+    def RemoteDataSize1 = sizes[1]
     log.info( "test local size {} not zero, remote size {}", LocalDataSize1, RemoteDataSize1)
     assertTrue(LocalDataSize1 != "0")
     log.info( "test remote size is zero")
@@ -183,16 +213,18 @@ suite("create_table_use_partition_policy") {
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
+        fetchDataSize(sizes, tablets[0])
     }
     assertTrue(tablets.size() > 0)
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size is  zero")
     assertEquals(LocalDataSize1, "0")
     log.info( "test remote size not zero")
@@ -203,6 +235,7 @@ suite("create_table_use_partition_policy") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
+    fetchDataSize(sizes, tbalets[0])
     // while (tablets[0][8] == "0") {
     //     log.info( "test local size is zero, sleep 10s")
     //     sleep(10000)
@@ -210,8 +243,8 @@ suite("create_table_use_partition_policy") {
     //     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
     //     """
     // }
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
     assertTrue(LocalDataSize1 != "0")
     log.info( "test remote size is zero")
@@ -261,9 +294,10 @@ suite("create_table_use_partition_policy") {
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
+    fetchDataSize(sizes, tablets[0])
     assertTrue(tablets.size() > 0)
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
     assertTrue(LocalDataSize1 != "0")
     log.info( "test remote size is zero")
@@ -278,16 +312,18 @@ suite("create_table_use_partition_policy") {
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
+        fetchDataSize(sizes, tablets[0])
     }
     assertTrue(tablets.size() > 0)
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
     assertEquals(LocalDataSize1, "0")
     log.info( "test remote size not zero")
@@ -297,9 +333,10 @@ suite("create_table_use_partition_policy") {
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
     """
     log.info( "test tablets not empty")
+    fetchDataSize(sizes, tablets[0])
     assertTrue(tablets.size() > 0)
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
     assertTrue(LocalDataSize1 != "0")
     log.info( "test remote size is zero")

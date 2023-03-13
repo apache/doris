@@ -18,6 +18,35 @@ import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("modify_replica_use_partition") {
+    def fetchBeHttp = { check_func, meta_url ->
+        def i = meta_url.indexOf("/api")
+        String endPoint = meta_url.substring(0, i)
+        String metaUri = meta_url.substring(i)
+        i = endPoint.lastIndexOf('/')
+        endPoint = endPoint.substring(i + 1)
+        httpTest {
+            endpoint endPoint
+            uri metaUri
+            op "get"
+            check check_func
+        }
+    }
+    // data_sizes is one arrayList<Long>, t is tablet
+    def fetchDataSize = { data_sizes, t ->
+        def tabletId = t[0]
+        String meta_url = t[16]
+        def clos = {  respCode, body ->
+            logger.info("test ttl expired resp Code {}", "${respCode}".toString())
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def obj = new JsonSlurper().parseText(out)
+            data_sizes[0] = obj.local_data_size
+            data_sizes[1] = obj.remote_data_size
+        }
+        fetchBeHttp(clos, meta_url)
+    }
+    // used as passing out parameter to fetchDataSize
+    List<Long> sizes = [-1, -1]
     def get_meta = { url ->
         StringBuilder sb = new StringBuilder();
         sb.append("curl ")
@@ -186,16 +215,18 @@ suite("modify_replica_use_partition") {
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
     }
     assertTrue(tablets.size() > 0)
-    def LocalDataSize1 = tablets[0][8]
-    def RemoteDataSize1 = tablets[0][9]
+    def LocalDataSize1 = sizes[0]
+    def RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
     assertEquals(LocalDataSize1, "0")
     log.info( "test remote size not zero")
@@ -291,10 +322,11 @@ suite("modify_replica_use_partition") {
     tablets = sql """
     SHOW TABLETS FROM ${tableName}
     """
+    fetchDataSize(sizes, tablets[0])
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
     assertTrue(LocalDataSize1 != "0")
     log.info( "test remote size is zero")
@@ -309,15 +341,17 @@ suite("modify_replica_use_partition") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
     }
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
     assertEquals(LocalDataSize1, "0")
     log.info( "test remote size not zero")
@@ -381,10 +415,11 @@ suite("modify_replica_use_partition") {
     tablets = sql """
     SHOW TABLETS FROM ${tableName}
     """
+    fetchDataSize(sizes, tablets[0])
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
     assertTrue(LocalDataSize1 != "0")
     log.info( "test remote size is zero")
@@ -399,15 +434,17 @@ suite("modify_replica_use_partition") {
     """
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
-    while (tablets[0][9] == "0") {
+    fetchDataSize(sizes, tablets[0])
+    while (sizes[1] == "0") {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
         SHOW TABLETS FROM ${tableName}
         """
+        fetchDataSize(sizes, tablets[0])
     }
-    LocalDataSize1 = tablets[0][8]
-    RemoteDataSize1 = tablets[0][9]
+    LocalDataSize1 = sizes[0]
+    RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
     assertEquals(LocalDataSize1, "0")
     log.info( "test remote size not zero")
