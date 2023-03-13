@@ -25,6 +25,8 @@
 #include <vec/data_types/data_type_number.h>
 
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 class LocalSchemaChangeRecorder;
@@ -43,34 +45,23 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 /// Returns Array with requested number of dimensions and no scalars.
 Array create_empty_array_field(size_t num_dimensions);
 
-// NOTICE: the last column must be dynamic column
-// 1. The dynamic column will be parsed to ColumnObject and the parsed column will
-// be flattened to multiple subcolumns, thus the dynamic schema is infered from the
-// dynamic column.
-// 2. Schema change which is add columns will be performed if the infered schema is
-// different from the original tablet schema, new columns added to schema change history
-Status parse_and_expand_dynamic_column(Block& block, const TabletSchema& schema_hints,
-                                       LocalSchemaChangeRecorder* history);
+// Cast column to dst type
+Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 
-Status parse_object_column(Block& block, size_t position);
-
-Status parse_object_column(ColumnObject& dest, const IColumn& src, bool need_finalize,
-                           const int* row_begin, const int* row_end);
-
-// Object column will be flattened and if replace_if_duplicated
+// Object column will be unfolded and if  cast_to_original_type
 // the original column in the block will be replaced with the subcolumn
-// from object column.Also if column in block is empty, it will be filled
+// from object column and casted to the new type from slot_descs.
+// Also if column in block is empty, it will be filled
 // with num_rows of default values
-Status flatten_object(Block& block, bool replace_if_duplicated);
+void unfold_object(size_t dynamic_col_position, std::vector<MutableColumnPtr>& columns,
+                   const HashMap<StringRef, size_t, StringRefHash>& column_offset_map,
+                   const std::vector<SlotDescriptor*>& slot_descs, bool cast_to_original_type);
 
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
 /// because all integer fields are stored in Int64/UInt64.
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs);
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
-
-// Cast column to type
-Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 
 // Align block schema with tablet schema
 // eg.
@@ -99,16 +90,6 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
                             FullBaseSchemaView* schema_view);
 
 Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view);
-
-// block alignment
-// TODO using column_unique_id instead of names
-void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, const int* row_begin,
-                                  const int* row_end);
-void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size_t row_begin,
-                                  size_t length);
-
-void align_append_block_by_selector(MutableBlock* mblock, const Block* block,
-                                    const IColumn::Selector& selector);
 
 // For tracking local schema change during load procedure
 class LocalSchemaChangeRecorder {

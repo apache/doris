@@ -20,6 +20,8 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
+#include <gen_cpp/types.pb.h>
+
 #include "data_type_time.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_object.h"
@@ -378,6 +380,10 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
             names.push_back(pcolumn.children(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+        break;
+    }
+    case PGenericType::VARIANT: {
+        nested = std::make_shared<DataTypeObject>("object", true);
         break;
     }
     default: {

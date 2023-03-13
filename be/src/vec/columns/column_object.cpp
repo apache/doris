@@ -199,13 +199,9 @@ public:
         return 0;
     }
     size_t operator()(const Int64& x) {
-        // Only support Int32 and Int64
+        // Only Int64 at present
         field_types.insert(FieldType::Int64);
-        if (x <= std::numeric_limits<Int32>::max() && x >= std::numeric_limits<Int32>::min()) {
-            type_indexes.insert(TypeIndex::Int32);
-        } else {
-            type_indexes.insert(TypeIndex::Int64);
-        }
+        type_indexes.insert(TypeIndex::Int64);
         return 0;
     }
     size_t operator()(const Null&) {
@@ -880,6 +876,73 @@ void ColumnObject::strip_outer_array() {
                            is_nullable});
     }
     std::swap(subcolumns, new_subcolumns);
+}
+
+template <typename ColumnInserterFn>
+void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, size_t row_cnt,
+                                    ColumnInserterFn inserter) {
+    CHECK(dst.is_finalized() && src.is_finalized());
+    size_t num_rows = dst.size();
+    for (auto& entry : dst.get_subcolumns()) {
+        const auto* src_subcol = src.get_subcolumn(entry->path);
+        if (src_subcol == nullptr) {
+            entry->data.get_finalized_column().insert_many_defaults(row_cnt);
+        } else {
+            // TODO handle type confict here， like ColumnObject before
+            CHECK(entry->data.get_least_common_type()->equals(
+                    *src_subcol->get_least_common_type()));
+            const auto& src_column = src_subcol->get_finalized_column();
+            inserter(src_column, &entry->data.get_finalized_column());
+        }
+    }
+    for (const auto& entry : src.get_subcolumns()) {
+        // encounter a new column
+        const auto* dst_subcol = dst.get_subcolumn(entry->path);
+        if (dst_subcol == nullptr) {
+            auto type = entry->data.get_least_common_type();
+            auto new_column = type->create_column();
+            new_column->insert_many_defaults(num_rows);
+            inserter(entry->data.get_finalized_column(), new_column.get());
+            dst.add_sub_column(entry->path, std::move(new_column));
+        }
+    }
+#ifndef NDEBUG
+    // Check all columns rows matched
+    num_rows += row_cnt;
+    for (const auto& entry : dst.get_subcolumns()) {
+        DCHECK_EQ(entry->data.get_finalized_column().size(), num_rows);
+    }
+#endif
+}
+
+void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
+    // insert_range_from with alignment
+    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
+    align_variant_by_name_and_type(*this, src_column, length,
+                                   [start, length](const IColumn& src, IColumn* dst) {
+                                       dst->insert_range_from(src, start, length);
+                                   });
+}
+
+void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
+                                           const IColumn::Selector& selector) const {
+    // append by selector with alignment
+    ColumnObject& dst_column = *assert_cast<ColumnObject*>(res.get());
+    align_variant_by_name_and_type(dst_column, *this, selector.size(),
+                                   [&selector](const IColumn& src, IColumn* dst) {
+                                       auto mutable_dst = dst->assume_mutable();
+                                       src.append_data_by_selector(mutable_dst, selector);
+                                   });
+}
+
+void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                       const int* indices_end) {
+    // insert_indices_from with alignment
+    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
+    align_variant_by_name_and_type(*this, src_column, indices_end - indices_begin,
+                                   [indices_begin, indices_end](const IColumn& src, IColumn* dst) {
+                                       dst->insert_indices_from(src, indices_begin, indices_end);
+                                   });
 }
 
 } // namespace doris::vectorized

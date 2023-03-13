@@ -66,6 +66,9 @@ enum TExprNodeType {
 
   // for struct
   STRUCT_LITERAL,
+
+  // for schema change
+  SCHEMA_CHANGE_EXPR,
 }
 
 //enum TAggregationOp {
@@ -174,6 +177,11 @@ struct TFunctionCallExpr {
   2: optional i32 vararg_start_idx
 }
 
+struct TSchemaChangeExpr {
+  // target schema change table
+  1: optional i64 table_id 
+}
+
 // This is essentially a union over the subclasses of Expr.
 struct TExprNode {
   1: required TExprNodeType node_type
@@ -214,6 +222,7 @@ struct TExprNode {
   29: optional bool is_nullable
   
   30: optional TJsonLiteral json_literal
+  31: optional TSchemaChangeExpr schema_change_expr 
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
