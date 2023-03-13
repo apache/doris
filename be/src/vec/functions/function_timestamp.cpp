@@ -314,7 +314,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
@@ -328,8 +328,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         auto data_col = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
 
         ColumnPtr res_column;
