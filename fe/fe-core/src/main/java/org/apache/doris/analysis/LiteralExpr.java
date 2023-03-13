@@ -343,7 +343,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
         if (len == 252) {
             // get and advance 2 bytes
-            return data.getChar();
+            return data.getShort();
         }
         if (maxLen < 4) {
             return 0;

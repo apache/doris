@@ -167,10 +167,21 @@ public class ConnectContext {
      */
     private int executionTimeoutS;
 
+    // mysql useServerPrepStmts
+    private boolean useServerPrepStmts;
+
     private StatsErrorEstimator statsErrorEstimator;
 
     public void setUserQueryTimeout(long queryTimeout) {
         this.userQueryTimeout = queryTimeout;
+    }
+
+    public void setUseServerPrepStmts() {
+        useServerPrepStmts = true;
+    }
+
+    public boolean useServerPrepStmts() {
+        return useServerPrepStmts;
     }
 
     private StatementContext statementContext;

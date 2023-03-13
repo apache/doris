@@ -304,13 +304,13 @@ public class Coordinator {
         }
         PrepareStmt prepareStmt = analyzer.getPrepareStmt();
         if (prepareStmt != null) {
-            // Used cached or better performance
+            // Used cached for better performance
             this.descTable = prepareStmt.getDescTable();
             if (pointExec != null) {
                 pointExec.setCacheID(prepareStmt.getID());
                 pointExec.setSerializedDescTable(prepareStmt.getSerializedDescTable());
                 pointExec.setSerializedOutputExpr(prepareStmt.getSerializedOutputExprs());
-                pointExec.setBinaryProtocol(prepareStmt.isBinaryProtocol());
+                pointExec.setBinaryProtocol(context.useServerPrepStmts());
             }
         } else {
             this.descTable = planner.getDescTable().toThrift();
@@ -393,6 +393,7 @@ public class Coordinator {
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
+        this.queryOptions.setMysqlRowBinaryFormat(context.useServerPrepStmts());
     }
 
     public long getJobId() {

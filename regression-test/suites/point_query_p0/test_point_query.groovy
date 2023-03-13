@@ -24,6 +24,53 @@ suite("test_point_query") {
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
     // def url = context.config.jdbcUrl
     def result1 = connect(user=user, password=password, url=url) {
+    def setInsertPrepareStmtArgs = { stmt, k1 , k2, k3, k4, k5, k6, k7, k8 ->
+        java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        if (k1 == null) {
+            stmt.setNull(1, java.sql.Types.INTEGER);
+        } else {
+            stmt.setInt(1, k1)
+        }
+        if (k2 == null) {
+            stmt.setNull(2, java.sql.Types.DECIMAL);
+        } else {
+            stmt.setBigDecimal(2, k2)
+        }
+        if (k3 == null) {
+            stmt.setNull(3, java.sql.Types.VARCHAR);    
+        } else {
+            stmt.setString(3, k3)
+        }
+        if (k4 == null) {
+            stmt.setNull(4, java.sql.Types.VARCHAR);     
+        } else {
+            stmt.setString(4, k4)
+        }
+        if (k5 == null) {
+            stmt.setNull(5, java.sql.Types.DATE);     
+        } else {
+            stmt.setDate(5, java.sql.Date.valueOf(k5))
+        }
+        if (k6 == null) {
+            stmt.setNull(6, java.sql.Types.TIMESTAMP);     
+        } else {
+            stmt.setTimestamp(6, new java.sql.Timestamp(formater.parse(k6).getTime()))
+        }
+        if (k7 == null) {
+            stmt.setNull(7, java.sql.Types.FLOAT);
+        } else {
+            stmt.setFloat(7, k7)
+        }
+        if (k8 == null) {
+            stmt.setNull(8, java.sql.Types.DATE);
+        } else {
+            println "============= $k8"
+            // stmt.setDate(8, java.sql.Date.valueOf(k8))
+            stmt.setTimestamp(8, new java.sql.Timestamp(formater.parse(k8).getTime()))
+            println "-------------"
+        }
+
+    }
     sql """DROP TABLE IF EXISTS ${tableName}"""
     test {
         // abnormal case
@@ -62,13 +109,34 @@ suite("test_point_query") {
               "storage_format" = "V2"
               )
           """
-      sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38") """
-      sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38") """
-      sql """ INSERT INTO ${tableName} VALUES(1233, 1.392932911136, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01 11:30:38") """
-      sql """ INSERT INTO ${tableName} VALUES(1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01 11:30:38") """
-      sql """ INSERT INTO ${tableName} VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38") """
-      sql """ INSERT INTO ${tableName} VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38") """
-      sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38") """
+      
+      // sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38") """
+      // sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38") """
+      // sql """ INSERT INTO ${tableName} VALUES(1233, 1.392932911136, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01 11:30:38") """
+      // sql """ INSERT INTO ${tableName} VALUES(1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01 11:30:38") """
+      // sql """ INSERT INTO ${tableName} VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38") """
+      // sql """ INSERT INTO ${tableName} VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38") """
+      // sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38") """
+      def insert_stmt = prepareStatement """ INSERT INTO ${tableName} VALUES(?, ?, ?, ?, ?, ?, ?, ?) """
+      assertEquals(insert_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+      setInsertPrepareStmtArgs insert_stmt, 1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs insert_stmt, 1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs insert_stmt, 1233, 1.392932911136, "yyy", "laooq", "2024-01-02", "2020-01-01 12:36:38", 52.862, "3022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs insert_stmt, 1234, 12919291.129191137, "xxddd", "laooq", "2025-01-02", "2020-01-01 12:36:38", 552.872, "4022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs insert_stmt, 1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs insert_stmt, 1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs insert_stmt, 1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38"
+      exec insert_stmt
+      setInsertPrepareStmtArgs  
+      exec insert_stmt
+
+      qt_sql """select * from  ${tableName} order by 1, 2, 3"""
 
       def stmt = prepareStatement "select * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
       assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);

@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
+// import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -34,17 +34,20 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 public class PrepareStmt extends StatementBase {
+    // We provide bellow types of prepared statement:
+    // NONE, which is not prepared
+    // FULL_PREPARED, which is real prepared, which will cache analyzed statement and planner
+    // STATEMENT, which only cache statement it self, but need to analyze each time executed.
+    public enum PreparedType {
+        NONE, FULL_PREPARED, STATEMENT
+    }
+
     private static final Logger LOG = LogManager.getLogger(PrepareStmt.class);
     private StatementBase inner;
     private String stmtName;
-    // select * from tbl where a = ? and b = ?
-    // `?` is the placeholder
-    protected List<PlaceHolderExpr> placeholders = new ArrayList<>();
-
     // Cached for better CPU performance, since serialize DescriptorTable and
     // outputExprs are heavy work
     private ByteString serializedDescTable;
@@ -52,17 +55,15 @@ public class PrepareStmt extends StatementBase {
     private TDescriptorTable descTable;
 
     private UUID id;
-    // whether return binary protocol mysql row or not
-    private boolean binaryRowFormat;
-    int schemaVersion = -1;
-    OlapTable tbl;
-    ConnectContext context;
+    private int schemaVersion = -1;
+    private OlapTable tbl;
+    private ConnectContext context;
+    private PreparedType preparedType = PreparedType.STATEMENT;
 
-    public PrepareStmt(StatementBase stmt, String name, boolean binaryRowFormat) {
+    public PrepareStmt(StatementBase stmt, String name) {
         this.inner = stmt;
         this.stmtName = name;
         this.id = UUID.randomUUID();
-        this.binaryRowFormat = binaryRowFormat;
     }
 
     public void setContext(ConnectContext ctx) {
@@ -70,7 +71,8 @@ public class PrepareStmt extends StatementBase {
     }
 
     public boolean needReAnalyze() {
-        if (schemaVersion == tbl.getBaseSchemaVersion()) {
+        if (preparedType == PreparedType.FULL_PREPARED
+                    && schemaVersion == tbl.getBaseSchemaVersion()) {
             return false;
         }
         reset();
@@ -86,11 +88,7 @@ public class PrepareStmt extends StatementBase {
     }
 
     public List<PlaceHolderExpr> placeholders() {
-        return this.placeholders;
-    }
-
-    public boolean isBinaryProtocol() {
-        return binaryRowFormat;
+        return inner.getPlaceHolders();
     }
 
     public void cacheSerializedDescriptorTable(DescriptorTable desctbl) {
@@ -128,68 +126,60 @@ public class PrepareStmt extends StatementBase {
     }
 
     public int getParmCount() {
-        return placeholders.size();
+        return inner.getPlaceHolders().size();
     }
 
-    public List<Expr> getSlotRefOfPlaceHolders() {
+    public PreparedType getPreparedType() {
+        return preparedType;
+    }
+
+    public List<Expr> getPlaceHolderExprList() {
         ArrayList<Expr> slots = new ArrayList<>();
-        if (inner instanceof SelectStmt) {
-            SelectStmt select = (SelectStmt) inner;
-            for (PlaceHolderExpr pexpr : placeholders) {
-                // Only point query support
-                for (Map.Entry<SlotRef, Expr> entry :
-                            select.getPointQueryEQPredicates().entrySet()) {
-                    // same instance
-                    if (entry.getValue() == pexpr) {
-                        slots.add(entry.getKey());
-                    }
-                }
-            }
-            return slots;
+        for (PlaceHolderExpr pexpr : inner.getPlaceHolders()) {
+            slots.add(pexpr);
         }
-        return null;
+        return slots;
     }
 
     public List<String> getColLabelsOfPlaceHolders() {
         ArrayList<String> lables = new ArrayList<>();
-        if (inner instanceof SelectStmt) {
-            for (Expr slotExpr : getSlotRefOfPlaceHolders()) {
-                SlotRef slot = (SlotRef) slotExpr;
-                Column c = slot.getColumn();
-                if (c != null) {
-                    lables.add(c.getName());
-                    continue;
-                }
-                lables.add("");
-            }
-            return lables;
+        for (int i = 0; i < inner.getPlaceHolders().size(); ++i) {
+            lables.add("lable " + i);
         }
-        return null;
+        return lables;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!(inner instanceof SelectStmt)) {
-            throw new UserException("Only support prepare SelectStmt now");
+        // TODO support more Statement
+        if (!(inner instanceof SelectStmt) && !(inner instanceof InsertStmt)) {
+            throw new UserException("Only support prepare SelectStmt or InsertStmt");
         }
-        // Use tmpAnalyzer since selectStmt will be reAnalyzed
-        Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
-        // collect placeholders from stmt exprs tree
-        SelectStmt selectStmt = (SelectStmt) inner;
-        // TODO(lhy) support more clauses
-        if (selectStmt.getWhereClause() != null) {
-            selectStmt.getWhereClause().collect(PlaceHolderExpr.class, placeholders);
-        }
-        inner.analyze(tmpAnalyzer);
-        if (!selectStmt.checkAndSetPointQuery()) {
-            throw new UserException("Only support prepare SelectStmt point query now");
-        }
-        tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
-        schemaVersion = tbl.getBaseSchemaVersion();
-        // reset will be reAnalyzed
-        selectStmt.reset();
         analyzer.setPrepareStmt(this);
-        // tmpAnalyzer.setPrepareStmt(this);
+        if (inner instanceof SelectStmt) {
+            // Try to use FULL_PREPARED to increase performance
+            SelectStmt selectStmt = (SelectStmt) inner;
+            try {
+                // Use tmpAnalyzer since selectStmt will be reAnalyzed
+                Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
+                inner.analyze(tmpAnalyzer);
+                // Case 1 short circuit point query
+                if (selectStmt.checkAndSetPointQuery()) {
+                    tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
+                    schemaVersion = tbl.getBaseSchemaVersion();
+                    preparedType = PreparedType.FULL_PREPARED;
+                    LOG.debug("using FULL_PREPARED prepared");
+                    return;
+                }
+            } catch (UserException e) {
+                LOG.debug("fallback to STATEMENT prepared, {}", e);
+            } finally {
+                // will be reanalyzed
+                selectStmt.reset();
+            }
+        }
+        preparedType = PreparedType.STATEMENT;
+        LOG.debug("using STATEMENT prepared");
     }
 
     public String getName() {
@@ -202,20 +192,36 @@ public class PrepareStmt extends StatementBase {
     }
 
     public StatementBase getInnerStmt() {
+        if (preparedType == PreparedType.FULL_PREPARED) {
+            // For performance reason we could reuse the inner statement when FULL_PREPARED
+            return inner;
+        }
+        // Make a copy of Statement, since anlyze will modify the structure of Statement.
+        // But we should keep the original statement
+        if (inner instanceof SelectStmt) {
+            return new SelectStmt((SelectStmt) inner);
+        }
+        if (inner instanceof InsertStmt) {
+            return new InsertStmt((InsertStmt) inner);
+        }
+        // Other statement could reuse the inner statement
         return inner;
     }
 
     public int argsSize() {
-        return placeholders.size();
+        return inner.getPlaceHolders().size();
     }
 
     public void asignValues(List<LiteralExpr> values) throws UserException {
-        if (values.size() != placeholders.size()) {
+        if (values.size() != inner.getPlaceHolders().size()) {
             throw new UserException("Invalid arguments size "
-                                + values.size() + ", expected " + placeholders.size());
+                                + values.size() + ", expected " + inner.getPlaceHolders().size());
         }
         for (int i = 0; i < values.size(); ++i) {
-            placeholders.get(i).setLiteral(values.get(i));
+            inner.getPlaceHolders().get(i).setLiteral(values.get(i));
+        }
+        if (!values.isEmpty()) {
+            LOG.debug("assign values {}", values.get(0).toSql());
         }
     }
 
@@ -225,7 +231,6 @@ public class PrepareStmt extends StatementBase {
         serializedOutputExpr = null;
         descTable = null;
         this.id = UUID.randomUUID();
-        placeholders.clear();
         inner.reset();
     }
 }

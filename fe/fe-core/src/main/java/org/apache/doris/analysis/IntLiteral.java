@@ -377,5 +377,6 @@ public class IntLiteral extends LiteralExpr {
             default:
                 Preconditions.checkState(false);
         }
+        init(value);
     }
 }

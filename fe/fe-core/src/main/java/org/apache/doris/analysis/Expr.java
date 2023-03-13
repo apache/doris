@@ -713,9 +713,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public Expr trySubstitute(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer,
             boolean preserveRootType) throws AnalysisException {
         Expr result = clone();
-        if (result instanceof PlaceHolderExpr) {
-            return result;
-        }
+        // if (result instanceof PlaceHolderExpr) {
+        //     return result;
+        // }
         // Return clone to avoid removing casts.
         if (smap == null) {
             return result;
@@ -963,7 +963,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             // Hack to ensure BE never sees TYPE_NULL. If an expr makes it this far without
             // being cast to a non-NULL type, the type doesn't matter and we can cast it
             // arbitrarily.
-            Preconditions.checkState(this instanceof NullLiteral || this instanceof SlotRef);
+            Preconditions.checkState(this instanceof NullLiteral
+                    || this instanceof SlotRef || this instanceof PlaceHolderExpr);
             return NullLiteral.create(ScalarType.BOOLEAN).treeToThrift();
         }
         TExpr result = new TExpr();

@@ -736,9 +736,10 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt = preparedStmtCtx.stmt.getInnerStmt();
             planner = preparedStmtCtx.planner;
             analyzer = preparedStmtCtx.analyzer;
-            Preconditions.checkState(parsedStmt.isAnalyzed());
-            LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
+            // Preconditions.checkState(parsedStmt.isAnalyzed());
+            LOG.debug("already prepared stmt: {}, stmtId {} as {}", parsedStmt.toSql(), preparedStmtCtx.stmtString);
             if (!preparedStmtCtx.stmt.needReAnalyze()) {
+                LOG.debug("no need to reanalyze continue");
                 // Return directly to bypass analyze and plan
                 return;
             }
@@ -761,7 +762,8 @@ public class StmtExecutor implements ProfileWriter {
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                 prepareStmt = new PrepareStmt(parsedStmt,
-                        String.valueOf(context.getEnv().getNextStmtId()), true /*binary protocol*/);
+                        String.valueOf(context.getEnv().getNextStmtId()));
+                context.setUseServerPrepStmts();
             } else {
                 prepareStmt = (PrepareStmt) parsedStmt;
             }
@@ -769,6 +771,10 @@ public class StmtExecutor implements ProfileWriter {
             prepareStmt.analyze(analyzer);
             // Need analyze inner statement
             parsedStmt = prepareStmt.getInnerStmt();
+            if (prepareStmt.getPreparedType() == PrepareStmt.PreparedType.STATEMENT) {
+                // Skip analyze, do it lazy
+                return;
+            }
         }
 
         // Convert show statement to select statement here
@@ -820,7 +826,7 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    LOG.warn("Analyze failed. {}, {}", context.getQueryIdentifier(), e);
                     if (parsedStmt instanceof LogicalPlanAdapter) {
                         throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }
@@ -839,7 +845,8 @@ public class StmtExecutor implements ProfileWriter {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
-        if (preparedStmtReanalyzed) {
+        if (preparedStmtReanalyzed
+                && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
             LOG.debug("update planner and analyzer after prepared statement reanalyzed");
             preparedStmtCtx.planner = planner;
             preparedStmtCtx.analyzer = analyzer;
@@ -1734,18 +1741,18 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
-        LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+        LOG.debug("add prepared statement: {}, statementId : {}, useServerPrepStmts: {}",
+                        prepareStmt.getInnerStmt().toSql(),
+                        prepareStmt.getName(), context.useServerPrepStmts());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
                             context, planner, analyzer, prepareStmt.getName()));
-        if (prepareStmt.isBinaryProtocol()) {
+        if (context.useServerPrepStmts()) {
             sendStmtPrepareOK();
         }
         // context.getState().setEof();
         context.getState().setOk();
     }
-
 
     // Process use statement.
     private void handleUseStmt() throws AnalysisException {
@@ -1803,7 +1810,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+                        exprToStringType(prepareStmt.getPlaceHolderExprList()));
         }
         context.getState().setOk();
     }
@@ -2023,6 +2030,10 @@ public class StmtExecutor implements ProfileWriter {
 
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    }
+
+    private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
+        return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
     private StatementBase setParsedStmt(StatementBase parsedStmt) {

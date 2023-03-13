@@ -23,8 +23,11 @@ import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class PrepareStmtContext {
+    private static final Logger LOG = LogManager.getLogger(PrepareStmtContext.class);
     public PrepareStmt stmt;
     public ConnectContext ctx;
     public Planner planner;
@@ -33,11 +36,15 @@ public class PrepareStmtContext {
 
     public PrepareStmtContext(PrepareStmt stmt, ConnectContext ctx, Planner planner,
                                     Analyzer analyzer, String stmtString) {
+        LOG.debug("stmt {}, ctx {}, planner {}, analyzer {}, stmtString {}",
+                        stmt, ctx, planner, analyzer, stmtString);
         this.stmt = stmt;
         this.ctx = ctx;
         this.planner = planner;
         // Only support OriginalPlanner for now
-        Preconditions.checkState(planner instanceof OriginalPlanner);
+        if (planner != null) {
+            Preconditions.checkState(planner instanceof OriginalPlanner);
+        }
         this.analyzer = analyzer;
         this.stmtString = stmtString;
     }

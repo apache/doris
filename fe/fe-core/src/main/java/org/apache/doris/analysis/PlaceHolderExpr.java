@@ -162,9 +162,14 @@ public class PlaceHolderExpr extends LiteralExpr {
         return this;
     }
 
+
+
     @Override
     public String toSqlImpl() {
-        return getStringValue();
+        if (this.lExpr == null) {
+            return "?";
+        }
+        return "_placeholder_(" + this.lExpr.toSqlImpl() + ")";
     }
 
     @Override
