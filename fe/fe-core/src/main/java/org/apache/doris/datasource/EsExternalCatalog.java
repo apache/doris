@@ -70,7 +70,14 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     public String[] getNodes() {
         String hosts = catalogProperty.getOrDefault(EsResource.HOSTS, "");
-        return hosts.trim().split(",");
+        String[] hostUrls = hosts.trim().split(",");
+        for (int i = 0; i < hostUrls.length; i++) {
+            String host = hostUrls[i].trim();
+            if (!host.startsWith("http://") && !host.startsWith("https://")) {
+                hostUrls[i] = "http://" + host;
+            }
+        }
+        return hostUrls;
     }
 
     public String getUsername() {

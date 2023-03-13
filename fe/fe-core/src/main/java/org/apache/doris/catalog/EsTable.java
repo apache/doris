@@ -153,6 +153,12 @@ public class EsTable extends Table {
         EsResource.valid(properties, false);
         hosts = properties.get(EsResource.HOSTS).trim();
         seeds = hosts.split(",");
+        for (int i = 0; i < seeds.length; i++) {
+            String seed = seeds[i].trim();
+            if (!seed.startsWith("http://") && !seed.startsWith("https://")) {
+                seeds[i] = "http://" + seed;
+            }
+        }
         if (properties.containsKey(EsResource.USER)) {
             userName = properties.get(EsResource.USER).trim();
         }
