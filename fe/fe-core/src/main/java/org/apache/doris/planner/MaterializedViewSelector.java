@@ -567,8 +567,10 @@ public class MaterializedViewSelector {
             candidateIndexSchema
                     .forEach(column -> indexColumnNames.add(CreateMaterializedViewStmt
                             .mvColumnBreaker(MaterializedIndexMeta.normalizeName(column.getName()))));
+
             // Rollup index have no define expr.
-            if (indexExprs.isEmpty() && !indexColumnNames.containsAll(queryColumnNames)) {
+            if (entry.getValue().getWhereClause() == null && indexExprs.isEmpty()
+                    && !indexColumnNames.containsAll(queryColumnNames)) {
                 iterator.remove();
                 continue;
             }

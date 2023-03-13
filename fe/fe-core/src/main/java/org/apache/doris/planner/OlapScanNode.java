@@ -333,6 +333,25 @@ public class OlapScanNode extends ScanNode {
         return selectedIndexId;
     }
 
+    public void ignoreConjuncts() {
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
+            boolean isBound = false;
+            for (Expr conjunct : conjuncts) {
+                if (conjunct.isBound(slotDescriptor.getId())) {
+                    isBound = true;
+                    break;
+                }
+            }
+            if (isBound) {
+                slotDescriptor.setIsMaterialized(false);
+            }
+        }
+        vconjunct = null;
+    }
+
     /**
      * This method is mainly used to update scan range info in OlapScanNode by the
      * new materialized selector.

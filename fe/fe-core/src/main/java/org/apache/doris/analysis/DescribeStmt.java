@@ -212,7 +212,7 @@ public class DescribeStmt extends ShowStmt {
                                 row.set(1, indexMeta.getKeysType().name());
                                 Expr where = indexMeta.getWhereClause();
                                 row.set(DESC_OLAP_TABLE_ALL_META_DATA.getColumns().size() - 1,
-                                        where == null ? "null" : where.toSqlWithoutTbl());
+                                        where == null ? "" : where.toSqlWithoutTbl());
                             }
 
                             totalRows.add(row);

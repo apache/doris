@@ -416,6 +416,18 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public boolean findWhereClause(Expr whereClause) {
+        for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
+            if (meta.getWhereClause() != null) {
+                if (MaterializedIndexMeta.matchColumnName(meta.getWhereClause().toSqlWithoutTbl(),
+                        whereClause.toSqlWithoutTbl())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @Override
     public long getUpdateTime() {
         long updateTime = tempPartitions.getUpdateTime();
