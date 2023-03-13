@@ -275,6 +275,7 @@
                                 "sql-manual/sql-functions/array-functions/array_max",
                                 "sql-manual/sql-functions/array-functions/array_min",
                                 "sql-manual/sql-functions/array-functions/array_map",
+                                "sql-manual/sql-functions/array-functions/array_filter",
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/array_sum",
                                 "sql-manual/sql-functions/array-functions/array_size",

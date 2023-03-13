@@ -57,11 +57,11 @@ public class ColumnRefExpr extends Expr {
         this.columnName = name;
     }
 
-    public int getcolumnId() {
+    public int getColumnId() {
         return columnId;
     }
 
-    public void setcolumnId(int id) {
+    public void setColumnId(int id) {
         this.columnId = id;
     }
 
