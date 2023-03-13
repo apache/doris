@@ -107,11 +107,11 @@ suite("test_aggregate_collect") {
             '2022-12-09', '2022-12-09', '2022-12-09 22:23:23', '2022-12-09 22:23:24.999999', 'not null')
     """
 
-    qt_select """
+    sql """
         SELECT * FROM ${tableName}
     """
 
-    qt_select """
+    sql """
         SELECT
             collect_set(c_bool),
             collect_set(c_tinyint),
@@ -134,7 +134,7 @@ suite("test_aggregate_collect") {
             ${tableName}
     """
 
-    qt_select """
+    sql """
         SELECT
             collect_list(c_bool),
             collect_list(c_tinyint),
@@ -304,10 +304,10 @@ suite("test_aggregate_collect") {
             ${tableName}
     """
 
-    qt_select "SELECT * FROM ${tableCTAS1}"
-    qt_select "SELECT * FROM ${tableCTAS2}"
-    qt_select "SELECT * FROM ${tableCTAS3}"
-    qt_select "SELECT * FROM ${tableCTAS4}"
+    sql "SELECT * FROM ${tableCTAS1}"
+    sql "SELECT * FROM ${tableCTAS2}"
+    sql "SELECT * FROM ${tableCTAS3}"
+    sql "SELECT * FROM ${tableCTAS4}"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "DROP TABLE IF EXISTS ${tableCTAS1}"
@@ -402,11 +402,11 @@ suite("test_aggregate_collect") {
             '2022-12-09', '2022-12-09', '2022-12-09 22:23:23', '2022-12-09 22:23:24.999999', 'not null')
     """
 
-    qt_select """
+    sql """
         SELECT * FROM ${tableName_11}
     """
 
-    qt_select """
+    sql """
         SELECT
             group_uniq_array(c_bool),
             group_uniq_array(c_tinyint),
@@ -429,7 +429,7 @@ suite("test_aggregate_collect") {
             ${tableName_11}
     """
 
-    qt_select """
+    sql """
         SELECT
             group_array(c_bool),
             group_array(c_tinyint),
@@ -598,10 +598,10 @@ suite("test_aggregate_collect") {
             ${tableName_11}
     """
 
-    qt_select "SELECT * FROM ${tableCTAS1_11}"
-    qt_select "SELECT * FROM ${tableCTAS2_11}"
-    qt_select "SELECT * FROM ${tableCTAS3_11}"
-    qt_select "SELECT * FROM ${tableCTAS4_11}"
+    sql "SELECT * FROM ${tableCTAS1_11}"
+    sql "SELECT * FROM ${tableCTAS2_11}"
+    sql "SELECT * FROM ${tableCTAS3_11}"
+    sql "SELECT * FROM ${tableCTAS4_11}"
 
     sql "DROP TABLE IF EXISTS ${tableName_11}"
     sql "DROP TABLE IF EXISTS ${tableCTAS1_11}"
