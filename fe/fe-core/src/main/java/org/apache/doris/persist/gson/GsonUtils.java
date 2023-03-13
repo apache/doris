@@ -222,6 +222,8 @@ public class GsonUtils {
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
 
+    public static final Gson GSON_NULLABLE = GSON_BUILDER.serializeNulls().create();
+
     public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 
     /*

@@ -249,12 +249,12 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        Text.writeString(out, GsonUtils.GSON_NULLABLE.toJson(this));
     }
 
     public static MaterializedIndexMeta read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, MaterializedIndexMeta.class);
+        return GsonUtils.GSON_NULLABLE.fromJson(json, MaterializedIndexMeta.class);
     }
 
     @Override
