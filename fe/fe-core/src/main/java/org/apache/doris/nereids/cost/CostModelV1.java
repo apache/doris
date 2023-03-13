@@ -170,10 +170,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
+            /*
+            TODO：
+            srcBeNum and destBeNum are not available, assume destBeNum/srcBeNum = 1
+            1. cpu: row * destBeNum/srcBeNum
+            2. network: rows send = rows/srcBeNum * destBeNum.
+             */
             return CostV1.of(
-                    childStatistics.getRowCount() * beNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber);
+                    childStatistics.getRowCount(), // TODO:should multiply by destBeNum/srcBeNum
+                    childStatistics.getRowCount(), // only consider one BE, not the whole system.
+                    childStatistics.getRowCount() * instanceNumber); // TODO: remove instanceNumber when BE updated
         }
 
         // gather
