@@ -27,9 +27,11 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+
+#include "runtime/types.h"
+
 namespace doris {
 
-class FunctionContextImpl;
 struct ColumnPtrWrapper;
 struct StringRef;
 class BitmapValue;
@@ -37,6 +39,8 @@ class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
 struct TypeDescriptor;
+
+class RuntimeState;
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
