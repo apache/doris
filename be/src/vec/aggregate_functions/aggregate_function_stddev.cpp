@@ -26,10 +26,10 @@ namespace doris::vectorized {
 template <template <typename, bool> class AggregateFunctionTemplate,
           template <typename> class NameData, template <typename, typename> class Data,
           bool is_stddev, bool is_nullable = false>
-static IAggregateFunction* create_function_single_value(const String& name,
-                                                        const DataTypes& argument_types,
-                                                        const bool result_is_nullable,
-                                                        bool custom_nullable) {
+IAggregateFunction* create_function_single_value(const String& name,
+                                                 const DataTypes& argument_types,
+                                                 const bool result_is_nullable,
+                                                 bool custom_nullable) {
     IAggregateFunction* res = nullptr;
     WhichDataType which(remove_nullable(argument_types[0]));
 #define DISPATCH(TYPE)                                                          \

@@ -203,7 +203,7 @@ inline bool ThreadMemTrackerMgr::try_consume(int64_t size) {
 }
 
 template <bool CheckLimit, bool Force>
-inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
+bool ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;

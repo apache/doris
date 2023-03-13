@@ -2020,8 +2020,8 @@ public:
 namespace MoneyFormat {
 
 template <typename T, size_t N>
-static StringRef do_money_format(FunctionContext* context, const T int_value,
-                                 const int32_t frac_value = 0) {
+StringRef do_money_format(FunctionContext* context, const T int_value,
+                          const int32_t frac_value = 0) {
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;

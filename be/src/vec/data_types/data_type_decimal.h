@@ -30,11 +30,11 @@
 
 namespace doris::vectorized {
 
-static constexpr size_t min_decimal_precision() {
+constexpr size_t min_decimal_precision() {
     return 1;
 }
 template <typename T>
-static constexpr size_t max_decimal_precision() {
+constexpr size_t max_decimal_precision() {
     return 0;
 }
 template <>
@@ -55,7 +55,7 @@ constexpr size_t max_decimal_precision<Decimal128I>() {
 }
 
 template <typename T>
-static constexpr typename T::NativeType max_decimal_value() {
+constexpr typename T::NativeType max_decimal_value() {
     return 0;
 }
 template <>
@@ -251,7 +251,7 @@ DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDeci
 }
 
 template <typename T>
-inline const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
+const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
     return typeid_cast<const DataTypeDecimal<T>*>(&data_type);
 }
 
@@ -292,8 +292,8 @@ constexpr bool IsDataTypeDecimalOrNumber =
         IsDataTypeDecimal<DataType> || IsDataTypeNumber<DataType>;
 
 template <typename FromDataType, typename ToDataType>
-inline std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>,
-                        typename ToDataType::FieldType>
+std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>,
+                 typename ToDataType::FieldType>
 convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_from, UInt32 scale_to,
                  UInt8* overflow_flag = nullptr) {
     using FromFieldType = typename FromDataType::FieldType;
@@ -347,8 +347,8 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
 }
 
 template <typename FromDataType, typename ToDataType>
-inline std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>,
-                        typename ToDataType::FieldType>
+std::enable_if_t<IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>,
+                 typename ToDataType::FieldType>
 convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
@@ -391,8 +391,8 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
 }
 
 template <typename FromDataType, typename ToDataType>
-inline std::enable_if_t<IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>,
-                        typename ToDataType::FieldType>
+std::enable_if_t<IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>,
+                 typename ToDataType::FieldType>
 convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale,
                    UInt8* overflow_flag) {
     using FromFieldType = typename FromDataType::FieldType;

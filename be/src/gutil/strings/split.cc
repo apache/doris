@@ -327,8 +327,7 @@ static int CalculateReserveForVector(const string& full, const char* delim) {
 // the characters in the string, not the entire string as a single delimiter.
 // ----------------------------------------------------------------------
 template <typename StringType, typename ITR>
-static inline void SplitStringToIteratorUsing(const StringType& full, const char* delim,
-                                              ITR& result) {
+void SplitStringToIteratorUsing(const StringType& full, const char* delim, ITR& result) {
     // Optimize the common case where delim is a single character.
     if (delim[0] != '\0' && delim[1] == '\0') {
         char c = delim[0];
@@ -471,9 +470,8 @@ string SplitOneStringToken(const char** source, const char* delim) {
 //   account. '\' is not allowed as a delimiter.
 // ----------------------------------------------------------------------
 template <typename ITR>
-static inline void SplitStringWithEscapingToIterator(const string& src,
-                                                     const strings::CharSet& delimiters,
-                                                     const bool allow_empty, ITR* result) {
+void SplitStringWithEscapingToIterator(const string& src, const strings::CharSet& delimiters,
+                                       const bool allow_empty, ITR* result) {
     CHECK(!delimiters.Test('\\')) << "\\ is not allowed as a delimiter.";
     CHECK(result);
     string part;

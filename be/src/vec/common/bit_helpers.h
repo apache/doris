@@ -49,7 +49,7 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
 }
 
 template <typename T>
-inline size_t get_leading_zero_bits(T x) {
+size_t get_leading_zero_bits(T x) {
     if (!x) return sizeof(x) * 8;
 
     if constexpr (sizeof(T) <= sizeof(unsigned int)) {
@@ -62,7 +62,7 @@ inline size_t get_leading_zero_bits(T x) {
 }
 
 template <typename T>
-inline size_t get_trailing_zero_bits(T x) {
+size_t get_trailing_zero_bits(T x) {
     if (!x) return sizeof(x) * 8;
 
     if constexpr (sizeof(T) <= sizeof(unsigned int)) {
@@ -78,7 +78,7 @@ inline size_t get_trailing_zero_bits(T x) {
  * mask_low_bits<UInt8>(3) => 00000111
  */
 template <typename T>
-inline T mask_low_bits(unsigned char bits) {
+T mask_low_bits(unsigned char bits) {
     if (bits == 0) {
         return 0;
     }
