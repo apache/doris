@@ -417,6 +417,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setWaitFullBlockScheduleTimes(context.getSessionVariable().getWaitFullBlockScheduleTimes());
+        this.queryOptions.setMysqlRowBinaryFormat(
+                    context.getMysqlChannel().useServerPrepStmts());
     }
 
     public ConnectContext getConnectContext() {
