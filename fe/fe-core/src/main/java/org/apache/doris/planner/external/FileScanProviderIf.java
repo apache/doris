@@ -44,7 +44,7 @@ public interface FileScanProviderIf {
 
     ParamCreateContext createContext(Analyzer analyzer) throws UserException;
 
-    void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
+    void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException;
 
     int getInputSplitNum();
