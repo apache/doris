@@ -178,6 +178,11 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
+    bool mysql_row_binary_format() const {
+        return _query_options.__isset.mysql_row_binary_format &&
+               _query_options.mysql_row_binary_format;
+    }
+
     bool enable_faster_float_convert() const {
         return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
     }

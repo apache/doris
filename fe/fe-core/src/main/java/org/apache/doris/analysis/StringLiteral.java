@@ -350,5 +350,6 @@ public class StringLiteral extends LiteralExpr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("parsed value '{}'", value);
         }
+        type = Type.VARCHAR;
     }
 }

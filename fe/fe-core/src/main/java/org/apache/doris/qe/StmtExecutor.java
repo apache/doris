@@ -1056,6 +1056,7 @@ public class StmtExecutor {
             }
             // continue analyze
             preparedStmtReanalyzed = true;
+            preparedStmtCtx.stmt.reset();
             preparedStmtCtx.stmt.analyze(analyzer);
         }
 
@@ -1071,7 +1072,8 @@ public class StmtExecutor {
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                 prepareStmt = new PrepareStmt(parsedStmt,
-                        String.valueOf(context.getEnv().getNextStmtId()), true /*binary protocol*/);
+                        String.valueOf(context.getEnv().getNextStmtId()));
+                context.getMysqlChannel().setUseServerPrepStmts();
             } else {
                 prepareStmt = (PrepareStmt) parsedStmt;
             }
@@ -1169,7 +1171,8 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
-        if (preparedStmtReanalyzed) {
+        if (preparedStmtReanalyzed
+                && preparedStmtCtx.stmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("update planner and analyzer after prepared statement reanalyzed");
             }
@@ -1291,6 +1294,11 @@ public class StmtExecutor {
                         Lists.newArrayList(parsedStmt.getColLabels());
                 // Re-analyze the stmt with a new analyzer.
                 analyzer = new Analyzer(context.getEnv(), context);
+                if (prepareStmt != null) {
+                    // Re-analyze prepareStmt with a new analyzer
+                    prepareStmt.reset();
+                    prepareStmt.analyze(analyzer);
+                }
 
                 if (prepareStmt != null) {
                     // Re-analyze prepareStmt with a new analyzer
@@ -2212,12 +2220,12 @@ public class StmtExecutor {
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                    prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                        prepareStmt.getName(), context.getMysqlChannel().useServerPrepStmts());
         }
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                        context, planner, analyzer, prepareStmt.getName()));
-        if (prepareStmt.isBinaryProtocol()) {
+                            context, planner, analyzer, prepareStmt.getName()));
+        if (context.getMysqlChannel().useServerPrepStmts()) {
             sendStmtPrepareOK();
         }
     }

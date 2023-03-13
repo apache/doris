@@ -203,7 +203,6 @@ public class MysqlProto {
         }
 
         if (handshakeResponse == null) {
-            // receive response failed.
             return false;
         }
         if (capability.isDeprecatedEOF()) {

@@ -2080,6 +2080,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return false;
     }
 
+    public int getBaseSchemaVersion() {
+        MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
+        return baseIndexMeta.getSchemaVersion();
+    }
+
+
     public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
@@ -2206,11 +2212,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             return tableProperty.timeSeriesCompactionLevelThreshold();
         }
         return null;
-    }
-
-    public int getBaseSchemaVersion() {
-        MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
-        return baseIndexMeta.getSchemaVersion();
     }
 
     public int getIndexSchemaVersion(long indexId) {
