@@ -181,6 +181,9 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+        arraySubTypes.add(DECIMAL32);
+        arraySubTypes.add(DECIMAL64);
+        arraySubTypes.add(DECIMAL128);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
@@ -506,6 +509,10 @@ public abstract class Type {
 
     public boolean isDateV2() {
         return isScalarType(PrimitiveType.DATEV2);
+    }
+
+    public boolean isDateV2OrDateTimeV2() {
+        return isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
     }
 
     public boolean hasTemplateType() {

@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -28,9 +27,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.hadoop.mapred.InputSplit;
-
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -40,9 +36,6 @@ public interface FileScanProviderIf {
 
     // Return S3/HDSF, etc.
     TFileType getLocationType() throws DdlException, MetaNotFoundException;
-
-    // Return file list
-    List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException;
 
     // return properties for S3/HDFS, etc.
     Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException;

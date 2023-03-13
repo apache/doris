@@ -66,6 +66,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
        "driver_class" = "org.postgresql.Driver"
    );
    ```
+> Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
 
    As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
 

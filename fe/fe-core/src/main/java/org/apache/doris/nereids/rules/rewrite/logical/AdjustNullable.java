@@ -63,7 +63,7 @@ public class AdjustNullable implements RewriteRuleFactory {
                 RuleType.ADJUST_NULLABLE_ON_FILTER.build(logicalFilter().then(filter -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(filter);
                     Set<Expression> conjuncts = updateExpressions(filter.getConjuncts(), exprIdSlotMap);
-                    return new LogicalFilter<>(conjuncts, filter.isSingleTableExpressionExtracted(), filter.child());
+                    return new LogicalFilter<>(conjuncts, filter.child());
                 })),
                 RuleType.ADJUST_NULLABLE_ON_GENERATE.build(logicalGenerate().then(generate -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(generate);

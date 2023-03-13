@@ -155,6 +155,8 @@ public enum RuleType {
     // Eliminate plan
     ELIMINATE_AGGREGATE(RuleTypeClass.REWRITE),
     ELIMINATE_LIMIT(RuleTypeClass.REWRITE),
+    ELIMINATE_LIMIT_ON_ONE_ROW_RELATION(RuleTypeClass.REWRITE),
+    ELIMINATE_LIMIT_ON_EMPTY_RELATION(RuleTypeClass.REWRITE),
     ELIMINATE_FILTER(RuleTypeClass.REWRITE),
     ELIMINATE_NOT_NULL(RuleTypeClass.REWRITE),
     ELIMINATE_UNNECESSARY_PROJECT(RuleTypeClass.REWRITE),
@@ -186,6 +188,7 @@ public enum RuleType {
     BUILD_AGG_FOR_UNION(RuleTypeClass.REWRITE),
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
+    CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 
     // split limit
@@ -194,8 +197,6 @@ public enum RuleType {
     PUSH_LIMIT_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_UNION(RuleTypeClass.REWRITE),
-    PUSH_LIMIT_THROUGH_ONE_ROW_RELATION(RuleTypeClass.REWRITE),
-    PUSH_LIMIT_THROUGH_EMPTY_RELATION(RuleTypeClass.REWRITE),
     PUSH_LIMIT_INTO_SORT(RuleTypeClass.REWRITE),
     // adjust nullable
     ADJUST_NULLABLE_ON_AGGREGATE(RuleTypeClass.REWRITE),
@@ -305,6 +306,5 @@ public enum RuleType {
         IMPLEMENTATION,
         VALIDATION,
         SENTINEL,
-        ;
     }
 }

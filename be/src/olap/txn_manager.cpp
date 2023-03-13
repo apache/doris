@@ -269,6 +269,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     {
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         TabletTxnInfo load_info(load_id, rowset_ptr);
+        if (is_recovery) {
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    tablet_info.tablet_id, tablet_info.tablet_uid);
+            if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
+                load_info.unique_key_merge_on_write = true;
+                load_info.delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
+                load_info.num_keys = 0;
+            }
+        }
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         txn_tablet_map[key][tablet_info] = load_info;
         _insert_txn_partition_map_unlocked(transaction_id, partition_id);

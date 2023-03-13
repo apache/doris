@@ -85,7 +85,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
 
-        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
             properties.put(JdbcResource.CHECK_SUM,
                     JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
         }

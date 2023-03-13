@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -338,28 +337,6 @@ public class AbstractDataTypeTest {
     }
 
     @Test
-    public void testCharacterAccept() {
-        CharacterType dataType = CharacterType.INSTANCE;
-        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
-        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
-        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
-        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
-        Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
-        Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
-    }
-
-    @Test
     public void testCharAccept() {
         CharType dataType = CharType.createCharType(10);
         Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
@@ -484,7 +461,6 @@ public class AbstractDataTypeTest {
         Assertions.assertEquals("float", FloatType.INSTANCE.simpleString());
         Assertions.assertEquals("double", DoubleType.INSTANCE.simpleString());
         Assertions.assertEquals("decimal", DecimalV2Type.SYSTEM_DEFAULT.simpleString());
-        Assertions.assertEquals("character", CharacterType.INSTANCE.simpleString());
         Assertions.assertEquals("char", new CharType(10).simpleString());
         Assertions.assertEquals("varchar", VarcharType.SYSTEM_DEFAULT.simpleString());
         Assertions.assertEquals("string", StringType.INSTANCE.simpleString());
@@ -507,7 +483,6 @@ public class AbstractDataTypeTest {
         Assertions.assertEquals(FloatType.INSTANCE, FloatType.INSTANCE.defaultConcreteType());
         Assertions.assertEquals(DoubleType.INSTANCE, DoubleType.INSTANCE.defaultConcreteType());
         Assertions.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT.defaultConcreteType());
-        Assertions.assertEquals(StringType.INSTANCE, CharacterType.INSTANCE.defaultConcreteType());
         Assertions.assertEquals(new CharType(10), new CharType(10).defaultConcreteType());
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT.defaultConcreteType());
         Assertions.assertEquals(StringType.INSTANCE, StringType.INSTANCE.defaultConcreteType());

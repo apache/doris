@@ -21,7 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -47,7 +47,7 @@ public class StatementContext {
 
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
-    private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
+    private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -101,8 +101,8 @@ public class StatementContext {
         return exprIdGenerator.getNextId();
     }
 
-    public RelationId getNextRelationId() {
-        return relationIdGenerator.getNextId();
+    public ObjectId getNextObjectId() {
+        return objectIdGenerator.getNextId();
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {

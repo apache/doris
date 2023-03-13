@@ -180,7 +180,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             args.add("hint");
             args.add(hint);
         }
-        return Utils.toSqlString("LogicalJoin", args.toArray());
+        return Utils.toSqlString("LogicalJoin[" + id.asInt() + "]", args.toArray());
     }
 
     @Override

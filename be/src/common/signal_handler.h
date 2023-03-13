@@ -235,7 +235,7 @@ void (*g_failure_writer)(const char* data, size_t size) = WriteToStderr;
 // Dumps time information.  We don't dump human-readable time information
 // as localtime() is not guaranteed to be async signal safe.
 void DumpTimeInfo() {
-    time_t time_in_sec = time(NULL);
+    time_t time_in_sec = time(nullptr);
     char buf[256]; // Big enough for time info.
     MinimalFormatter formatter(buf, sizeof(buf));
     formatter.AppendString("*** Query id: ");
@@ -258,7 +258,7 @@ void DumpTimeInfo() {
 // Dumps information about the signal to STDERR.
 void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     // Get the signal name.
-    const char* signal_name = NULL;
+    const char* signal_name = nullptr;
     for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
         if (signal_number == kFailureSignals[i].number) {
             signal_name = kFailureSignals[i].name;
@@ -322,7 +322,7 @@ void InvokeDefaultSignalHandler(int signal_number) {
     memset(&sig_action, 0, sizeof(sig_action));
     sigemptyset(&sig_action.sa_mask);
     sig_action.sa_handler = SIG_DFL;
-    sigaction(signal_number, &sig_action, NULL);
+    sigaction(signal_number, &sig_action, nullptr);
     kill(getpid(), signal_number);
 }
 
@@ -330,14 +330,14 @@ void InvokeDefaultSignalHandler(int signal_number) {
 // dumping stuff while another thread is doing it.  Our policy is to let
 // the first thread dump stuff and let other threads wait.
 // See also comments in FailureSignalHandler().
-static pthread_t* g_entered_thread_id_pointer = NULL;
+static pthread_t* g_entered_thread_id_pointer = nullptr;
 
 // Wrapper of __sync_val_compare_and_swap. If the GCC extension isn't
 // defined, we try the CPU specific logics (we only support x86 and
 // x86_64 for now) first, then use a naive implementation, which has a
 // race condition.
 template <typename T>
-inline T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
+T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
 #if defined(HAVE___SYNC_VAL_COMPARE_AND_SWAP)
     return __sync_val_compare_and_swap(ptr, oldval, newval);
 #elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
@@ -376,8 +376,8 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
     // old value (value returned from __sync_val_compare_and_swap) is
     // different from the original value (in this case NULL).
     pthread_t* old_thread_id_pointer = sync_val_compare_and_swap(
-            &g_entered_thread_id_pointer, static_cast<pthread_t*>(NULL), &my_thread_id);
-    if (old_thread_id_pointer != NULL) {
+            &g_entered_thread_id_pointer, static_cast<pthread_t*>(nullptr), &my_thread_id);
+    if (old_thread_id_pointer != nullptr) {
         // We've already entered the signal handler.  What should we do?
         if (pthread_equal(my_thread_id, *g_entered_thread_id_pointer)) {
             // It looks the current thread is reentering the signal handler.
@@ -431,7 +431,7 @@ inline void InstallFailureSignalHandler() {
     sig_action.sa_sigaction = &FailureSignalHandler;
 
     for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
-        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, NULL));
+        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, nullptr));
     }
     kFailureSignalHandlerInstalled = true;
 }

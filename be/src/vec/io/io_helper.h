@@ -94,17 +94,17 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
 
 /// Write POD-type in native format. It's recommended to use only with packed (dense) data types.
 template <typename Type>
-inline void write_pod_binary(const Type& x, BufferWritable& buf) {
+void write_pod_binary(const Type& x, BufferWritable& buf) {
     buf.write(reinterpret_cast<const char*>(&x), sizeof(x));
 }
 
 template <typename Type>
-inline void write_int_binary(const Type& x, BufferWritable& buf) {
+void write_int_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
 template <typename Type>
-inline void write_float_binary(const Type& x, BufferWritable& buf) {
+void write_float_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
@@ -143,23 +143,23 @@ inline void write_binary(const StringRef& x, BufferWritable& buf) {
 }
 
 template <typename Type>
-inline void write_binary(const Type& x, BufferWritable& buf) {
+void write_binary(const Type& x, BufferWritable& buf) {
     write_pod_binary(x, buf);
 }
 
 /// Read POD-type in native format
 template <typename Type>
-inline void read_pod_binary(Type& x, BufferReadable& buf) {
+void read_pod_binary(Type& x, BufferReadable& buf) {
     buf.read(reinterpret_cast<char*>(&x), sizeof(x));
 }
 
 template <typename Type>
-inline void read_int_binary(Type& x, BufferReadable& buf) {
+void read_int_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
 template <typename Type>
-inline void read_float_binary(Type& x, BufferReadable& buf) {
+void read_float_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
@@ -227,7 +227,7 @@ inline void read_binary(StringRef& x, BufferReadable& buf) {
 }
 
 template <typename Type>
-inline void read_binary(Type& x, BufferReadable& buf) {
+void read_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
@@ -360,7 +360,7 @@ bool try_read_int_text(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-static inline const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
+const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
     const int len = end - pos;
     int i = 0;
     while (i < len) {

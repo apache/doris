@@ -17,28 +17,25 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
  * test ELIMINATE_UNNECESSARY_PROJECT rule.
  */
-public class EliminateUnnecessaryProjectTest extends TestWithFeService {
+class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -55,57 +52,49 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
     }
 
     @Test
-    public void testEliminateNonTopUnnecessaryProject() {
+    void testEliminateNonTopUnnecessaryProject() {
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .project(ImmutableList.of(1, 0))
                 .filter(BooleanLiteral.FALSE)
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
-
-        Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual.child(0) instanceof LogicalProject);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
+                .applyTopDown(new EliminateUnnecessaryProject())
+                .matchesFromRoot(logicalFilter(logicalProject()));
     }
 
     @Test
-    public void testEliminateTopUnnecessaryProject() {
+    void testEliminateTopUnnecessaryProject() {
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .project(ImmutableList.of(0, 1))
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
-
-        Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual instanceof LogicalOlapScan);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
+                .applyTopDown(new EliminateUnnecessaryProject())
+                .matchesFromRoot(logicalOlapScan());
     }
 
     @Test
-    public void testNotEliminateTopProjectWhenOutputNotEquals() {
+    void testNotEliminateTopProjectWhenOutputNotEquals() {
         LogicalPlan necessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .project(ImmutableList.of(1, 0))
                 .build();
 
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(necessaryProject);
-        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
-
-        Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual instanceof LogicalProject);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), necessaryProject)
+                .applyTopDown(new EliminateUnnecessaryProject())
+                .matchesFromRoot(logicalProject());
     }
 
     @Test
-    public void testEliminateProjectWhenEmptyRelationChild() {
+    void testEliminateProjectWhenEmptyRelationChild() {
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(new LogicalEmptyRelation(ImmutableList.of(
                 new SlotReference("k1", IntegerType.INSTANCE),
                 new SlotReference("k2", IntegerType.INSTANCE))))
                 .project(ImmutableList.of(1, 0))
                 .build();
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
-        cascadesContext.topDownRewrite(new EliminateUnnecessaryProject());
-
-        Plan actual = cascadesContext.getMemo().copyOut();
-        Assertions.assertTrue(actual instanceof LogicalEmptyRelation);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
+                .applyTopDown(new EliminateUnnecessaryProject())
+                .matchesFromRoot(logicalEmptyRelation());
     }
 
     // TODO: uncomment this after the Elimination project rule is correctly implemented

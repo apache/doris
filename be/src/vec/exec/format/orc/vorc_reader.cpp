@@ -277,9 +277,8 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::BOOLEAN, orc::PredicateDataType::BOOLEAN}};
 
 template <typename CppType>
-static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
-                                                             const void* value, int precision,
-                                                             int scale) {
+std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, const void* value,
+                                                      int precision, int scale) {
     try {
         switch (type->getKind()) {
         case orc::TypeKind::BOOLEAN:
@@ -375,7 +374,7 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
 }
 
 template <PrimitiveType primitive_type>
-static std::vector<OrcPredicate> value_range_to_predicate(
+std::vector<OrcPredicate> value_range_to_predicate(
         const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     std::vector<OrcPredicate> predicates;

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -228,6 +229,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
 
+    public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
+
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
 
     public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
@@ -279,6 +282,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
+
+    public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
@@ -642,6 +647,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
+    public boolean enableCommonExprPushdown = true;
+
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
     public boolean enableLocalExchange = true;
 
@@ -754,6 +762,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
 
+    @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
+    public boolean dumpNereidsMemo = false;
+
     // If set to true, all query will be executed without returning result
     @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
     public boolean dryRunQuery = false;
@@ -764,6 +775,7 @@ public class SessionVariable implements Serializable, Writable {
     public void initFuzzyModeVariables() {
         Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
+        this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
@@ -1278,6 +1290,10 @@ public class SessionVariable implements Serializable, Writable {
         return runtimeFilterType;
     }
 
+    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) == type.getValue();
+    }
+
     public void setRuntimeFilterType(int runtimeFilterType) {
         this.runtimeFilterType = runtimeFilterType;
     }
@@ -1577,6 +1593,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
+        tResult.setParallelInstance(parallelExecInstanceNum);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
@@ -1604,6 +1621,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
@@ -1834,5 +1852,13 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
+    }
+
+    public boolean isDumpNereidsMemo() {
+        return dumpNereidsMemo;
+    }
+
+    public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
+        this.dumpNereidsMemo = dumpNereidsMemo;
     }
 }

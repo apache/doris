@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -103,12 +104,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightDistributionSpec;
 
         GroupExpression leftChild = children.get(0);
-        final Pair<Double, List<PhysicalProperties>> leftLowest
+        final Pair<Cost, List<PhysicalProperties>> leftLowest
                 = leftChild.getLowestCostTable().get(childrenProperties.get(0));
         PhysicalProperties leftOutput = leftChild.getOutputProperties(childrenProperties.get(0));
 
         GroupExpression rightChild = children.get(1);
-        Pair<Double, List<PhysicalProperties>> rightLowest
+        Pair<Cost, List<PhysicalProperties>> rightLowest
                 = rightChild.getLowestCostTable().get(childrenProperties.get(1));
         PhysicalProperties rightOutput = rightChild.getOutputProperties(childrenProperties.get(1));
 
@@ -128,20 +129,20 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
                 PhysicalProperties rightRequireProperties = calRightRequiredOfBucketShuffleJoin(leftHashSpec,
                         rightHashSpec);
                 if (!rightOutput.equals(rightRequireProperties)) {
-                    enforceCost += updateChildEnforceAndCost(rightChild, rightOutput,
+                    updateChildEnforceAndCost(rightChild, rightOutput,
                             (DistributionSpecHash) rightRequireProperties.getDistributionSpec(), rightLowest.first);
                 }
                 childrenProperties.set(1, rightRequireProperties);
                 return enforceCost;
             }
-            enforceCost += updateChildEnforceAndCost(leftChild, leftOutput,
+            updateChildEnforceAndCost(leftChild, leftOutput,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(), leftLowest.first);
             childrenProperties.set(0, requiredProperties.get(0));
         }
 
         // check right hand must distribute.
         if (rightHashSpec.getShuffleType() != ShuffleType.ENFORCED) {
-            enforceCost += updateChildEnforceAndCost(rightChild, rightOutput,
+            updateChildEnforceAndCost(rightChild, rightOutput,
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(), rightLowest.first);
             childrenProperties.set(1, requiredProperties.get(1));
         }
@@ -175,15 +176,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
     }
 
     private double updateChildEnforceAndCost(GroupExpression child, PhysicalProperties childOutput,
-            DistributionSpecHash required, double currentCost) {
-        double enforceCost = 0;
+            DistributionSpecHash required, Cost currentCost) {
         if (child.getPlan() instanceof PhysicalDistribute) {
             //To avoid continuous distribute operator, we just enforce the child's child
             childOutput = child.getInputPropertiesList(childOutput).get(0);
-            Pair<Double, GroupExpression> newChildAndCost
+            Pair<Cost, GroupExpression> newChildAndCost
                     = child.getOwnerGroup().getLowestCostPlan(childOutput).get();
             child = newChildAndCost.second;
-            enforceCost = newChildAndCost.first - currentCost;
             currentCost = newChildAndCost.first;
         }
 
@@ -193,13 +192,16 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         PhysicalProperties newOutputProperty = new PhysicalProperties(outputDistributionSpec);
         GroupExpression enforcer = outputDistributionSpec.addEnforcer(child.getOwnerGroup());
         jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
-        enforceCost = Double.sum(enforceCost, CostCalculator.calculateCost(enforcer));
+        Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
+                currentCost,
+                CostCalculator.calculateCost(enforcer),
+                0);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,
-                Lists.newArrayList(childOutput), enforceCost + currentCost)) {
+                Lists.newArrayList(childOutput), totalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);
         }
-        child.getOwnerGroup().setBestPlan(enforcer, enforceCost + currentCost, newOutputProperty);
+        child.getOwnerGroup().setBestPlan(enforcer, totalCost, newOutputProperty);
         return enforceCost;
     }
 }

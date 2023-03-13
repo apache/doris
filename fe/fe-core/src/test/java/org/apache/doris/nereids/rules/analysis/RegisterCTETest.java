@@ -36,8 +36,8 @@ import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -102,7 +102,7 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
 
     @Override
     protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
     }
 
     private CTEContext getCTEContextAfterRegisterCTE(String sql) {
@@ -126,7 +126,7 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
         };
 
         for (String sql : testSql) {
-            NamedExpressionUtil.clear();
+            StatementScopeIdGenerator.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
                     parser.parseSingle(sql),
@@ -195,9 +195,9 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
 
     @Test
     public void testCTEInHavingAndSubquery() {
-        SlotReference region1 = new SlotReference(new ExprId(5), "s_region", VarcharType.INSTANCE,
+        SlotReference region1 = new SlotReference(new ExprId(5), "s_region", VarcharType.SYSTEM_DEFAULT,
                 false, ImmutableList.of("cte1"));
-        SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
+        SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.SYSTEM_DEFAULT,
                 false, ImmutableList.of("cte2"));
         SlotReference count = new SlotReference(new ExprId(14), "count(*)", BigIntType.INSTANCE,
                 false, ImmutableList.of());

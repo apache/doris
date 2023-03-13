@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -218,7 +219,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
-        if (!olapScan.getTable().isColocateTable() && olapScan.getScanTabletNum() == 1) {
+        if (!olapScan.getTable().isColocateTable() && olapScan.getScanTabletNum() == 1
+                && (!ConnectContext.get().getSessionVariable().enablePipelineEngine()
+                        || ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() == 1)) {
             return PhysicalProperties.GATHER;
         } else if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
             return PhysicalProperties.createHash((DistributionSpecHash) olapScan.getDistributionSpec());

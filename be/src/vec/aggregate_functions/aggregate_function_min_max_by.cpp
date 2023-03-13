@@ -28,8 +28,8 @@ namespace doris::vectorized {
 /// min_by, max_by
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data, typename VT>
-static IAggregateFunction* create_aggregate_function_min_max_by_impl(
-        const DataTypes& argument_types, const bool result_is_nullable) {
+IAggregateFunction* create_aggregate_function_min_max_by_impl(const DataTypes& argument_types,
+                                                              const bool result_is_nullable) {
     WhichDataType which(remove_nullable(argument_types[1]));
 
 #define DISPATCH(TYPE)                                                            \
@@ -74,9 +74,9 @@ static IAggregateFunction* create_aggregate_function_min_max_by_impl(
 /// min_by, max_by
 template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data>
-static IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
-                                                                const DataTypes& argument_types,
-                                                                const bool result_is_nullable) {
+IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
+                                                         const DataTypes& argument_types,
+                                                         const bool result_is_nullable) {
     assert_binary(name, argument_types);
 
     WhichDataType which(remove_nullable(argument_types[0]));
