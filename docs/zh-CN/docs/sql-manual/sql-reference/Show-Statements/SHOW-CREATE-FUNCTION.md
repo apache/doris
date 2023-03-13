@@ -37,7 +37,7 @@ SHOW CREATE FUNCTION
 语法：
 
 ```sql
-SHOW CREATE FUNTION function_name(arg_type [, ...]) [FROM db_name]];
+SHOW CREATE FUNCTION function_name(arg_type [, ...]) [FROM db_name]];
 ```
 
 说明：

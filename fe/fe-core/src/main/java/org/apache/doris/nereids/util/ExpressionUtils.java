@@ -346,11 +346,11 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        Literal nullLiteral = Literal.of(null);
         Set<Slot> notNullSlots = Sets.newHashSet();
         for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
+                Literal nullLiteral = new NullLiteral(slot.getDataType());
                 replaceMap.put(slot, nullLiteral);
                 Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
                         ExpressionUtils.replace(predicate, replaceMap),

@@ -136,9 +136,10 @@ PROPERTIES
     "use_path_style" = "true"
 );
 ```
-<version since="1.2">
 
 7. 使用临时秘钥创建名为 minio_repo 的仓库
+
+<version since="1.2"></version>
 
 ```
 CREATE REPOSITORY `minio_repo`
@@ -154,7 +155,20 @@ PROPERTIES
 )
 ```
 
-</version>
+8. 使用腾讯云 COS 创建仓库
+
+```
+CREATE REPOSITORY `cos_repo`
+WITH S3
+ON LOCATION "s3://backet1/"
+PROPERTIES
+(
+    "AWS_ACCESS_KEY" = "ak",
+    "AWS_SECRET_KEY" = "sk",
+    "AWS_ENDPOINT" = "http://cos.ap-beijing.myqcloud.com",
+    "AWS_REGION" = "ap-beijing"
+);
+```
 
 ### Keywords
 

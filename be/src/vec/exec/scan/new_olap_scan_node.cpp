@@ -80,7 +80,9 @@ Status NewOlapScanNode::_init_profile() {
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
+    _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");
     _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
+    _second_read_timer = ADD_TIMER(_segment_profile, "SecondReadTime");
     _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
     _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
 
@@ -337,6 +339,14 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     return Status::OK();
 }
 
+bool NewOlapScanNode::_should_push_down_common_expr() {
+    return _state->enable_common_expr_pushdown() &&
+           (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
+            (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
+             _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
+             _olap_scan_node.enable_unique_key_merge_on_write));
+}
+
 // PlanFragmentExecutor will call this method to set scan range
 // Doris scan range is defined in thrift file like this
 // struct TPaloScanRange {
@@ -401,10 +411,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         TabletSharedPtr tablet =
                 StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (tablet == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get tablet: " << tablet_id << ", reason: " << err;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
+            auto err_str = fmt::format("failed to get tablet: {}, reason: {}", tablet_id, err);
+            LOG(WARNING) << err_str;
+            return Status::InternalError(err_str);
         }
 
         std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &cond_ranges;
@@ -437,9 +446,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
-            RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
-                                             _olap_filters, _filter_predicates,
-                                             _push_down_functions));
+            RETURN_IF_ERROR(scanner->prepare(
+                    *scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(), _olap_filters,
+                    _filter_predicates, _push_down_functions, _common_vexpr_ctxs_pushdown.get()));
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

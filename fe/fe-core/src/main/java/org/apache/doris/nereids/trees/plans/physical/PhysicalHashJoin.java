@@ -115,7 +115,7 @@ public class PhysicalHashJoin<
             args.add("hint");
             args.add(hint);
         }
-        return Utils.toSqlString("PhysicalHashJoin", args.toArray());
+        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]", args.toArray());
     }
 
     @Override

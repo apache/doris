@@ -19,8 +19,6 @@ package org.apache.doris.planner.external;
 
 import org.apache.doris.common.Config;
 
-import org.apache.hadoop.mapred.FileSplit;
-
 public class FileSplitStrategy {
     private long totalSplitSize;
     private int splitNum;

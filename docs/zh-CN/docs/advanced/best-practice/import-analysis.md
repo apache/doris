@@ -67,12 +67,43 @@ SET is_report_success=true;
 我们可以通过如下命令先获取 Profile 列表：
 
 ```sql
-mysql> show load profile "/";
-+---------+------+-----------+------+-----------+---------------------+---------------------+-----------+------------+
-| QueryId | User | DefaultDb | SQL  | QueryType | StartTime           | EndTime             | TotalTime | QueryState |
-+---------+------+-----------+------+-----------+---------------------+---------------------+-----------+------------+
-| 10441   | N/A  | N/A       | N/A  | Load      | 2021-04-10 22:15:37 | 2021-04-10 22:18:54 | 3m17s     | N/A        |
-+---------+------+-----------+------+-----------+---------------------+---------------------+-----------+------------+
+mysql> show load profile "/"\G
+*************************** 1. row ***************************
+                 JobId: 20010
+               QueryId: 980014623046410a-af5d36f23381017f
+                  User: root
+             DefaultDb: default_cluster:test
+                   SQL: LOAD LABEL xxx
+             QueryType: Load
+             StartTime: 2023-03-07 19:48:24
+               EndTime: 2023-03-07 19:50:45
+             TotalTime: 2m21s
+            QueryState: N/A
+               TraceId:
+          AnalysisTime: NULL
+              PlanTime: NULL
+          ScheduleTime: NULL
+       FetchResultTime: NULL
+       WriteResultTime: NULL
+WaitAndFetchResultTime: NULL
+*************************** 2. row ***************************
+                 JobId: N/A
+               QueryId: 7cc2d0282a7a4391-8dd75030185134d8
+                  User: root
+             DefaultDb: default_cluster:test
+                   SQL: insert into xxx
+             QueryType: Load
+             StartTime: 2023-03-07 19:49:15
+               EndTime: 2023-03-07 19:49:15
+             TotalTime: 102ms
+            QueryState: OK
+               TraceId:
+          AnalysisTime: 825.277us
+              PlanTime: 4.126ms
+          ScheduleTime: N/A
+       FetchResultTime: 0ns
+       WriteResultTime: 0ns
+WaitAndFetchResultTime: N/A
 ```
 
 这个命令会列出当前保存的所有导入 Profile。每行对应一个导入。其中 QueryId 列为导入作业的 ID。这个 ID 也可以通过 SHOW LOAD 语句查看拿到。我们可以选择我们想看的 Profile 对应的 QueryId，查看具体情况。
@@ -86,15 +117,15 @@ mysql> show load profile "/";
    
 
    ```sql
-   mysql> show load profile "/10441";
+   mysql> show load profile "/980014623046410a-af5d36f23381017f";
    +-----------------------------------+------------+
    | TaskId                            | ActiveTime |
    +-----------------------------------+------------+
-   | 980014623046410a-88e260f0c43031f1 | 3m14s      |
+   | 980014623046410a-af5d36f23381017f | 3m14s      |
    +-----------------------------------+------------+
    ```
 
-   如上图，表示 10441 这个导入作业总共有一个子任务，其中 ActiveTime 表示这个子任务中耗时最长的 Instance 的执行时间。
+   如上图，表示 `980014623046410a-af5d36f23381017f` 这个导入作业总共有一个子任务，其中 ActiveTime 表示这个子任务中耗时最长的 Instance 的执行时间。
 
 2. 查看指定子任务的 Instance 概况
 
@@ -103,7 +134,7 @@ mysql> show load profile "/";
    
 
    ```sql
-   mysql> show load profile "/10441/980014623046410a-88e260f0c43031f1";
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f";
    +-----------------------------------+------------------+------------+
    | Instances                         | Host             | ActiveTime |
    +-----------------------------------+------------------+------------+
@@ -114,7 +145,7 @@ mysql> show load profile "/";
    +-----------------------------------+------------------+------------+
    ```
 
-   这里展示了 980014623046410a-88e260f0c43031f1 这个子任务的四个 Instance 耗时，并且还展示了 Instance 所在的执行节点。
+   这里展示了 980014623046410a-af5d36f23381017f 这个子任务的四个 Instance 耗时，并且还展示了 Instance 所在的执行节点。
 
 3. 查看具体 Instance
 
@@ -123,7 +154,7 @@ mysql> show load profile "/";
    
 
    ```sql
-   mysql> show load profile "/10441/980014623046410a-88e260f0c43031f1/980014623046410a-88e260f0c43031f5"\G
+   mysql> show load profile "/980014623046410a-af5d36f23381017f/980014623046410a-af5d36f23381017f/980014623046410a-88e260f0c43031f5"\G
    *************************** 1. row ***************************
    Instance:
          ┌-----------------------------------------┐
@@ -165,6 +196,6 @@ mysql> show load profile "/";
    └-----------------------------------------------------┘
    ```
 
-   上图展示了子任务 980014623046410a-88e260f0c43031f1 中，Instance 980014623046410a-88e260f0c43031f5 的各个算子的具体 Profile。
+   上图展示了子任务 980014623046410a-af5d36f23381017f 中，Instance 980014623046410a-88e260f0c43031f5 的各个算子的具体 Profile。
 
 通过以上3个步骤，我们可以逐步排查一个导入任务的执行瓶颈。

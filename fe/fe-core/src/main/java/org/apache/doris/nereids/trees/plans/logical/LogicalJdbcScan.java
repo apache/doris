@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -38,14 +38,14 @@ public class LogicalJdbcScan extends LogicalRelation {
     /**
      * Constructor for LogicalJdbcScan.
      */
-    public LogicalJdbcScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public LogicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
     }
 
-    public LogicalJdbcScan(RelationId id, ExternalTable table, List<String> qualifier) {
+    public LogicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty());
     }
 

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.logical.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateDedupJoinCondition;
@@ -51,7 +52,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
-import org.apache.doris.nereids.rules.rewrite.logical.InnerToCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
@@ -155,7 +155,7 @@ public class NereidsRewriter extends BatchRewriteJob {
                         new ReorderJoin(),
                         new PushFilterInsideJoin(),
                         new FindHashConditionForJoin(),
-                        new InnerToCrossJoin(),
+                        new ConvertInnerOrCrossJoin(),
                         new EliminateNullAwareLeftAntiJoin()
                     ),
                     topDown(

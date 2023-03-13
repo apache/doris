@@ -106,6 +106,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -328,7 +329,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (firstAggregateInFragment == null) {
             context.setFirstAggregateInFragment(currentFragment, aggregate);
         }
-        currentFragment.setPlanRoot(aggregationNode);
+        setPlanRoot(currentFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
             aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
         }
@@ -811,12 +812,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (partitionExprs.isEmpty() && orderByElements.isEmpty()) {
             if (inputPlanFragment.isPartitioned()) {
-                inputPlanFragment = createParentFragment(inputPlanFragment, DataPartition.UNPARTITIONED, context);
+                PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), analyticEvalNode,
+                        DataPartition.UNPARTITIONED);
+                context.addPlanFragment(parentFragment);
+                connectChildFragment(analyticEvalNode, 0, parentFragment, inputPlanFragment, context);
+                inputPlanFragment = parentFragment;
+            } else {
+                inputPlanFragment.addPlanRoot(analyticEvalNode);
             }
         } else {
             analyticEvalNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
+            inputPlanFragment.addPlanRoot(analyticEvalNode);
         }
-        addPlanRoot(inputPlanFragment, analyticEvalNode, physicalWindow);
         return inputPlanFragment;
     }
 
@@ -977,12 +984,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         PlanFragment currentFragment;
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
-            currentFragment = constructColocateJoin(hashJoinNode, leftFragment, rightFragment, context);
+            currentFragment = constructColocateJoin(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
         } else if (JoinUtils.shouldBucketShuffleJoin(physicalHashJoin)) {
             currentFragment = constructBucketShuffleJoin(
                     physicalHashJoin, hashJoinNode, leftFragment, rightFragment, context);
         } else if (JoinUtils.shouldBroadcastJoin(physicalHashJoin)) {
-            currentFragment = constructBroadcastJoin(hashJoinNode, leftFragment, rightFragment, context);
+            currentFragment = constructBroadcastJoin(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
         } else {
             currentFragment = constructShuffleJoin(
                     physicalHashJoin, hashJoinNode, leftFragment, rightFragment, context);
@@ -1182,9 +1189,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 joinFragment = createPlanFragment(nestedLoopJoinNode,
                         DataPartition.UNPARTITIONED, nestedLoopJoin);
                 context.addPlanFragment(joinFragment);
+                connectChildFragment(nestedLoopJoinNode, 0, joinFragment, leftFragment, context);
             } else {
                 joinFragment = leftFragment;
+                nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
+                setPlanRoot(joinFragment, nestedLoopJoinNode, nestedLoopJoin);
             }
+            // translate runtime filter
+            context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
+                List<RuntimeFilter> filters = runtimeFilterTranslator
+                        .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
+                filters.forEach(filter -> runtimeFilterTranslator
+                        .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
+                if (!filters.isEmpty()) {
+                    nestedLoopJoinNode.setOutputLeftSideOnly(true);
+                }
+            });
 
             Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
             Stream.concat(nestedLoopJoin.child(0).getOutput().stream(),
@@ -1277,15 +1297,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
             rightFragment.getPlanRoot().setCompactData(false);
-            if (needNewRootFragment) {
-                connectChildFragment(nestedLoopJoinNode, 0, joinFragment, leftFragment, context);
-            } else {
-                nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
-                joinFragment.setPlanRoot(nestedLoopJoinNode);
-            }
+
             connectChildFragment(nestedLoopJoinNode, 1, joinFragment, rightFragment, context);
             List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
+                    .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
                     .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+
+            if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
+                //left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
+                joinConjuncts.add(new BoolLiteral(true));
+            }
+
             nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
             nestedLoopJoin.getFilterConjuncts().stream()
@@ -1339,7 +1361,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: fix the project alias of an aliased relation.
 
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
-        List<Slot> slotList = project.getOutput();
+        List<Slot> slotList = project.getProjects()
+                .stream()
+                .map(e -> e.toSlot())
+                .collect(Collectors.toList());
         // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
         // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
         // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
@@ -1448,13 +1473,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // Union contains oneRowRelation
         if (inputFragment == null) {
-            return inputFragment;
+            return null;
         }
-        // For case globalLimit(l, o) -> LocalLimit(l+o, 0), that is the LocalLimit has already gathered
-        // The globalLimit can overwrite the limit and offset, so it's still correct
+
         PlanNode child = inputFragment.getPlanRoot();
-        child.setLimit(physicalLimit.getLimit());
+
+        // This case means GlobalLimit's child isn't gatherNode, which suggests the child is UNPARTITIONED
+        // When there is valid offset, exchangeNode should be added because other node don't support offset
+        if (physicalLimit.isGlobal() && physicalLimit.hasValidOffset()
+                && !(child instanceof ExchangeNode)) {
+            inputFragment = createParentFragment(inputFragment, DataPartition.UNPARTITIONED, context);
+            child = inputFragment.getPlanRoot();
+        }
         child.setOffset(physicalLimit.getOffset());
+        child.setLimit(physicalLimit.getLimit());
         return inputFragment;
     }
 
@@ -1785,12 +1817,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private PlanFragment constructColocateJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
-            PlanFragment rightFragment, PlanTranslatorContext context) {
+            PlanFragment rightFragment, PlanTranslatorContext context, AbstractPlan join) {
         // TODO: add reason
         hashJoinNode.setColocate(true, "");
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
-        leftFragment.setPlanRoot(hashJoinNode);
+        setPlanRoot(leftFragment, hashJoinNode, join);
         rightFragment.getTargetRuntimeFilterIds().stream().forEach(leftFragment::setTargetRuntimeFilterIds);
         rightFragment.getBuilderRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
         context.removePlanFragment(rightFragment);
@@ -1829,7 +1861,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
         }
         connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
-        leftFragment.setPlanRoot(hashJoinNode);
+        setPlanRoot(leftFragment, hashJoinNode, physicalHashJoin);
         // HASH_PARTITIONED and BUCKET_SHFFULE_HASH_PARTITIONED are two type of hash algorithm
         // And the nature left child means it use BUCKET_SHFFULE_HASH_PARTITIONED in storage layer
         TPartitionType partitionType = TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
@@ -1844,9 +1876,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private PlanFragment constructBroadcastJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
-            PlanFragment rightFragment, PlanTranslatorContext context) {
+            PlanFragment rightFragment, PlanTranslatorContext context, AbstractPlan join) {
         hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
-        leftFragment.setPlanRoot(hashJoinNode);
+        setPlanRoot(leftFragment, hashJoinNode, join);
         rightFragment.setRightChildOfBroadcastHashJoin(true);
         connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
         return leftFragment;
@@ -2079,6 +2111,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), planNode, dataPartition);
         updateLegacyPlanIdToPhysicalPlan(planNode, physicalPlan);
         return planFragment;
+    }
+
+    private void setPlanRoot(PlanFragment fragment, PlanNode planNode, AbstractPlan physicalPlan) {
+        fragment.setPlanRoot(planNode);
+        updateLegacyPlanIdToPhysicalPlan(planNode, physicalPlan);
     }
 
     private void addPlanRoot(PlanFragment fragment, PlanNode planNode, AbstractPlan physicalPlan) {

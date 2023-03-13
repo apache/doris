@@ -103,6 +103,8 @@ public:
     Status try_close();
 
     bool should_run_serial() const { return _should_run_serial; }
+    bool ready_to_open() { return _shared_scanner_controller->scanner_context_is_ready(id()); }
+    bool ready_to_read() { return !_scanner_ctx->empty_in_queue(_context_queue_id); }
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -164,6 +166,8 @@ protected:
         return Status::OK();
     }
 
+    virtual bool _should_push_down_common_expr() { return false; }
+
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
     virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
@@ -176,8 +180,12 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
+    Status _prepare_scanners();
+
 protected:
     RuntimeState* _state;
+    bool _is_pipeline_scan = false;
+    bool _shared_scan_opt = false;
     // For load scan node, there should be both input and output tuple descriptor.
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
@@ -259,12 +267,17 @@ protected:
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    std::unique_ptr<VExprContext*> _common_vexpr_ctxs_pushdown = nullptr;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
 protected:
-    std::unique_ptr<RuntimeProfile> _scanner_profile;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
+    bool _should_create_scanner = false;
+    int _context_queue_id = -1;
+
+    std::shared_ptr<RuntimeProfile> _scanner_profile;
 
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter;

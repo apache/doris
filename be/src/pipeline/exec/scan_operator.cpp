@@ -25,13 +25,21 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
 
 bool ScanOperator::can_read() {
-    if (_node->_eos || _node->_scanner_ctx->done() || _node->_scanner_ctx->no_schedule()) {
-        // _eos: need eos
-        // _scanner_ctx->done(): need finish
-        // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
-        return true;
+    if (!_node->_opened) {
+        if (_node->_should_create_scanner || _node->ready_to_open()) {
+            return true;
+        } else {
+            return false;
+        }
     } else {
-        return !_node->_scanner_ctx->empty_in_queue(); // there are some blocks to process
+        if (_node->_eos || _node->_scanner_ctx->done() || _node->_scanner_ctx->no_schedule()) {
+            // _eos: need eos
+            // _scanner_ctx->done(): need finish
+            // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
+            return true;
+        } else {
+            return _node->ready_to_read(); // there are some blocks to process
+        }
     }
 }
 

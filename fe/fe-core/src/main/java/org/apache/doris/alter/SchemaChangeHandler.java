@@ -2529,6 +2529,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
             } // end for index
 
+            // set table state
+            olapTable.setState(OlapTableState.SCHEMA_CHANGE);
+
             // set Job state then add job
             schemaChangeJob.setJobState(AlterJobV2.JobState.WAITING_TXN);
             this.addAlterJobV2(schemaChangeJob);

@@ -104,7 +104,7 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-Or to connect to Hive data stored in JuiceFS:
+Or to connect to Hive data stored on JuiceFS:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -114,6 +114,23 @@ CREATE CATALOG hive PROPERTIES (
     'fs.jfs.impl' = 'io.juicefs.JuiceFileSystem',
     'fs.AbstractFileSystem.jfs.impl' = 'io.juicefs.JuiceFS',
     'juicefs.meta' = 'xxx'
+);
+```
+
+Or to connect to Glue and data stored on S3:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.type" = "glue",
+    "aws.region" = "us-east-1",
+    "aws.glue.access-key" = "ak",
+    "aws.glue.secret-key" = "sk",
+    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+    "AWS_REGION" = "us-east-1",
+    "AWS_ACCESS_KEY" = "ak",
+    "AWS_SECRET_KEY" = "sk",
+    "use_path_style" = "true"
 );
 ```
 
@@ -194,4 +211,6 @@ This is applicable for Hive/Iceberge/Hudi.
 | varchar       | varchar       |                                                   |
 | decimal       | decimal       |                                                   |
 | `array<type>` | `array<type>` | Support nested array, such as `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | Not support nested map. KeyType and ValueType should be primitive types. |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | Not support nested struct. Type1, Type2, ... should be primitive types. |
 | other         | unsupported   |                                                   |

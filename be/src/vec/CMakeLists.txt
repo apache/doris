@@ -31,7 +31,6 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
-  aggregate_functions/aggregate_function_null.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -174,6 +173,7 @@ set(VEC_FILES
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
+  functions/array/function_array_enumerate_uniq.cpp
   functions/array/function_array_range.cpp
   functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
@@ -313,13 +313,14 @@ set(VEC_FILES
   exec/format/table/iceberg_reader.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
   exec/format/file_reader/new_plain_binary_line_reader.cpp
+  exec/format/parquet/delta_bit_pack_decoder.cpp
+  exec/format/parquet/bool_rle_decoder.cpp
   )
 
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
-            exec/scan/mysql_scanner.cpp
-            )
+            exec/scan/mysql_scanner.cpp)
 endif ()
 
 add_library(Vec STATIC

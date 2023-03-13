@@ -32,11 +32,11 @@ under the License.
 
 [Apache Kyuubi](https://kyuubi.apache.org/) is a distributed and multi-tenant gateway to provide serverless SQL on Data
 Warehouses and Lakehouses.
-Apache Kyuubi is providing varied protocols like Thrift, Trino and etc., to the engines as Spark, Flink, Hive, JDBC and
-etc.
-Drois is supported as JDBC data source in Apache Kyuubi.
-Apache Kyuubi also provides a serious useful feature with HA, service discovry,
-unified authentication, engine lifecycles and etc.
+Apache Kyuubi is providing varied protocols like Thrift, Trino, MySQL etc., to the engines including Spark, Flink, Hive,
+JDBC, etc.
+Doris could be connected as JDBC data source with Doris dialect supported in Apache Kyuubi.
+Apache Kyuubi also provides a series of useful features including HA, service discovery,
+unified authentication, engine lifecycle management, etc.
 
 ## Usage
 
@@ -61,33 +61,33 @@ kyuubi.engine.jdbc.connection.password=***
 
 | Configuration                          | Description                                                   |
 |----------------------------------------|---------------------------------------------------------------|
-| kyuubi.engine.type                     | Enine Type, specify to `jdbc`                                 |
+| kyuubi.engine.type                     | Engine Type, specify to `jdbc`                                |
 | kyuubi.engine.jdbc.type                | JDBC service type, specify to `doris`                         |
+| kyuubi.engine.jdbc.driver.class        | JDBC driver class name, specify to `com.mysql.cj.jdbc.Driver` |
 | kyuubi.engine.jdbc.connection.url      | JDBC url to Doris FE                                          |
 | kyuubi.engine.jdbc.connection.user     | JDBC username                                                 |
 | kyuubi.engine.jdbc.connection.password | JDBC password                                                 |
-| kyuubi.engine.jdbc.driver.class        | JDBC driver class name, specify to `com.mysql.cj.jdbc.Driver` |
 
 - For other configuration in Apache Kyuubi, please refer
-  to [Apache Kyuubi Configuration Docs](https://kyuubi.readthedocs.io/en/master/deployment/settings.html)
+  to [Apache Kyuubi Configuration Docs](https://kyuubi.readthedocs.io/en/master/deployment/settings.html) .
 
 ### Add MySQL JDBC Driver
 
-Copy the Mysql JDBC Driver `mysql-connector-j-8.X.X.jar` to `$KYUUBI_HOME/incubating-bin/externals/engines/jdbc` 目录下。
+Copy the Mysql JDBC Driver `mysql-connector-j-8.X.X.jar` to `$KYUUBI_HOME/externals/engines/jdbc`.
 
 ### Start Kyuubi Server
 
-Run `$KYUUBI_HOME/bin/kyuubi run`.
-After started, port 10009 by default is listened by Kyuubi Server with Thrift protocol。
+Run `$KYUUBI_HOME/bin/kyuubi start`.
+After started, port 10009 by default is listened by Kyuubi Server with Thrift protocol.
 
 ## Example
 
-The fowllowing example shows basic example of querying Doris with Kyuubi with beeline CLI in thift protocol.
+The following example shows basic example of querying Doris with Kyuubi with beeline CLI in Thrift protocol.
 
 ### Connect to Kyuubi with Beeline
 
 ```shell
-$ ./beeline -u "jdbc:hive2://xxxx:10009/"
+$ $KYUUBI_HOME/bin/beeline -u "jdbc:hive2://xxxx:10009/"
 ```
 
 ### Execute Query to Kyuubi
@@ -104,12 +104,12 @@ select * from demo.example_tbl
 +----------+-------------+-------+------+------+------------------------+-------+-----------------+-----------------+
 | user_id  |    date     | city  | age  | sex  |    last_visit_date     | cost  | max_dwell_time  | min_dwell_time  |
 +----------+-------------+-------+------+------+------------------------+-------+-----------------+-----------------+
-| 10000    | 2017-10-01  | 北京    | 20   | 0    | 2017-10-01 07:00:00.0  | 70    | 10              | 2               |
-| 10001    | 2017-10-01  | 北京    | 30   | 1    | 2017-10-01 17:05:45.0  | 4     | 22              | 22              |
-| 10002    | 2017-10-02  | 上海    | 20   | 1    | 2017-10-02 12:59:12.0  | 400   | 5               | 5               |
-| 10003    | 2017-10-02  | 广州    | 32   | 0    | 2017-10-02 11:20:00.0  | 60    | 11              | 11              |
-| 10004    | 2017-10-01  | 深圳    | 35   | 0    | 2017-10-01 10:00:15.0  | 200   | 3               | 3               |
-| 10004    | 2017-10-03  | 深圳    | 35   | 0    | 2017-10-03 10:20:22.0  | 22    | 6               | 6               |
+| 10000    | 2017-10-01  | 北京   | 20   | 0    | 2017-10-01 07:00:00.0  | 70    | 10              | 2               |
+| 10001    | 2017-10-01  | 北京   | 30   | 1    | 2017-10-01 17:05:45.0  | 4     | 22              | 22              |
+| 10002    | 2017-10-02  | 上海   | 20   | 1    | 2017-10-02 12:59:12.0  | 400   | 5               | 5               |
+| 10003    | 2017-10-02  | 广州   | 32   | 0    | 2017-10-02 11:20:00.0  | 60    | 11              | 11              |
+| 10004    | 2017-10-01  | 深圳   | 35   | 0    | 2017-10-01 10:00:15.0  | 200   | 3               | 3               |
+| 10004    | 2017-10-03  | 深圳   | 35   | 0    | 2017-10-03 10:20:22.0  | 22    | 6               | 6               |
 +----------+-------------+-------+------+------+------------------------+-------+-----------------+-----------------+
 6 rows selected (0.068 seconds)
 ```

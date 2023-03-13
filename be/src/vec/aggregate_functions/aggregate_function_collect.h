@@ -249,11 +249,11 @@ class AggregateFunctionCollect
     static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
 
 public:
-    AggregateFunctionCollect(const DataTypePtr& argument_type,
+    AggregateFunctionCollect(const DataTypes& argument_types,
                              UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>>(
-                      {argument_type}),
-              return_type(argument_type) {}
+                      {argument_types}),
+              return_type(argument_types[0]) {}
 
     std::string get_name() const override {
         if constexpr (std::is_same_v<AggregateFunctionCollectListData<typename Data::ElementType,

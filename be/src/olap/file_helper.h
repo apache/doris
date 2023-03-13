@@ -255,7 +255,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(FileHandlerT
     }
 
     _fixed_file_header.protobuf_checksum =
-            olap_adler32(ADLER32_INIT, _proto_string.c_str(), _proto_string.size());
+            olap_adler32(olap_adler32_init(), _proto_string.c_str(), _proto_string.size());
 
     _fixed_file_header.checksum = 0;
     _fixed_file_header.protobuf_length = _proto_string.size();
@@ -382,7 +382,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
 
     // check proto checksum
     real_protobuf_checksum =
-            olap_adler32(ADLER32_INIT, buf.get(), _fixed_file_header.protobuf_length);
+            olap_adler32(olap_adler32_init(), buf.get(), _fixed_file_header.protobuf_length);
 
     if (real_protobuf_checksum != _fixed_file_header.protobuf_checksum) {
         LOG(WARNING) << "checksum is not match. file=" << file_handler->file_name()
