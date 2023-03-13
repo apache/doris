@@ -114,7 +114,11 @@ date
 cd "${TPCDS_DBGEN_DIR}"
 if [[ ${PARALLEL} -eq 1 ]] && "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}"; then
     echo "data genarated."
-elif [[ ${PARALLEL} -gt 1 ]] && "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -PARALLEL "${PARALLEL}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}"; then
+elif [[ ${PARALLEL} -gt 1 ]]; then
+    for c in $(seq 1 "${PARALLEL}"); do
+        "${TPCDS_DBGEN_DIR}"/dsdgen -SCALE "${SCALE_FACTOR}" -PARALLEL "${PARALLEL}" -CHILD "${c}" -TERMINATE N -DIR "${TPCDS_DATA_DIR}" &
+    done
+    wait
     echo "data genarated."
 else
     echo "ERROR occured." && exit 1
