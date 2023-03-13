@@ -26,10 +26,11 @@
 
 namespace doris::vectorized {
 
+template<typename Name, bool Positive>
 class FunctionArraySort : public IFunction {
 public:
-    static constexpr auto name = "array_sort";
-    static FunctionPtr create() { return std::make_shared<FunctionArraySort>(); }
+    static constexpr auto name = Name::name;
+    static FunctionPtr create() { return std::make_shared<FunctionArraySort<Name, Positive>>(); }
     using NullMapType = PaddedPODArray<UInt8>;
 
     /// Get function name.
@@ -115,10 +116,11 @@ private:
                 }
                 int result = src_data_concrete->compare_at(permutation[j], permutation[k],
                                                            src_column, 1);
-                if (result > 0) {
-                    auto temp = permutation[j];
-                    permutation[j] = permutation[k];
-                    permutation[k] = temp;
+
+                if (Positive && result > 0) {
+                    std::swap(permutation[j], permutation[k]);
+                } else if (!Positive && result < 0) {
+                    std::swap(permutation[j], permutation[k]);
                 }
             }
         }
@@ -147,12 +149,18 @@ private:
 
         for (auto curr_src_offset : src_offsets) {
             // filter and insert null element first
+            size_t null_element_count = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
-                    DCHECK(dest_null_map != nullptr);
-                    (*dest_null_map).push_back(true);
-                    dest_datas.push_back(NestType());
+                    ++ null_element_count;
                 }
+            }
+
+            // positive sort, insert null elements first
+            if (Positive && null_element_count > 0) {
+                DCHECK(dest_null_map != nullptr);
+                (*dest_null_map).add_num_element_without_reserve(true, null_element_count);
+                dest_datas.add_num_element_without_reserve(NestType(), null_element_count);
             }
 
             _sort_by_permutation<ColumnType>(prev_src_offset, curr_src_offset, src_data_concrete,
@@ -169,6 +177,14 @@ private:
                     (*dest_null_map).push_back(false);
                 }
             }
+
+            // not positive sort, insert null elements last
+            if (!Positive && null_element_count > 0) {
+                DCHECK(dest_null_map != nullptr);
+                (*dest_null_map).add_num_element_without_reserve(true, null_element_count);
+                dest_datas.add_num_element_without_reserve(NestType(), null_element_count);
+            }
+
             dest_offsets.push_back(curr_src_offset);
             prev_src_offset = curr_src_offset;
         }
@@ -197,12 +213,18 @@ private:
 
         for (auto curr_src_offset : src_offsets) {
             // filter and insert null element first
+            size_t null_element_count = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
-                    DCHECK(dest_null_map != nullptr);
-                    column_string_offsets.push_back(column_string_offsets.back());
-                    (*dest_null_map).push_back(true);
+                    ++ null_element_count;
                 }
+            }
+
+            // Positive sort, insert null elements first
+            if (Positive && null_element_count > 0) {
+                DCHECK(dest_null_map != nullptr);
+                (*dest_null_map).add_num_element_without_reserve(true, null_element_count);
+                column_string_offsets.add_num_element_without_reserve(column_string_offsets.back(), null_element_count);
             }
 
             _sort_by_permutation<ColumnString>(prev_src_offset, curr_src_offset, src_data_concrete,
@@ -229,6 +251,14 @@ private:
                     (*dest_null_map).push_back(false);
                 }
             }
+
+            // not positive sort, insert null elements last
+            if (Positive && null_element_count > 0) {
+                DCHECK(dest_null_map != nullptr);
+                (*dest_null_map).add_num_element_without_reserve(true, null_element_count);
+                column_string_offsets.add_num_element_without_reserve(column_string_offsets.back(), null_element_count);
+            }
+
             dest_offsets.push_back(curr_src_offset);
             prev_src_offset = curr_src_offset;
         }
