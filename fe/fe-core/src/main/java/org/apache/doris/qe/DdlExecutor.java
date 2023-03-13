@@ -50,6 +50,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
+import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
@@ -114,6 +115,7 @@ import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.statistics.StatisticsRepository;
 
@@ -323,6 +325,8 @@ public class DdlExecutor {
             env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
+        } else if (ddlStmt instanceof CleanProfileStmt) {
+            ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropTableStatsStmt) {
             // TODO: support later
         } else {

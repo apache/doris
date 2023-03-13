@@ -202,10 +202,10 @@ public class ProfileManager {
                     + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
         }
 
+        writeLock.lock();
         // a profile may be updated multiple times in queryIdToProfileMap,
         // and only needs to be inserted into the queryIdDeque for the first time.
         queryIdToProfileMap.put(key, element);
-        writeLock.lock();
         try {
             if (!queryIdDeque.contains(key)) {
                 if (queryIdDeque.size() >= Config.max_query_profile_num) {
@@ -391,6 +391,16 @@ public class ProfileManager {
         ProfileElement profileElement = findProfileElementObject(queryId);
         if (profileElement != null) {
             profileElement.setqError(qError);
+        }
+    }
+
+    public void cleanProfile() {
+        writeLock.lock();
+        try {
+            queryIdToProfileMap.clear();
+            queryIdDeque.clear();
+        } finally {
+            writeLock.unlock();
         }
     }
 }
