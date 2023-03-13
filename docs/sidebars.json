@@ -279,6 +279,7 @@
                                 "sql-manual/sql-functions/array-functions/array_remove",
                                 "sql-manual/sql-functions/array-functions/array_slice",
                                 "sql-manual/sql-functions/array-functions/array_sort",
+                                "sql-manual/sql-functions/array-functions/array_reverse_sort",
                                 "sql-manual/sql-functions/array-functions/array_position",
                                 "sql-manual/sql-functions/array-functions/array_contains",
                                 "sql-manual/sql-functions/array-functions/array_except",
