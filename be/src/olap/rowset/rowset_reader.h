@@ -41,10 +41,12 @@ public:
     virtual ~RowsetReader() = default;
 
     // reader init
-    virtual Status init(RowsetReaderContext* read_context) = 0;
+    virtual Status init(RowsetReaderContext* read_context,
+                        const std::pair<int, int>& segment_offset = {0, 0}) = 0;
 
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
+                                         const std::pair<int, int>& segment_offset = {0, 0},
                                          bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 
@@ -73,6 +75,8 @@ public:
     }
 
     virtual bool update_profile(RuntimeProfile* profile) = 0;
+
+    virtual RowsetReaderSharedPtr clone() = 0;
 };
 
 } // namespace doris
