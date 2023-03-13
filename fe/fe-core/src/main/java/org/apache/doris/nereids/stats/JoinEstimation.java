@@ -73,6 +73,8 @@ public class JoinEstimation {
                 .build();
         List<Expression> joinConditions = join.getHashJoinConjuncts();
         Statistics innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
+        innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
+        innerJoinStats.setPenalty(0);
         double rowCount;
         if (joinType.isLeftSemiOrAntiJoin()) {
             rowCount = Math.min(innerJoinStats.getRowCount(), leftStats.getRowCount());

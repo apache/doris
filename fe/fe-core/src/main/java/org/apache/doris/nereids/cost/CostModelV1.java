@@ -221,8 +221,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         pattern2: (L join1 Agg1) join2 agg2
         in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
         */
-        double penalty = HEAVY_OPERATOR_PUNISH_FACTOR;
-
+        double penalty = HEAVY_OPERATOR_PUNISH_FACTOR
+                * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
+        if (buildStats.getWidth() >= 2) {
+            //penalty for right deep tree
+            penalty += rightRowCount;
+        }
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
             return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                     0,

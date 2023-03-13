@@ -32,14 +32,30 @@ public class Statistics {
 
     private double computeSize;
 
+    @Deprecated
+    private double width;
+
+    @Deprecated
+    private double penalty;
+
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.width = another.width;
+        this.penalty = another.penalty;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
         this.rowCount = rowCount;
         this.expressionToColumnStats = expressionToColumnStats;
+    }
+
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats, double width,
+            double penalty) {
+        this.rowCount = rowCount;
+        this.expressionToColumnStats = expressionToColumnStats;
+        this.width = width;
+        this.penalty = penalty;
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -55,7 +71,7 @@ public class Statistics {
     }
 
     public Statistics withRowCount(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats));
+        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats), width, penalty);
         statistics.fix(rowCount / StatsMathUtil.nonZeroDivisor(this.rowCount));
         return statistics;
     }
@@ -98,5 +114,21 @@ public class Statistics {
     @Override
     public String toString() {
         return String.format("rows=%.4f", rowCount);
+    }
+
+    public void setWidth(double width) {
+        this.width = width;
+    }
+
+    public void setPenalty(double penalty) {
+        this.penalty = penalty;
+    }
+
+    public double getWidth() {
+        return width;
+    }
+
+    public double getPenalty() {
+        return penalty;
     }
 }
