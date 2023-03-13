@@ -152,7 +152,6 @@ private:
 
     FunctionContext& operator=(const FunctionContext& other);
 
-private:
     // We use the query's runtime state to report errors and warnings. nullptr for test
     // contexts.
     RuntimeState* _state;
