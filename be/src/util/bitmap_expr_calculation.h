@@ -213,5 +213,4 @@ private:
 
     std::string _polish;
 };
-
 } // namespace doris
