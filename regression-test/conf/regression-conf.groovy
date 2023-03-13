@@ -23,11 +23,11 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9033/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8033"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -72,56 +72,27 @@ sk=""
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableJdbcTest=false
-mysql_57_port=3316
-pg_14_port=5442
-oracle_11_port=1521
-sqlserver_2022_port=1433
+enableJdbcTest=true
+mysql_57_port=3336
+pg_14_port=5444
+oracle_11_port=1522
+sqlserver_2022_port=1434
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableHiveTest=false
-hms_port=9183
-hdfs_port=8120
+enableHiveTest=true
+hms_port=9184
+hdfs_port=50088
 
 // elasticsearch catalog test config
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableEsTest=false
-es_6_port=19200
-es_7_port=29200
-es_8_port=39200
+enableEsTest=true
+es_6_port=19222
+es_7_port=29222
+es_8_port=39222
 
-cacheDataPath = "/tmp"
-
-//hive  catalog test config for bigdata
-enableExternalHiveTest = false
-extHiveHmsHost = "***.**.**.**"
-extHiveHmsPort = 7004
-extHdfsPort = 4007
-extHiveHmsUser = "****"
-extHiveHmsPassword= "***********"
-
-//mysql jdbc connector test config for bigdata
-enableExternalMysqlTest = false
-extMysqlHost = "***.**.**.**"
-extMysqlPort = 3306
-extMysqlUser = "****"
-extMysqlPassword = "***********"
-
-//postgresql jdbc connector test config for bigdata
-enableExternalPgTest = false
-extPgHost = "***.**.**.*"
-extPgPort = 5432
-extPgUser = "****"
-extPgPassword = "***********"
-
-// elasticsearch external test config for bigdata
-enableExternalEsTest = false
-extEsHost = "***********"
-extEsPort = 9200
-extEsUser = "*******"
-extEsPassword = "***********"
+cacheDataPath = "/mnt/disk2/yunyou/cachedata"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
