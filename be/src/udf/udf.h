@@ -90,8 +90,6 @@ public:
 
     std::string& string_result() { return _string_result; }
 
-    const doris::TypeDescriptor& get_return_type() const;
-
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {

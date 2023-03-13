@@ -68,10 +68,6 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
     return new_context;
 }
 
-const doris::TypeDescriptor& FunctionContext::get_return_type() const {
-    return _return_type;
-}
-
 FunctionContext::FunctionContext() {
     _impl = std::make_unique<doris::FunctionContextImpl>();
 }
