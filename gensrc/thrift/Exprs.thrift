@@ -162,8 +162,7 @@ struct TSlotRef {
 
 struct TColumnRef {
   1: optional Types.TSlotId column_id
-  2: optional bool is_nullable
-  3: optional string column_name
+  2: optional string column_name
 }
 
 struct TStringLiteral {

@@ -30,13 +30,7 @@ public:
     VColumnRef(const doris::TExprNode& node)
             : VExpr(node),
               _column_id(node.column_ref.column_id),
-              _column_name(node.column_ref.column_name) {
-        if (node.__isset.is_nullable) {
-            _is_nullable = node.is_nullable;
-        } else {
-            _is_nullable = true;
-        }
-    }
+              _column_name(node.column_ref.column_name) {}
 
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) override {
@@ -69,13 +63,12 @@ public:
     std::string debug_string() const override {
         std::stringstream out;
         out << "VColumnRef(slot_id: " << _column_id << ",column_name: " << _column_name
-            << " ,is_nullable: " << _is_nullable << VExpr::debug_string() << ")";
+            << VExpr::debug_string() << ")";
         return out.str();
     }
 
 private:
     int _column_id;
-    bool _is_nullable;
     std::string _column_name;
 };
 } // namespace vectorized
