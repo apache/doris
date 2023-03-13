@@ -320,8 +320,7 @@ set(VEC_FILES
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
-            exec/scan/mysql_scanner.cpp
-            )
+            exec/scan/mysql_scanner.cpp)
 endif ()
 
 add_library(Vec STATIC

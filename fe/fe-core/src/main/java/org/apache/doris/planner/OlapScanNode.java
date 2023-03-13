@@ -1118,6 +1118,9 @@ public class OlapScanNode extends ScanNode {
 
     @Override
     public int getNumInstances() {
+        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        }
         return result.size();
     }
 
