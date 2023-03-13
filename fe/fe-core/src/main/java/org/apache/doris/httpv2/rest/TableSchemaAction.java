@@ -33,6 +33,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.collections.CollectionUtils;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -78,9 +79,9 @@ public class TableSchemaAction extends RestBaseController {
             try {
                 try {
                     List<Column> columns = table.getBaseSchema();
-                    List<Map<String, String>> propList = new ArrayList(columns.size());
+                    List<Map<String, Object>> propList = new ArrayList(columns.size());
                     for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
+                        Map<String, Object> baseInfo = new HashMap<>(2);
                         Type colType = column.getOriginType();
                         PrimitiveType primitiveType = colType.getPrimitiveType();
                         if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
@@ -91,6 +92,7 @@ public class TableSchemaAction extends RestBaseController {
                         baseInfo.put("type", primitiveType.toString());
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
+                        baseInfo.put("children", convertChildren(column.getChildren()));
                         Optional aggregationType = Optional.ofNullable(column.getAggregationType());
                         baseInfo.put("aggregation_type", aggregationType.isPresent()
                                 ? column.getAggregationType().toSql() : "");
@@ -113,6 +115,18 @@ public class TableSchemaAction extends RestBaseController {
         }
 
         return ResponseEntityBuilder.ok(resultMap);
+    }
+
+    private Map<String, Object> convertChildren(List<Column> children) {
+        if (CollectionUtils.isEmpty(children)) {
+            return new HashMap<>();
+        }
+        Map<String, Object> result = new HashMap<>();
+        for (Column column : children) {
+            result.put("type", column.getType().getPrimitiveType().toString());
+            result.put("children", convertChildren(column.getChildren()));
+        }
+        return result;
     }
 
     private static class DDLRequestBody {
