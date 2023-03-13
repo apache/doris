@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -93,6 +94,17 @@ public class PushdownLimit implements RewriteRuleFactory {
                                     limit.getOffset(),
                                     sort.child(0));
                             return topN;
+                        }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
+                //limit->proj->sort ==> proj->topN
+                logicalLimit(logicalProject(logicalSort()))
+                        .then(limit -> {
+                            LogicalProject project = limit.child();
+                            LogicalSort sort = limit.child().child();
+                            LogicalTopN topN = new LogicalTopN(sort.getOrderKeys(),
+                                    limit.getLimit(),
+                                    limit.getOffset(),
+                                    sort.child(0));
+                            return project.withChildren(Lists.newArrayList(topN));
                         }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
                 logicalLimit(logicalOneRowRelation())
                         .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
