@@ -181,6 +181,9 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+        arraySubTypes.add(DECIMAL32);
+        arraySubTypes.add(DECIMAL64);
+        arraySubTypes.add(DECIMAL128);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
