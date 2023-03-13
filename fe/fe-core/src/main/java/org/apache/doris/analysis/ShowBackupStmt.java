@@ -178,11 +178,11 @@ public class ShowBackupStmt extends ShowStmt {
             return label -> true;
         }
         if (isAccurateMatch) {
-            return CaseSensibility.SNAPSHOT.getCaseSensibility()
+            return CaseSensibility.LABEL.getCaseSensibility()
                     ? label -> label.equals(snapshotName) : label -> label.equalsIgnoreCase(snapshotName);
         } else {
             PatternMatcher patternMatcher = PatternMatcherWrapper.createMysqlPattern(
-                    snapshotName, CaseSensibility.SNAPSHOT.getCaseSensibility());
+                    snapshotName, CaseSensibility.LABEL.getCaseSensibility());
             return patternMatcher::match;
         }
     }
