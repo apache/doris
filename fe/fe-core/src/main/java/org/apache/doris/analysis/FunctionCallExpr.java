@@ -1416,6 +1416,7 @@ public class FunctionCallExpr extends Expr {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                         .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                        || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
                         || fnName.getFunction().equalsIgnoreCase("array_overlap")
                         || fnName.getFunction().equalsIgnoreCase("array_union")
                         || fnName.getFunction().equalsIgnoreCase("array_intersect")
