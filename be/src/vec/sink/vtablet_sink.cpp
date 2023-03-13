@@ -443,12 +443,6 @@ Status VNodeChannel::add_block(vectorized::Block* block,
         _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
     }
 
-    if (_parent->_schema->is_dynamic_schema()) {
-        // Set _cur_mutable_block to dynamic since input blocks may be structure-variable(dyanmic)
-        // this will align _cur_mutable_block with block and auto extends columns
-        _cur_mutable_block->set_block_type(vectorized::BlockType::DYNAMIC);
-    }
-
     if (is_append) {
         // Do not split the data of the block by tablets but append it to a single delta writer.
         // This is a faster way to send block than append_block_by_selector
