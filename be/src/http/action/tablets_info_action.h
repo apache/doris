@@ -19,21 +19,30 @@
 
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "util/easy_json.h"
 
 namespace doris {
 class HttpRequest;
 
+class ExecEnv;
+
 // Get BE tablets info from http API.
-class TabletsInfoAction : public HttpHandler {
+class TabletsInfoAction : public HttpHandlerWithAuth {
 public:
-    TabletsInfoAction();
+    TabletsInfoAction(ExecEnv* exec_env);
+
+    ~TabletsInfoAction() override = default;
+
     void handle(HttpRequest* req) override;
-    EasyJson get_tablets_info(std::string tablet_num_to_return);
-    std::string host() { return _host; }
+
+    static EasyJson get_tablets_info(std::string tablet_num_to_return);
 
 private:
-    std::string _host;
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 };
 } // namespace doris

@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
@@ -28,16 +28,22 @@ class HttpRequest;
 
 // make snapshot
 // be_host:be_http_port/api/snapshot?tablet_id=123&schema_hash=456
-class SnapshotAction : public HttpHandler {
+class SnapshotAction : public HttpHandlerWithAuth {
 public:
-    explicit SnapshotAction();
+    explicit SnapshotAction(ExecEnv* exec_env);
 
-    virtual ~SnapshotAction() {}
+    ~SnapshotAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
     int64_t _make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
+
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 }; // end class SnapshotAction
 
 } // end namespace doris

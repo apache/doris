@@ -19,21 +19,27 @@
 
 #include <cstdint>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
 
-class ChecksumAction : public HttpHandler {
+class ChecksumAction : public HttpHandlerWithAuth {
 public:
-    explicit ChecksumAction();
+    explicit ChecksumAction(ExecEnv* exec_env);
 
-    virtual ~ChecksumAction() {}
+    ~ChecksumAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
+
     int64_t do_checksum(int64_t tablet_id, int64_t version, int32_t schema_hash, HttpRequest* req);
 }; // end class ChecksumAction
 

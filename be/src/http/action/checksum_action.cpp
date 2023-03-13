@@ -37,7 +37,7 @@ const std::string TABLET_ID = "tablet_id";
 const std::string TABLET_VERSION = "version";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ChecksumAction::ChecksumAction() {}
+ChecksumAction::ChecksumAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
 void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();

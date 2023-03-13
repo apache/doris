@@ -15,25 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_ACTION_VERSION_ACTION_H
-#define DORIS_BE_SRC_HTTP_ACTION_VERSION_ACTION_H
+#pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
 
 // Get BE version info from http API.
-class VersionAction : public HttpHandler {
+class VersionAction : public HttpHandlerWithAuth {
 public:
-    VersionAction();
+    VersionAction(ExecEnv* exec_env);
 
     ~VersionAction() override = default;
 
     void handle(HttpRequest* req) override;
+
+private:
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        return true;
+    }
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_HTTP_ACTION_VERSION_ACTION_H

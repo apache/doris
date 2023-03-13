@@ -17,28 +17,31 @@
 
 #pragma once
 
-#include <map>
-#include <string>
-
-#include "http/http_handler.h"
+#include "http_handler.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
+class ExecEnv;
 class HttpRequest;
 class RestMonitorIface;
+class TCheckAuthRequest;
 
-class MonitorAction : public HttpHandler {
+// Handler for on http request with auth
+class HttpHandlerWithAuth : public HttpHandler {
 public:
-    MonitorAction();
+    HttpHandlerWithAuth(ExecEnv* exec_env);
 
-    virtual ~MonitorAction() {}
+    virtual ~HttpHandlerWithAuth() {}
 
-    void register_module(const std::string& name, RestMonitorIface* module);
+    // return 0 if auth pass, otherwise -1.
+    virtual int on_header(HttpRequest* req) override;
 
-    void handle(HttpRequest* req) override;
+    // return true if fill privilege success, otherwise false.
+    virtual bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) = 0;
 
 private:
-    std::map<std::string, RestMonitorIface*> _module_by_name;
+    ExecEnv* _exec_env;
 };
 
 } // namespace doris

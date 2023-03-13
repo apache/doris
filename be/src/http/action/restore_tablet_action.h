@@ -24,18 +24,18 @@
 #include <string>
 
 #include "common/status.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class ExecEnv;
 class HttpRequest;
 
-class RestoreTabletAction : public HttpHandler {
+class RestoreTabletAction : public HttpHandlerWithAuth {
 public:
     RestoreTabletAction(ExecEnv* exec_env);
 
-    virtual ~RestoreTabletAction() {}
+    ~RestoreTabletAction() override = default;
 
     void handle(HttpRequest* req) override;
 
@@ -64,6 +64,12 @@ private:
     // key: tablet_id + schema_hash
     // value: "" or tablet path in trash
     std::map<std::string, std::string> _tablet_path_map;
+
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 }; // end class RestoreTabletAction
 
 } // end namespace doris

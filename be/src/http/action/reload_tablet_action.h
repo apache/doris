@@ -18,21 +18,20 @@
 #pragma once
 
 #include <stdint.h>
-
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class ExecEnv;
 class HttpRequest;
 
-class ReloadTabletAction : public HttpHandler {
+class ReloadTabletAction : public HttpHandlerWithAuth {
 public:
     ReloadTabletAction(ExecEnv* exec_env);
 
-    virtual ~ReloadTabletAction() {}
+    ~ReloadTabletAction() override = default;
 
     void handle(HttpRequest* req) override;
 
@@ -40,6 +39,12 @@ private:
     void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest* req);
 
     ExecEnv* _exec_env;
+
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 
 }; // end class ReloadTabletAction
 

@@ -36,7 +36,7 @@
 #include "util/md5.h"
 
 namespace doris {
-CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 void CheckRPCChannelAction::handle(HttpRequest* req) {
     std::string req_ip = req->param("ip");
     std::string req_port = req->param("port");

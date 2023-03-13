@@ -18,22 +18,31 @@
 #pragma once
 
 #include "common/status.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
+#include "http/http_request.h"
 #include "olap/tablet.h"
 
 namespace doris {
 class HttpRequest;
 struct Version;
 
-class PadRowsetAction : public HttpHandler {
+class ExecEnv;
+
+class PadRowsetAction : public HttpHandlerWithAuth {
 public:
-    PadRowsetAction() = default;
+    PadRowsetAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
     ~PadRowsetAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
+
     Status _handle(HttpRequest* req);
     Status check_param(HttpRequest* req);
 

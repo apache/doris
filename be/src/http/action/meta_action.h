@@ -20,23 +20,30 @@
 #include <string>
 
 #include "common/status.h"
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
 
 // Get Meta Info
-class MetaAction : public HttpHandler {
+class MetaAction : public HttpHandlerWithAuth {
 public:
-    MetaAction() = default;
+    MetaAction(ExecEnv* exec_env);
 
-    virtual ~MetaAction() {}
+    ~MetaAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
     Status _handle_header(HttpRequest* req, std::string* json_header);
+
+private:
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 };
 
 } // end namespace doris

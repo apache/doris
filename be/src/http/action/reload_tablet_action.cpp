@@ -38,7 +38,7 @@ const std::string PATH = "path";
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
 void ReloadTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();

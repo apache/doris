@@ -29,7 +29,10 @@
 
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
-#include "http/http_handler.h"
+#include "gutil/stringprintf.h"
+#include "gutil/strings/numbers.h"
+#include "http/http_handler_with_auth.h"
+#include "olap/data_dir.h"
 #include "olap/tablet.h"
 #include "util/threadpool.h"
 
@@ -37,13 +40,23 @@ namespace doris {
 class DataDir;
 class HttpRequest;
 
+class ExecEnv;
+
 // Migrate a tablet from a disk to another.
-class TabletMigrationAction : public HttpHandler {
+class TabletMigrationAction : public HttpHandlerWithAuth {
 public:
-    TabletMigrationAction();
+    TabletMigrationAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {
+        _init_migration_action();
+    }
+
+    ~TabletMigrationAction() override = default;
+
     void handle(HttpRequest* req) override;
+
     void _init_migration_action();
+
     Status _execute_tablet_migration(TabletSharedPtr tablet, DataDir* dest_store);
+
     Status _check_param(HttpRequest* req, int64_t& tablet_id, int32_t& schema_hash,
                         string& dest_disk, string& goal);
     Status _check_migrate_request(int64_t tablet_id, int32_t schema_hash, string dest_disk,
@@ -84,5 +97,11 @@ private:
     std::mutex _migration_status_mutex;
     std::map<MigrationTask, std::string> _migration_tasks;
     std::deque<std::pair<MigrationTask, Status>> _finished_migration_tasks;
+
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 };
 } // namespace doris

@@ -17,22 +17,28 @@
 
 #pragma once
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
 class HttpRequest;
 class MetricRegistry;
 
-class MetricsAction : public HttpHandler {
+class MetricsAction : public HttpHandlerWithAuth {
 public:
-    MetricsAction(MetricRegistry* metric_registry) : _metric_registry(metric_registry) {}
-    virtual ~MetricsAction() {}
+    MetricsAction(MetricRegistry* metric_registry, ExecEnv* exec_env)
+            : HttpHandlerWithAuth(exec_env), _metric_registry(metric_registry) {}
+
+    ~MetricsAction() override = default;
 
     void handle(HttpRequest* req) override;
 
 private:
     MetricRegistry* _metric_registry;
+
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        return true;
+    }
 };
 
 } // namespace doris

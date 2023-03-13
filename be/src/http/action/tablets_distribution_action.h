@@ -21,21 +21,34 @@
 
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "util/easy_json.h"
 
 namespace doris {
 class HttpRequest;
 
+class ExecEnv;
+
 // Get BE tablets distribution info from http API.
-class TabletsDistributionAction : public HttpHandler {
+class TabletsDistributionAction : public HttpHandlerWithAuth {
 public:
-    TabletsDistributionAction();
+    TabletsDistributionAction(ExecEnv* exec_env);
+
+    ~TabletsDistributionAction() override = default;
+
     void handle(HttpRequest* req) override;
+
     EasyJson get_tablets_distribution_group_by_partition(uint64_t partition_id);
+
     std::string host() { return _host; }
 
 private:
     std::string _host;
+
+    bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
+        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.priv_type = TPrivilegeType::ADMIN;
+        return true;
+    }
 };
 } // namespace doris

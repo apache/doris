@@ -31,7 +31,7 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-VersionAction::VersionAction() {}
+VersionAction::VersionAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
 void VersionAction::handle(HttpRequest* req) {
     EasyJson be_version_info;
