@@ -166,6 +166,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void writeLock() {
         this.rwLock.writeLock().lock();
+        LOG.info("{} hold yyyyylock", getName(), new Exception());
     }
 
     public boolean writeLockIfExist() {
@@ -174,6 +175,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             this.rwLock.writeLock().unlock();
             return false;
         }
+        LOG.info("{} hold yyyyylock", getName(), new Exception());
         return true;
     }
 
@@ -184,6 +186,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
                 LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
                         name, timeout, unit.name(), rwLock.getOwner());
             }
+            if (res) {
+                LOG.info("{} hold yyyyylock", getName(), new Exception());
+            }
             return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
@@ -193,6 +198,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void writeUnlock() {
         this.rwLock.writeLock().unlock();
+        LOG.info("{} yyyyyunlock", getName(), new Exception());
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
