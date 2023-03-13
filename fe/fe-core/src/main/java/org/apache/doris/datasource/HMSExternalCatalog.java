@@ -55,6 +55,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
     private static final int MAX_CLIENT_POOL_SIZE = 8;
+    // Regex pattern of HMS databases synchronization, empty string means synchronizing all databases
+    private final String syncDatabasePattern;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     private long lastSyncedEventId;
@@ -68,6 +70,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         props = HMSResource.getPropertiesFromDLF(props);
         props = HMSResource.getPropertiesFromGlue(props);
         catalogProperty = new CatalogProperty(resource, props);
+        syncDatabasePattern = catalogProperty.getOrDefault(HMSResource.HMS_SYNC_DATABASE_PATTERN,
+            HMSResource.HMS_SYNC_DATABASE_PATTERN_DEFAULT_VALUE);
     }
 
     @Override
@@ -116,16 +120,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.HMS);
         List<String> syncDatabases;
-        if (StringUtils.isEmpty(Config.hms_sync_database_pattern)) {
+        if (StringUtils.isEmpty(syncDatabasePattern)) {
             syncDatabases = client.getAllDatabases();
         } else {
-            LOG.warn("HMSExternalCatalog databases sync pattern: {}", Config.hms_sync_database_pattern);
+            LOG.warn("Init HMSCatalog with databases sync pattern: {}", syncDatabasePattern);
             // Use `getAllDatabases()` then locally regex pattern matching rather than using `getDatabases(pattern)`
             // interface. Since HMS pattern matching relies on JDOQL method `matches(pattern)`, it will translate
             // regex pattern to `LIKE` clause of SQL. This translation cannot fully carry original regex pattern.
-            // For example, regex pattern '^db.*' would be translate to '.. LIKE '^db_%'', it's not what we expect.
+            // For example, regex pattern '^db.*' would be translated to '.. LIKE '^db_%'', it's not what we expect.
             List<String> allDatabases = client.getAllDatabases();
-            Pattern dbPattern = Pattern.compile(Config.hms_sync_database_pattern);
+            Pattern dbPattern = Pattern.compile(syncDatabasePattern);
             syncDatabases = allDatabases.stream().filter(
                 dbName -> dbPattern.matcher(dbName).matches()).collect(Collectors.toList());
         }
@@ -247,8 +251,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         NotificationFilter notificationFilter = null;
-        if (StringUtils.isNotEmpty(Config.hms_sync_database_pattern)) {
-            notificationFilter = new DatabaseAndTableFilter(Config.hms_sync_database_pattern, null);
+        if (StringUtils.isNotEmpty(syncDatabasePattern)) {
+            notificationFilter = new DatabaseAndTableFilter(syncDatabasePattern, null);
         }
         return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, notificationFilter);
     }

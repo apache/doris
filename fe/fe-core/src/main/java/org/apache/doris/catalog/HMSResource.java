@@ -54,7 +54,8 @@ public class HMSResource extends Resource {
     // required
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     public static final List<String> REQUIRED_FIELDS = Collections.singletonList(HIVE_METASTORE_URIS);
-
+    public static final String HMS_SYNC_DATABASE_PATTERN = "hms.sync.database.pattern";
+    public static final String HMS_SYNC_DATABASE_PATTERN_DEFAULT_VALUE = "";
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
