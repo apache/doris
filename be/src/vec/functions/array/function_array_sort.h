@@ -26,7 +26,7 @@
 
 namespace doris::vectorized {
 
-template<typename Name, bool Positive>
+template <typename Name, bool Positive>
 class FunctionArraySort : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -152,7 +152,7 @@ private:
             size_t null_element_count = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
                 if (src_null_map && (*src_null_map)[j]) {
-                    ++ null_element_count;
+                    ++null_element_count;
                 }
             }
 
