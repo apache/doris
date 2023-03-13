@@ -98,12 +98,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+    private static double DEFAULT_AGG_RATIO = 0.5;
+
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -433,16 +436,29 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
-        // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         StatsDeriveResult childStats = groupExpression.childStatistics(0);
-        Map<Id, ColumnStatistic> childSlotToColumnStats = childStats.getSlotIdToColumnStats();
-        double resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
-                .map(Slot::getExprId)
-                .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(s -> s.ndv)
-                .reduce(1d, (a, b) -> a * b);
-        if (resultSetCount <= 0) {
-            resultSetCount = 1L;
+        double resultSetCount = 1;
+        if (! groupByExpressions.isEmpty()) {
+            AtomicBoolean allColumnStatsAreUnknown = new AtomicBoolean(true);
+            Map<Id, ColumnStatistic> childSlotToColumnStats = childStats.getSlotIdToColumnStats();
+            resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
+                    .map(Slot::getExprId)
+                    .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(s -> {
+                        if (s.isUnKnown) {
+                            return 1d;
+                        }
+                        allColumnStatsAreUnknown.set(false);
+                        if (s.ndv > childStats.getRowCount()) {
+                            // avoid ndv error propagation
+                            return childStats.getRowCount();
+                        }
+                        return s.ndv;
+                    })
+                    .reduce(1d, (a, b) -> a * b);
+            if (resultSetCount > childStats.getRowCount() || allColumnStatsAreUnknown.get()) {
+                resultSetCount = childStats.getRowCount() * DEFAULT_AGG_RATIO;
+            }
         }
 
         Map<Id, ColumnStatistic> slotToColumnStats = Maps.newHashMap();
