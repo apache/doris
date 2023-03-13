@@ -57,10 +57,13 @@ public class FeServer {
                         r = method.invoke(service, args);
                     } catch (Throwable t) {
                         feServiceLogger.warn("errors while process request for {}", name, t);
+                        // If exception occurs, do not deal it, just keep as the previous
+                        throw t;
+                    } finally {
+                        feServiceLogger.debug("finish process request for {}", name);
+                        long end = System.currentTimeMillis();
+                        MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name).increase(end - begin);
                     }
-                    feServiceLogger.debug("finish process request for {}", name);
-                    long end = System.currentTimeMillis();
-                    MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name).increase(end - begin);
                     return r;
                 });
         // setup frontend server
