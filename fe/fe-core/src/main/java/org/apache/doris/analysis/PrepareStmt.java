@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+// import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -39,41 +40,39 @@ import java.util.Map;
 import java.util.UUID;
 
 public class PrepareStmt extends StatementBase {
-    private static final Logger LOG = LogManager.getLogger(PrepareStmt.class);
-    private StatementBase inner;
-    private String stmtName;
-
-    // Cached for better CPU performance, since serialize DescriptorTable and
-    // outputExprs are heavy work
-    private ByteString serializedDescTable;
-    private ByteString serializedOutputExpr;
-    private TDescriptorTable descTable;
-
-    private UUID id;
-    // whether return binary protocol mysql row or not
-    private boolean binaryRowFormat;
-    int schemaVersion = -1;
-    OlapTable tbl;
-    ConnectContext context;
-    // Serialized mysql Field, this could avoid serialize mysql field each time sendFields.
-    // Since, serialize fields is too heavy when table is wide
-    Map<String, byte[]> serializedFields =  Maps.newHashMap();
-
     // We provide bellow types of prepared statement:
     // NONE, which is not prepared
-    // FULL_PREPARED, which is really prepared, which will cache analyzed statement and planner
-    // STATEMENT, which only cache statement itself, but need to analyze each time executed
+    // FULL_PREPARED, which is real prepared, which will cache analyzed statement and planner
+    // STATEMENT, which only cache statement it self, but need to analyze each time executed.
     public enum PreparedType {
         NONE, FULL_PREPARED, STATEMENT
     }
 
-    private PreparedType preparedType = PreparedType.STATEMENT;
+    private static final Logger LOG = LogManager.getLogger(PrepareStmt.class);
+    private StatementBase inner;
+    private String stmtName;
+    // Cached for better CPU performance, since serialize DescriptorTable and
+    // outputExprs are heavy work
+    private ByteString serializedDescTable;
+    private ByteString serializedOutputExpr;
 
-    public PrepareStmt(StatementBase stmt, String name, boolean binaryRowFormat) {
+
+    private UUID id;
+    private int schemaVersion = -1;
+    private OlapTable tbl;
+    private ConnectContext context;
+    private PreparedType preparedType = PreparedType.STATEMENT;
+    boolean isPointQueryShortCircuit = false;
+
+    private TDescriptorTable descTable;
+    // Serialized mysql Field, this could avoid serialize mysql field each time sendFields.
+    // Since, serialize fields is too heavy when table is wide
+    Map<String, byte[]> serializedFields =  Maps.newHashMap();
+
+    public PrepareStmt(StatementBase stmt, String name) {
         this.inner = stmt;
         this.stmtName = name;
         this.id = UUID.randomUUID();
-        this.binaryRowFormat = binaryRowFormat;
     }
 
     public void setContext(ConnectContext ctx) {
@@ -81,7 +80,8 @@ public class PrepareStmt extends StatementBase {
     }
 
     public boolean needReAnalyze() {
-        if (preparedType == PreparedType.FULL_PREPARED && schemaVersion == tbl.getBaseSchemaVersion()) {
+        if (preparedType == PreparedType.FULL_PREPARED
+                    && schemaVersion == tbl.getBaseSchemaVersion()) {
             return false;
         }
         reset();
@@ -94,10 +94,6 @@ public class PrepareStmt extends StatementBase {
 
     public UUID getID() {
         return id;
-    }
-
-    public boolean isBinaryProtocol() {
-        return binaryRowFormat;
     }
 
     public byte[] getSerializedField(String colName) {
@@ -142,34 +138,47 @@ public class PrepareStmt extends StatementBase {
         return serializedOutputExpr;
     }
 
+    public boolean isPointQueryShortCircuit() {
+        return isPointQueryShortCircuit;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        // TODO support more Statement
+        if (!(inner instanceof SelectStmt) && !(inner instanceof NativeInsertStmt)) {
+            throw new UserException("Only support prepare SelectStmt or NativeInsertStmt");
+        }
+        analyzer.setPrepareStmt(this);
         if (inner instanceof SelectStmt) {
-            // Use tmpAnalyzer since selectStmt will be reAnalyzed
-            Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
+            // Try to use FULL_PREPARED to increase performance
             SelectStmt selectStmt = (SelectStmt) inner;
-            inner.analyze(tmpAnalyzer);
-            if (!selectStmt.checkAndSetPointQuery()) {
-                throw new UserException("Only support prepare SelectStmt point query now");
+            try {
+                // Use tmpAnalyzer since selectStmt will be reAnalyzed
+                Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
+                inner.analyze(tmpAnalyzer);
+                // Case 1 short circuit point query
+                if (selectStmt.checkAndSetPointQuery()) {
+                    tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
+                    schemaVersion = tbl.getBaseSchemaVersion();
+                    preparedType = PreparedType.FULL_PREPARED;
+                    isPointQueryShortCircuit = true;
+                    LOG.debug("using FULL_PREPARED prepared");
+                    return;
+                }
+            } catch (UserException e) {
+                LOG.debug("fallback to STATEMENT prepared, {}", e);
+            } finally {
+                // will be reanalyzed
+                selectStmt.reset();
             }
-            tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
-            schemaVersion = tbl.getBaseSchemaVersion();
-            // reset will be reAnalyzed
-            selectStmt.reset();
-            analyzer.setPrepareStmt(this);
-            // tmpAnalyzer.setPrepareStmt(this);
-            preparedType = PreparedType.FULL_PREPARED;
         } else if (inner instanceof NativeInsertStmt) {
             LabelName label = ((NativeInsertStmt) inner).getLoadLabel();
-            if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
-                analyzer.setPrepareStmt(this);
-                preparedType = PreparedType.STATEMENT;
-            } else {
+            if (label != null && !Strings.isNullOrEmpty(label.getLabelName())) {
                 throw new UserException("Only support prepare InsertStmt without label now");
             }
-        } else {
-            throw new UserException("Only support prepare SelectStmt or InsertStmt now");
         }
+        preparedType = PreparedType.STATEMENT;
+        LOG.debug("using STATEMENT prepared");
     }
 
     public String getName() {
@@ -181,16 +190,16 @@ public class PrepareStmt extends StatementBase {
         return RedirectStatus.NO_FORWARD;
     }
 
-    public StatementBase getInnerStmt() {
-        return inner;
-    }
-
     public List<PlaceHolderExpr> placeholders() {
         return inner.getPlaceHolders();
     }
 
     public int getParmCount() {
         return inner.getPlaceHolders().size();
+    }
+
+    public PreparedType getPreparedType() {
+        return preparedType;
     }
 
     public List<Expr> getPlaceHolderExprList() {
@@ -209,6 +218,27 @@ public class PrepareStmt extends StatementBase {
         return lables;
     }
 
+    public StatementBase getInnerStmt() {
+        if (preparedType == PreparedType.FULL_PREPARED) {
+            // For performance reason we could reuse the inner statement when FULL_PREPARED
+            return inner;
+        }
+        // Make a copy of Statement, since anlyze will modify the structure of Statement.
+        // But we should keep the original statement
+        if (inner instanceof SelectStmt) {
+            return new SelectStmt((SelectStmt) inner);
+        }
+        if (inner instanceof NativeInsertStmt) {
+            return new NativeInsertStmt((NativeInsertStmt) inner);
+        }
+        // Other statement could reuse the inner statement
+        return inner;
+    }
+
+    public int argsSize() {
+        return inner.getPlaceHolders().size();
+    }
+
     public void asignValues(List<LiteralExpr> values) throws UserException {
         if (values.size() != inner.getPlaceHolders().size()) {
             throw new UserException("Invalid arguments size "
@@ -220,10 +250,6 @@ public class PrepareStmt extends StatementBase {
         if (!values.isEmpty()) {
             LOG.debug("assign values {}", values.get(0).toSql());
         }
-    }
-
-    public PreparedType getPreparedType() {
-        return preparedType;
     }
 
     @Override

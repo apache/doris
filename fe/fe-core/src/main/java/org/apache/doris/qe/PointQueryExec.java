@@ -113,7 +113,7 @@ public class PointQueryExec implements CoordInterface {
             this.cacheID = prepareStmt.getID();
             this.serializedDescTable = prepareStmt.getSerializedDescTable();
             this.serializedOutputExpr = prepareStmt.getSerializedOutputExprs();
-            this.isBinaryProtocol = prepareStmt.isBinaryProtocol();
+            this.isBinaryProtocol = prepareStmt.isPointQueryShortCircuit();
         } else {
             // TODO
             // planner.getDescTable().toThrift();

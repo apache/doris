@@ -373,6 +373,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
+        this.queryOptions.setMysqlRowBinaryFormat(
+                    context.getMysqlChannel().useServerPrepStmts());
     }
 
     public long getJobId() {
