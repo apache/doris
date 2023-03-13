@@ -31,16 +31,21 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public class BackendPolicy {
-    private static final Logger LOG = LogManager.getLogger(BackendPolicy.class);
+public class FederationBackendPolicy {
+    private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
     private final List<Backend> backends = Lists.newArrayList();
 
     private int nextBe = 0;
 
     public void init() throws UserException {
+        init(Collections.emptyList());
+    }
+
+    public void init(List<String> preLocations) throws UserException {
         Set<Tag> tags = Sets.newHashSet();
         if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
             String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
@@ -59,6 +64,7 @@ public class BackendPolicy {
                 .addTags(tags)
                 .preferComputeNode(Config.prefer_compute_node_for_external_table)
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
+                .addPreLocations(preLocations)
                 .build();
         backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
         if (backends.isEmpty()) {

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -37,6 +36,7 @@ import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -49,18 +49,15 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import lombok.SneakyThrows;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,7 +73,6 @@ public class EsScanNode extends ScanNode {
 
     private final Random random = new Random(System.currentTimeMillis());
     private Multimap<String, Backend> backendMap;
-    private List<Backend> backendList;
     private EsTablePartitions esTablePartitions;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
@@ -105,14 +101,12 @@ public class EsScanNode extends ScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         computeColumnFilter();
-        assignBackends();
         computeStats(analyzer);
         buildQuery();
     }
 
     public void init() throws UserException {
         computeColumnFilter();
-        assignBackends();
         buildQuery();
     }
 
@@ -208,20 +202,6 @@ public class EsScanNode extends ScanNode {
         msg.es_scan_node = esScanNode;
     }
 
-    private void assignBackends() throws UserException {
-        backendMap = HashMultimap.create();
-        backendList = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                backendMap.put(be.getIp(), be);
-                backendList.add(be);
-            }
-        }
-        if (backendMap.isEmpty()) {
-            throw new UserException("No Alive backends");
-        }
-    }
-
     // only do partition(es index level) prune
     private List<TScanRangeLocations> getShardLocations() throws UserException {
         // has to get partition info from es state not from table because the partition
@@ -252,39 +232,23 @@ public class EsScanNode extends ScanNode {
             LOG.debug("partition prune finished, unpartitioned index [{}], " + "partitioned index [{}]",
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
-        int size = backendList.size();
-        int beIndex = random.nextInt(size);
         List<TScanRangeLocations> result = Lists.newArrayList();
         for (EsShardPartitions indexState : selectedIndex) {
             for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
                 // get backends
-                Set<Backend> colocatedBes = Sets.newHashSet();
-                int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
+                List<String> preLocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
                     shardAllocations.add(item.getHttpAddress());
+                    preLocations.add(item.getHttpAddress().getHostname());
                 }
 
-                Collections.shuffle(shardAllocations, random);
-                for (TNetworkAddress address : shardAllocations) {
-                    colocatedBes.addAll(backendMap.get(address.getHostname()));
-                }
-                boolean usingRandomBackend = colocatedBes.size() == 0;
-                List<Backend> candidateBeList = Lists.newArrayList();
-                if (usingRandomBackend) {
-                    for (int i = 0; i < numBe; ++i) {
-                        candidateBeList.add(backendList.get(beIndex++ % size));
-                    }
-                } else {
-                    candidateBeList.addAll(colocatedBes);
-                    Collections.shuffle(candidateBeList);
-                }
-
-                // Locations
+                FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
+                backendPolicy.init(preLocations);
                 TScanRangeLocations locations = new TScanRangeLocations();
-                for (int i = 0; i < numBe && i < candidateBeList.size(); ++i) {
+                for (int i = 0; i < backendPolicy.numBackends(); ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
-                    Backend be = candidateBeList.get(i);
+                    Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
                     location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
                     locations.addToLocations(location);
