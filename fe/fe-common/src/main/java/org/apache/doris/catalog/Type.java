@@ -607,12 +607,9 @@ public abstract class Type {
             return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
         }
         if (t1.isComplexType() || t2.isComplexType()) {
-            if (t1.isArrayType() && t2.isArrayType()) {
+            if ((t1.isArrayType() && t2.isArrayType()) || (t1.isMapType() && t2.isMapType())
+                    || (t1.isStructType() && t2.isStructType())) {
                 return t1.matchesType(t2);
-            } else if (t1.isMapType() && t2.isMapType()) {
-                return true;
-            } else if (t1.isStructType() && t2.isStructType()) {
-                return true;
             }
             return false;
         }

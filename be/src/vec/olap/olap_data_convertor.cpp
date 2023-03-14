@@ -897,11 +897,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     // Now map column offsets data layout in memory is [3, 6, 9], and in disk should be [0, 3, 6, 9]
     _offsets.clear();
     _offsets.reserve(offsets.size() + 1);
-    _offsets.push_back(_base_row); // _offsets start with current map offsets
-    for (auto it = offsets.begin(); it < offsets.end(); ++it ) {
-        _offsets.push_back(*it+_base_row);
+    _offsets.push_back(
+            _base_row); // _offsets must start with current map offsets which coming blocks in continue pages
+    for (auto it = offsets.begin(); it < offsets.end(); ++it) {
+        _offsets.push_back(*it + _base_row);
     }
-    //_offsets.insert_assume_reserved(offsets.begin(), offsets.end());
 
     int64_t start_index = _row_pos - 1;
     int64_t end_index = _row_pos + _num_rows - 1;
@@ -925,7 +925,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _results[4] = _key_convertor->get_nullmap();
     _results[5] = _value_convertor->get_nullmap();
 
-    _base_row = size;
+    _base_row += size;
     return Status::OK();
 }
 
