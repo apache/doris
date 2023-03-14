@@ -137,6 +137,17 @@ public class FunctionCallExpr extends Expr {
                         return returnType;
                     }
                 };
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDecimal128Rule
+                = (children, returnType) -> {
+                    Preconditions.checkArgument(children != null && children.size() > 0);
+                    if (children.get(0).getType().isArrayType() && (
+                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())) {
+                        return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                                ((ScalarType) ((ArrayType) children.get(0).getType()).getItemType()).getScalarScale());
+                    } else {
+                        return returnType;
+                    }
+                };
         PRECISION_INFER_RULE = new HashMap<>();
         PRECISION_INFER_RULE.put("sum", sumRule);
         PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
@@ -172,7 +183,9 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("array_max", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("element_at", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("%element_extract%", arrayDateTimeV2OrDecimalV3Rule);
-
+        PRECISION_INFER_RULE.put("array_avg", arrayDecimal128Rule);
+        PRECISION_INFER_RULE.put("array_sum", arrayDecimal128Rule);
+        PRECISION_INFER_RULE.put("array_product", arrayDecimal128Rule);
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
@@ -806,7 +819,9 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT) || fnName.getFunction()
                 .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT) || fnName.getFunction()
-                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT)) {
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE)) {
             if (children.size() <= 2) {
                 throw new AnalysisException(fnName + "(bitmap_column, column_to_filter, filter_values) "
                         + "function requires at least three parameters");
@@ -859,7 +874,6 @@ public class FunctionCallExpr extends Expr {
             if (!getChild(1).isConstant()) {
                 throw new AnalysisException(fnName + "function's second argument should be constant");
             }
-            throw new AnalysisException(fnName + "not support on vectorized engine now.");
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
@@ -1382,7 +1396,9 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(args.length - 1, i);
-                if (fnName.getFunction().equalsIgnoreCase("money_format")
+                if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
+                        .equalsIgnoreCase("histogram")
+                        || fnName.getFunction().equalsIgnoreCase("hist"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                     continue;
                 } else if (fnName.getFunction().equalsIgnoreCase("array")
@@ -1398,6 +1414,25 @@ public class FunctionCallExpr extends Expr {
                         && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
                         || (children.get(0).getType().isDecimalV2()
                         && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
+                    continue;
+                } else if ((fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
+                        .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                        || fnName.getFunction().equalsIgnoreCase("array_overlap")
+                        || fnName.getFunction().equalsIgnoreCase("array_union")
+                        || fnName.getFunction().equalsIgnoreCase("array_intersect")
+                        || fnName.getFunction().equalsIgnoreCase("array_compact")
+                        || fnName.getFunction().equalsIgnoreCase("array_slice")
+                        || fnName.getFunction().equalsIgnoreCase("array_popback")
+                        || fnName.getFunction().equalsIgnoreCase("array_popfront")
+                        || fnName.getFunction().equalsIgnoreCase("reverse")
+                        || fnName.getFunction().equalsIgnoreCase("%element_slice%")
+                        || fnName.getFunction().equalsIgnoreCase("array_concat")
+                        || fnName.getFunction().equalsIgnoreCase("array_except"))
+                        && ((args[ix].isDecimalV3())
+                        || (children.get(0).getType().isArrayType()
+                        && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())
+                        && (args[ix].isArrayType())
+                        && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
                 } else if (!argTypes[i].matchesType(args[ix]) && !(
                         argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
@@ -1497,6 +1532,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_slice")
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
                 || fnName.getFunction().equalsIgnoreCase("array_popfront")
+                || fnName.getFunction().equalsIgnoreCase("array_pushfront")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                 || fnName.getFunction().equalsIgnoreCase("array_except")

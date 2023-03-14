@@ -638,6 +638,9 @@ public class CreateFunctionStmt extends DdlStmt {
             case BITMAP:
                 typeBuilder.setId(Types.PGenericType.TypeId.BITMAP);
                 break;
+            case QUANTILE_STATE:
+                typeBuilder.setId(Types.PGenericType.TypeId.QUANTILE_STATE);
+                break;
             case DATE:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATE);
                 break;

@@ -291,6 +291,24 @@ void RPCFnImpl::_convert_col_to_pvalue(const ColumnPtr& column, const DataTypePt
         }
         break;
     }
+    case TypeIndex::QuantileState: {
+        ptype->set_id(PGenericType::QUANTILE_STATE);
+        arg->mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            if constexpr (nullable) {
+                if (column->is_null_at(row_num)) {
+                    arg->add_bytes_value(nullptr);
+                } else {
+                    StringRef data = column->get_data_at(row_num);
+                    arg->add_bytes_value(data.data, data.size);
+                }
+            } else {
+                StringRef data = column->get_data_at(row_num);
+                arg->add_bytes_value(data.data, data.size);
+            }
+        }
+        break;
+    }
     default:
         LOG(INFO) << "unknown type: " << data_type->get_name();
         ptype->set_id(PGenericType::UNKNOWN);
@@ -437,6 +455,13 @@ void RPCFnImpl::_convert_to_column(MutableColumnPtr& column, const PValues& resu
         break;
     }
     case PGenericType::HLL: {
+        column->reserve(result.bytes_value_size());
+        for (int i = 0; i < result.bytes_value_size(); ++i) {
+            column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());
+        }
+        break;
+    }
+    case PGenericType::QUANTILE_STATE: {
         column->reserve(result.bytes_value_size());
         for (int i = 0; i < result.bytes_value_size(); ++i) {
             column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());

@@ -134,19 +134,19 @@ Decimal128I DecimalField<Decimal128I>::get_scale_multiplier() const {
 }
 
 template <typename T>
-static bool dec_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, EqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
 template <typename T>
-static bool dec_less(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_less(T x, T y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
 template <typename T>
-static bool dec_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+bool dec_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOrEqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }

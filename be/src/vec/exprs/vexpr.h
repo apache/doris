@@ -25,7 +25,7 @@
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function.h"

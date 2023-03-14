@@ -59,6 +59,10 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
+uint32_t olap_adler32_init() {
+    return adler32(0L, Z_NULL, 0);
+}
+
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len) {
     return adler32(adler, reinterpret_cast<const Bytef*>(buf), len);
 }

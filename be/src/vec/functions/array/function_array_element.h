@@ -319,6 +319,18 @@ private:
             res = _execute_number<ColumnFloat64>(offsets, *nested_column, src_null_map,
                                                  *arguments[1].column, nested_null_map,
                                                  dst_null_map);
+        } else if (check_column<ColumnDecimal32>(*nested_column)) {
+            res = _execute_number<ColumnDecimal32>(offsets, *nested_column, src_null_map,
+                                                   *arguments[1].column, nested_null_map,
+                                                   dst_null_map);
+        } else if (check_column<ColumnDecimal64>(*nested_column)) {
+            res = _execute_number<ColumnDecimal64>(offsets, *nested_column, src_null_map,
+                                                   *arguments[1].column, nested_null_map,
+                                                   dst_null_map);
+        } else if (check_column<ColumnDecimal128I>(*nested_column)) {
+            res = _execute_number<ColumnDecimal128I>(offsets, *nested_column, src_null_map,
+                                                     *arguments[1].column, nested_null_map,
+                                                     dst_null_map);
         } else if (check_column<ColumnDecimal128>(*nested_column)) {
             res = _execute_number<ColumnDecimal128>(offsets, *nested_column, src_null_map,
                                                     *arguments[1].column, nested_null_map,

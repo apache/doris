@@ -35,6 +35,9 @@
         "type": "date",
         "format": "yyyy-MM-dd HH:mm:ss || epoch_millis"
       },
+      "test8": {
+        "type": "date"
+      },
       "c_bool": {
         "type": "boolean"
       },

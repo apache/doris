@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -76,8 +76,8 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
      */
     public PhysicalLimit(long limit, long offset, LimitPhase phase, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_LIMIT, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+            Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_LIMIT, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.limit = limit;
         this.offset = offset;
@@ -123,9 +123,9 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public PhysicalLimit<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child());
+                statistics, child());
     }
 
     @Override
@@ -152,11 +152,11 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalLimit",
+        return Utils.toSqlString("PhysicalLimit[" + id.asInt() + "]" + getGroupIdAsString(),
                 "limit", limit,
                 "offset", offset,
                 "phase", phase,
-                "stats", statsDeriveResult
+                "stats", statistics
         );
     }
 }

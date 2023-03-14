@@ -73,12 +73,11 @@ private:
                 reinterpret_cast<const ColumnType&>(max_value_column);
         ColumnInt64& nested_column_concrete = reinterpret_cast<ColumnInt64&>(nested_column);
 
-        auto min_value = min_value_column_concrete.get_data()[0];
-        auto max_value = max_value_column_concrete.get_data()[0];
-
         size_t input_rows_count = expr_column.size();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
+            auto min_value = min_value_column_concrete.get_data()[i];
+            auto max_value = max_value_column_concrete.get_data()[i];
             if (expr_column_concrete.get_data()[i] < min_value) {
                 continue;
             } else if (expr_column_concrete.get_data()[i] >= max_value) {

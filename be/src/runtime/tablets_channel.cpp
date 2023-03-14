@@ -309,6 +309,9 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
 
     std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
     for (int i = 0; i < request.tablet_ids_size(); ++i) {
+        if (request.is_single_tablet_block()) {
+            break;
+        }
         int64_t tablet_id = request.tablet_ids(i);
         if (_is_broken_tablet(tablet_id)) {
             // skip broken tablets
@@ -326,28 +329,41 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     auto get_send_data = [&]() { return vectorized::Block(request.block()); };
 
     auto send_data = get_send_data();
-    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
-            response->mutable_tablet_errors();
-    for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
-        auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
-        if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}",
-                                         tablet_to_rowidxs_it.first);
-        }
 
-        Status st = tablet_writer_it->second->write(&send_data, tablet_to_rowidxs_it.second);
+    auto write_tablet_data = [&](uint32_t tablet_id,
+                                 std::function<Status(DeltaWriter * writer)> write_func) {
+        google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
+                response->mutable_tablet_errors();
+        auto tablet_writer_it = _tablet_writers.find(tablet_id);
+        if (tablet_writer_it == _tablet_writers.end()) {
+            return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+        }
+        Status st = write_func(tablet_writer_it->second);
         if (!st.ok()) {
             auto err_msg =
                     fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
-                                tablet_to_rowidxs_it.first, _txn_id, st.to_string());
+                                tablet_id, _txn_id, st.to_string());
             LOG(WARNING) << err_msg;
             PTabletError* error = tablet_errors->Add();
-            error->set_tablet_id(tablet_to_rowidxs_it.first);
+            error->set_tablet_id(tablet_id);
             error->set_msg(err_msg);
             tablet_writer_it->second->cancel_with_status(st);
-            _add_broken_tablet(tablet_to_rowidxs_it.first);
+            _add_broken_tablet(tablet_id);
             // continue write to other tablet.
             // the error will return back to sender.
+        }
+        return Status::OK();
+    };
+
+    if (request.is_single_tablet_block()) {
+        RETURN_IF_ERROR(write_tablet_data(request.tablet_ids(0), [&](DeltaWriter* writer) {
+            return writer->append(&send_data);
+        }));
+    } else {
+        for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
+            RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](DeltaWriter* writer) {
+                return writer->write(&send_data, tablet_to_rowidxs_it.second);
+            }));
         }
     }
 

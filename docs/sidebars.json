@@ -291,8 +291,10 @@
                                 "sql-manual/sql-functions/array-functions/array_join",
                                 "sql-manual/sql-functions/array-functions/array_with_constant",
                                 "sql-manual/sql-functions/array-functions/array_enumerate",
+                                "sql-manual/sql-functions/array-functions/array_enumerate_uniq",
                                 "sql-manual/sql-functions/array-functions/array_popback",
                                 "sql-manual/sql-functions/array-functions/array_popfront",
+                                "sql-manual/sql-functions/array-functions/array_pushfront",
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
@@ -543,6 +545,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate_count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_hash64"
                             ]
                         },
@@ -1031,6 +1035,7 @@
                 "admin-manual/query-profile",
                 "admin-manual/tracing",
                 "admin-manual/optimization",
+                "admin-manual/certificate",
                 {
                     "type": "category",
                     "label": "Maintenance and Monitor",

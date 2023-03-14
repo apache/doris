@@ -22,7 +22,7 @@
 
 #include <fmt/format.h>
 
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -367,6 +367,10 @@ struct ConvertImplGenericFromString {
                 // Note: here we should handle the null element
                 if (val.size == 0) {
                     col_to->insert_default();
+                    // empty string('') is an invalid format for complex type, set null_map to 1
+                    if (is_complex_type(data_type_to)) {
+                        (*vec_null_map_to)[i] = 1;
+                    }
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(val.data), val.size);
@@ -891,14 +895,14 @@ public:
 
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count,
-                            context->impl()->check_overflow_for_decimal(), scale);
+                            context->check_overflow_for_decimal(), scale);
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     auto type =
                             check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count,
-                            context->impl()->check_overflow_for_decimal(), type->get_scale());
+                            context->check_overflow_for_decimal(), type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count);
@@ -1263,6 +1267,7 @@ class FunctionCast final : public IFunctionBase {
 public:
     using WrapperType =
             std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>;
+    using ElementWrappers = std::vector<WrapperType>;
     using MonotonicityForRange =
             std::function<Monotonicity(const IDataType&, const Field&, const Field&)>;
 
@@ -1375,7 +1380,7 @@ private:
 
                         ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
                                 block, arguments, result, input_rows_count,
-                                context->impl()->check_overflow_for_decimal(), scale);
+                                context->check_overflow_for_decimal(), scale);
                         return true;
                     });
 
@@ -1552,15 +1557,80 @@ private:
         }
     }
 
+    ElementWrappers get_element_wrappers(FunctionContext* context,
+                                         const DataTypes& from_element_types,
+                                         const DataTypes& to_element_types) const {
+        DCHECK(from_element_types.size() == to_element_types.size());
+        ElementWrappers element_wrappers;
+        element_wrappers.reserve(from_element_types.size());
+        for (size_t i = 0; i < from_element_types.size(); ++i) {
+            const DataTypePtr& from_element_type = from_element_types[i];
+            const DataTypePtr& to_element_type = to_element_types[i];
+            element_wrappers.push_back(
+                    prepare_unpack_dictionaries(context, from_element_type, to_element_type));
+        }
+        return element_wrappers;
+    }
+
     // check struct value type and get to_type value
     // TODO: need handle another type to cast struct
-    WrapperType create_struct_wrapper(const DataTypePtr& from_type,
+    WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                       const DataTypeStruct& to_type) const {
-        switch (from_type->get_type_id()) {
-        case TypeIndex::String:
-        default:
+        // support CAST AS Struct from string
+        if (from_type->get_type_id() == TypeIndex::String) {
             return &ConvertImplGenericFromString<ColumnString>::execute;
         }
+
+        // only support CAST AS Struct from struct or string types
+        auto from = check_and_get_data_type<DataTypeStruct>(from_type.get());
+        if (!from) {
+            return create_unsupport_wrapper(
+                    fmt::format("CAST AS Struct can only be performed between struct types or from "
+                                "String. Left type: {}, right type: {}",
+                                from_type->get_name(), to_type.get_name()));
+        }
+
+        const auto& from_element_types = from->get_elements();
+        const auto& to_element_types = to_type.get_elements();
+        // only support CAST AS Struct from struct type with same number of elements
+        if (from_element_types.size() != to_element_types.size()) {
+            return create_unsupport_wrapper(
+                    fmt::format("CAST AS Struct can only be performed between struct types with "
+                                "the same number of elements. Left type: {}, right type: {}",
+                                from_type->get_name(), to_type.get_name()));
+        }
+
+        auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
+        return [element_wrappers, from_element_types, to_element_types](
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       const size_t result, size_t /*input_rows_count*/) -> Status {
+            auto& from_column = block.get_by_position(arguments.front()).column;
+            auto from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
+            if (!from_col_struct) {
+                return Status::RuntimeError("Illegal column {} for function CAST AS Struct",
+                                            from_column->get_name());
+            }
+
+            size_t elements_num = to_element_types.size();
+            Columns converted_columns(elements_num);
+            for (size_t i = 0; i < elements_num; ++i) {
+                ColumnWithTypeAndName from_element_column {from_col_struct->get_column_ptr(i),
+                                                           from_element_types[i], ""};
+                ColumnNumbers element_arguments {block.columns()};
+                block.insert(from_element_column);
+
+                size_t element_result = block.columns();
+                block.insert({to_element_types[i], ""});
+
+                RETURN_IF_ERROR(element_wrappers[i](context, block, element_arguments,
+                                                    element_result,
+                                                    from_col_struct->get_column(i).size()));
+                converted_columns[i] = block.get_by_position(element_result).column;
+            }
+
+            block.get_by_position(result).column = ColumnStruct::create(converted_columns);
+            return Status::OK();
+        };
     }
 
     WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
@@ -1737,7 +1807,8 @@ private:
             return create_array_wrapper(context, from_type,
                                         static_cast<const DataTypeArray&>(*to_type));
         case TypeIndex::Struct:
-            return create_struct_wrapper(from_type, static_cast<const DataTypeStruct&>(*to_type));
+            return create_struct_wrapper(context, from_type,
+                                         static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
             return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
         default:

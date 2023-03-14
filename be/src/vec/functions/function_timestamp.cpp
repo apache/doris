@@ -16,7 +16,7 @@
 // under the License.
 
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -117,8 +117,7 @@ struct StrToDate {
                 null_map[i] = 1;
             }
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                if (context->impl()->get_return_type().type ==
-                    doris::PrimitiveType::TYPE_DATETIME) {
+                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();
@@ -399,7 +398,7 @@ struct UnixTimeStampImpl {
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
         col_result->resize(1);
-        col_result->get_data()[0] = context->impl()->state()->timestamp_ms() / 1000;
+        col_result->get_data()[0] = context->state()->timestamp_ms() / 1000;
         auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
         block.replace_by_position(result, std::move(col_const));
         return Status::OK();
@@ -417,7 +416,7 @@ struct UnixTimeStampDateImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        const ColumnPtr col_source = block.get_by_position(arguments[0]).column;
+        const ColumnPtr& col_source = block.get_by_position(arguments[0]).column;
         auto col_result = ColumnVector<Int32>::create();
         auto null_map = ColumnVector<UInt8>::create();
         auto& col_result_data = col_result->get_data();
@@ -438,8 +437,7 @@ struct UnixTimeStampDateImpl {
                 const VecDateTimeValue& ts_value =
                         reinterpret_cast<const VecDateTimeValue&>(*source.data);
                 int64_t timestamp;
-                if (!ts_value.unix_timestamp(&timestamp,
-                                             context->impl()->state()->timezone_obj())) {
+                if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                     null_map_data[i] = true;
                 } else {
                     null_map_data[i] = false;
@@ -464,8 +462,7 @@ struct UnixTimeStampDateImpl {
                     const DateV2Value<DateV2ValueType>& ts_value =
                             reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
                     int64_t timestamp;
-                    if (!ts_value.unix_timestamp(&timestamp,
-                                                 context->impl()->state()->timezone_obj())) {
+                    if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                         null_map_data[i] = true;
                     } else {
                         null_map_data[i] = false;
@@ -481,8 +478,8 @@ struct UnixTimeStampDateImpl {
                     const DateV2Value<DateV2ValueType>& ts_value =
                             reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
                     int64_t timestamp;
-                    const auto valid = ts_value.unix_timestamp(
-                            &timestamp, context->impl()->state()->timezone_obj());
+                    const auto valid =
+                            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                     DCHECK(valid);
                     col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 }
@@ -504,8 +501,7 @@ struct UnixTimeStampDateImpl {
                     const DateV2Value<DateTimeV2ValueType>& ts_value =
                             reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
                     int64_t timestamp;
-                    if (!ts_value.unix_timestamp(&timestamp,
-                                                 context->impl()->state()->timezone_obj())) {
+                    if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                         null_map_data[i] = true;
                     } else {
                         null_map_data[i] = false;
@@ -521,8 +517,8 @@ struct UnixTimeStampDateImpl {
                     const DateV2Value<DateTimeV2ValueType>& ts_value =
                             reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
                     int64_t timestamp;
-                    const auto valid = ts_value.unix_timestamp(
-                            &timestamp, context->impl()->state()->timezone_obj());
+                    const auto valid =
+                            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                     DCHECK(valid);
                     col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 }
@@ -579,7 +575,7 @@ struct UnixTimeStampStrImpl {
             }
 
             int64_t timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone_obj())) {
+            if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                 null_map_data[i] = true;
             } else {
                 null_map_data[i] = false;

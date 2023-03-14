@@ -113,6 +113,23 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
+hive元数据存储在Glue，数据存储在S3，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.type" = "glue",
+    "aws.region" = "us-east-1",
+    "aws.glue.access-key" = "ak",
+    "aws.glue.secret-key" = "sk",
+    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+    "AWS_REGION" = "us-east-1",
+    "AWS_ACCESS_KEY" = "ak",
+    "AWS_SECRET_KEY" = "sk",
+    "use_path_style" = "true"
+);
+```
+
 <version since="dev">
 
 连接开启 Ranger 权限校验的 Hive Metastore 需要增加配置 & 配置环境：

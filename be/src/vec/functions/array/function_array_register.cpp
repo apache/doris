@@ -36,6 +36,7 @@ void register_function_array_intersect(SimpleFunctionFactory&);
 void register_function_array_slice(SimpleFunctionFactory&);
 void register_function_array_difference(SimpleFunctionFactory&);
 void register_function_array_enumerate(SimpleFunctionFactory&);
+void register_function_array_enumerate_uniq(SimpleFunctionFactory&);
 void register_function_array_range(SimpleFunctionFactory&);
 void register_function_array_compact(SimpleFunctionFactory&);
 void register_function_array_popback(SimpleFunctionFactory&);
@@ -44,6 +45,7 @@ void register_function_array_with_constant(SimpleFunctionFactory&);
 void register_function_array_constructor(SimpleFunctionFactory&);
 void register_function_array_apply(SimpleFunctionFactory&);
 void register_function_array_concat(SimpleFunctionFactory&);
+void register_function_array_pushfront(SimpleFunctionFactory& factory);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_element(factory);
@@ -60,6 +62,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_slice(factory);
     register_function_array_difference(factory);
     register_function_array_enumerate(factory);
+    register_function_array_enumerate_uniq(factory);
     register_function_array_range(factory);
     register_function_array_compact(factory);
     register_function_array_popback(factory);
@@ -68,6 +71,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_constructor(factory);
     register_function_array_apply(factory);
     register_function_array_concat(factory);
+    register_function_array_pushfront(factory);
 }
 
 } // namespace doris::vectorized

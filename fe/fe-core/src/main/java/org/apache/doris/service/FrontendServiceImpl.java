@@ -63,6 +63,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -79,6 +80,8 @@ import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
 import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TCheckAuthRequest;
+import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
@@ -120,7 +123,10 @@ import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPrivilegeCtrl;
+import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
+import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -1630,6 +1636,111 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    @Override
+    public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
+
+        TCheckAuthResult result = new TCheckAuthResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        // check account and password
+        final String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        try {
+            Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
+                    currentUser);
+        } catch (AuthenticationException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        Preconditions.checkState(currentUser.size() == 1);
+        PrivPredicate predicate = getPrivPredicate(request.getPrivType());
+        if (predicate == null) {
+            return result;
+        }
+        // check privilege
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        TPrivilegeCtrl privCtrl = request.getPrivCtrl();
+        TPrivilegeHier privHier = privCtrl.getPrivHier();
+        if (privHier == TPrivilegeHier.GLOBAL) {
+            if (!accessManager.checkGlobalPriv(currentUser.get(0), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Global permissions error");
+            }
+        } else if (privHier == TPrivilegeHier.CATALOG) {
+            if (!accessManager.checkCtlPriv(currentUser.get(0), privCtrl.getCtl(), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Catalog permissions error");
+            }
+        } else if (privHier == TPrivilegeHier.DATABASE) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
+            if (!accessManager.checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Database permissions error");
+            }
+        } else if (privHier == TPrivilegeHier.TABLE) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
+            if (!accessManager.checkTblPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Table permissions error");
+            }
+        } else if (privHier == TPrivilegeHier.COLUMNS) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, privCtrl.getDb());
+            if (!accessManager.checkColumnsPriv(currentUser.get(0), fullDbName, privCtrl.getTbl(), privCtrl.getCols(),
+                    predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Columns permissions error");
+            }
+        } else if (privHier == TPrivilegeHier.RESOURSE) {
+            if (!accessManager.checkResourcePriv(currentUser.get(0), privCtrl.getRes(), predicate)) {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+                status.addToErrorMsgs("Resourse permissions error");
+            }
+        } else {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("Privilege control error");
+        }
+        return result;
+    }
+
+    private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
+        switch (privType) {
+            case SHOW:
+                return PrivPredicate.SHOW;
+            case SHOW_RESOURCES:
+                return PrivPredicate.SHOW_RESOURCES;
+            case GRANT:
+                return PrivPredicate.GRANT;
+            case ADMIN:
+                return PrivPredicate.ADMIN;
+            case LOAD:
+                return PrivPredicate.LOAD;
+            case ALTER:
+                return PrivPredicate.ALTER;
+            case USAGE:
+                return PrivPredicate.USAGE;
+            case CREATE:
+                return PrivPredicate.CREATE;
+            case ALL:
+                return PrivPredicate.ALL;
+            case OPERATOR:
+                return PrivPredicate.OPERATOR;
+            case DROP:
+                return PrivPredicate.DROP;
+            default:
+                return null;
+        }
     }
 }
 

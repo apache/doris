@@ -34,6 +34,7 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     register_function_both("bitmap_union", create_aggregate_function_bitmap_union);
     register_function_both("hll_union",
                            create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);
+    register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
 }
 
 // only replace function in load/reader do different agg operation.

@@ -52,16 +52,16 @@ const static int32_t g_power_table[] = {1,      10,      100,      1000,      10
 // 计时工具，用于确定一段代码执行的时间，用于性能调优
 class OlapStopWatch {
 public:
-    uint64_t get_elapse_time_us() {
+    uint64_t get_elapse_time_us() const {
         struct timeval now;
-        gettimeofday(&now, 0);
+        gettimeofday(&now, nullptr);
         return (uint64_t)((now.tv_sec - _begin_time.tv_sec) * 1e6 +
                           (now.tv_usec - _begin_time.tv_usec));
     }
 
-    double get_elapse_second() { return get_elapse_time_us() / 1000000.0; }
+    double get_elapse_second() const { return get_elapse_time_us() / 1000000.0; }
 
-    void reset() { gettimeofday(&_begin_time, 0); }
+    void reset() { gettimeofday(&_begin_time, nullptr); }
 
     OlapStopWatch() { reset(); }
 
@@ -106,9 +106,7 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-// 计算adler32的包装函数
-// 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
-#define ADLER32_INIT adler32(0L, Z_NULL, 0)
+uint32_t olap_adler32_init();
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
 // 获取系统当前时间，并将时间转换为字符串

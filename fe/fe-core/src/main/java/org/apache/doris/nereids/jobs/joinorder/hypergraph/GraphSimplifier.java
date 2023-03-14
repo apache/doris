@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -62,7 +62,7 @@ public class GraphSimplifier {
     // It cached the plan stats in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
-    private final HashMap<Long, StatsDeriveResult> cacheStats = new HashMap<>();
+    private final HashMap<Long, Statistics> cacheStats = new HashMap<>();
     private final HashMap<Long, Cost> cacheCost = new HashMap<>();
 
     private final Stack<SimplificationStep> appliedSteps = new Stack<>();
@@ -311,8 +311,8 @@ public class GraphSimplifier {
         long right1 = edge1.getRight();
         long left2 = edge2.getLeft();
         long right2 = edge2.getRight();
-        Pair<StatsDeriveResult, Edge> edge1Before2;
-        Pair<StatsDeriveResult, Edge> edge2Before1;
+        Pair<Statistics, Edge> edge1Before2;
+        Pair<Statistics, Edge> edge2Before1;
         List<Long> superBitset = new ArrayList<>();
         if (tryGetSuperset(left1, left2, superBitset)) {
             // (common Join1 right1) Join2 right2
@@ -342,15 +342,15 @@ public class GraphSimplifier {
         return Optional.of(simplificationStep);
     }
 
-    Pair<StatsDeriveResult, Edge> threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
+    Pair<Statistics, Edge> threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         // (plan1 edge1 plan2) edge2 plan3
         // The join may have redundant table, e.g., t1,t2 join t3 join t2,t4
         // Therefore, the cost is not accurate
         Preconditions.checkArgument(
                 cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
-        StatsDeriveResult leftStats = JoinEstimation.estimate(cacheStats.get(bitmap1), cacheStats.get(bitmap2),
+        Statistics leftStats = JoinEstimation.estimate(cacheStats.get(bitmap1), cacheStats.get(bitmap2),
                 edge1.getJoin());
-        StatsDeriveResult joinStats = JoinEstimation.estimate(leftStats, cacheStats.get(bitmap3), edge2.getJoin());
+        Statistics joinStats = JoinEstimation.estimate(leftStats, cacheStats.get(bitmap3), edge2.getJoin());
         Edge edge = new Edge(edge2.getJoin(), -1);
         long newLeft = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
         // To avoid overlapping the left and the right, the newLeft is calculated, Note the
@@ -363,13 +363,13 @@ public class GraphSimplifier {
         return Pair.of(joinStats, edge);
     }
 
-    Pair<StatsDeriveResult, Edge> threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
+    Pair<Statistics, Edge> threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         Preconditions.checkArgument(
                 cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
-        StatsDeriveResult rightStats = JoinEstimation.estimate(cacheStats.get(bitmap2), cacheStats.get(bitmap3),
+        Statistics rightStats = JoinEstimation.estimate(cacheStats.get(bitmap2), cacheStats.get(bitmap3),
                 edge2.getJoin());
-        StatsDeriveResult joinStats = JoinEstimation.estimate(cacheStats.get(bitmap1), rightStats, edge1.getJoin());
+        Statistics joinStats = JoinEstimation.estimate(cacheStats.get(bitmap1), rightStats, edge1.getJoin());
         Edge edge = new Edge(edge1.getJoin(), -1);
 
         long newRight = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
@@ -381,8 +381,8 @@ public class GraphSimplifier {
         return Pair.of(joinStats, edge);
     }
 
-    private SimplificationStep orderJoin(Pair<StatsDeriveResult, Edge> edge1Before2,
-            Pair<StatsDeriveResult, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
+    private SimplificationStep orderJoin(Pair<Statistics, Edge> edge1Before2,
+            Pair<Statistics, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
         Cost cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
                 cacheStats.get(edge1Before2.second.getLeft()),
                 cacheStats.get(edge1Before2.second.getRight()));
@@ -423,8 +423,8 @@ public class GraphSimplifier {
         return false;
     }
 
-    private Cost calCost(Edge edge, StatsDeriveResult stats,
-            StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
+    private Cost calCost(Edge edge, Statistics stats,
+            Statistics leftStats, Statistics rightStats) {
         LogicalJoin join = edge.getJoin();
         PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
         Cost cost = Cost.zero();

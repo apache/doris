@@ -578,6 +578,8 @@ public:
 
     virtual bool is_hll() const { return false; }
 
+    virtual bool is_quantile_state() const { return false; }
+
     // true if column has null element
     virtual bool has_null() const { return false; }
 

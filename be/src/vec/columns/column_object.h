@@ -188,6 +188,8 @@ public:
 
     void incr_num_rows() { ++num_rows; }
 
+    void incr_num_rows(size_t n) { num_rows += n; }
+
     /// Adds a subcolumn from existing IColumn.
     bool add_sub_column(const PathInData& key, MutableColumnPtr&& subcolumn);
 
@@ -249,13 +251,13 @@ public:
         }
     }
 
-    // Do nothing, call try_insert_range_from instead
-    void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        Status st = try_insert_range_from(src, start, length);
-        if (!st.ok()) {
-            LOG(FATAL) << "insert_range_from return ERROR status: " << st;
-        }
-    }
+    void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override;
+
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override;
 
     // Only called in Block::add_row
     Status try_insert(const Field& field);
@@ -281,11 +283,6 @@ public:
     StringRef get_data_at(size_t) const override {
         LOG(FATAL) << "should not call the method in column object";
         return StringRef();
-    }
-
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
-        LOG(FATAL) << "should not call the method in column object";
     }
 
     Status try_insert_indices_from(const IColumn& src, const int* indices_begin,
@@ -353,11 +350,6 @@ public:
     }
 
     void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
         LOG(FATAL) << "should not call the method in column object";
     }
 

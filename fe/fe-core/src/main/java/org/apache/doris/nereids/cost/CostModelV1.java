@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -71,12 +71,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
+        Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
     }
 
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
+        Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
     }
 
@@ -91,7 +91,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
+        Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
     }
 
@@ -102,13 +102,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
+        Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
     }
 
     @Override
     public Cost visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
+        Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
     }
 
@@ -116,11 +116,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalQuickSort(
             PhysicalQuickSort<? extends Plan> physicalQuickSort, PlanContext context) {
         // TODO: consider two-phase sort and enforcer.
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
-        StatsDeriveResult childStatistics = context.getChildStatistics(0);
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
         if (physicalQuickSort.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics.updateRowCount(statistics.getRowCount() * 100);
+            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
         }
         return CostV1.of(
                 childStatistics.getRowCount(),
@@ -131,11 +131,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PlanContext context) {
         // TODO: consider two-phase sort and enforcer.
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
-        StatsDeriveResult childStatistics = context.getChildStatistics(0);
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
         if (topN.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics.updateRowCount(statistics.getRowCount() * 100);
+            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
         }
         return CostV1.of(
                 childStatistics.getRowCount(),
@@ -146,7 +146,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
-        StatsDeriveResult childStatistics = context.getChildStatistics(0);
+        Statistics childStatistics = context.getChildStatistics(0);
         DistributionSpec spec = distribute.getDistributionSpec();
         // shuffle
         if (spec instanceof DistributionSpecHash) {
@@ -170,10 +170,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
+            /*
+            TODO：
+            srcBeNum and destBeNum are not available, assume destBeNum/srcBeNum = 1
+            1. cpu: row * destBeNum/srcBeNum
+            2. network: rows send = rows/srcBeNum * destBeNum.
+             */
             return CostV1.of(
-                    childStatistics.getRowCount() * beNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber,
-                    childStatistics.getRowCount() * beNumber * instanceNumber);
+                    childStatistics.getRowCount(), // TODO:should multiply by destBeNum/srcBeNum
+                    childStatistics.getRowCount(), // only consider one BE, not the whole system.
+                    childStatistics.getRowCount() * instanceNumber); // TODO: remove instanceNumber when BE updated
         }
 
         // gather
@@ -196,8 +202,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         // TODO: stage.....
 
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
-        StatsDeriveResult inputStatistics = context.getChildStatistics(0);
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics inputStatistics = context.getChildStatistics(0);
         return CostV1.of(inputStatistics.getRowCount(), statistics.getRowCount(), 0);
     }
 
@@ -205,11 +211,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin, PlanContext context) {
         Preconditions.checkState(context.arity() == 2);
-        StatsDeriveResult outputStats = context.getStatisticsWithCheck();
+        Statistics outputStats = context.getStatisticsWithCheck();
         double outputRowCount = outputStats.getRowCount();
 
-        StatsDeriveResult probeStats = context.getChildStatistics(0);
-        StatsDeriveResult buildStats = context.getChildStatistics(1);
+        Statistics probeStats = context.getChildStatistics(0);
+        Statistics buildStats = context.getChildStatistics(1);
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
@@ -227,7 +233,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //penalty for right deep tree
             penalty += rightRowCount;
         }
-
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
             return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                     0,
@@ -248,8 +253,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
         Preconditions.checkState(context.arity() == 2);
 
-        StatsDeriveResult leftStatistics = context.getChildStatistics(0);
-        StatsDeriveResult rightStatistics = context.getChildStatistics(1);
+        Statistics leftStatistics = context.getChildStatistics(0);
+        Statistics rightStatistics = context.getChildStatistics(1);
 
         return CostV1.of(
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
@@ -269,7 +274,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
-        StatsDeriveResult statistics = context.getStatisticsWithCheck();
+        Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.of(
                 statistics.getRowCount(),
                 statistics.getRowCount(),

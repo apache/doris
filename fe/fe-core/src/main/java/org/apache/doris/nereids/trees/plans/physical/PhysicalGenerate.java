@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -67,8 +67,8 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     public PhysicalGenerate(List<Function> generators, List<Slot> generatorOutput,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+            Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.generators = ImmutableList.copyOf(Objects.requireNonNull(generators, "predicates can not be null"));
         this.generatorOutput = ImmutableList.copyOf(Objects.requireNonNull(generatorOutput,
@@ -145,9 +145,9 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         return new PhysicalGenerate<>(generators, generatorOutput,
                 Optional.empty(), getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child());
+                statistics, child());
     }
 }

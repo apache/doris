@@ -82,8 +82,7 @@ static inline Ngram toNGram(const UInt8* const pos) {
 }
 
 template <typename Callback>
-static inline bool putNGramASCIICaseInsensitive(const UInt8* pos, int offset,
-                                                Callback&& putNGramBase) {
+bool putNGramASCIICaseInsensitive(const UInt8* pos, int offset, Callback&& putNGramBase) {
     struct Chars {
         UInt8 c0;
         UInt8 c1;
@@ -126,8 +125,8 @@ static inline bool putNGramASCIICaseInsensitive(const UInt8* pos, int offset,
 }
 
 template <bool CaseSensitive, bool ASCII, typename Callback>
-static inline bool putNGram(const UInt8* pos, int offset, [[maybe_unused]] const UInt8* begin,
-                            size_t size, Callback&& putNGramBase) {
+bool putNGram(const UInt8* pos, int offset, [[maybe_unused]] const UInt8* begin, size_t size,
+              Callback&& putNGramBase) {
     if constexpr (CaseSensitive) {
         putNGramBase(toNGram(pos), offset);
         return true;

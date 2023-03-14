@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -251,7 +251,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         Plan plan = generatePlan(joinType, hasProject);
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(plan)
-                .applyTopDown(new InnerToCrossJoin())
+                .applyTopDown(new ConvertInnerOrCrossJoin())
                 .applyTopDown(new PushdownLimit())
                 .matchesFromRoot(pattern);
     }
@@ -265,8 +265,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(new RelationId(0), PlanConstructor.score),
-                new LogicalOlapScan(new RelationId(1), PlanConstructor.student)
+                new LogicalOlapScan(new ObjectId(0), PlanConstructor.score),
+                new LogicalOlapScan(new ObjectId(1), PlanConstructor.student)
         );
 
         if (hasProject) {

@@ -112,6 +112,11 @@ private:
         Status convert_to_olap() override;
     };
 
+    class OlapColumnDataConvertorQuantileState final : public OlapColumnDataConvertorObject {
+    public:
+        Status convert_to_olap() override;
+    };
+
     class OlapColumnDataConvertorChar : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorChar(size_t length);

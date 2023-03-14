@@ -46,7 +46,7 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
 
     public VirtualSlotReference(String name, DataType dataType, Optional<GroupingScalarFunction> originExpression,
             Function<GroupingSetShapes, List<Long>> computeLongValueMethod) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, false, ImmutableList.of(),
+        this(StatementScopeIdGenerator.newExprId(), name, dataType, false, ImmutableList.of(),
                 originExpression, computeLongValueMethod);
     }
 
