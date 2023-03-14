@@ -19,10 +19,13 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning.PruneContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -31,6 +34,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 
@@ -134,6 +138,52 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
 
         return prunedOutputUnion.withChildren(prunedChildren);
+    }
+
+    @Override
+    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, PruneContext context) {
+        LogicalAggregate<? extends Plan> prunedOutputAgg =
+                (LogicalAggregate) pruneOutput(aggregate, aggregate.getOutputs(), aggregate::pruneOutputs, context);
+
+        List<Expression> groupByExpressions = prunedOutputAgg.getGroupByExpressions();
+        List<NamedExpression> outputExpressions = prunedOutputAgg.getOutputExpressions();
+
+        LogicalAggregate<Plan> fillUpOutputAgg = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
+                .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
+                .orElse((LogicalAggregate) prunedOutputAgg);
+
+        return pruneChildren(fillUpOutputAgg);
+    }
+
+    @Override
+    public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, PruneContext context) {
+        LogicalRepeat<? extends Plan> prunedOutputRepeat =
+                (LogicalRepeat) pruneOutput(repeat, repeat.getOutputs(), repeat::pruneOutputs, context);
+
+        List<Expression> groupByExpressions = prunedOutputRepeat.getGroupByExpressions();
+        List<NamedExpression> outputExpressions = prunedOutputRepeat.getOutputExpressions();
+
+        LogicalRepeat<Plan> fillUpOutputRepeat = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
+                .map(fullOutput -> prunedOutputRepeat.withAggOutput(fullOutput))
+                .orElse((LogicalRepeat) prunedOutputRepeat);
+
+        return pruneChildren(fillUpOutputRepeat);
+    }
+
+    private static Optional<List<NamedExpression>> fillUpGroupByToOutput(
+            List<Expression> groupBy, List<NamedExpression> output) {
+
+        if (output.containsAll(groupBy)) {
+            return Optional.empty();
+        }
+
+        List<NamedExpression> aggFunctions = Lists.newArrayList(output);
+        aggFunctions.removeAll(groupBy);
+
+        return Optional.of(ImmutableList.<NamedExpression>builder()
+                .addAll((List) groupBy)
+                .addAll(aggFunctions)
+                .build());
     }
 
     public static final <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
