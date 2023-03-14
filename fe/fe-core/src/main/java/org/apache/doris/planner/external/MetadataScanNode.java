@@ -47,7 +47,7 @@ public class MetadataScanNode extends ScanNode {
 
     private List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
         super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE);

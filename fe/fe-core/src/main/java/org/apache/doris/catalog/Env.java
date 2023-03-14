@@ -234,6 +234,7 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -250,7 +251,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.DataInputStream;
@@ -1456,15 +1456,6 @@ public class Env {
 
         // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
 
-        // add helper sockets
-        if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
-            for (Frontend fe : frontends.values()) {
-                if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
-                    ((BDBHA) getHaProtocol()).addHelperSocket(fe.getIp(), fe.getEditLogPort());
-                }
-            }
-        }
-
         if (replayer == null) {
             createReplayer();
             replayer.start();
@@ -2468,7 +2459,6 @@ public class Env {
             frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                bdbha.addHelperSocket(ip, editLogPort);
                 helperNodes.add(new HostInfo(ip, hostname, editLogPort));
                 bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
             }

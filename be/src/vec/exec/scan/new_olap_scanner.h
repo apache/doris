@@ -44,7 +44,8 @@ public:
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
                    const FilterPredicates& filter_predicates,
-                   const std::vector<FunctionFilter>& function_filters);
+                   const std::vector<FunctionFilter>& function_filters,
+                   VExprContext** common_vexpr_ctxs_pushdown);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 

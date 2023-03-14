@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -35,33 +36,24 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * function binder
  */
-class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
+public class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
     public <E extends Expression> E bind(E expression, CascadesContext context) {
@@ -76,7 +68,7 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         if (expr instanceof ImplicitCastInputTypes) {
             List<AbstractDataType> expectedInputTypes = ((ImplicitCastInputTypes) expr).expectedInputTypes();
             if (!expectedInputTypes.isEmpty()) {
-                return visitImplicitCastInputTypes(expr, expectedInputTypes);
+                return TypeCoercionUtils.implicitCastInputTypes(expr, expectedInputTypes);
             }
         }
         return expr;
@@ -103,19 +95,7 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
 
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
-
-        // check
-        boundFunction.checkLegalityBeforeTypeCoercion();
-
-        // TODO: if we have other functions need to add argument after bind and before coercion,
-        //  we need to use a new framework to do this.
-        // this moved from translate phase to here, because we need to add the type info before cast all args to string
-        if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
-            boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
-        }
-
-        // type coercion
-        return visitImplicitCastInputTypes(boundFunction, boundFunction.expectedInputTypes());
+        return TypeCoercionUtils.processBoundFunction(boundFunction);
     }
 
     /**
@@ -185,17 +165,8 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
     public Expression visitCompoundPredicate(CompoundPredicate compoundPredicate, CascadesContext context) {
         Expression left = compoundPredicate.left().accept(this, context);
         Expression right = compoundPredicate.right().accept(this, context);
-        Expression ret = compoundPredicate.withChildren(left, right);
-        ret.children().forEach(e -> {
-                    if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()) {
-                        throw new AnalysisException(String.format(
-                                "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                                        + "returns type '%s'.",
-                                e.toSql(), ret.toSql(), e.getDataType()));
-                    }
-                }
-        );
-        return ret;
+        CompoundPredicate ret = (CompoundPredicate) compoundPredicate.withChildren(left, right);
+        return TypeCoercionUtils.processCompoundPredicate(ret);
     }
 
     @Override
@@ -222,47 +193,8 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         List<Expression> rewrittenChildren = caseWhen.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren);
-
-        // type coercion
-        List<DataType> dataTypesForCoercion = newCaseWhen.dataTypesForCoercion();
-        if (dataTypesForCoercion.size() <= 1) {
-            return newCaseWhen;
-        }
-        DataType first = dataTypesForCoercion.get(0);
-        if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
-            return newCaseWhen;
-        }
-
-        Map<Boolean, List<Expression>> filteredStringLiteral = newCaseWhen.expressionForCoercion()
-                .stream().collect(Collectors.partitioningBy(e -> e.isLiteral() && e.getDataType().isStringLikeType()));
-
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(filteredStringLiteral.get(false)
-                .stream().map(Expression::getDataType).collect(Collectors.toList()));
-
-        if (!optionalCommonType.isPresent()) {
-            return newCaseWhen;
-        }
-        DataType commonType = optionalCommonType.get();
-
-        // process character literal
-        for (Expression stringLikeLiteral : filteredStringLiteral.get(true)) {
-            Literal literal = (Literal) stringLikeLiteral;
-            if (!TypeCoercionUtils.characterLiteralTypeCoercion(
-                    literal.getStringValue(), commonType).isPresent()) {
-                commonType = StringType.INSTANCE;
-                break;
-            }
-        }
-
-        List<Expression> newChildren = Lists.newArrayList();
-        for (WhenClause wc : newCaseWhen.getWhenClauses()) {
-            newChildren.add(wc.withChildren(wc.getOperand(),
-                    TypeCoercionUtils.castIfNotMatchType(wc.getResult(), commonType)));
-        }
-        if (newCaseWhen.getDefaultValue().isPresent()) {
-            newChildren.add(TypeCoercionUtils.castIfNotMatchType(newCaseWhen.getDefaultValue().get(), commonType));
-        }
-        return newCaseWhen.withChildren(newChildren);
+        newCaseWhen.checkLegalityBeforeTypeCoercion();
+        return TypeCoercionUtils.processCaseWhen(newCaseWhen);
     }
 
     @Override
@@ -270,41 +202,14 @@ class FunctionBinder extends DefaultExpressionRewriter<CascadesContext> {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
-
-        // type coercion
-        if (newInPredicate.getOptions().stream().map(Expression::getDataType)
-                .allMatch(dt -> dt.equals(newInPredicate.getCompareExpr().getDataType()))) {
-            return newInPredicate;
-        }
-
-        Map<Boolean, List<Expression>> filteredStringLiteral = newInPredicate.children()
-                .stream().collect(Collectors.partitioningBy(e -> e.isLiteral() && e.getDataType().isStringLikeType()));
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonType(filteredStringLiteral.get(false)
-                .stream().map(Expression::getDataType).collect(Collectors.toList()));
-
-        if (!optionalCommonType.isPresent()) {
-            return newInPredicate;
-        }
-        DataType commonType = optionalCommonType.get();
-
-        // process character literal
-        for (Expression stringLikeLiteral : filteredStringLiteral.get(true)) {
-            Literal literal = (Literal) stringLikeLiteral;
-            if (!TypeCoercionUtils.characterLiteralTypeCoercion(
-                    literal.getStringValue(), commonType).isPresent()) {
-                commonType = StringType.INSTANCE;
-                break;
-            }
-        }
-
-        List<Expression> newChildren = Lists.newArrayList();
-        for (Expression child : newInPredicate.children()) {
-            newChildren.add(TypeCoercionUtils.castIfNotMatchType(child, commonType));
-        }
-        return newInPredicate.withChildren(newChildren);
+        return TypeCoercionUtils.processInPredicate(newInPredicate);
     }
 
-    private Expression visitImplicitCastInputTypes(Expression expr, List<AbstractDataType> expectedInputTypes) {
-        return TypeCoercionUtils.implicitCastInputTypes(expr, expectedInputTypes);
+    @Override
+    public Expression visitBetween(Between between, CascadesContext context) {
+        List<Expression> rewrittenChildren = between.children().stream()
+                .map(e -> e.accept(this, context)).collect(Collectors.toList());
+        Between newBetween = between.withChildren(rewrittenChildren);
+        return TypeCoercionUtils.processBetween(newBetween);
     }
 }

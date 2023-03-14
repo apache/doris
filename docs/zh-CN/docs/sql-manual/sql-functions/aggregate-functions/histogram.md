@@ -28,17 +28,16 @@ under the License.
 ### description
 #### Syntax
 
-`histogram(expr[, DOUBLE sample_rate, INT max_bucket_num])`
+`histogram(expr[, INT num_buckets])`
 
 histogram（直方图）函数用于描述数据分布情况，它使用“等高”的分桶策略，并按照数据的值大小进行分桶，并用一些简单的数据来描述每个桶，比如落在桶里的值的个数。主要用于优化器进行区间查询的估算。
 
 函数结果返回空或者 Json 字符串。
 
 参数说明：
-- sample_rate：可选项。用于生成直方图的抽样数据比例，默认值 0.2。
-- max_bucket_num：可选项。用于限制直方图桶（bucket）的数量，默认值 128。
+- num_buckets：可选项。用于限制直方图桶（bucket）的数量，默认值 128。
 
-别名函数：`hist(expr[, DOUBLE sample_rate, INT max_bucket_num])`
+别名函数：`hist(expr[, INT num_buckets])`
 
 ### notice
 
@@ -53,14 +52,14 @@ MySQL [test]> SELECT histogram(c_float) FROM histogram_test;
 +-------------------------------------------------------------------------------------------------------------------------------------+
 | histogram(`c_float`)                                                                                                                |
 +-------------------------------------------------------------------------------------------------------------------------------------+
-| {"sample_rate":0.2,"max_bucket_num":128,"bucket_num":3,"buckets":[{"lower":"0.1","upper":"0.1","count":1,"pre_sum":0,"ndv":1},...]} |
+| {"num_buckets":3,"buckets":[{"lower":"0.1","upper":"0.1","count":1,"pre_sum":0,"ndv":1},...]} |
 +-------------------------------------------------------------------------------------------------------------------------------------+
 
-MySQL [test]> SELECT histogram(c_string, 0.5, 2) FROM histogram_test;
+MySQL [test]> SELECT histogram(c_string, 2) FROM histogram_test;
 +-------------------------------------------------------------------------------------------------------------------------------------+
 | histogram(`c_string`)                                                                                                               |
 +-------------------------------------------------------------------------------------------------------------------------------------+
-| {"sample_rate":0.5,"max_bucket_num":2,"bucket_num":2,"buckets":[{"lower":"str1","upper":"str7","count":4,"pre_sum":0,"ndv":3},...]} |
+| {"num_buckets":2,"buckets":[{"lower":"str1","upper":"str7","count":4,"pre_sum":0,"ndv":3},...]} |
 +-------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -68,9 +67,7 @@ MySQL [test]> SELECT histogram(c_string, 0.5, 2) FROM histogram_test;
 
 ```
 {
-    "sample_rate": 0.2, 
-    "max_bucket_num": 128, 
-    "bucket_num": 3, 
+    "num_buckets": 3, 
     "buckets": [
         {
             "lower": "0.1", 
@@ -98,9 +95,7 @@ MySQL [test]> SELECT histogram(c_string, 0.5, 2) FROM histogram_test;
 ```
 
 字段说明：
-- sample_rate：抽样数据比例
-- max_bucket_num：用户限制的最大桶数量
-- bucket_num：实际的桶数量
+- num_buckets：桶的数量
 - buckets：直方图所包含的桶
   - lower：桶的上界
   - upper：桶的下界

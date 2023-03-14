@@ -145,6 +145,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::BITMAP;
     case TypeIndex::HLL:
         return PGenericType::HLL;
+    case TypeIndex::QuantileState:
+        return PGenericType::QUANTILE_STATE;
     case TypeIndex::Array:
         return PGenericType::LIST;
     case TypeIndex::Struct:

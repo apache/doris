@@ -57,6 +57,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -226,16 +227,19 @@ public class PlanReceiver implements AbstractReceiver {
                 () -> JoinUtils.getJoinOutput(joinType, left, right));
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             return Lists.newArrayList(
-                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts, joinProperties, left,
-                            right),
-                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, joinProperties,
+                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
+                            Optional.empty(), joinProperties,
+                            left, right),
+                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
+                            joinProperties,
                             right, left));
         } else {
             return Lists.newArrayList(
-                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, joinProperties,
-                            left,
-                            right),
+                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, Optional.empty(),
+                            joinProperties,
+                            left, right),
                     new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
+                            Optional.empty(),
                             joinProperties,
                             right, left));
         }
@@ -256,6 +260,17 @@ public class PlanReceiver implements AbstractReceiver {
             }
         }
         return joinType;
+    }
+
+    private boolean extractIsMarkJoin(List<Edge> edges) {
+        boolean isMarkJoin = false;
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            isMarkJoin = edge.getJoin().isMarkJoin() || isMarkJoin;
+            joinType = edge.getJoinType();
+        }
+        return isMarkJoin;
     }
 
     @Override
@@ -322,8 +337,8 @@ public class PlanReceiver implements AbstractReceiver {
             } else if (physicalPlan instanceof AbstractPhysicalJoin) {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
-                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.child(0),
-                        physicalJoin.child(1));
+                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
+                        physicalJoin.child(0), physicalJoin.child(1));
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }

@@ -21,6 +21,9 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
@@ -30,10 +33,12 @@ import org.junit.jupiter.api.Test;
 public class ExpressionTranslatorTest {
 
     @Test
-    public void testUnaryArithmetic() {
+    public void testUnaryArithmetic() throws AnalysisException {
         BitNot bitNot = new BitNot(new IntegerLiteral(1));
         ExpressionTranslator translator = ExpressionTranslator.INSTANCE;
-        Expr expr = translator.visitUnaryArithmetic(bitNot, null);
-        Assertions.assertEquals(expr, new ArithmeticExpr(Operator.BITNOT, new IntLiteral(1), null));
+        Expr actual = translator.visitUnaryArithmetic(bitNot, null);
+        Expr expected = new ArithmeticExpr(Operator.BITNOT,
+                new IntLiteral(1, Type.INT), null, Type.INT, NullableMode.DEPEND_ON_ARGUMENT);
+        Assertions.assertEquals(actual, expected);
     }
 }

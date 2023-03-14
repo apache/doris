@@ -27,6 +27,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function_helpers.h"
@@ -337,5 +338,69 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
     }
 
     return get_return_type_without_low_cardinality(arguments);
+}
+
+bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
+        const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
+    return (is_date_or_datetime(return_type->is_nullable()
+                                        ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                        : return_type) &&
+            is_date_or_datetime(
+                    func_return_type->is_nullable()
+                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                            : func_return_type)) ||
+           (is_date_v2_or_datetime_v2(
+                    return_type->is_nullable()
+                            ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                            : return_type) &&
+            is_date_v2_or_datetime_v2(
+                    func_return_type->is_nullable()
+                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                            : func_return_type)) ||
+           // For some date functions such as str_to_date(string, string), return_type will
+           // be datetimev2 if users enable datev2 but get_return_type(arguments) will still
+           // return datetime. We need keep backward compatibility here.
+           (is_date_v2_or_datetime_v2(
+                    return_type->is_nullable()
+                            ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                            : return_type) &&
+            is_date_or_datetime(
+                    func_return_type->is_nullable()
+                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                            : func_return_type)) ||
+           (is_decimal(return_type->is_nullable()
+                               ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                               : return_type) &&
+            is_decimal(func_return_type->is_nullable()
+                               ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                               : func_return_type));
+}
+
+bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
+        const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
+    auto return_type_ptr = return_type->is_nullable()
+                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                   : return_type;
+    auto func_return_type_ptr =
+            func_return_type->is_nullable()
+                    ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                    : func_return_type;
+    if (!(is_array(return_type_ptr) && is_array(func_return_type_ptr))) {
+        return false;
+    }
+    auto nested_nullable_return_type_ptr =
+            (assert_cast<const DataTypeArray*>(return_type_ptr.get()))->get_nested_type();
+    auto nested_nullable_func_return_type =
+            (assert_cast<const DataTypeArray*>(func_return_type_ptr.get()))->get_nested_type();
+    // There must be nullable inside array type.
+    if (nested_nullable_return_type_ptr->is_nullable() &&
+        nested_nullable_func_return_type->is_nullable()) {
+        auto nested_return_type_ptr =
+                ((DataTypeNullable*)(nested_nullable_return_type_ptr.get()))->get_nested_type();
+        auto nested_func_return_type_ptr =
+                ((DataTypeNullable*)(nested_nullable_func_return_type.get()))->get_nested_type();
+        return is_date_or_datetime_or_decimal(nested_return_type_ptr, nested_func_return_type_ptr);
+    }
+    return false;
 }
 } // namespace doris::vectorized

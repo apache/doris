@@ -83,8 +83,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             } else {
                 expr_result.set_success(true);
                 auto string_ref = column_ptr->get_data_at(0);
-                result = _get_result<true>((void*)string_ref.data, string_ref.size,
-                                           ctx->root()->type(), column_ptr, column_type);
+                result = _get_result((void*)string_ref.data, string_ref.size, ctx->root()->type(),
+                                     column_ptr, column_type);
             }
 
             expr_result.set_content(std::move(result));
@@ -138,7 +138,6 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
     return ctx->open(_runtime_state.get());
 }
 
-template <bool is_vec>
 string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescriptor& type,
                                          const vectorized::ColumnPtr column_ptr,
                                          const vectorized::DataTypePtr column_type) {
@@ -180,24 +179,14 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     case TYPE_STRING:
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        if constexpr (is_vec) {
-            return std::string((char*)src, size);
-        }
-        return (reinterpret_cast<StringRef*>(src))->to_string();
+        return std::string((char*)src, size);
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        if constexpr (is_vec) {
-            auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
-            char str[MAX_DTVALUE_STR_LEN];
-            date_value->to_string(str);
-            return str;
-        } else {
-            const DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(src);
-            char str[MAX_DTVALUE_STR_LEN];
-            date_value.to_string(str);
-            return str;
-        }
+        auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
+        char str[MAX_DTVALUE_STR_LEN];
+        date_value->to_string(str);
+        return str;
     }
     case TYPE_DATEV2: {
         vectorized::DateV2Value<vectorized::DateV2ValueType> value =

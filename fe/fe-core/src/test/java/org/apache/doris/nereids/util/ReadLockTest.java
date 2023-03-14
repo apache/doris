@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ReadLockTest extends SSBTestBase {
 
@@ -100,7 +102,9 @@ public class ReadLockTest extends SSBTestBase {
         CascadesContext cascadesContext = planner.getCascadesContext();
         List<Table> f = (List<Table>) Deencapsulation.getField(cascadesContext, "tables");
         Assertions.assertEquals(2, f.size());
-        Assertions.assertEquals("supplier", f.stream().map(Table::getName).findFirst().get());
+        Set<String> tableNames = f.stream().map(Table::getName).collect(Collectors.toSet());
+        Assertions.assertTrue(tableNames.contains("supplier"));
+        Assertions.assertTrue(tableNames.contains("lineorder"));
 
     }
 }

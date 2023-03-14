@@ -34,6 +34,8 @@ import java.net.UnknownHostException;
 public class FQDNManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(FQDNManager.class);
 
+    public static final String UNKNOWN_HOST_IP = "unknown";
+
     private SystemInfoService nodeMgr;
 
     public FQDNManager(SystemInfoService nodeMgr) {
@@ -64,6 +66,13 @@ public class FQDNManager extends MasterDaemon {
                     }
                 } catch (UnknownHostException e) {
                     LOG.warn("unknown host name for fe, {}", fe.getHostName(), e);
+                    // add fe alive check to make ip work when fe is still alive and dns has some problem.
+                    if (!fe.isAlive() && !fe.getIp().equalsIgnoreCase(UNKNOWN_HOST_IP)) {
+                        String ip = fe.getIp();
+                        fe.setIp(UNKNOWN_HOST_IP);
+                        Env.getCurrentEnv().getEditLog().logModifyFrontend(fe);
+                        LOG.warn("ip for {} of fe has been changed from {} to {}", fe.getHostName(), ip, "unknown");
+                    }
                 } catch (DdlException e) {
                     LOG.warn("fail to update ip for fe, {}", fe.getHostName(), e);
                 }
@@ -85,6 +94,14 @@ public class FQDNManager extends MasterDaemon {
                     }
                 } catch (UnknownHostException e) {
                     LOG.warn("unknown host name for be, {}", be.getHostName(), e);
+                    // add be alive check to make ip work when be is still alive and dns has some problem.
+                    if (!be.isAlive() && !be.getIp().equalsIgnoreCase(UNKNOWN_HOST_IP)) {
+                        String ip = be.getIp();
+                        ClientPool.backendPool.clearPool(new TNetworkAddress(ip, be.getBePort()));
+                        be.setIp(UNKNOWN_HOST_IP);
+                        Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
+                        LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, "unknown");
+                    }
                 }
             }
         }

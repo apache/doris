@@ -36,8 +36,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -46,7 +44,6 @@ import java.util.List;
 import java.util.Objects;
 
 public class ArithmeticExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
 
     enum OperatorPosition {
         BINARY_INFIX,
@@ -288,6 +285,21 @@ public class ArithmeticExpr extends Expr {
     }
 
     /**
+     * constructor only used for Nereids.
+     */
+    public ArithmeticExpr(Operator op, Expr e1, Expr e2, Type returnType, NullableMode nullableMode) {
+        this(op, e1, e2);
+        List<Type> argTypes;
+        if (e2 == null) {
+            argTypes = Lists.newArrayList(e1.getType());
+        } else {
+            argTypes = Lists.newArrayList(e1.getType(), e2.getType());
+        }
+        fn = new Function(new FunctionName(op.getName()), argTypes, returnType, false, true, nullableMode);
+        type = returnType;
+    }
+
+    /**
      * Copy c'tor used in clone().
      */
     protected ArithmeticExpr(ArithmeticExpr other) {
@@ -426,7 +438,7 @@ public class ArithmeticExpr extends Expr {
                 }
                 break;
             case INT_DIVIDE:
-                if (!t1.isFixedPointType() || !t2.isFloatingPointType()) {
+                if (!t1.isFixedPointType() || !t2.isFixedPointType()) {
                     castBinaryOp(Type.BIGINT);
                 }
                 break;
@@ -566,10 +578,6 @@ public class ArithmeticExpr extends Expr {
                 }
                 break;
             case INT_DIVIDE:
-                if (!t1.isFixedPointType() || !t2.isFloatingPointType()) {
-                    type = castBinaryOp(Type.BIGINT);
-                }
-                break;
             case BITAND:
             case BITOR:
             case BITXOR:
@@ -580,7 +588,7 @@ public class ArithmeticExpr extends Expr {
                 break;
             default:
                 Preconditions.checkState(false,
-                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
+                        "Unknown arithmetic operation " + op + " in: " + this.toSql());
                 break;
         }
     }
@@ -750,15 +758,7 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
-        if (op == Operator.BITNOT) {
-            fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-        } else {
-            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
-        }
-        if (fn == null) {
-            Preconditions.checkState(false, String.format("No match for op with operand types. %s", toSql()));
-        }
-        type = fn.getReturnType();
+
     }
 
     @Override

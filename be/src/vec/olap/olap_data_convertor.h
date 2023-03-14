@@ -112,6 +112,11 @@ private:
         Status convert_to_olap() override;
     };
 
+    class OlapColumnDataConvertorQuantileState final : public OlapColumnDataConvertorObject {
+    public:
+        Status convert_to_olap() override;
+    };
+
     class OlapColumnDataConvertorChar : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorChar(size_t length);
@@ -408,7 +413,7 @@ private:
                                    OlapColumnDataConvertorBaseUPtr value_convertor)
                 : _key_convertor(std::move(key_convertor)),
                   _value_convertor(std::move(value_convertor)) {
-            _results.resize(2);
+            _results.resize(6); // size + offset + k_data + v_data +  k_nullmap + v_nullmap
         }
 
         Status convert_to_olap() override;
@@ -422,6 +427,7 @@ private:
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;
+        PaddedPODArray<UInt64> _offsets;
     }; //OlapColumnDataConvertorMap
 
 private:

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
@@ -292,5 +293,11 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         builder.setMaxValue(Double.MAX_VALUE);
         builder.setSelectivity(1.0);
         return builder.build();
+    }
+
+    @Override
+    public ColumnStatistic visitMarkJoinReference(
+            MarkJoinSlotReference markJoinSlotReference, StatsDeriveResult context) {
+        return ColumnStatistic.DEFAULT;
     }
 }

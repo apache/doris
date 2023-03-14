@@ -20,6 +20,8 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
+#include <gen_cpp/types.pb.h>
+
 #include "data_type_time.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_object.h"
@@ -153,6 +155,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_DECIMALV2:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
+    case TYPE_QUANTILE_STATE:
+        nested = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
+        break;
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
@@ -261,6 +266,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case OLAP_FIELD_TYPE_DECIMAL:
         result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
+    case OLAP_FIELD_TYPE_QUANTILE_STATE:
+        result = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
+        break;
     case OLAP_FIELD_TYPE_DECIMAL32:
     case OLAP_FIELD_TYPE_DECIMAL64:
     case OLAP_FIELD_TYPE_DECIMAL128I:
@@ -363,9 +371,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::MAP:
         DCHECK(pcolumn.children_size() == 2);
         // here to check pcolumn is list?
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(pcolumn.children(0).children(0)),
-                create_data_type(pcolumn.children(1).children(0)));
+        nested = std::make_shared<vectorized::DataTypeMap>(create_data_type(pcolumn.children(0)),
+                                                           create_data_type(pcolumn.children(1)));
         break;
     case PGenericType::STRUCT: {
         size_t col_size = pcolumn.children_size();
@@ -379,6 +386,14 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
             names.push_back(pcolumn.children(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+        break;
+    }
+    case PGenericType::VARIANT: {
+        nested = std::make_shared<DataTypeObject>("object", true);
+        break;
+    }
+    case PGenericType::QUANTILE_STATE: {
+        nested = std::make_shared<DataTypeQuantileStateDouble>();
         break;
     }
     default: {

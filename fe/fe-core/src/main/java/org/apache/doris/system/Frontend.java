@@ -26,6 +26,7 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -194,5 +195,9 @@ public class Frontend implements Writable {
 
     public void setIp(String ip) {
         this.ip = ip;
+    }
+
+    public HostInfo toHostInfo() {
+        return new HostInfo(ip, hostName, editLogPort);
     }
 }

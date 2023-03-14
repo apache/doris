@@ -38,6 +38,7 @@ import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -59,7 +60,6 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
@@ -250,6 +250,8 @@ public class HiveMetaStoreCache {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
                 InputSplit[] splits;
                 String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
+
+                // TODO: Implement getSplits logic by ourselves, don't call inputFormat.getSplits anymore.
                 if (!Strings.isNullOrEmpty(remoteUser)) {
                     UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
                     splits = ugi.doAs(

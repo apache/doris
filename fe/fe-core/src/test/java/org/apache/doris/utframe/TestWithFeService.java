@@ -54,7 +54,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.Planner;
@@ -135,7 +135,7 @@ public abstract class TestWithFeService {
     public final void afterAll() throws Exception {
         runAfterAll();
         Env.getCurrentEnv().clear();
-        NamedExpressionUtil.clear();
+        StatementScopeIdGenerator.clear();
         cleanDorisFeDir();
     }
 

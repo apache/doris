@@ -29,12 +29,6 @@ template <template <typename> class Data>
 AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
-    if (!argument_types[0]->can_be_used_in_bit_operations()) {
-        LOG(WARNING) << fmt::format("The type " + argument_types[0]->get_name() +
-                                    " of argument for aggregate function " + name +
-                                    " is illegal, because it cannot be used in bitwise operations");
-    }
-
     AggregateFunctionPtr res(creator_with_integer_type::create<AggregateFunctionBitwise, Data>(
             result_is_nullable, argument_types));
     if (res) {

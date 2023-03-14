@@ -47,6 +47,7 @@ suite("test_alter_table_column_with_delete") {
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(500)
