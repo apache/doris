@@ -34,7 +34,7 @@ public class FileSplitStrategy {
     }
 
     public boolean hasNext() {
-        return totalSplitSize > Config.file_scan_node_split_size || splitNum > Config.file_scan_node_split_num;
+        return totalSplitSize >= Config.file_scan_node_split_size || splitNum >= Config.file_scan_node_split_num;
     }
 
     public void next() {
