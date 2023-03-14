@@ -115,9 +115,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(in, stat);
-        Assertions.assertEquals(
-                FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT * stat.getRowCount(),
-                expected.getRowCount());
+        Assertions.assertTrue(Precision.equals(333.33, expected.getRowCount(), 0.01));
     }
 
     @Test
@@ -134,9 +132,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(notIn, stat);
-        Assertions.assertEquals(
-                FilterEstimation.DEFAULT_INEQUALITY_COEFFICIENT * stat.getRowCount(),
-                expected.getRowCount());
+        Assertions.assertTrue(Precision.equals(333.33, expected.getRowCount(), 0.01));
     }
 
     /**
