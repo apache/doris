@@ -130,11 +130,17 @@ public:
               _low_op(InvertedIndexQueryOp::GREATER_THAN_QUERY),
               _high_op(InvertedIndexQueryOp::LESS_THAN_QUERY),
               _type_info(type_info) {
-        //FieldTypeTraits<field_type>::set_to_max(&_high_value);
-        //FieldTypeTraits<field_type>::set_to_min(&_low_value);
         _value_key_coder = get_key_coder(_type_info->type());
-        _value_key_coder->full_encode_ascending(&TYPE_MAX, &_high_value_encoded);
-        _value_key_coder->full_encode_ascending(&TYPE_MIN, &_low_value_encoded);
+
+        if constexpr (Type == TYPE_DATETIME) {
+            uint64_t max_value = 99991231235959L;
+            uint64_t min_value = 101000000;
+            _value_key_coder->full_encode_ascending(&max_value, &_high_value_encoded);
+            _value_key_coder->full_encode_ascending(&min_value, &_low_value_encoded);
+        } else {
+            _value_key_coder->full_encode_ascending(&TYPE_MAX, &_high_value_encoded);
+            _value_key_coder->full_encode_ascending(&TYPE_MIN, &_low_value_encoded);
+        }
     }
 
     // if op is match, we just need to add match_value to fixed_values_str, no need to add to fixed_values.
@@ -170,8 +176,6 @@ public:
     bool is_range_query() const { return _high_value > _low_value; }
     CppType& lower_value() { return _low_value; }
     CppType& upper_value() { return _high_value; }
-    //std::string& lower_value_string() { return _low_value_str; }
-    //std::string& upper_value_string() { return _high_value_str; }
     std::string& lower_value_encoded() { return _low_value_encoded; }
     std::string& upper_value_encoded() { return _high_value_encoded; }
     InvertedIndexQueryOp lower_op() const { return _low_op; }
@@ -184,25 +188,33 @@ public:
         return _high_op == InvertedIndexQueryOp::LESS_EQUAL_QUERY ||
                _high_op == InvertedIndexQueryOp::EQUAL_QUERY;
     }
-    bool has_upper_bound() { return _high_value != TYPE_MAX; }
-    bool has_lower_bound() { return _low_value != TYPE_MIN; }
+    bool has_upper_bound() {
+        if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
+            return upper_value().data != &StringRef::MAX_CHAR;
+        } else {
+            return _high_value != TYPE_MAX;
+        }
+    }
+    bool has_lower_bound() {
+        if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
+            return lower_value().data != &StringRef::MIN_CHAR;
+        } else {
+            return _low_value != TYPE_MIN;
+        }
+    }
+
     InvertedIndexQueryOp point_op() const {
         DCHECK(_low_op == _high_op);
         return _low_op;
     }
     size_t get_fixed_value_size() { return _fixed_values.size(); }
     const std::set<CppType>& get_fixed_value_set() { return _fixed_values; }
-    //const std::set<std::string>& get_fixed_value_string_set() { return _fixed_values_str; }
     const std::set<std::string>& get_fixed_value_encoded_set() { return _fixed_values_encoded; }
 
     CppType get_fixed_value() {
         DCHECK(get_fixed_value_size() > 0);
         return *_fixed_values.begin();
     }
-    //std::string get_fixed_value_string() {
-    //    DCHECK(get_fixed_value_size() > 0);
-    //    return *_fixed_values_str.begin();
-    // }
     std::string get_fixed_value_encoded() {
         DCHECK(get_fixed_value_size() > 0);
         return *_fixed_values_encoded.begin();
@@ -264,8 +276,7 @@ private:
 
     CppType _low_value;
     CppType _high_value;
-    //std::string _low_value_str;
-    //std::string _high_value_str;
+
     std::string _low_value_encoded;
     std::string _high_value_encoded;
 
@@ -273,7 +284,6 @@ private:
     InvertedIndexQueryOp _high_op;
 
     std::set<CppType> _fixed_values;
-    //std::set<std::string> _fixed_values_str;
     std::set<std::string> _fixed_values_encoded;
 
     const TypeInfo* _type_info {};
@@ -293,6 +303,12 @@ using InvertedIndexQueryType =
                      InvertedIndexQuery<TYPE_CHAR>, InvertedIndexQuery<TYPE_VARCHAR>,
                      InvertedIndexQuery<TYPE_STRING>>;
 
+template <>
+const typename InvertedIndexQuery<TYPE_DATETIME>::CppType
+        InvertedIndexQuery<TYPE_DATETIME>::TYPE_MAX;
+template <>
+const typename InvertedIndexQuery<TYPE_DATETIME>::CppType
+        InvertedIndexQuery<TYPE_DATETIME>::TYPE_MIN;
 template <PrimitiveType field_type>
 const typename InvertedIndexQuery<field_type>::CppType InvertedIndexQuery<field_type>::TYPE_MIN =
         type_limit<typename InvertedIndexQuery<field_type>::CppType>::min();

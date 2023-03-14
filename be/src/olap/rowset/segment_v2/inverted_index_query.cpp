@@ -17,15 +17,22 @@
 
 #include "olap/rowset/segment_v2/inverted_index_query.h"
 
-#include "gutil/strings/strip.h"
 #include "olap/column_predicate.h"
 #include "olap/key_coder.h"
 #include "olap/utils.h"
 #include "util/time.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 namespace segment_v2 {
+
+//NOTE: TYPE_DATETIME is a special case, because it is stored as an int64_t in olap field type,
+//but it is declared as an uint64_t in primitive type, so we need to set it separately.
+template <>
+const typename InvertedIndexQuery<TYPE_DATETIME>::CppType
+        InvertedIndexQuery<TYPE_DATETIME>::TYPE_MAX = 99991231235959L;
+template <>
+const typename InvertedIndexQuery<TYPE_DATETIME>::CppType
+        InvertedIndexQuery<TYPE_DATETIME>::TYPE_MIN = 101000000;
 
 template <PrimitiveType Type>
 Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, const CppType& value) {
@@ -110,7 +117,6 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, PredicatePar
         case InvertedIndexQueryOp::GREATER_EQUAL_QUERY: {
             if (value > _low_value) {
                 _low_value = value;
-                //_low_value_str = value_str;
                 _low_value_encoded.clear();
                 _value_key_coder->full_encode_ascending(&value, &_low_value_encoded);
                 _low_op = op;
@@ -121,7 +127,6 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, PredicatePar
         case InvertedIndexQueryOp::LESS_THAN_QUERY: {
             if (value <= _high_value) {
                 _high_value = value;
-                //_high_value_str = value_str;
                 _high_value_encoded.clear();
                 _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
                 _high_op = op;
@@ -132,7 +137,6 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, PredicatePar
         case InvertedIndexQueryOp::LESS_EQUAL_QUERY: {
             if (value < _high_value) {
                 _high_value = value;
-                //_high_value_str = value_str;
                 _high_value_encoded.clear();
                 _value_key_coder->full_encode_ascending(&value, &_high_value_encoded);
                 _high_op = op;
@@ -151,40 +155,9 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, PredicatePar
 }
 
 template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_lower_bound() {
-    return lower_value().data != &StringRef::MIN_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_lower_bound() {
-    return lower_value().data != &StringRef::MIN_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_lower_bound() {
-    return lower_value().data != &StringRef::MIN_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::has_upper_bound() {
-    return upper_value().data != &StringRef::MAX_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::has_upper_bound() {
-    return upper_value().data != &StringRef::MAX_CHAR;
-}
-
-template <>
-bool InvertedIndexQuery<PrimitiveType::TYPE_STRING>::has_upper_bound() {
-    return upper_value().data != &StringRef::MAX_CHAR;
-}
-
-template <>
 Status InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::add_fixed_value(InvertedIndexQueryOp op,
                                                                         const CppType& value) {
     _fixed_values.insert(value);
-    //_fixed_values_str.insert(value_str);
 
     _high_value = value;
     _low_value = value;
@@ -198,7 +171,6 @@ template <>
 Status InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::add_fixed_value(InvertedIndexQueryOp op,
                                                                      const CppType& value) {
     _fixed_values.insert(value);
-    //_fixed_values_str.insert(value_str);
 
     _high_value = value;
     _low_value = value;
@@ -212,7 +184,6 @@ template <>
 Status InvertedIndexQuery<PrimitiveType::TYPE_STRING>::add_fixed_value(InvertedIndexQueryOp op,
                                                                        const CppType& value) {
     _fixed_values.insert(value);
-    //_fixed_values_str.insert(value_str);
 
     _high_value = value;
     _low_value = value;
