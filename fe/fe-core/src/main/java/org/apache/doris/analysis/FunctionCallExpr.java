@@ -797,7 +797,9 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT) || fnName.getFunction()
                 .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT) || fnName.getFunction()
-                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT)) {
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE)) {
             if (children.size() <= 2) {
                 throw new AnalysisException(fnName + "(bitmap_column, column_to_filter, filter_values) "
                         + "function requires at least three parameters");
