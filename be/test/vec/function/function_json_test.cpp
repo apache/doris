@@ -46,7 +46,7 @@ TEST(FunctionJsonTEST, GetJsonIntTest) {
              INT(2)},
             {{VARCHAR("{\"k1.key\":{\"k2\":[1, 2]}}"), VARCHAR("$.\"k1.key\".k2[0]")}, INT(1)}};
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionJsonTEST, GetJsonStringTest) {
