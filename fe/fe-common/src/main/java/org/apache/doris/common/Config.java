@@ -1697,7 +1697,7 @@ public class Config extends ConfigBase {
      * Default is false.
      * */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_quantile_state_type = false;
+    public static boolean enable_quantile_state_type = true;
 
     @ConfField
     public static boolean enable_vectorized_load = true;

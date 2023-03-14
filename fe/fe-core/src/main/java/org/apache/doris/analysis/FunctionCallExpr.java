@@ -872,7 +872,6 @@ public class FunctionCallExpr extends Expr {
             if (!getChild(1).isConstant()) {
                 throw new AnalysisException(fnName + "function's second argument should be constant");
             }
-            throw new AnalysisException(fnName + "not support on vectorized engine now.");
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")

@@ -1542,10 +1542,13 @@ visible_functions = [
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
     [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['bitmap_to_array'], 'ARRAY_BIGINT', ['BITMAP'], ''],
-    # quantile_function
-    [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], ''],
 
-    [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], ''],
+    # quantile_function
+    [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['to_quantile_state'], 'QUANTILE_STATE', ['DOUBLE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['to_quantile_state'], 'QUANTILE_STATE', ['FLOAT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['to_quantile_state'], 'QUANTILE_STATE', ['BIGINT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
 
 
     # hash functions

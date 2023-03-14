@@ -46,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
   aggregate_functions/aggregate_function_histogram.cpp
+  aggregate_functions/aggregate_function_quantile_state.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_struct.cpp
@@ -95,6 +96,7 @@ set(VEC_FILES
   data_types/data_type_string.cpp
   data_types/data_type_decimal.cpp
   data_types/data_type_map.cpp
+  data_types/data_type_quantilestate.cpp
   data_types/get_least_supertype.cpp
   data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
@@ -249,6 +251,7 @@ set(VEC_FILES
   functions/function_running_difference.cpp
   functions/function_width_bucket.cpp
   functions/match.cpp
+  functions/function_quantile_state.cpp
   
   jsonb/serialize.cpp
   olap/vgeneric_iterators.cpp
