@@ -170,30 +170,33 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void readUnlock() {
+        LOG.info("{} yyyyy beginreadunlock", getName(), new Exception());
         this.rwLock.readLock().unlock();
-        LOG.info("{} yyyyyreadunlock", getName(), new Exception());
+        LOG.info("{} yyyyy finishreadunlock", getName(), new Exception());
     }
 
     public void writeLock() {
-        LOG.info("{} tryhold yyyyylock", getName(), new Exception());
+        LOG.info("{} yyyyy beginwritelock", getName(), new Exception());
         this.rwLock.writeLock().lock();
-        LOG.info("{} hold yyyyylock", getName(), new Exception());
+        LOG.info("{} yyyyy finishwritelock", getName(), new Exception());
     }
 
     public boolean writeLockIfExist() {
-        LOG.info("{} tryhold yyyyylock", getName(), new Exception());
+        LOG.info("{} yyyyy beginwriteLockIfExistlock", getName(), new Exception());
         this.rwLock.writeLock().lock();
         if (isDropped) {
+            LOG.info("{} yyyyy beginwriteLockIfExistUnlock", getName(), new Exception());
             this.rwLock.writeLock().unlock();
-            LOG.info("{} hold yyyyylock", getName(), new Exception());
+            LOG.info("{} yyyyy finishwriteLockIfExistUnlock", getName(), new Exception());
             return false;
         }
-        LOG.info("{} hold yyyyylock", getName(), new Exception());
+        LOG.info("{} yyyyy finishwriteLockIfExistlock", getName(), new Exception());
         return true;
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
+            LOG.info("{} yyyyy begintrywriteunlock", getName(), new Exception());
             boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
                 LOG.warn("yyyyyFailed to try table {}'s write lock. timeout {} {}. Current owner: {}",
@@ -201,17 +204,21 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
             if (res) {
                 LOG.info("{} hold yyyyylock", getName(), new Exception());
+            } else {
+                LOG.info("{} hold yyyyywritelock failed", getName(), new Exception());
+                LOG.info("{} hold yyyyywritelock owner {}", getName(), this.rwLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
-            LOG.warn("yyyyyfailed to try yyyyywrite lock at table[" + name + "]", e);
+            LOG.warn("yyyyy failed to try yyyyywrite lock at table[" + name + "]", e);
             return false;
         }
     }
 
     public void writeUnlock() {
+        LOG.info("{} yyyyy beginwriteunlock", getName(), new Exception());
         this.rwLock.writeLock().unlock();
-        LOG.info("{} yyyyyunlock", getName(), new Exception());
+        LOG.info("{} yyyyy finishwriteunlock", getName(), new Exception());
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
