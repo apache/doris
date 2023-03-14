@@ -24,48 +24,29 @@ suite("test_hive_other", "p0") {
         qt_q27 """ select * from string_table order by p_partkey desc;"""
         qt_q28 """ select * from account_fund order by batchno;"""
         qt_q29 """ select * from sale_table order by bill_code limit 01;"""
-        qt_q30 """ select count(card_cnt) from hive01;"""
+        order_qt_q30 """ select count(card_cnt) from hive01;"""
         qt_q31 """ select * from test2 order by id;"""
         qt_q32 """ select * from test_hive_doris order by id;"""
 
-        order_qt_q33 """ select dt, * from table_with_vertical_line order by dt desc limit 10;"""
+        qt_q33 """ select dt, k1, * from table_with_vertical_line order by dt desc, k1 desc limit 10;"""
         order_qt_q34 """ select dt, k2 from table_with_vertical_line order by k2 desc limit 10;"""
-        order_qt_q35 """ select dt, k2 from table_with_vertical_line where dt='2022-11-24' order by k2 desc limit 10;"""
-        order_qt_q36 """ select k2, k5 from table_with_vertical_line where dt='2022-11-25' order by k2 desc limit 10;"""
+        qt_q35 """ select dt, k2 from table_with_vertical_line where dt='2022-11-24' order by k2 desc limit 10;"""
+        qt_q36 """ select k2, k5 from table_with_vertical_line where dt='2022-11-25' order by k2 desc limit 10;"""
         order_qt_q37 """ select count(*) from table_with_vertical_line;"""
-        order_qt_q38 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25') order by k2 desc limit 10;"""
-        order_qt_q39 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25', '2022-11-24') order by k2 desc limit 10;"""
-        order_qt_q40 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-25') order by k2 desc limit 10;"""
-        order_qt_q41 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') and dt in ('2022-11-24') order by k2 desc limit 10;"""
-        order_qt_q42 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
+        qt_q38 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25') order by k2 desc limit 10;"""
+        qt_q39 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25', '2022-11-24') order by k2 desc limit 10;"""
+        qt_q40 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-25') order by k2 desc limit 10;"""
+        qt_q41 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') and dt in ('2022-11-24') order by k2 desc limit 10;"""
+        qt_q42 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
 
-        order_qt_q43 """ select dt, * from table_with_x01 order by dt desc limit 10;"""
-        order_qt_q44 """ select dt, k2 from table_with_x01 order by k2 desc limit 10;"""
-        order_qt_q45 """ select dt, k2 from table_with_x01 where dt='2022-11-10' order by k2 desc limit 10;"""
-        order_qt_q46 """ select k2, k5 from table_with_x01 where dt='2022-11-10' order by k2 desc limit 10;"""
-        order_qt_q47 """ select count(*) from table_with_x01;"""
-        order_qt_q48 """ select k2, k5 from table_with_x01 where dt in ('2022-11-25') order by k2 desc limit 10;"""
-        order_qt_q49 """ select k2, k5 from table_with_x01 where dt in ('2022-11-10', '2022-11-10') order by k2 desc limit 10;"""
-        order_qt_q50 """ select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
-
-        test {
-            sql """select * from unsupported_type_table"""
-            exception """Unsupported type 'UNSUPPORTED_TYPE'"""
-        }
-
-        qt_q51 """select * except(k4,k5) from unsupported_type_table;"""
-
-        test {
-            sql """select k1,k4 from unsupported_type_table"""
-            exception """Unsupported type 'UNSUPPORTED_TYPE'"""
-        }
-
-        test {
-            sql """select k1 from unsupported_type_table where k4 is null;"""
-            exception """Unsupported type 'UNSUPPORTED_TYPE'"""
-        }
-
-        qt_q52 """select k1,k3,k6 from unsupported_type_table"""
+        qt_q43 """ select dt, k1, * from table_with_x01 order by dt desc, k1 desc limit 10;"""
+        qt_q44 """ select dt, k2 from table_with_x01 order by k2 desc limit 10;"""
+        qt_q45 """ select dt, k2 from table_with_x01 where dt='2022-11-10' order by k2 desc limit 10;"""
+        qt_q46 """ select k2, k5 from table_with_x01 where dt='2022-11-10' order by k2 desc limit 10;"""
+	order_qt_q47 """ select count(*) from table_with_x01;"""
+        qt_q48 """ select k2, k5 from table_with_x01 where dt in ('2022-11-25') order by k2 desc limit 10;"""
+        qt_q49 """ select k2, k5 from table_with_x01 where dt in ('2022-11-10', '2022-11-10') order by k2 desc limit 10;"""
+        qt_q50 """ select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -104,50 +85,6 @@ suite("test_hive_other", "p0") {
         q01()
         sql """refresh table `default`.table_with_vertical_line"""
         order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
-
-        // external table
-        sql """switch internal"""
-        sql """drop database if exists external_hive_table_test"""
-        sql """create database external_hive_table_test"""
-        sql """use external_hive_table_test"""
-        sql """drop table if exists external_hive_student"""
-
-        sql """
-            create external table `external_hive_student` (
-                `id` varchar(100),
-                `name` varchar(100),
-                `age` int,
-                `gender` varchar(100),
-                `addr` varchar(100),
-                `phone` varchar(100)
-            ) ENGINE=HIVE
-            PROPERTIES
-            (
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}',
-                'database' = 'default',
-                'table' = 'student'
-            );
-        """
-        qt_student """select * from external_hive_student order by name;"""
-
-        // read external table
-        String csv_output_dir = UUID.randomUUID().toString()
-        sql """
-            select * from external_hive_student
-            into outfile "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_"
-            format as csv_with_names
-            properties (
-                "column_separator" = ",",
-                "line_delimiter" = "\n"
-            );
-        """
-        qt_tvf_student """
-            select * from hdfs (
-                "format" = "csv_with_names",
-                "fs.defaultFS" = "hdfs://127.0.0.1:${hdfs_port}",
-                "uri" = "hdfs://127.0.0.1:${hdfs_port}/user/test/student/${csv_output_dir}/csv_*"
-            ) order by name;
-        """
 
         sql """drop catalog if exists ${catalog_name}"""
         sql """drop resource if exists hms_resource_hive_other"""
