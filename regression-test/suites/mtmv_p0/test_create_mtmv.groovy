@@ -56,7 +56,7 @@ suite("test_create_mtmv") {
         INSERT INTO ${tableNamePv} VALUES("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
     """
 
-    sql """drop materialized view if exists ${mvName}""" 
+    sql """drop materialized view if exists ${mvName}"""
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}

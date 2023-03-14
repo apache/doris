@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite ("multi_slot_multi_mv") {
     sql """ DROP TABLE IF EXISTS d_table; """
 
@@ -38,13 +36,14 @@ suite ("multi_slot_multi_mv") {
 
     createMV ("create materialized view k1a2p2ap3p as select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table;")
 
-    sql "create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;"
+    def result = sql "create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;"
+    result = result.toString()
     while (!result.contains("FINISHED")){
         result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
         result = result.toString()
         logger.info("result: ${result}")
         if(result.contains("CANCELLED")){
-            return 
+            return
         }
         Thread.sleep(1000)
     }
@@ -55,7 +54,7 @@ suite ("multi_slot_multi_mv") {
 
     explain {
         sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1")
-        contains "(k1a2p2ap3p)"
+        contains "(k1a2p2ap3ps)"
     }
     qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1;"
 

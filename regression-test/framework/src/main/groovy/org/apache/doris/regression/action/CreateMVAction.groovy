@@ -17,14 +17,13 @@
 
 package org.apache.doris.regression.action
 
-import groovy.transform.stc.ClosureParams
-import groovy.transform.stc.FromString
+
+import groovy.util.logging.Slf4j
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
-import groovy.util.logging.Slf4j
-import java.sql.ResultSetMetaData
-import java.util.stream.Collectors
+
 import java.sql.Connection
+import java.sql.ResultSetMetaData
 
 @Slf4j
 class CreateMVAction implements SuiteAction {
@@ -63,7 +62,7 @@ class CreateMVAction implements SuiteAction {
         while (!sqlResult.contains("FINISHED")) {
             def tmp = doRun("SHOW ALTER TABLE MATERIALIZED VIEW ORDER BY CreateTime DESC LIMIT 1;")
             sqlResult = tmp.result[0]
-            log.info("result: ${sqlResult}")
+            log.info("result: ${sqlResult}".toString())
             if (tryTimes == 60 || sqlResult.contains("CANCELLED")) {
                 throw new IllegalStateException("MV create check times over limit");
             }
