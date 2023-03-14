@@ -70,13 +70,9 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     public String[] getNodes() {
         String hosts = catalogProperty.getOrDefault(EsResource.HOSTS, "");
+        String sslEnabled = catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED, "false");
         String[] hostUrls = hosts.trim().split(",");
-        for (int i = 0; i < hostUrls.length; i++) {
-            String host = hostUrls[i].trim();
-            if (!host.startsWith("http://") && !host.startsWith("https://")) {
-                hostUrls[i] = "http://" + host;
-            }
-        }
+        EsResource.fillUrlsWithSchema(hostUrls, Boolean.parseBoolean(sslEnabled));
         return hostUrls;
     }
 
