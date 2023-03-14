@@ -21,6 +21,7 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+// You can use this annotation when you want add try catch logger error.
 
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
