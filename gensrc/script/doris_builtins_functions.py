@@ -1529,10 +1529,10 @@ visible_functions = [
     [['jsonb_extract_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
     # Json functions
-    [['get_json_int'], 'INT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['get_json_int'], 'BIGINT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['get_json_double'], 'DOUBLE', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['get_json_string'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-    [['get_json_int'], 'INT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+    [['get_json_int'], 'BIGINT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['get_json_double'], 'DOUBLE', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
     [['get_json_string'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 

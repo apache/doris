@@ -258,9 +258,9 @@ struct GetJsonNumberType {
             if constexpr (std::is_same_v<double, typename NumberType::T>) {
                 root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
                 handle_result<double>(root, res[i], null_map[i]);
-            } else if constexpr (std::is_same_v<int32_t, typename NumberType::T>) {
+            } else if constexpr (std::is_same_v<int64_t, typename NumberType::T>) {
                 root = get_json_object<JSON_FUN_DOUBLE>(json_string, path_string, &document);
-                handle_result<int32_t>(root, res[i], null_map[i]);
+                handle_result<int64_t>(root, res[i], null_map[i]);
             }
         }
     }
@@ -270,8 +270,8 @@ struct GetJsonNumberType {
         if (root == nullptr || root->IsNull()) {
             res = 0;
             res_null = 1;
-        } else if (root->IsInt()) {
-            res = root->GetInt();
+        } else if (root->IsInt64()) {
+            res = root->GetInt64();
         } else if (root->IsDouble()) {
             res = root->GetDouble();
         } else {
@@ -279,10 +279,10 @@ struct GetJsonNumberType {
         }
     }
 
-    template <typename T, std::enable_if_t<std::is_same_v<int32_t, T>, T>* = nullptr>
-    static void handle_result(rapidjson::Value* root, int32_t& res, uint8_t& res_null) {
-        if (root != nullptr && root->IsInt()) {
-            res = root->GetInt();
+    template <typename T, std::enable_if_t<std::is_same_v<int64_t, T>, T>* = nullptr>
+    static void handle_result(rapidjson::Value* root, int64_t& res, uint8_t& res_null) {
+        if (root != nullptr && root->IsInt64()) {
+            res = root->GetInt64();
         } else {
             res_null = 1;
         }
@@ -297,8 +297,8 @@ struct JsonNumberTypeDouble {
 };
 
 struct JsonNumberTypeInt {
-    using T = int32_t;
-    using ReturnType = DataTypeInt32;
+    using T = int64_t;
+    using ReturnType = DataTypeInt64;
     using ColumnType = ColumnVector<T>;
 };
 
@@ -398,7 +398,7 @@ struct JsonParser<'2'> {
     // int
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetInt(StringParser::string_to_int<int>(data.data, data.size, &result));
+        value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
     }
 };
 
