@@ -36,7 +36,7 @@ suite("test_mysql_load_trim_quotes", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    def mysql_load_skip_lines = getLoalFilePath "test_mysql_load_trim_quotes.csv"
+    def mysql_load_skip_lines = getLoalFilePath "mysql_load_trim_quotes.csv"
 
     // trim quotes
     sql """
@@ -45,7 +45,7 @@ suite("test_mysql_load_trim_quotes", "p0") {
         INFILE '${mysql_load_skip_lines}'
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY ','
-        PROPERTIES ("strict_mode"="true");
+        PROPERTIES ("trim_double_quotes"="true");
     """
 
     sql "sync"
