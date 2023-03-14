@@ -105,7 +105,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalStorageLayerAggregate",
+        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + id.asInt() + "]" + getGroupIdAsString(),
                 "pushDownAggOp", aggOp,
                 "relation", relation,
                 "stats", statistics
@@ -131,7 +131,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalStorageLayerAggregate(relation, aggOp, Optional.empty(),
+        return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics);
     }
 

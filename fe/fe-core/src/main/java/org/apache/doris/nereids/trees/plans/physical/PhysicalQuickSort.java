@@ -91,13 +91,13 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalQuickSort<>(orderKeys, phase, Optional.empty(), getLogicalProperties(), physicalProperties,
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, getLogicalProperties(), physicalProperties,
                 statistics, child());
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalQuickSort",
+        return Utils.toSqlString("PhysicalQuickSort[" + id.asInt() + "]" + getGroupIdAsString(),
                 "orderKeys", orderKeys,
                 "phase", phase.toString()
         );

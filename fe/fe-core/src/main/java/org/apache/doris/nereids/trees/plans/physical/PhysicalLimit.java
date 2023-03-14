@@ -152,7 +152,7 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalLimit",
+        return Utils.toSqlString("PhysicalLimit[" + id.asInt() + "]" + getGroupIdAsString(),
                 "limit", limit,
                 "offset", offset,
                 "phase", phase,

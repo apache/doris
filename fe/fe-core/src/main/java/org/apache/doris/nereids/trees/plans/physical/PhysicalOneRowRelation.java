@@ -89,7 +89,7 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOneRowRelation",
+        return Utils.toSqlString("PhysicalOneRowRelation[" + id.asInt() + "]" + getGroupIdAsString(),
                 "expressions", projects,
                 "buildUnionNode", buildUnionNode
         );
@@ -116,7 +116,7 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalOneRowRelation(projects, buildUnionNode, Optional.empty(),
+        return new PhysicalOneRowRelation(projects, buildUnionNode, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 

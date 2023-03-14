@@ -67,7 +67,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]",
+        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdAsString(),
                 "projects", projects,
                 "stats", statistics
         );
@@ -119,7 +119,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public PhysicalProject<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalProject<>(projects, Optional.empty(), getLogicalProperties(), physicalProperties,
+        return new PhysicalProject<>(projects, groupExpression, getLogicalProperties(), physicalProperties,
                 statistics, child());
     }
 

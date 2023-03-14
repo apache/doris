@@ -115,7 +115,8 @@ public class PhysicalHashJoin<
             args.add("hint");
             args.add(hint);
         }
-        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]", args.toArray());
+        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdAsString(),
+                args.toArray());
     }
 
     @Override
@@ -142,6 +143,6 @@ public class PhysicalHashJoin<
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, left(), right());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 }

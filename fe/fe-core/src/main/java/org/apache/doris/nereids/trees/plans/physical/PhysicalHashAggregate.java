@@ -182,7 +182,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]",
+        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdAsString(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
                 "maybeUseStreaming", maybeUsingStream,
@@ -249,7 +249,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
                 requireProperties, physicalProperties, statistics,
                 child());
     }
@@ -257,7 +257,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutput, partitionExpressions,
-                aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
                 requireProperties, physicalProperties, statistics, child());
     }
 
