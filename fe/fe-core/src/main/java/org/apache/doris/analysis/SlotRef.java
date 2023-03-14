@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
-// import org.apache.doris.common.util.ToSqlContext;
+import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
@@ -212,11 +212,11 @@ public class SlotRef extends Expr {
         } else if (label != null) {
             return label + sb.toString();
         } else if (desc.getSourceExprs() != null) {
-//            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
-//                if (desc.getId().asInt() != 1) {
-//                    sb.append("<slot " + desc.getId().asInt() + ">");
-//                }
-//            }
+            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+                if (desc.getId().asInt() != 1) {
+                    sb.append("<slot " + desc.getId().asInt() + ">");
+                }
+            }
             for (Expr expr : desc.getSourceExprs()) {
                 sb.append(" ");
                 sb.append(expr.toSql());
