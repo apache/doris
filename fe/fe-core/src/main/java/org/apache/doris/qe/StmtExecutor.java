@@ -1235,7 +1235,7 @@ public class StmtExecutor implements ProfileWriter {
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner);
+        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.setProfileWriter(this);
@@ -1581,7 +1581,7 @@ public class StmtExecutor implements ProfileWriter {
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
             try {
-                coord = new Coordinator(context, analyzer, planner);
+                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
 
@@ -2059,7 +2059,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             planner.getFragments();
             RowBatch batch;
-            coord = new Coordinator(context, analyzer, planner);
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
