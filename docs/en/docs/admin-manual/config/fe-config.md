@@ -1007,7 +1007,7 @@ Maximum percentage of data that can be filtered (due to reasons such as data is 
 
 #### `max_running_txn_num_per_db`
 
-Default：1000
+Default：100
 
 IsMutable：true
 
