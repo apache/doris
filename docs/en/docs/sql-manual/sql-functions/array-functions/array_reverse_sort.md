@@ -49,9 +49,9 @@ If the element of array is NULL, it will be placed in the last of the sorted arr
 
 ```
 mysql> set enable_vectorized_engine=true;
-mysql> select k1, k2, array_sort(k2) from array_test;
+mysql> select k1, k2, array_reverse_sort(k2) from array_test;
 +------+-----------------------------+-----------------------------+
-| k1   | k2                          | array_sort(`k2`)            |
+| k1   | k2                          | array_reverse_sort(`k2`)    |
 +------+-----------------------------+-----------------------------+
 |  1   | [1, 2, 3, 4, 5]             | [5, 4, 3, 2, 1]             |
 |  2   | [6, 7, 8]                   | [8, 7, 6]                   |
@@ -64,9 +64,9 @@ mysql> select k1, k2, array_sort(k2) from array_test;
 |  9   | [1, NULL, 1, 2, NULL, NULL] | [2, 1, 1, NULL, NULL, NULL] |
 +------+-----------------------------+-----------------------------+
 
-mysql> select k1, k2, array_sort(k2) from array_test01;
+mysql> select k1, k2, array_reverse_sort(k2) from array_test01;
 +------+------------------------------------------+------------------------------------------+
-| k1   | k2                                       | array_sort(`k2`)                         |
+| k1   | k2                                       | array_reverse_sort(`k2`)                 |
 +------+------------------------------------------+------------------------------------------+
 |  1   | ['a', 'b', 'c', 'd', 'e']                | ['e', 'd', 'c', 'b', 'a']                |
 |  2   | ['f', 'g', 'h']                          | ['h', 'g', 'f']                          |
