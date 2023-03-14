@@ -1288,7 +1288,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // TODO: because of the limitation of be, the VNestedLoopJoinNode will output column from both children
             // in the intermediate tuple, so fe have to do the same, if be fix the problem, we can change it back.
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
-                if (!leftSlotDescriptor.isMaterialized()) {
+                if (leftSlotDescriptor == null || !leftSlotDescriptor.isMaterialized()) {
                     continue;
                 }
                 SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
@@ -1299,7 +1299,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
             }
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
-                if (!rightSlotDescriptor.isMaterialized()) {
+                if (rightSlotDescriptor == null || !rightSlotDescriptor.isMaterialized()) {
                     continue;
                 }
                 SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
