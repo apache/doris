@@ -27,9 +27,11 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+
+#include "runtime/types.h"
+
 namespace doris {
 
-class FunctionContextImpl;
 struct ColumnPtrWrapper;
 struct StringRef;
 class BitmapValue;
@@ -37,6 +39,8 @@ class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
 struct TypeDescriptor;
+
+class RuntimeState;
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
@@ -71,6 +75,27 @@ public:
         THREAD_LOCAL,
     };
 
+    static std::unique_ptr<doris::FunctionContext> create_context(
+            RuntimeState* state, const doris::TypeDescriptor& return_type,
+            const std::vector<doris::TypeDescriptor>& arg_types);
+
+    /// Returns a new FunctionContext with the same constant args, fragment-local state, and
+    /// debug flag as this FunctionContext. The caller is responsible for calling delete on
+    /// it.
+    std::unique_ptr<doris::FunctionContext> clone();
+
+    void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
+
+    RuntimeState* state() { return _state; }
+
+    std::string& string_result() { return _string_result; }
+
+    bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
+
+    bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
+        return _check_overflow_for_decimal = check_overflow_for_decimal;
+    }
+
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
     // Note: when you set error for the UDFs used in Data Load, you should
@@ -82,18 +107,6 @@ public:
     // Warnings are capped at a maximum number. Returns true if the warning was
     // added and false if it was ignored due to the cap.
     bool add_warning(const char* warning_msg);
-
-    // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
-    // through the query. E.g. "select UDA(col, 'sample=true') from tbl".
-    // const char* GetMetadata(const char*) const;
-
-    // TODO: Add mechanism for UDAs to update stats similar to runtime profile counters
-
-    // TODO: Add mechanism to query for table/column stats
-
-    // Returns the underlying opaque implementation object. The UDF/UDA should not
-    // use this. This is used internally.
-    doris::FunctionContextImpl* impl() { return _impl.get(); }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
     /// be used to store a pointer that can then be retrieved via GetFunctionState(). If
@@ -132,16 +145,38 @@ public:
     ~FunctionContext() = default;
 
 private:
-    friend class doris::FunctionContextImpl;
-
-    FunctionContext();
+    FunctionContext() = default;
 
     // Disable copy ctor and assignment operator
     FunctionContext(const FunctionContext& other);
 
     FunctionContext& operator=(const FunctionContext& other);
 
-    std::unique_ptr<doris::FunctionContextImpl> _impl; // Owned by this object.
+    // We use the query's runtime state to report errors and warnings. nullptr for test
+    // contexts.
+    RuntimeState* _state;
+
+    // Empty if there's no error
+    std::string _error_msg;
+
+    // The number of warnings reported.
+    int64_t _num_warnings;
+
+    /// The function state accessed via FunctionContext::Get/SetFunctionState()
+    std::shared_ptr<void> _thread_local_fn_state;
+    std::shared_ptr<void> _fragment_local_fn_state;
+
+    // Type descriptor for the return type of the function.
+    doris::TypeDescriptor _return_type;
+
+    // Type descriptors for each argument of the function.
+    std::vector<doris::TypeDescriptor> _arg_types;
+
+    std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
+
+    bool _check_overflow_for_decimal = false;
+
+    std::string _string_result;
 };
 
 //----------------------------------------------------------------------------
