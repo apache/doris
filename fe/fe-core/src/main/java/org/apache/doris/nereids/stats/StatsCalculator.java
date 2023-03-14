@@ -106,6 +106,7 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
+    public static double DEFAULT_AGGREGATE_RATIO = 0.5;
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -130,7 +131,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
             groupExpression.getOwnerGroup().setStatistics(stats);
         }
-        groupExpression.setEstOutputRowCount((long) stats.getRowCount());
+        groupExpression.setEstOutputRowCount(stats.getRowCount());
         groupExpression.setStatDerived(true);
     }
 
@@ -436,12 +437,32 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         Statistics childStats = groupExpression.childStatistics(0);
-        Map<Expression, ColumnStatistic> childSlotToColumnStats = childStats.columnStatistics();
-        double resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
-                .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(s -> s.ndv)
-                .reduce(1d, (a, b) -> a * b);
-        if (resultSetCount <= 0) {
-            resultSetCount = 1L;
+        double resultSetCount = 1;
+        if (!groupByExpressions.isEmpty()) {
+            Map<Expression, ColumnStatistic> childSlotToColumnStats = childStats.columnStatistics();
+            double inputRowCount = childStats.getRowCount();
+            if (inputRowCount == 0) {
+                //on empty relation, Agg output 1 tuple
+                resultSetCount = 1;
+            } else {
+                List<ColumnStatistic> groupByKeyStats = groupByExpressions.stream()
+                        .flatMap(expr -> expr.getInputSlots().stream())
+                        .map(Slot::getExprId)
+                        .filter(childSlotToColumnStats::containsKey)
+                        .map(childSlotToColumnStats::get)
+                        .filter(s -> !s.isUnKnown)
+                        .collect(Collectors.toList());
+                if (groupByKeyStats.isEmpty()) {
+                    //all column stats are unknown, use default ratio
+                    resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
+                } else {
+                    resultSetCount = groupByKeyStats.stream()
+                            .map(s -> s.ndv)
+                            .reduce(1.0, (a, b) -> a * b);
+                    //agg output tuples should be less than input tuples
+                    resultSetCount = Math.min(resultSetCount, inputRowCount);
+                }
+            }
         }
         resultSetCount = Math.min(resultSetCount, childStats.getRowCount());
         Map<Expression, ColumnStatistic> slotToColumnStats = Maps.newHashMap();
