@@ -21,13 +21,14 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -50,6 +51,7 @@ public abstract class AbstractPhysicalJoin<
     protected final List<Expression> hashJoinConjuncts;
     protected final List<Expression> otherJoinConjuncts;
     protected final JoinHint hint;
+    protected final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
     // use for translate only
     protected final List<Expression> filterConjuncts = Lists.newArrayList();
@@ -64,6 +66,7 @@ public abstract class AbstractPhysicalJoin<
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
             JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
@@ -71,6 +74,7 @@ public abstract class AbstractPhysicalJoin<
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
+        this.markJoinSlotReference = markJoinSlotReference;
     }
 
     /**
@@ -82,17 +86,19 @@ public abstract class AbstractPhysicalJoin<
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
             JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult,
+            Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = hint;
+        this.markJoinSlotReference = markJoinSlotReference;
     }
 
     public List<Expression> getHashJoinConjuncts() {
@@ -113,6 +119,10 @@ public abstract class AbstractPhysicalJoin<
 
     public List<Expression> getOtherJoinConjuncts() {
         return otherJoinConjuncts;
+    }
+
+    public boolean isMarkJoin() {
+        return markJoinSlotReference.isPresent();
     }
 
     @Override
@@ -139,12 +149,13 @@ public abstract class AbstractPhysicalJoin<
         return joinType == that.joinType
                 && hashJoinConjuncts.equals(that.hashJoinConjuncts)
                 && otherJoinConjuncts.equals(that.otherJoinConjuncts)
-                && hint.equals(that.hint);
+                && hint.equals(that.hint)
+                && Objects.equals(markJoinSlotReference, that.markJoinSlotReference);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), joinType, hashJoinConjuncts, otherJoinConjuncts);
+        return Objects.hash(super.hashCode(), joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference);
     }
 
     /**
@@ -163,6 +174,10 @@ public abstract class AbstractPhysicalJoin<
 
     public List<Expression> getFilterConjuncts() {
         return filterConjuncts;
+    }
+
+    public Optional<MarkJoinSlotReference> getMarkJoinSlotReference() {
+        return markJoinSlotReference;
     }
 
     public void addFilterConjuncts(Collection<Expression> conjuncts) {

@@ -598,6 +598,22 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         *eos = true;
         return Status::OK();
     }
+
+    if (_join_op == TJoinOp::RIGHT_OUTER_JOIN) {
+        const auto hash_table_empty = std::visit(
+                Overload {[&](std::monostate&) -> bool {
+                              LOG(FATAL) << "FATAL: uninited hash table";
+                              __builtin_unreachable();
+                          },
+                          [&](auto&& arg) -> bool { return arg.hash_table.size() == 0; }},
+                *_hash_table_variants);
+
+        if (hash_table_empty) {
+            *eos = true;
+            return Status::OK();
+        }
+    }
+
     while (need_more_input_data()) {
         prepare_for_next();
         SCOPED_TIMER(_probe_next_timer);
@@ -865,7 +881,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
     // Since the comparison of null values is meaningless, null aware left anti join should not output null
     // when the build side is not empty.
-    if (eos && !_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
     return Status::OK();

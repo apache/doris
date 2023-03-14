@@ -28,7 +28,6 @@ class AggregateFunctionSimpleFactory;
 
 void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
@@ -39,6 +38,7 @@ void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& f
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_lead_lag_first_last(
         AggregateFunctionSimpleFactory& factory);
@@ -70,6 +70,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
         register_aggregate_function_group_concat(instance);
+        register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
         register_aggregate_function_reader_load(
                 instance); // register aggregate function for agg reader
@@ -86,9 +87,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
-
-        // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
-        register_aggregate_function_combinator_null(instance);
 
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);

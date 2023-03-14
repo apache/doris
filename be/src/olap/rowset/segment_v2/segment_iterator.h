@@ -170,7 +170,6 @@ private:
     Status _execute_compound_fn(const std::string& function_name);
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
-    void _init_lazy_materialization();
     void _vec_init_lazy_materialization();
     // TODO: Fix Me
     // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
@@ -211,6 +210,12 @@ private:
     }
 
     bool _can_evaluated_by_vectorized(ColumnPredicate* predicate);
+
+    Status _extract_common_expr_columns(vectorized::VExpr* expr);
+    Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
+                                vectorized::Block* block);
+    uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
+                                          const vectorized::IColumn::Filter& filter);
 
     // Dictionary column should do something to initial.
     void _convert_dict_code_for_predicate_if_necessary();
@@ -317,15 +322,15 @@ private:
     // --------------------------------------------
     // whether lazy materialization read should be used.
     bool _lazy_materialization_read;
-    // columns to read before predicate evaluation
-    std::vector<ColumnId> _predicate_columns;
-    // columns to read after predicate evaluation
+    // columns to read after predicate evaluation and remaining expr execute
     std::vector<ColumnId> _non_predicate_columns;
+    std::set<ColumnId> _common_expr_columns;
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
     bool _is_need_vec_eval = false;
     bool _is_need_short_eval = false;
+    bool _is_need_expr_eval = false;
 
     // fields for vectorization execution
     std::vector<ColumnId>
@@ -334,6 +339,7 @@ private:
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     std::vector<bool> _is_pred_column; // columns hold by segmentIter
     std::map<uint32_t, bool> _need_read_data_indices;
+    std::vector<bool> _is_common_expr_column;
     vectorized::MutableColumns _current_return_columns;
     std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
@@ -344,16 +350,22 @@ private:
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _first_read_column_ids;
+    std::vector<ColumnId> _second_read_column_ids;
+    std::vector<ColumnId> _columns_to_filter;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
     bool _estimate_row_size;
+    // Read up to 100 rows at a time while waiting for the estimated row size.
+    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
+    doris::vectorized::VExprContext* _common_vexpr_ctxs_pushdown;
+    bool _enable_common_expr_pushdown = false;
     doris::vectorized::VExpr* _remaining_vconjunct_root;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
@@ -378,6 +390,7 @@ private:
 
     // char_type or array<char> type columns cid
     std::vector<size_t> _char_type_idx;
+    std::vector<size_t> _char_type_idx_no_0;
 
     // number of rows read in the current batch
     uint32_t _current_batch_rows_read = 0;

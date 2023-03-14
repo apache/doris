@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.cascades;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -50,9 +51,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     private final GroupExpression groupExpression;
 
     // cost of current plan tree
-    private double curTotalCost;
+    private Cost curTotalCost;
     // cost of current plan node
-    private double curNodeCost;
+    private Cost curNodeCost;
 
     // List of request property to children
     // Example: Physical Hash Join
@@ -114,8 +115,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
-            curNodeCost = 0;
-            curTotalCost = 0;
+            curNodeCost = Cost.zero();
+            curTotalCost = Cost.zero();
             curChildIndex = 0;
             // List<request property to children>
             // [ child item: [leftProperties, rightProperties]]
@@ -138,8 +139,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
                 curNodeCost = CostCalculator.calculateCost(groupExpression);
-                groupExpression.setCost(curNodeCost);
-                curTotalCost += curNodeCost;
+                groupExpression.setCost(curNodeCost.getValue());
+                curTotalCost = curNodeCost;
             }
 
             // Handle all child plan node.
@@ -149,7 +150,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
                 // Whether the child group was optimized for this requestChildProperty according to
                 // the result of returning.
-                Optional<Pair<Double, GroupExpression>> lowestCostPlanOpt
+                Optional<Pair<Cost, GroupExpression>> lowestCostPlanOpt
                         = childGroup.getLowestCostPlan(requestChildProperty);
 
                 if (!lowestCostPlanOpt.isPresent()) {
@@ -166,7 +167,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     // Meaning that optimize recursively by derive job.
                     prevChildIndex = curChildIndex;
                     pushJob(clone());
-                    double newCostUpperBound = context.getCostUpperBound() - curTotalCost;
+                    double newCostUpperBound = context.getCostUpperBound() - curTotalCost.getValue();
                     JobContext jobContext = new JobContext(context.getCascadesContext(),
                             requestChildProperty, newCostUpperBound);
                     pushJob(new OptimizeGroupJob(childGroup, jobContext));
@@ -182,10 +183,12 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 // plan's requestChildProperty).getOutputProperties(current plan's requestChildProperty) == child
                 // plan's outputProperties`, the outputProperties must satisfy the origin requestChildProperty
                 outputChildrenProperties.set(curChildIndex, outputProperties);
-
-                curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
-                if (curTotalCost > context.getCostUpperBound()) {
-                    curTotalCost = Double.POSITIVE_INFINITY;
+                curTotalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                        curNodeCost,
+                        lowestCostExpr.getCostValueByProperties(requestChildProperty),
+                        curChildIndex);
+                if (curTotalCost.getValue() > context.getCostUpperBound()) {
+                    curTotalCost = Cost.infinite();
                 }
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
@@ -198,8 +201,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (!calculateEnforce(requestChildrenProperties, outputChildrenProperties)) {
                     return; // if error exists, return
                 }
-                if (curTotalCost < context.getCostUpperBound()) {
-                    context.setCostUpperBound(curTotalCost);
+                if (curTotalCost.getValue() < context.getCostUpperBound()) {
+                    context.setCostUpperBound(curTotalCost.getValue());
                 }
             }
             clear();
@@ -222,7 +225,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // invalid enforce, return.
             return false;
         }
-        curTotalCost += enforceCost;
 
         // Not need to do pruning here because it has been done when we get the
         // best expr from the child group
@@ -237,14 +239,18 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             return false;
         }
         StatsCalculator.estimate(groupExpression);
-        // previous curTotalCost exclude the exists best cost of current node
-        curTotalCost -= curNodeCost;
+
+        // recompute cost after adjusting property
         curNodeCost = CostCalculator.calculateCost(groupExpression); // recompute current node's cost in current context
-        groupExpression.setCost(curNodeCost);
-        // (previous curTotalCost) - (previous curNodeCost) + (current curNodeCost) = (current curTotalCost).
-        // if current curTotalCost maybe less than previous curTotalCost, we will update the lowest cost and plan
-        // to the grouping expression and the owner group
-        curTotalCost += curNodeCost;
+        groupExpression.setCost(curNodeCost.getValue());
+        curTotalCost = curNodeCost;
+        for (int i = 0; i < outputChildrenProperties.size(); i++) {
+            PhysicalProperties childProperties = outputChildrenProperties.get(i);
+            curTotalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                    curTotalCost,
+                    groupExpression.child(i).getLowestCostPlan(childProperties).get().first,
+                    i);
+        }
 
         // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
         recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, outputChildrenProperties);
@@ -303,8 +309,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         lowestCostChildren.clear();
         prevChildIndex = -1;
         curChildIndex = 0;
-        curTotalCost = 0;
-        curNodeCost = 0;
+        curTotalCost = Cost.zero();
+        curNodeCost = Cost.zero();
     }
 
     /**

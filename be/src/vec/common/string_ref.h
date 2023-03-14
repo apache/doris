@@ -29,7 +29,6 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
-#include "udf/udf.h"
 #include "util/cpu_info.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
@@ -207,10 +206,7 @@ struct StringRef {
             : StringRef(reinterpret_cast<const char*>(data_), size_) {}
 
     StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
-    StringRef(const StringVal& src) : StringRef(src.ptr, src.len) {}
     explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
-
-    static StringRef from_string_val(const StringVal& src) { return StringRef(src); }
 
     std::string to_string() const { return std::string(data, size); }
     std::string debug_string() const { return to_string(); }
@@ -219,15 +215,6 @@ struct StringRef {
 
     // this is just for show, e.g. print data to error log, to avoid print large string.
     std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
-
-    // TODO: this function is dangerous!
-    StringVal to_string_val() const {
-        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
-    }
-
-    void to_string_val(StringVal* sv) const {
-        *sv = StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
-    }
 
     explicit operator std::string() const { return to_string(); }
     operator std::string_view() const { return std::string_view {data, size}; }

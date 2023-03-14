@@ -27,9 +27,9 @@
 namespace doris::vectorized {
 /// min, max, any
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
-static IAggregateFunction* create_aggregate_function_single_value(const String& name,
-                                                                  const DataTypes& argument_types,
-                                                                  const bool result_is_nullable) {
+IAggregateFunction* create_aggregate_function_single_value(const String& name,
+                                                           const DataTypes& argument_types,
+                                                           const bool result_is_nullable) {
     assert_unary(name, argument_types);
 
     IAggregateFunction* res(creator_with_numeric_type::create<AggregateFunctionTemplate, Data,

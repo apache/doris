@@ -31,6 +31,7 @@ set(COMMON_TEST_FILES
     common/resource_tls_test.cpp
     common/status_test.cpp
     common/config_test.cpp
+    common/exception_test.cpp
 )
 set(ENV_TEST_FILES
     env/env_posix_test.cpp
@@ -266,6 +267,7 @@ set(VEC_TEST_FILES
     vec/runtime/vdata_stream_test.cpp
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
+    vec/utils/histogram_helpers_test.cpp
     vec/olap/char_type_padding_test.cpp
     #vec/olap/vertical_compaction_test.cpp
     vec/jsonb/serialize_test.cpp

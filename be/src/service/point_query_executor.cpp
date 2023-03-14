@@ -278,8 +278,8 @@ Status PointQueryExecutor::_lookup_row_data() {
 }
 
 template <typename MysqlWriter>
-static Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
-                               PTabletKeyLookupResponse* response) {
+Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
+                        PTabletKeyLookupResponse* response) {
     RETURN_IF_ERROR(mysql_writer.append_block(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;

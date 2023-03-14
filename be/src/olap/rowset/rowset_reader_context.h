@@ -64,6 +64,7 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;

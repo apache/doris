@@ -227,8 +227,8 @@ suite("join") {
                     && explainStr.contains("wtid[#8] = CAST(wtid[#3] AS CHARACTER)") && explainStr.contains("projections: wtid[#5], wfid[#6]")
                     ||
         //analyze not finished
-                    explainStr.contains("7:VAGGREGATE (update finalize)") && explainStr.contains("5:VAGGREGATE (update finalize)")
-                    && explainStr.contains("4:VEXCHANGE") && explainStr.contains("3:VHASH JOIN")
+                    explainStr.contains("4:VAGGREGATE (update serialize)") && explainStr.contains("8:VAGGREGATE (update finalize)")
+                    && explainStr.contains("7:VEXCHANGE") && explainStr.contains("3:VHASH JOIN")
     )
 
     test {

@@ -48,18 +48,18 @@ public class CacheTest extends TestWithFeService {
                     try {
                         Thread.sleep(50);
                     } catch (InterruptedException e) {
-                        return ColumnStatistic.DEFAULT;
+                        return ColumnStatistic.UNKNOWN;
                     }
-                    return ColumnStatistic.DEFAULT;
+                    return ColumnStatistic.UNKNOWN;
                 });
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
+        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
         Thread.sleep(100);
         c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
+        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
     }
 
     @Test
@@ -120,7 +120,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
-        Assertions.assertEquals(ColumnStatistic.DEFAULT, columnStatistic);
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
         Thread.sleep(1000);
         columnStatistic = statisticsCache.getColumnStatistics(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);
@@ -167,7 +167,7 @@ public class CacheTest extends TestWithFeService {
                 values.add("-1");
                 values.add("4");
                 values.add("0.2");
-                String buckets = "{\"max_bucket_num\":128,\"bucket_num\":5,\"sample_rate\":1.0,\"buckets\":"
+                String buckets = "{\"num_buckets\":5,\"buckets\":"
                         + "[{\"lower\":\"2022-09-21 17:30:29\",\"upper\":\"2022-09-21 22:30:29\","
                         + "\"count\":9,\"pre_sum\":0,\"ndv\":1},"
                         + "{\"lower\":\"2022-09-22 17:30:29\",\"upper\":\"2022-09-22 22:30:29\","
@@ -186,13 +186,6 @@ public class CacheTest extends TestWithFeService {
 
         StatisticsCache statisticsCache = new StatisticsCache();
         Histogram histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals(Histogram.DEFAULT, histogram);
-        Thread.sleep(1000);
-        histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals("DATETIME", histogram.dataType.toString());
-        Assertions.assertEquals(128, histogram.maxBucketNum);
-        Assertions.assertEquals(5, histogram.bucketNum);
-        Assertions.assertEquals(0.2, histogram.sampleRate);
-        Assertions.assertEquals(5, histogram.buckets.size());
+        Assertions.assertEquals(null, histogram);
     }
 }

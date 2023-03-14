@@ -22,11 +22,11 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Objects;
@@ -43,7 +43,7 @@ public class PhysicalEsScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalEsScan.
      */
-    public PhysicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalEsScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_ES_SCAN, qualifier, groupExpression, logicalProperties);
@@ -54,12 +54,12 @@ public class PhysicalEsScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalEsScan.
      */
-    public PhysicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
+    public PhysicalEsScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                            StatsDeriveResult statsDeriveResult) {
+                            Statistics statistics) {
         super(id, PlanType.PHYSICAL_ES_SCAN, qualifier, groupExpression, logicalProperties,
-                physicalProperties, statsDeriveResult);
+                physicalProperties, statistics);
         this.table = table;
         this.distributionSpec = distributionSpec;
     }
@@ -69,7 +69,7 @@ public class PhysicalEsScan extends PhysicalRelation {
         return Utils.toSqlString("PhysicalEsScan",
             "qualified", Utils.qualifiedName(qualifier, table.getName()),
             "output", getOutput(),
-            "stats", statsDeriveResult
+            "stats", statistics
         );
     }
 
@@ -112,7 +112,7 @@ public class PhysicalEsScan extends PhysicalRelation {
 
     @Override
     public PhysicalEsScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                           StatsDeriveResult statsDeriveResult) {
+                                                           Statistics statsDeriveResult) {
         return new PhysicalEsScan(id, table, qualifier, distributionSpec, groupExpression, getLogicalProperties(),
             physicalProperties, statsDeriveResult);
     }

@@ -504,6 +504,10 @@ public class StmtRewriter {
                     + "expression: "
                     + exprWithSubquery.toSql());
         }
+        if (exprWithSubquery instanceof BinaryPredicate && (childrenContainInOrExists(exprWithSubquery))) {
+            throw new AnalysisException("Not support binaryOperator children at least one is in or exists subquery"
+                    + exprWithSubquery.toSql());
+        }
 
         if (exprWithSubquery instanceof ExistsPredicate) {
             // Check if we can determine the result of an ExistsPredicate during analysis.
@@ -542,6 +546,16 @@ public class StmtRewriter {
         }
     }
 
+    private static boolean childrenContainInOrExists(Expr expr) {
+        boolean contain = false;
+        for (Expr child : expr.getChildren()) {
+            contain = contain || child instanceof InPredicate || child instanceof ExistsPredicate;
+            if (contain) {
+                break;
+            }
+        }
+        return contain;
+    }
 
     /**
      * Replace an ExistsPredicate that contains a subquery with a BoolLiteral if we
@@ -802,6 +816,7 @@ public class StmtRewriter {
             break;
         }
 
+        boolean isInBitmap = false;
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // Join with InPredicate is actually an equal join, so we choose HashJoin.
             if (expr instanceof ExistsPredicate) {
@@ -811,6 +826,7 @@ public class StmtRewriter {
                     && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
                     .equalsIgnoreCase(BITMAP_CONTAINS))) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
+                isInBitmap = true;
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -829,6 +845,7 @@ public class StmtRewriter {
 
             inlineView.setMark(markTuple);
             inlineView.setJoinOp(joinOp);
+            inlineView.setInBitmap(isInBitmap);
             if (joinOp != JoinOperator.CROSS_JOIN) {
                 inlineView.setOnClause(onClausePredicate);
             }

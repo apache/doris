@@ -17,6 +17,7 @@
 
 #include "exec/es/es_scroll_parser.h"
 
+#include <cctz/time_zone.h>
 #include <gutil/strings/substitute.h>
 
 #include <boost/algorithm/string.hpp>
@@ -138,17 +139,9 @@ static const std::string INVALID_NULL_VALUE =
         return Status::RuntimeError(ss.str());                           \
     } while (false)
 
-#define PARSE_DATE(dt_val, col, type, is_date_str)                                      \
-    if ((is_date_str &&                                                                 \
-         !dt_val.from_date_str(static_cast<const std::string>(col.GetString()).c_str(), \
-                               col.GetStringLength())) ||                               \
-        (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {     \
-        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);                                   \
-    }
-
 template <typename T>
-static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
-                            bool pure_doc_value) {
+Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
+                     bool pure_doc_value) {
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         return Status::OK();
@@ -180,12 +173,58 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 }
 
 template <typename T, typename RT>
-static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
-                                 RT* slot) {
+Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
+                          RT* slot) {
     constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
     T dt_val;
-    PARSE_DATE(dt_val, col, type, is_date_str)
+    if (is_date_str) {
+        const std::string str_date = col.GetString();
+        int str_length = col.GetStringLength();
+        bool success = false;
+        // YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+08:00 or 2022-08-08T12:10:10.000Z
+        if (str_length > 19) {
+            std::chrono::system_clock::time_point tp;
+            const bool ok =
+                    cctz::parse("%Y-%m-%dT%H:%M:%E*S%Ez", str_date, cctz::utc_time_zone(), &tp);
+            if (ok) {
+                success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
+                                               cctz::local_time_zone().name());
+            }
+        } else if (str_length == 19) {
+            // YYYY-MM-DDTHH:MM:SS
+            if (*(str_date.c_str() + 10) == 'T') {
+                std::chrono::system_clock::time_point tp;
+                const bool ok =
+                        cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
+                if (ok) {
+                    success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
+                                                   cctz::local_time_zone().name());
+                }
+            } else {
+                // YYYY-MM-DD HH:MM:SS
+                success = dt_val.from_date_str(str_date.c_str(), str_length);
+            }
 
+        } else if (str_length == 13) {
+            // string long like "1677895728000"
+            int64_t time_long = std::atol(str_date.c_str());
+            if (time_long > 0) {
+                success = dt_val.from_unixtime(time_long / 1000, cctz::local_time_zone().name());
+            }
+        } else {
+            // YYYY-MM-DD or others
+            success = dt_val.from_date_str(str_date.c_str(), str_length);
+        }
+
+        if (!success) {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+        }
+
+    } else {
+        if (!dt_val.from_unixtime(col.GetInt64() / 1000, cctz::local_time_zone().name())) {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+        }
+    }
     if constexpr (is_datetime_v1) {
         if (type == TYPE_DATE) {
             dt_val.cast_to_date();
@@ -199,8 +238,8 @@ static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type
 }
 
 template <typename T, typename RT>
-static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                           RT* slot) {
+Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                    RT* slot) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
@@ -226,8 +265,8 @@ static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool
     }
 }
 template <typename T, typename RT>
-static Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                            vectorized::IColumn* col_ptr) {
+Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                     vectorized::IColumn* col_ptr) {
     RT data;
     RETURN_IF_ERROR((get_date_int<T, RT>(col, type, pure_doc_value, &data)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
@@ -235,8 +274,8 @@ static Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, boo
 }
 
 template <typename T>
-static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
-                              bool pure_doc_value) {
+Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
+                       bool pure_doc_value) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
@@ -262,8 +301,8 @@ static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, v
 }
 
 template <typename T>
-static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
-                                 vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
+                          vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber() && nullable) {
         T value = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
@@ -292,8 +331,8 @@ static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type
 }
 
 template <typename T>
-static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
-                               vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
+                        vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
     if (col.IsNumber()) {
         T value = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
@@ -518,6 +557,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
+
+            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
 
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();

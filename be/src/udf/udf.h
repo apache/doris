@@ -27,9 +27,11 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+
+#include "runtime/types.h"
+
 namespace doris {
 
-class FunctionContextImpl;
 struct ColumnPtrWrapper;
 struct StringRef;
 class BitmapValue;
@@ -37,13 +39,14 @@ class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
 struct TypeDescriptor;
+
+class RuntimeState;
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
 struct AnyVal;
-struct StringVal;
+struct StringRef;
 struct DateTimeVal;
-struct DecimalV2Val;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -72,6 +75,27 @@ public:
         THREAD_LOCAL,
     };
 
+    static std::unique_ptr<doris::FunctionContext> create_context(
+            RuntimeState* state, const doris::TypeDescriptor& return_type,
+            const std::vector<doris::TypeDescriptor>& arg_types);
+
+    /// Returns a new FunctionContext with the same constant args, fragment-local state, and
+    /// debug flag as this FunctionContext. The caller is responsible for calling delete on
+    /// it.
+    std::unique_ptr<doris::FunctionContext> clone();
+
+    void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
+
+    RuntimeState* state() { return _state; }
+
+    std::string& string_result() { return _string_result; }
+
+    bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
+
+    bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
+        return _check_overflow_for_decimal = check_overflow_for_decimal;
+    }
+
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
     // Note: when you set error for the UDFs used in Data Load, you should
@@ -83,18 +107,6 @@ public:
     // Warnings are capped at a maximum number. Returns true if the warning was
     // added and false if it was ignored due to the cap.
     bool add_warning(const char* warning_msg);
-
-    // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
-    // through the query. E.g. "select UDA(col, 'sample=true') from tbl".
-    // const char* GetMetadata(const char*) const;
-
-    // TODO: Add mechanism for UDAs to update stats similar to runtime profile counters
-
-    // TODO: Add mechanism to query for table/column stats
-
-    // Returns the underlying opaque implementation object. The UDF/UDA should not
-    // use this. This is used internally.
-    doris::FunctionContextImpl* impl() { return _impl.get(); }
 
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
     /// be used to store a pointer that can then be retrieved via GetFunctionState(). If
@@ -127,22 +139,44 @@ public:
     // Init() or Close() functions.
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
-    // Creates a StringVal, which memory is available when this function context is used next time
-    StringVal create_temp_string_val(int64_t len);
+    // Creates a StringRef, which memory is available when this function context is used next time
+    StringRef create_temp_string_val(int64_t len);
 
     ~FunctionContext() = default;
 
 private:
-    friend class doris::FunctionContextImpl;
-
-    FunctionContext();
+    FunctionContext() = default;
 
     // Disable copy ctor and assignment operator
     FunctionContext(const FunctionContext& other);
 
     FunctionContext& operator=(const FunctionContext& other);
 
-    std::unique_ptr<doris::FunctionContextImpl> _impl; // Owned by this object.
+    // We use the query's runtime state to report errors and warnings. nullptr for test
+    // contexts.
+    RuntimeState* _state;
+
+    // Empty if there's no error
+    std::string _error_msg;
+
+    // The number of warnings reported.
+    int64_t _num_warnings;
+
+    /// The function state accessed via FunctionContext::Get/SetFunctionState()
+    std::shared_ptr<void> _thread_local_fn_state;
+    std::shared_ptr<void> _fragment_local_fn_state;
+
+    // Type descriptor for the return type of the function.
+    doris::TypeDescriptor _return_type;
+
+    // Type descriptors for each argument of the function.
+    std::vector<doris::TypeDescriptor> _arg_types;
+
+    std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
+
+    bool _check_overflow_for_decimal = false;
+
+    std::string _string_result;
 };
 
 //----------------------------------------------------------------------------
@@ -154,62 +188,6 @@ struct AnyVal {
     AnyVal() : is_null(false) {}
 
     AnyVal(bool is_null) : is_null(is_null) {}
-};
-
-struct BigIntVal : public AnyVal {
-    int64_t val;
-
-    BigIntVal() : val(0) {}
-
-    BigIntVal(int64_t val) : val(val) {}
-
-    static BigIntVal null() {
-        BigIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const BigIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-
-    bool operator!=(const BigIntVal& other) const { return !(*this == other); }
-};
-
-struct DoubleVal : public AnyVal {
-    double val;
-
-    DoubleVal() : val(0.0) {}
-
-    DoubleVal(double val) : val(val) {}
-
-    static DoubleVal null() {
-        DoubleVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DoubleVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-
-    bool operator!=(const DoubleVal& other) const { return !(*this == other); }
 };
 
 // This object has a compatible storage format with boost::ptime.
@@ -243,127 +221,6 @@ struct DateTimeVal : public AnyVal {
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
 };
 
-struct DateTimeV2Val : public AnyVal {
-    uint64_t datetimev2_value;
-
-    DateTimeV2Val() : datetimev2_value(0) {}
-
-    DateTimeV2Val(uint64_t val) : datetimev2_value(val) {}
-
-    static DateTimeV2Val null() {
-        DateTimeV2Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DateTimeV2Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return datetimev2_value == other.datetimev2_value;
-    }
-
-    bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
-};
-
-// FIXME: for view using we should use StringRef. StringVal need to be rewrite to deep-copy type.
-// Note: there is a difference between a nullptr string (is_null == true) and an
-// empty string (len == 0).
-struct StringVal : public AnyVal {
-    static const int MAX_LENGTH = (1 << 30);
-
-    int64_t len;
-    uint8_t* ptr;
-
-    // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
-    // so the buffer must exist as long as this StringVal does.
-    StringVal() : len(0), ptr(nullptr) {}
-
-    // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
-    // so the buffer must exist as long as this StringVal does.
-    StringVal(uint8_t* ptr, int64_t len) : len(len), ptr(ptr) {}
-
-    // Construct a StringVal from nullptr-terminated c-string. Note: this does not make a
-    // copy of ptr so the underlying string must exist as long as this StringVal does.
-    StringVal(const char* ptr) : len(strlen(ptr)), ptr((uint8_t*)ptr) {}
-
-    StringVal(const char* ptr, int64_t len) : len(len), ptr((uint8_t*)ptr) {}
-
-    static StringVal null() {
-        StringVal sv;
-        sv.is_null = true;
-        return sv;
-    }
-
-    bool operator==(const StringVal& other) const {
-        if (is_null != other.is_null) {
-            return false;
-        }
-
-        if (is_null) {
-            return true;
-        }
-
-        if (len != other.len) {
-            return false;
-        }
-
-        return len == 0 || ptr == other.ptr || memcmp(ptr, other.ptr, len) == 0;
-    }
-
-    bool operator!=(const StringVal& other) const { return !(*this == other); }
-
-    std::string to_string() const { return std::string((char*)ptr, len); }
-};
-
-std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
-
-struct DecimalV2Val : public AnyVal {
-    __int128 val;
-
-    // Default value is zero
-    DecimalV2Val() : val(0) {}
-
-    const __int128& value() const { return val; }
-
-    DecimalV2Val(__int128 value) : val(value) {}
-
-    static DecimalV2Val null() {
-        DecimalV2Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    void set_to_zero() { val = 0; }
-
-    void set_to_abs_value() {
-        if (val < 0) val = -val;
-    }
-
-    bool operator==(const DecimalV2Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-
-    bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
-};
-
-using doris::BigIntVal;
-using doris::DoubleVal;
-using doris::StringVal;
-using doris::DecimalV2Val;
 using doris::DateTimeVal;
 using doris::FunctionContext;
 } // namespace doris

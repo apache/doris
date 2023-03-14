@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -66,6 +67,8 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -107,9 +110,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Expr staleExpr = expression.accept(INSTANCE, context);
         try {
             staleExpr.finalizeForNereids();
-        } catch (org.apache.doris.common.AnalysisException e) {
+        } catch (Exception e) {
             throw new AnalysisException(
-                    "Translate Nereids expression to stale expression failed. " + e.getMessage(), e);
+                    "Translate Nereids expression `" + expression.toSql()
+                            + "` to stale expression failed. " + e.getMessage(), e);
         }
         return staleExpr;
     }
@@ -190,6 +194,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
         return context.findSlotRef(slotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, PlanTranslatorContext context) {
+        return markJoinSlotReference.isExistsHasAgg()
+                ? new BoolLiteral(true) : context.findSlotRef(markJoinSlotReference.getExprId());
     }
 
     @Override
@@ -381,15 +391,23 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, PlanTranslatorContext context) {
+        NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
+        if (binaryArithmetic instanceof AlwaysNullable) {
+            nullableMode = NullableMode.ALWAYS_NULLABLE;
+        } else if (binaryArithmetic instanceof AlwaysNotNullable) {
+            nullableMode = NullableMode.ALWAYS_NOT_NULLABLE;
+        }
         return new ArithmeticExpr(binaryArithmetic.getLegacyOperator(),
                 binaryArithmetic.child(0).accept(this, context),
-                binaryArithmetic.child(1).accept(this, context));
+                binaryArithmetic.child(1).accept(this, context),
+                binaryArithmetic.getDataType().toCatalogDataType(), nullableMode);
     }
 
     @Override
     public Expr visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, PlanTranslatorContext context) {
         return new ArithmeticExpr(unaryArithmetic.getLegacyOperator(),
-                unaryArithmetic.child().accept(this, context), null);
+                unaryArithmetic.child().accept(this, context), null,
+                unaryArithmetic.getDataType().toCatalogDataType(), NullableMode.DEPEND_ON_ARGUMENT);
 
     }
 

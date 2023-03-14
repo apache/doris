@@ -101,20 +101,20 @@ public class EsUtil {
     }
 
     @VisibleForTesting
-    public static ObjectNode getRootSchema(ObjectNode mappings, String mappingType) {
+    public static ObjectNode getRootSchema(ObjectNode mappings, String mappingType, List<String> arrayFields) {
         // Type is null in the following three cases
         // 1. Equal 6.8.x and after
         // 2. Multi-catalog auto infer
         // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
             // remove dynamic templates, for ES 7.x and 8.x
-            checkNonPropertiesFields(mappings);
+            checkNonPropertiesFields(mappings, arrayFields);
             String firstType = mappings.fieldNames().next();
             if (!"properties".equals(firstType)) {
                 // If type is not passed in takes the first type.
                 ObjectNode firstData = (ObjectNode) mappings.get(firstType);
                 // check for ES 6.x and before
-                checkNonPropertiesFields(firstData);
+                checkNonPropertiesFields(firstData, arrayFields);
                 return firstData;
             }
             // Equal 7.x and after
@@ -123,11 +123,11 @@ public class EsUtil {
             if (mappings.has(mappingType)) {
                 ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
                 // check for ES 6.x and before
-                checkNonPropertiesFields(jsonData);
+                checkNonPropertiesFields(jsonData, arrayFields);
                 return jsonData;
             }
             // Compatible type error
-            return getRootSchema(mappings, null);
+            return getRootSchema(mappings, null, arrayFields);
         }
     }
 
@@ -136,9 +136,21 @@ public class EsUtil {
      *
      * @param mappings
      */
-    private static void checkNonPropertiesFields(ObjectNode mappings) {
-        // remove `_meta` field
-        mappings.remove("_meta");
+    private static void checkNonPropertiesFields(ObjectNode mappings, List<String> arrayFields) {
+        // remove `_meta` field and parse array_fields
+        JsonNode metaNode = mappings.remove("_meta");
+        if (metaNode != null) {
+            JsonNode dorisMeta = metaNode.get("doris");
+            if (dorisMeta != null) {
+                JsonNode arrayNode = dorisMeta.get("array_fields");
+                if (arrayNode != null) {
+                    Iterator<JsonNode> iterator = arrayNode.iterator();
+                    while (iterator.hasNext()) {
+                        arrayFields.add(iterator.next().asText());
+                    }
+                }
+            }
+        }
         // remove `dynamic_templates` field
         mappings.remove("dynamic_templates");
         // check explicit mapping
@@ -152,7 +164,7 @@ public class EsUtil {
      **/
     public static ObjectNode getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
         ObjectNode mappings = getMapping(indexMapping);
-        ObjectNode rootSchema = getRootSchema(mappings, mappingType);
+        ObjectNode rootSchema = getRootSchema(mappings, mappingType, new ArrayList<>());
         ObjectNode properties = (ObjectNode) rootSchema.get("properties");
         if (properties == null) {
             throw new DorisEsException(
@@ -169,13 +181,15 @@ public class EsUtil {
             boolean mappingEsId) {
         String mapping = client.getMapping(indexName);
         ObjectNode mappings = getMapping(mapping);
-        ObjectNode rootSchema = getRootSchema(mappings, mappingType);
-        return genColumnsFromEs(indexName, mappingType, rootSchema, mappingEsId);
+        // Get array_fields while removing _meta property.
+        List<String> arrayFields = new ArrayList<>();
+        ObjectNode rootSchema = getRootSchema(mappings, mappingType, arrayFields);
+        return genColumnsFromEs(indexName, mappingType, rootSchema, mappingEsId, arrayFields);
     }
 
     @VisibleForTesting
     public static List<Column> genColumnsFromEs(String indexName, String mappingType, ObjectNode rootSchema,
-            boolean mappingEsId) {
+            boolean mappingEsId, List<String> arrayFields) {
         List<Column> columns = new ArrayList<>();
         if (mappingEsId) {
             Column column = new Column();
@@ -190,14 +204,6 @@ public class EsUtil {
         if (mappingProps == null) {
             throw new DorisEsException(
                     "index[" + indexName + "] type[" + mappingType + "] mapping not found for the ES Cluster");
-        }
-        List<String> arrayFields = new ArrayList<>();
-        JsonNode meta = mappingProps.get("_meta");
-        if (meta != null) {
-            JsonNode dorisMeta = meta.get("doris");
-            if (dorisMeta != null) {
-                arrayFields = dorisMeta.findValuesAsText("array_fields");
-            }
         }
         Iterator<String> iterator = mappingProps.fieldNames();
         while (iterator.hasNext()) {
@@ -295,12 +301,13 @@ public class EsUtil {
             boolean bigIntFlag = false;
             for (String format : formats) {
                 // pre-check format
-                if (!ALLOW_DATE_FORMATS.contains(format)) {
+                String trimFormat = format.trim();
+                if (!ALLOW_DATE_FORMATS.contains(trimFormat)) {
                     column.setComment(
-                            "Elasticsearch type is date, format is " + format + " not support, use String type");
+                            "Elasticsearch type is date, format is " + trimFormat + " not support, use String type");
                     return ScalarType.createStringType();
                 }
-                switch (format) {
+                switch (trimFormat) {
                     case "yyyy-MM-dd HH:mm:ss":
                         dateTimeFlag = true;
                         break;

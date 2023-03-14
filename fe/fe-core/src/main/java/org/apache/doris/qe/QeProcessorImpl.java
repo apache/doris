@@ -187,6 +187,10 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
+        if (info != null && info.connectContext != null && info.connectContext.getStatsErrorEstimator() != null) {
+            info.connectContext.getStatsErrorEstimator().updateExactReturnedRows(params);
+        }
+
         if (info == null) {
             result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
             LOG.info("ReportExecStatus() runtime error, query {} does not exist", DebugUtil.printId(params.query_id));

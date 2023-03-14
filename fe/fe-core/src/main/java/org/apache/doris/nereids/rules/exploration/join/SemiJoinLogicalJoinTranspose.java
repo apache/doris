@@ -58,9 +58,9 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                         && (topJoin.left().getJoinType().isInnerJoin()
                                 || topJoin.left().getJoinType().isLeftOuterJoin()
                                 || topJoin.left().getJoinType().isRightOuterJoin())))
-                .whenNot(topJoin -> topJoin.left().getJoinType().isSemiOrAntiJoin())
                 .when(this::conditionChecker)
                 .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint())
+                .whenNot(LogicalJoin::isMarkJoin)
                 .then(topSemiJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topSemiJoin.left();
                     GroupPlan a = bottomJoin.left();

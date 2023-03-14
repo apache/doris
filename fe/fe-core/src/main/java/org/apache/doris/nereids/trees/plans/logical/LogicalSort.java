@@ -70,7 +70,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalSort",
+        return Utils.toSqlString("LogicalSort[" + id.asInt() + "]",
                 "orderKeys", orderKeys);
     }
 

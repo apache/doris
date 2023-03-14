@@ -560,7 +560,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType().isComplexType()) {
+            if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {
                 throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
                         + "to create materialized view");
             }
@@ -1127,9 +1127,6 @@ public class MaterializedViewHandler extends AlterHandler {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
-        } else {
-            LOG.debug("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
-                    alterJob.isDone(), alterJob.getJobId());
         }
     }
 

@@ -84,10 +84,6 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::InternalError("invalid parameter");
     }
 
-    if (_columns.empty()) {
-        return Status::InternalError("invalid parameter");
-    }
-
     RETURN_IF_ERROR(create_tuple_desc(pool));
 
     _param = param;

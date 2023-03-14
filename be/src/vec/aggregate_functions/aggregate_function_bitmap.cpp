@@ -23,7 +23,7 @@
 namespace doris::vectorized {
 
 template <bool nullable, template <bool, typename> class AggregateFunctionTemplate>
-static IAggregateFunction* create_with_int_data_type(const DataTypes& argument_type) {
+IAggregateFunction* create_with_int_data_type(const DataTypes& argument_type) {
     auto type = remove_nullable(argument_type[0]);
     WhichDataType which(type);
 #define DISPATCH(TYPE)                                                                     \

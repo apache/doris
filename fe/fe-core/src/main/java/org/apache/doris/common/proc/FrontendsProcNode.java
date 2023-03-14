@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -142,7 +141,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
-        return helperNodes.stream().anyMatch(p -> p.getIp().equals(fe.getIp()) && p.getPort() == fe.getEditLogPort());
+        return helperNodes.stream().anyMatch(p -> fe.toHostInfo().isSame(p));
     }
 
     private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
@@ -168,13 +167,5 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
         }
         return false;
-    }
-
-    private static List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
-        List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
-        for (InetSocketAddress addr : addrs) {
-            hostPortPair.add(Pair.of(addr.getAddress().getHostAddress(), addr.getPort()));
-        }
-        return hostPortPair;
     }
 }

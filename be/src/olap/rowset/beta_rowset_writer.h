@@ -99,6 +99,10 @@ public:
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
 
+    bool is_doing_segcompaction() const override { return _is_doing_segcompaction; }
+
+    Status wait_flying_segcompaction() override;
+
 private:
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
@@ -117,7 +121,6 @@ private:
                                        size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
-    Status _wait_flying_segcompaction();
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
 
     bool _check_and_set_is_doing_segcompaction();

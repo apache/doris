@@ -776,8 +776,8 @@ static bool IsWildcard(Rune character) {
 
 // Move the strings pointers to the point where they start to differ.
 template <typename CHAR, typename NEXT>
-static void EatSameChars(const CHAR** pattern, const CHAR* pattern_end, const CHAR** string,
-                         const CHAR* string_end, NEXT next) {
+void EatSameChars(const CHAR** pattern, const CHAR* pattern_end, const CHAR** string,
+                  const CHAR* string_end, NEXT next) {
     const CHAR* escape = nullptr;
     while (*pattern != pattern_end && *string != string_end) {
         if (!escape && IsWildcard(**pattern)) {
@@ -818,7 +818,7 @@ static void EatSameChars(const CHAR** pattern, const CHAR* pattern_end, const CH
 }
 
 template <typename CHAR, typename NEXT>
-static void EatWildcard(const CHAR** pattern, const CHAR* end, NEXT next) {
+void EatWildcard(const CHAR** pattern, const CHAR* end, NEXT next) {
     while (*pattern != end) {
         if (!IsWildcard(**pattern)) return;
         next(pattern, end);
@@ -826,8 +826,8 @@ static void EatWildcard(const CHAR** pattern, const CHAR* end, NEXT next) {
 }
 
 template <typename CHAR, typename NEXT>
-static bool MatchPatternT(const CHAR* eval, const CHAR* eval_end, const CHAR* pattern,
-                          const CHAR* pattern_end, int depth, NEXT next) {
+bool MatchPatternT(const CHAR* eval, const CHAR* eval_end, const CHAR* pattern,
+                   const CHAR* pattern_end, int depth, NEXT next) {
     const int kMaxDepth = 16;
     if (depth > kMaxDepth) return false;
 

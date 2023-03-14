@@ -32,7 +32,7 @@ import java.util.Optional;
 /**
  * it is not a real column exist in table.
  */
-public class VirtualSlotReference extends SlotReference {
+public class VirtualSlotReference extends SlotReference implements SlotNotFromChildren {
     // arguments of GroupingScalarFunction
     private final List<Expression> realExpressions;
 
@@ -46,7 +46,7 @@ public class VirtualSlotReference extends SlotReference {
 
     public VirtualSlotReference(String name, DataType dataType, Optional<GroupingScalarFunction> originExpression,
             Function<GroupingSetShapes, List<Long>> computeLongValueMethod) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, false, ImmutableList.of(),
+        this(StatementScopeIdGenerator.newExprId(), name, dataType, false, ImmutableList.of(),
                 originExpression, computeLongValueMethod);
     }
 
