@@ -1714,6 +1714,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_num = 128;
 
+    @ConfField(mutable = true, masterOnly = false)
+    public static long file_split_size = 0; // 0 means use the block size in HDFS/S3 as split size
+
     /**
      * If set to TRUE, FE will:
      * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
@@ -2056,6 +2059,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
+
 
     @ConfField(mutable = false, masterOnly = false)
     public static int mysql_load_thread_pool = 4;
