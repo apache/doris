@@ -352,7 +352,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         return;
     }
     compoundReader = new DorisCompoundReader(
-            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str());
+            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
+            config::inverted_index_read_buffer_size);
 }
 
 Status BkdIndexReader::new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
