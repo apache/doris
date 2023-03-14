@@ -801,6 +801,10 @@ public class StmtExecutor implements ProfileWriter {
             List<TableIf> tables = Lists.newArrayList(tableMap.values());
             int analyzeTimes = 2;
             for (int i = 1; i <= analyzeTimes; i++) {
+                LOG.info("yyyyy tablessize {}", tables.size());
+                for (int aa = 0; aa < tables.size(); ++aa) {
+                    LOG.info("yyyyy tablename {}", tables.get(aa).getName());
+                }
                 MetaLockUtils.readLockTables(tables);
                 try {
                     analyzeAndGenerateQueryPlan(tQueryOptions);
