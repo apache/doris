@@ -351,12 +351,8 @@ public class StoragePolicy extends Policy {
         }
         // modify properties
         writeLock();
-        if (cooldownTtlMs > 0) {
-            this.cooldownTtl = cooldownTtlMs;
-        }
-        if (cooldownTimestampMs > 0) {
-            this.cooldownTimestampMs = cooldownTimestampMs;
-        }
+        this.cooldownTtl = cooldownTtlMs;
+        this.cooldownTimestampMs = cooldownTimestampMs;
         if (storageResource != null) {
             this.storageResource = storageResource;
         }
