@@ -15,31 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_connection") {
+suite("test_mysql_connection") { suite ->
+    // NOTE: this suite need you install mysql client 5.7 + to support --ssl-mode parameter
 
     def executeMySQLCommand = { String command ->
-        try {
-            String line;
-            StringBuilder errMsg = new StringBuilder();
-            StringBuilder msg = new StringBuilder();
-            Process p = Runtime.getRuntime().exec(new String[]{"/bin/bash", "-c", command});
+        def cmds = ["/bin/bash", "-c", command]
+        logger.info("Execute: ${cmds}".toString())
+        Process p = cmds.execute()
 
-            BufferedReader errInput = new BufferedReader(new InputStreamReader(p.getErrorStream()));
-            while ((line = errInput.readLine()) != null) {
-                errMsg.append(line);
-            }
-            assert errMsg.length() == 0: "error occurred!" + errMsg.toString();
-            errInput.close();
+        def errMsg = new StringBuilder()
+        def msg = new StringBuilder()
+        p.waitForProcessOutput(msg, errMsg)
 
-            BufferedReader input = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            while ((line = input.readLine()) != null) {
-                msg.append(line);
-            }
-            assert msg.toString().contains("version"): "error occurred!" + errMsg.toString();
-            input.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        assert errMsg.length() == 0: "error occurred!" + errMsg
+        assert msg.toString().contains("version"): "error occurred!" + errMsg
+        assert p.exitValue() == 0
     }
 
     String jdbcUrlConfig = context.config.jdbcUrl;
