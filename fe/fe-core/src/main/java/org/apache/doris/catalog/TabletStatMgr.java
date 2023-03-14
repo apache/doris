@@ -49,10 +49,9 @@ public class TabletStatMgr extends MasterDaemon {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
     }
 
-    @Override
-    protected void runAfterCatalogReady() {}
+    protected void runAfterCatalogReady2() {}
     
-    protected void runAfterCatalogReady2() {
+    protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
         taskPool.submit(() -> {
