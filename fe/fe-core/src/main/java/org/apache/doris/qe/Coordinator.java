@@ -1577,6 +1577,10 @@ public class Coordinator {
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
+                // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
+                if (leftMostNode.getNumInstances() == 1) {
+                    exchangeInstances = 1;
+                }
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
