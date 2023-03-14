@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 /**
  * interface for all physical plan.
@@ -29,5 +29,5 @@ public interface PhysicalPlan extends Plan {
     PhysicalProperties getPhysicalProperties();
 
     PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult);
+            Statistics statistics);
 }

@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Objects;
@@ -57,9 +57,9 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     public PhysicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                            StatsDeriveResult statsDeriveResult) {
+                            Statistics statistics) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, qualifier, groupExpression, logicalProperties,
-                physicalProperties, statsDeriveResult);
+                physicalProperties, statistics);
         this.table = table;
         this.distributionSpec = distributionSpec;
     }
@@ -69,7 +69,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
         return Utils.toSqlString("PhysicalJdbcScan",
             "qualified", Utils.qualifiedName(qualifier, table.getName()),
             "output", getOutput(),
-            "stats", statsDeriveResult
+            "stats", statistics
         );
     }
 
@@ -112,8 +112,8 @@ public class PhysicalJdbcScan extends PhysicalRelation {
 
     @Override
     public PhysicalJdbcScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                           StatsDeriveResult statsDeriveResult) {
+                                                           Statistics statistics) {
         return new PhysicalJdbcScan(id, table, qualifier, distributionSpec, groupExpression, getLogicalProperties(),
-            physicalProperties, statsDeriveResult);
+            physicalProperties, statistics);
     }
 }

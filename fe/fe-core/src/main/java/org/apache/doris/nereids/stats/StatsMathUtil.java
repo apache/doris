@@ -15,30 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.metrics.event;
-
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.Statistics;
+package org.apache.doris.nereids.stats;
 
 /**
- * stats state event
+ * Math util for statistics derivation
  */
-public class StatsStateEvent extends StateEvent {
-    private final Statistics statistics;
+public class StatsMathUtil {
 
-    private StatsStateEvent(GroupExpression groupExpression, Statistics statistics) {
-        super(groupExpression);
-        this.statistics = statistics;
+    public static double nonZeroDivisor(double d) {
+        return d == 0.0 ? 1 : d;
     }
 
-    public static StatsStateEvent of(GroupExpression groupExpression, Statistics statistics) {
-        return checkConnectContext(StatsStateEvent.class)
-                ? new StatsStateEvent(groupExpression, statistics) : null;
+    /**
+     *  Try to find non NaN min.
+     */
+    public static double minNonNaN(double a, double b) {
+        if (Double.isNaN(a)) {
+            return b;
+        }
+        if (Double.isNaN(b)) {
+            return a;
+        }
+        return Math.min(a, b);
     }
 
-    @Override
-    public String toString() {
-        return Utils.toSqlString("StatsStateEvent", "Statistics", statistics);
+    /**
+     *  Try to find non NaN max.
+     */
+    public static double maxNonNaN(double a, double b) {
+        if (Double.isNaN(a)) {
+            return b;
+        }
+        if (Double.isNaN(b)) {
+            return a;
+        }
+        return Math.max(a, b);
     }
+
 }

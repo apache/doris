@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -40,7 +41,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -85,7 +86,7 @@ public class StatsCalculatorTest {
     //     List<Expression> groupByExprList = new ArrayList<>();
     //     groupByExprList.add(slot1);
     //     AggregateFunction sum = new Sum(slot2);
-    //     StatsDeriveResult childStats = new StatsDeriveResult(20, slotColumnStatsMap);
+    //     Statistics childStats = new Statistics(20, slotColumnStatsMap);
     //     Alias alias = new Alias(sum, "a");
     //     Group childGroup = newGroup();
     //     childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
@@ -123,10 +124,10 @@ public class StatsCalculatorTest {
         columnStat2.setMaxValue(1000);
         columnStat2.setNumNulls(10);
 
-        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
-        slotColumnStatsMap.put(slot2.getExprId(), columnStat2.build());
-        StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1.build());
+        slotColumnStatsMap.put(slot2, columnStat2.build());
+        Statistics childStats = new Statistics(10000, slotColumnStatsMap);
 
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(2));
@@ -144,14 +145,14 @@ public class StatsCalculatorTest {
         Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
-        Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals((long) 500, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = newGroup();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr);
-        Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
+        Assertions.assertEquals((long) 1000,
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
@@ -176,15 +177,15 @@ public class StatsCalculatorTest {
         columnStat2.setMaxValue(100);
         columnStat2.setNumNulls(10);
 
-        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
-        slotColumnStatsMap.put(slot2.getExprId(), columnStat2.build());
-        StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1.build());
+        slotColumnStatsMap.put(slot2, columnStat2.build());
+        Statistics childStats = new Statistics(10000, slotColumnStatsMap);
 
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
 
-        ImmutableSet and = ImmutableSet.of(eq1, eq2);
+        ImmutableSet and = ImmutableSet.of(new And(eq1, eq2));
         ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
         Group childGroup = newGroup();
@@ -225,10 +226,10 @@ public class StatsCalculatorTest {
     //     slotColumnStatsMap2.put(slot2, columnStats2);
     //
     //     final long leftRowCount = 5000;
-    //     StatsDeriveResult leftStats = new StatsDeriveResult(leftRowCount, slotColumnStatsMap1);
+    //     Statistics leftStats = new Statistics(leftRowCount, slotColumnStatsMap1);
     //
     //     final long rightRowCount = 10000;
-    //     StatsDeriveResult rightStats = new StatsDeriveResult(rightRowCount, slotColumnStatsMap2);
+    //     Statistics rightStats = new Statistics(rightRowCount, slotColumnStatsMap2);
     //
     //     EqualTo equalTo = new EqualTo(slot1, slot2);
     //
@@ -238,9 +239,9 @@ public class StatsCalculatorTest {
     //             JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
     //     LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeInnerJoin = new LogicalJoin<>(
     //             JoinType.INNER_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
-    //     StatsDeriveResult semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
+    //     Statistics semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
     //     Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
-    //     StatsDeriveResult innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);
+    //     Statistics innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);
     //     Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
     // }
 
@@ -258,9 +259,9 @@ public class StatsCalculatorTest {
         Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
-        StatsDeriveResult stats = ownerGroup.getStatistics();
-        Assertions.assertEquals(1, stats.getSlotIdToColumnStats().size());
-        Assertions.assertNotNull(stats.getSlotIdToColumnStats().get(slot1.getExprId()));
+        Statistics stats = ownerGroup.getStatistics();
+        Assertions.assertEquals(1, stats.columnStatistics().size());
+        Assertions.assertNotNull(stats.columnStatistics().get(slot1));
     }
 
     @Test
@@ -272,9 +273,9 @@ public class StatsCalculatorTest {
         ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
-        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
-        StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1.build());
+        Statistics childStats = new Statistics(10, slotColumnStatsMap);
 
         Group childGroup = newGroup();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
@@ -288,9 +289,9 @@ public class StatsCalculatorTest {
         Group ownerGroup = newGroup();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
-        StatsDeriveResult limitStats = ownerGroup.getStatistics();
+        Statistics limitStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, limitStats.getRowCount());
-        ColumnStatistic slot1Stats = limitStats.getSlotIdToColumnStats().get(slot1.getExprId());
+        ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv);
         Assertions.assertEquals(1, slot1Stats.numNulls);
     }
@@ -304,9 +305,9 @@ public class StatsCalculatorTest {
         ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
-        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
-        StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1, columnStat1.build());
+        Statistics childStats = new Statistics(10, slotColumnStatsMap);
 
         Group childGroup = newGroup();
         childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
@@ -318,9 +319,9 @@ public class StatsCalculatorTest {
         Group ownerGroup = newGroup();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
-        StatsDeriveResult topNStats = ownerGroup.getStatistics();
+        Statistics topNStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, topNStats.getRowCount());
-        ColumnStatistic slot1Stats = topNStats.getSlotIdToColumnStats().get(slot1.getExprId());
+        ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv);
         Assertions.assertEquals(1, slot1Stats.numNulls);
     }

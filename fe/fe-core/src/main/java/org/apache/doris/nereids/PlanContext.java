@@ -19,7 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,8 +32,8 @@ import java.util.List;
  * Inspired by GPORCA-CExpressionHandle.
  */
 public class PlanContext {
-    private List<StatsDeriveResult> childrenStats = new ArrayList<>();
-    private StatsDeriveResult planStats = new StatsDeriveResult(0);
+    private List<Statistics> childrenStats = new ArrayList<>();
+    private Statistics planStats;
     private int arity = 0;
 
     /**
@@ -51,7 +51,7 @@ public class PlanContext {
         }
     }
 
-    public PlanContext(StatsDeriveResult planStats, StatsDeriveResult... childrenStats) {
+    public PlanContext(Statistics planStats, Statistics... childrenStats) {
         this.planStats = planStats;
         this.childrenStats = Arrays.asList(childrenStats);
         this.arity = this.childrenStats.size();
@@ -61,14 +61,14 @@ public class PlanContext {
         return arity;
     }
 
-    public StatsDeriveResult getStatisticsWithCheck() {
+    public Statistics getStatisticsWithCheck() {
         return planStats;
     }
 
     /**
      * Get child statistics.
      */
-    public StatsDeriveResult getChildStatistics(int index) {
+    public Statistics getChildStatistics(int index) {
         return childrenStats.get(index);
     }
 }
