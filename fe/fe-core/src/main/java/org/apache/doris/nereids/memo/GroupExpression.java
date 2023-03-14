@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -297,8 +297,8 @@ public class GroupExpression {
         return Objects.hash(children, plan);
     }
 
-    public StatsDeriveResult childStatistics(int idx) {
-        return new StatsDeriveResult(child(idx).getStatistics());
+    public Statistics childStatistics(int idx) {
+        return new Statistics(child(idx).getStatistics());
     }
 
     public void setEstOutputRowCount(long estOutputRowCount) {

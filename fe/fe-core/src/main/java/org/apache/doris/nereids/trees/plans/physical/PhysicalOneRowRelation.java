@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -53,9 +53,9 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
             boolean buildUnionNode,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         super(PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression, logicalProperties, physicalProperties,
-                statsDeriveResult);
+                statistics);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
         this.buildUnionNode = buildUnionNode;
     }
@@ -78,13 +78,13 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOneRowRelation(projects, buildUnionNode, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
+                logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalOneRowRelation(projects, buildUnionNode, Optional.empty(),
-                logicalProperties.get(), physicalProperties, statsDeriveResult);
+                logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
@@ -115,9 +115,9 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
 
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         return new PhysicalOneRowRelation(projects, buildUnionNode, Optional.empty(),
-                logicalPropertiesSupplier.get(), physicalProperties, statsDeriveResult);
+                logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 
     public boolean notBuildUnionNode() {

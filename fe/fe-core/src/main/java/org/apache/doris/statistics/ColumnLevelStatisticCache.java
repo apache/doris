@@ -17,25 +17,22 @@
 
 package org.apache.doris.statistics;
 
-public class Statistic {
+public class ColumnLevelStatisticCache {
 
     public Histogram histogram;
 
     public ColumnStatistic columnStatistic;
 
-    public Statistic() {
+    public ColumnLevelStatisticCache() {
     }
 
-    public Statistic(Histogram histogram, ColumnStatistic columnStatistic) {
+    public ColumnLevelStatisticCache(Histogram histogram, ColumnStatistic columnStatistic) {
         this.histogram = histogram;
         this.columnStatistic = columnStatistic;
     }
 
     public Histogram getHistogram() {
-        if (histogram != null) {
-            return histogram;
-        }
-        return Histogram.DEFAULT;
+        return null;
     }
 
     public void setHistogram(Histogram histogram) {
@@ -46,7 +43,7 @@ public class Statistic {
         if (columnStatistic != null) {
             return columnStatistic;
         }
-        return ColumnStatistic.DEFAULT;
+        return ColumnStatistic.UNKNOWN;
     }
 
     public void setColumnStatistic(ColumnStatistic columnStatistic) {

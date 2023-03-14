@@ -33,6 +33,8 @@ public class ColumnStatisticBuilder {
 
     private boolean isUnknown;
 
+    private Histogram histogram;
+
     public ColumnStatisticBuilder() {
     }
 
@@ -48,6 +50,7 @@ public class ColumnStatisticBuilder {
         this.minExpr = columnStatistic.minExpr;
         this.maxExpr = columnStatistic.maxExpr;
         this.isUnknown = columnStatistic.isUnKnown;
+        this.histogram = columnStatistic.histogram;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -149,8 +152,17 @@ public class ColumnStatisticBuilder {
         return isUnknown;
     }
 
+    public Histogram getHistogram() {
+        return histogram;
+    }
+
+    public ColumnStatisticBuilder setHistogram(Histogram histogram) {
+        this.histogram = histogram;
+        return this;
+    }
+
     public ColumnStatistic build() {
         return new ColumnStatistic(count, ndv, avgSizeByte, numNulls,
-            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown);
+            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram);
     }
 }
