@@ -21,8 +21,6 @@
 
 #include <algorithm>
 
-#include "util/simd/bits.h"
-#include "util/stack_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
@@ -67,14 +65,8 @@ public:
 
     size_t size() const override { return _codes.size(); }
 
-    bool is_copy_dict_to_column() { return _is_copy_dict_to_column; }
-
-    void set_copy_dict_to_column(bool is_copy_dict_to_column) {
-        _is_copy_dict_to_column = is_copy_dict_to_column;
-    }
-
-    StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&_codes[n]), sizeof(_codes[n]));
+    [[noreturn]] StringRef get_data_at(size_t n) const override {
+        LOG(FATAL) << "get_data_at not supported in ColumnDictionary";
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -154,11 +146,9 @@ public:
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported in ColumnDictionary";
     }
 
-    /// This method implemented in header because it could be possibly devirtualized.
-    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
-        return CompareHelper<T>::compare(
-                _codes[n], assert_cast<const ColumnVector<value_type>&>(rhs_).get_data()[m],
-                nan_direction_hint);
+    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
+                                int nan_direction_hint) const override {
+        LOG(FATAL) << "compare_at not supported in ColumnDictionary";
     }
 
     void get_extremes(Field& min, Field& max) const override {
@@ -176,123 +166,21 @@ public:
 
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
-    StringRef get_raw_data() const override {
-        return StringRef(reinterpret_cast<const char*>(_codes.data()), _codes.size());
+    [[noreturn]] StringRef get_raw_data() const override {
+        LOG(FATAL) << "get_raw_data not supported in ColumnDictionary";
     }
 
     [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
         LOG(FATAL) << "structure_equals not supported in ColumnDictionary";
     }
 
-    ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override {
-        size_t size = _codes.size();
-        if (size != filt.size()) {
-            LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
-                       << ", filter size: " << filt.size() << get_stack_trace();
-        }
-
-        auto res = this->create();
-        if constexpr (std::is_same_v<T, vectorized::Int64>) {
-            res->copy_date_types(*this);
-        }
-        Container& res_data = res->get_data();
-
-        res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
-
-        const UInt8* filt_pos = filt.data();
-        const UInt8* filt_end = filt_pos + size;
-        const T* data_pos = _codes.data();
-
-        /** A slightly more optimized version.
-        * Based on the assumption that often pieces of consecutive values
-        *  completely pass or do not pass the filter.
-        * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
-        */
-        static constexpr size_t SIMD_BYTES = 32;
-        const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
-
-        while (filt_pos < filt_end_sse) {
-            uint32_t mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
-
-            if (0xFFFFFFFF == mask) {
-                res_data.insert(data_pos, data_pos + SIMD_BYTES);
-            } else {
-                while (mask) {
-                    const size_t idx = __builtin_ctzll(mask);
-                    res_data.push_back_without_reserve(data_pos[idx]);
-                    mask = mask & (mask - 1);
-                }
-            }
-
-            filt_pos += SIMD_BYTES;
-            data_pos += SIMD_BYTES;
-        }
-
-        while (filt_pos < filt_end) {
-            if (*filt_pos) {
-                res_data.push_back_without_reserve(*data_pos);
-            }
-
-            ++filt_pos;
-            ++data_pos;
-        }
-
-        return res;
+    [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
+                                  ssize_t result_size_hint) const override {
+        LOG(FATAL) << "filter not supported in ColumnDictionary";
     }
 
-    size_t filter(const IColumn::Filter& filter) override {
-        size_t size = _codes.size();
-        if (size != filter.size()) {
-            LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
-                       << ", filter size: " << filter.size() << get_stack_trace();
-        }
-
-        const UInt8* filter_pos = filter.data();
-        const UInt8* filter_end = filter_pos + size;
-        T* data_pos = _codes.data();
-        T* result_data = data_pos;
-
-        /** A slightly more optimized version.
-        * Based on the assumption that often pieces of consecutive values
-        *  completely pass or do not pass the filter.
-        * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
-        */
-        static constexpr size_t SIMD_BYTES = 32;
-        const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
-
-        while (filter_pos < filter_end_sse) {
-            uint32_t mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
-
-            if (0xFFFFFFFF == mask) {
-                memmove(result_data, data_pos, sizeof(T) * SIMD_BYTES);
-                result_data += SIMD_BYTES;
-            } else {
-                while (mask) {
-                    const size_t idx = __builtin_ctzll(mask);
-                    *result_data = data_pos[idx];
-                    ++result_data;
-                    mask = mask & (mask - 1);
-                }
-            }
-
-            filter_pos += SIMD_BYTES;
-            data_pos += SIMD_BYTES;
-        }
-
-        while (filter_pos < filter_end) {
-            if (*filter_pos) {
-                *result_data = *data_pos;
-                ++result_data;
-            }
-
-            ++filter_pos;
-            ++data_pos;
-        }
-
-        const auto new_size = result_data - _codes.data();
-        _codes.resize(new_size);
-
-        return new_size;
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in ColumnDictionary";
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
@@ -625,7 +513,6 @@ private:
     size_t _reserve_size;
     bool _dict_sorted = false;
     bool _dict_code_converted = false;
-    bool _is_copy_dict_to_column = true;
     Dictionary _dict;
     Container _codes;
     FieldType _type;

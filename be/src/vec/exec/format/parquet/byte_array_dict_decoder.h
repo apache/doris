@@ -31,17 +31,16 @@ public:
     ~ByteArrayDictDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
     Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
 
-    Status get_dict_codes(const ColumnString* columnString,
+    Status get_dict_codes(const ColumnString* column_string,
                           std::vector<int32_t>* dict_codes) override;
 
-    MutableColumnPtr convert_dict_column_to_string_column(
-            const ColumnDictI32* dict_column) override;
+    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
 
 protected:
     template <typename DecimalPrimitiveType>

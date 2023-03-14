@@ -191,7 +191,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
         run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-        return chunk_reader.decode_values(data_column, data_type, run_length_map);
+        return chunk_reader.decode_values(data_column, data_type, run_length_map, false);
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -204,8 +204,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
                     run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-                    RETURN_IF_ERROR(
-                            chunk_reader.decode_values(data_column, data_type, run_length_map));
+                    RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type,
+                                                               run_length_map, false));
                 }
                 level_type = definitions[i];
                 num_values = 1;
@@ -219,7 +219,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
             run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-            RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, run_length_map));
+            RETURN_IF_ERROR(
+                    chunk_reader.decode_values(data_column, data_type, run_length_map, false));
         }
         return Status::OK();
     }

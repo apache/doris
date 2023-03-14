@@ -143,6 +143,7 @@ bool RowGroupReader::_can_filter_by_dict(const string& predicate_col_name,
         return false;
     }
 
+    // TODO：check expr like 'a > 10 is null', 'a > 10' should can be filter by dict.
     for (VExprContext* ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
         const VExpr* root_expr = ctx->root();
         if (root_expr->node_type() == TExprNodeType::FUNCTION_CALL) {
@@ -295,9 +296,9 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
         auto& column_type = column_with_type_and_name.type;
         auto col_iter =
                 std::find(_dict_filter_col_names.begin(), _dict_filter_col_names.end(), read_col);
+        bool is_dict_filter = false;
         if (col_iter != _dict_filter_col_names.end()) {
-            MutableColumnPtr dict_column = ColumnDictI32::create();
-            assert_cast<ColumnDictI32&>(*dict_column).set_copy_dict_to_column(false);
+            MutableColumnPtr dict_column = ColumnVector<Int32>::create();
             size_t pos = block->get_position_by_name(read_col);
             if (column_type->is_nullable()) {
                 block->get_by_position(pos).type =
@@ -309,6 +310,7 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
                 block->get_by_position(pos).type = std::make_shared<DataTypeInt32>();
                 block->replace_by_position(pos, std::move(dict_column));
             }
+            is_dict_filter = true;
         }
 
         size_t col_read_rows = 0;
@@ -319,7 +321,7 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
             size_t loop_rows = 0;
             RETURN_IF_ERROR(_column_readers[read_col]->read_column_data(
                     column_ptr, column_type, select_vector, batch_size - col_read_rows, &loop_rows,
-                    &col_eof));
+                    &col_eof, is_dict_filter));
             col_read_rows += loop_rows;
         }
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
@@ -380,9 +382,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             block->get_by_position(0).column->assume_mutable()->clear();
         }
 
-        // build filter map
-        //        bool can_filter_all = false;
-        //        const uint8_t* filter_map = _build_filter_map(sv, pre_read_rows, &can_filter_all);
         const uint8_t* __restrict filter_map = result_filter.data();
         select_vector_ptr.reset(new ColumnSelectVector(filter_map, pre_read_rows, can_filter_all));
         if (select_vector_ptr->filter_all() && !pre_eof) {
@@ -866,33 +865,30 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
 
 void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     for (auto& dict_filter_col_name : _dict_filter_col_names) {
-        ColumnPtr& column = block->get_by_name(dict_filter_col_name).column;
+        size_t pos = block->get_position_by_name(dict_filter_col_name);
+        ColumnWithTypeAndName& column_with_type_and_name = block->get_by_position(pos);
+        const ColumnPtr& column = column_with_type_and_name.column;
         if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
-            const ColumnDictI32* dict_column =
-                    assert_cast<const ColumnDictI32*>(nested_column.get());
+            const ColumnInt32* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
             DCHECK(dict_column);
 
             MutableColumnPtr string_column =
                     _column_readers[dict_filter_col_name]->convert_dict_column_to_string_column(
                             dict_column);
 
-            size_t pos = block->get_position_by_name(dict_filter_col_name);
-
-            block->get_by_position(pos).type =
+            column_with_type_and_name.type =
                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
             block->replace_by_position(
                     pos, ColumnNullable::create(std::move(string_column),
                                                 nullable_column->get_null_map_column_ptr()));
         } else {
-            const ColumnDictI32* dict_column = assert_cast<const ColumnDictI32*>(column.get());
+            const ColumnInt32* dict_column = assert_cast<const ColumnInt32*>(column.get());
             MutableColumnPtr string_column =
                     _column_readers[dict_filter_col_name]->convert_dict_column_to_string_column(
                             dict_column);
 
-            size_t pos = block->get_position_by_name(dict_filter_col_name);
-
-            block->get_by_position(pos).type = std::make_shared<DataTypeString>();
+            column_with_type_and_name.type = std::make_shared<DataTypeString>();
             block->replace_by_position(pos, std::move(string_column));
         }
     }
@@ -934,6 +930,10 @@ Status RowGroupReader::_execute_conjuncts(const std::vector<VExprContext*>& ctxs
                 for (size_t i = 0; i < size; ++i) {
                     result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
                 }
+                if (memchr(filter_data, 0x1, size) == nullptr) {
+                    *can_filter_all = true;
+                    return Status::OK();
+                }
             }
         } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
             // filter all
@@ -949,6 +949,11 @@ Status RowGroupReader::_execute_conjuncts(const std::vector<VExprContext*>& ctxs
             const size_t size = filter.size();
             for (size_t i = 0; i < size; ++i) {
                 result_filter_data[i] &= filter_data[i];
+            }
+
+            if (memchr(filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
             }
         }
     }

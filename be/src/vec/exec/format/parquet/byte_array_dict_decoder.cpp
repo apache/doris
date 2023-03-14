@@ -81,7 +81,7 @@ Status ByteArrayDictDecoder::get_dict_codes(const ColumnString* string_column,
 }
 
 MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
-        const ColumnDictI32* dict_column) {
+        const ColumnInt32* dict_column) {
     auto res = ColumnString::create();
     std::vector<StringRef> dict_values(dict_column->size());
     const auto& data = dict_column->get_data();
@@ -93,19 +93,19 @@ MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
 }
 
 Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                           ColumnSelectVector& select_vector) {
+                                           ColumnSelectVector& select_vector, bool is_dict_filter) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
-        if (dict_column.is_copy_dict_to_column() && dict_column.dict_size() == 0) {
+        if (dict_column.dict_size() == 0) {
             dict_column.insert_many_dict_data(&_dict_items[0], _dict_items.size());
         }
     }
     _indexes.resize(non_null_size);
     _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
-    if (doris_column->is_column_dictionary()) {
-        return _decode_dict_values(doris_column, select_vector);
+    if (doris_column->is_column_dictionary() || is_dict_filter) {
+        return _decode_dict_values(doris_column, select_vector, is_dict_filter);
     }
 
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();

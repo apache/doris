@@ -123,7 +123,7 @@ public:
 
     // Decode values in current page into doris column.
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector);
+                         ColumnSelectVector& select_vector, bool is_dict_filter);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
@@ -148,12 +148,12 @@ public:
                 ->read_dict_values_to_column(doris_column);
     }
 
-    Status get_dict_codes(const ColumnString* columnString, std::vector<int32_t>* dict_codes) {
+    Status get_dict_codes(const ColumnString* column_string, std::vector<int32_t>* dict_codes) {
         return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]->get_dict_codes(
-                columnString, dict_codes);
+                column_string, dict_codes);
     }
 
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnDictI32* dict_column) {
+    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]
                 ->convert_dict_column_to_string_column(dict_column);
     }

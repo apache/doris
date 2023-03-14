@@ -20,6 +20,7 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/parquet/decoder.h"
 
 namespace doris::vectorized {
 
@@ -31,7 +32,7 @@ public:
     ~FixLengthDictDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (doris_column->is_column_dictionary() &&
             assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
@@ -45,7 +46,7 @@ public:
         }
         if (doris_column->is_column_dictionary()) {
             ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
-            if (dict_column.is_copy_dict_to_column() && dict_column.dict_size() == 0) {
+            if (dict_column.dict_size() == 0) {
                 std::vector<StringRef> dict_items;
                 dict_items.reserve(_dict_items.size());
                 for (int i = 0; i < _dict_items.size(); ++i) {
@@ -57,8 +58,8 @@ public:
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
-        if (doris_column->is_column_dictionary()) {
-            return _decode_dict_values(doris_column, select_vector);
+        if (doris_column->is_column_dictionary() || is_dict_filter) {
+            return _decode_dict_values(doris_column, select_vector, is_dict_filter);
         }
 
         TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
@@ -375,7 +376,7 @@ public:
     ~FixLengthDictDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (doris_column->is_column_dictionary() &&
             assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
@@ -390,8 +391,8 @@ public:
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
-        if (doris_column->is_column_dictionary()) {
-            return _decode_dict_values(doris_column, select_vector);
+        if (doris_column->is_column_dictionary() || is_dict_filter) {
+            return _decode_dict_values(doris_column, select_vector, is_dict_filter);
         }
 
         TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
@@ -466,15 +467,16 @@ public:
 
     Status get_dict_codes(const ColumnString* string_column,
                           std::vector<int32_t>* dict_codes) override {
-        for (int i = 0; i < string_column->size(); ++i) {
+        size_t size = string_column->size();
+        dict_codes->reserve(size);
+        for (int i = 0; i < size; ++i) {
             StringRef dict_value = string_column->get_data_at(i);
             dict_codes->emplace_back(_dict_value_to_code[dict_value]);
         }
         return Status::OK();
     }
 
-    MutableColumnPtr convert_dict_column_to_string_column(
-            const ColumnDictI32* dict_column) override {
+    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
         std::vector<StringRef> dict_values(dict_column->size());
         const auto& data = dict_column->get_data();
