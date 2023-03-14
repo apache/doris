@@ -61,7 +61,7 @@ public class RankTest extends TPCHTestBase {
                     .rewrite()
                     .optimize()
                     .getBestPlanTree(PhysicalProperties.GATHER);
-            Assertions.assertEquals(plan1.treeString(), plan2.treeString());
+            Assertions.assertTrue(PlanChecker.isPlanEqualWithoutID(plan1, plan2));
         }
     }
 }

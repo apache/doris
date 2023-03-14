@@ -819,7 +819,9 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT) || fnName.getFunction()
                 .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT) || fnName.getFunction()
-                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT)) {
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_INTERSECT_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT) || fnName.getFunction()
+                .equalsIgnoreCase(FunctionSet.ORTHOGONAL_BITMAP_EXPR_CALCULATE)) {
             if (children.size() <= 2) {
                 throw new AnalysisException(fnName + "(bitmap_column, column_to_filter, filter_values) "
                         + "function requires at least three parameters");
@@ -872,7 +874,6 @@ public class FunctionCallExpr extends Expr {
             if (!getChild(1).isConstant()) {
                 throw new AnalysisException(fnName + "function's second argument should be constant");
             }
-            throw new AnalysisException(fnName + "not support on vectorized engine now.");
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")

@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -53,17 +53,17 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+            Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.distributionSpec = spec;
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]",
+        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]" + getGroupIdAsString(),
                 "distributionSpec", distributionSpec,
-                "stats", statsDeriveResult
+                "stats", statistics
         );
     }
 
@@ -101,8 +101,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
-        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult, child());
+            Statistics statistics) {
+        return new PhysicalDistribute<>(distributionSpec, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child());
     }
 }

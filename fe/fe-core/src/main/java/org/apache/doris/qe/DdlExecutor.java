@@ -110,7 +110,6 @@ import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
-import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
@@ -182,8 +181,6 @@ public class DdlExecutor {
             env.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof UpdateStmt) {
-            env.getUpdateManager().handleUpdate((UpdateStmt) ddlStmt);
         } else if (ddlStmt instanceof DeleteStmt) {
             env.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {

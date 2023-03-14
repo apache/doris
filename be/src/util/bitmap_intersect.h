@@ -148,7 +148,6 @@ void Helper::read_from<std::string>(const char** src, std::string* result) {
     *src += length;
 }
 // read_from end
-
 } // namespace detail
 
 // Calculate the intersection of two or more bitmaps
@@ -238,7 +237,7 @@ public:
         }
     }
 
-private:
+protected:
     std::map<T, BitmapValue> _bitmaps;
 };
 
@@ -325,7 +324,7 @@ public:
         }
     }
 
-private:
+protected:
     phmap::flat_hash_map<std::string, BitmapValue> _bitmaps;
 };
 

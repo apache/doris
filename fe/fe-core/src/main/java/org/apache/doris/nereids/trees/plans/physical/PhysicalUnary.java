@@ -23,7 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -46,7 +46,7 @@ public abstract class PhysicalUnary<CHILD_TYPE extends Plan>
 
     public PhysicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, child);
+            Statistics statistics, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, child);
     }
 }

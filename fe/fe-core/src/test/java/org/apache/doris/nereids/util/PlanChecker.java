@@ -596,4 +596,18 @@ public class PlanChecker {
         return this;
     }
 
+    public static boolean isPlanEqualWithoutID(Plan plan1, Plan plan2) {
+        if (plan1.arity() != plan2.arity()
+                || !plan1.getOutput().equals(plan2.getOutput()) || plan1.getClass() != plan2.getClass()) {
+            System.out.println(plan1);
+            System.out.println(plan2);
+            return false;
+        }
+        for (int i = 0; i < plan1.arity(); i++) {
+            if (!isPlanEqualWithoutID(plan1.child(i), plan2.child(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

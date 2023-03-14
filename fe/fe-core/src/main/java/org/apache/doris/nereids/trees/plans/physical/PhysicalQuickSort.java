@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -62,9 +62,9 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
      */
     public PhysicalQuickSort(List<OrderKey> orderKeys,
             SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
-                statsDeriveResult, child);
+                statistics, child);
     }
 
     @Override
@@ -90,14 +90,14 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
-        return new PhysicalQuickSort<>(orderKeys, phase, Optional.empty(), getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child());
+            Statistics statistics) {
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, child());
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalQuickSort",
+        return Utils.toSqlString("PhysicalQuickSort[" + id.asInt() + "]" + getGroupIdAsString(),
                 "orderKeys", orderKeys,
                 "phase", phase.toString()
         );

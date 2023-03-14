@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -65,7 +65,7 @@ public class Group {
 
     private boolean isExplored = false;
 
-    private StatsDeriveResult statistics;
+    private Statistics statistics;
 
     /**
      * Constructor for Group.
@@ -247,11 +247,11 @@ public class Group {
         lowestCostPlans.putAll(needReplaceBestExpressions);
     }
 
-    public StatsDeriveResult getStatistics() {
+    public Statistics getStatistics() {
         return statistics;
     }
 
-    public void setStatistics(StatsDeriveResult statistics) {
+    public void setStatistics(Statistics statistics) {
         this.statistics = statistics;
     }
 

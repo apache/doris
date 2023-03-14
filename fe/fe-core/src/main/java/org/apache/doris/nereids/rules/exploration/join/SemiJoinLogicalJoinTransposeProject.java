@@ -17,14 +17,10 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,9 +30,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -65,7 +58,6 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                         && (topJoin.left().child().getJoinType().isInnerJoin()
                         || topJoin.left().child().getJoinType().isLeftOuterJoin()
                         || topJoin.left().child().getJoinType().isRightOuterJoin())))
-                .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
@@ -76,9 +68,8 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    // push topSemiJoin down project, so we need replace conjuncts by project.
-                    Pair<List<Expression>, List<Expression>> conjuncts = replaceConjuncts(topSemiJoin, project);
-                    Set<ExprId> conjunctsIds = Stream.concat(conjuncts.first.stream(), conjuncts.second.stream())
+                    Set<ExprId> conjunctsIds = Stream.concat(topSemiJoin.getHashJoinConjuncts().stream(),
+                                    topSemiJoin.getOtherJoinConjuncts().stream())
                             .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
                     ContainsType containsType = containsChildren(conjunctsIds, a.getOutputExprIdSet(),
                             b.getOutputExprIdSet());
@@ -99,8 +90,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                         // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
                         Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
 
-                        Plan newBottomSemiJoin = topSemiJoin.withConjunctsChildren(conjuncts.first, conjuncts.second,
-                                a, c);
+                        Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         Plan newTopJoin = bottomJoin.withChildren(newBottomSemiJoin, b);
                         return project.withChildren(newTopJoin);
                     } else {
@@ -112,35 +102,18 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *       /     \                       |
                          *    project   C                  newTopJoin
                          *       |                        /         \
-                         *  bottomJoin  C     -->       A     newBottomSemiJoin
-                         *   /    \                               /      \
-                         *  A      B                             B       C
+                         *  bottomJoin  C     -->        A    newBottomSemiJoin
+                         *    /    \                              /      \
+                         *   A      B                             B       C
                          */
                         // LEFT_OUTER_JOIN should be eliminated in rewrite phase
                         Preconditions.checkState(bottomJoin.getJoinType() != JoinType.LEFT_OUTER_JOIN);
 
-                        Plan newBottomSemiJoin = topSemiJoin.withConjunctsChildren(conjuncts.first, conjuncts.second,
-                                b, c);
+                        Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
                         Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);
                         return project.withChildren(newTopJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
-    }
-
-    private Pair<List<Expression>, List<Expression>> replaceConjuncts(LogicalJoin<? extends Plan, ? extends Plan> join,
-            LogicalProject<? extends Plan> project) {
-        Map<ExprId, Slot> outputToInput = new HashMap<>();
-        for (NamedExpression outputExpr : project.getProjects()) {
-            Set<Slot> usedSlots = outputExpr.getInputSlots();
-            Preconditions.checkState(usedSlots.size() == 1);
-            Slot inputSlot = usedSlots.iterator().next();
-            outputToInput.put(outputExpr.getExprId(), inputSlot);
-        }
-        List<Expression> topHashConjuncts =
-                JoinReorderUtils.replaceJoinConjuncts(join.getHashJoinConjuncts(), outputToInput);
-        List<Expression> topOtherConjuncts =
-                JoinReorderUtils.replaceJoinConjuncts(join.getOtherJoinConjuncts(), outputToInput);
-        return Pair.of(topHashConjuncts, topOtherConjuncts);
     }
 
     enum ContainsType {
