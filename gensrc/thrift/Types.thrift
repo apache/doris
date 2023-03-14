@@ -578,7 +578,8 @@ enum TOdbcTableType {
     SQLSERVER,
     REDIS,
     MONGODB,
-    CLICKHOUSE
+    CLICKHOUSE,
+    SAP_HANA
 }
 
 enum TKeysType {
