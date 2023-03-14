@@ -50,7 +50,9 @@ public class TabletStatMgr extends MasterDaemon {
     }
 
     @Override
-    protected void runAfterCatalogReady() {
+    protected void runAfterCatalogReady() {}
+    
+    protected void runAfterCatalogReady2() {
         ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
         taskPool.submit(() -> {

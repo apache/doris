@@ -158,6 +158,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
             if (res) {
                 LOG.info("{} hold yyyyylreadock", getName(), new Exception());
+            } else {
+                LOG.info("{} hold yyyyylreadock failed", getName(), new Exception());
+                LOG.info("{} hold yyyyylreadock owner {}", getName(), this.rwLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
