@@ -129,13 +129,14 @@ CREATE CATALOG catalog_name PROPERTIES (
 	**mysql**
 
 	```sql
-	-- 方式一
+    -- 1.2.0+ 版本
+	-- 方式一 
 	CREATE RESOURCE mysql_resource PROPERTIES (
 		"type"="jdbc",
 		"user"="root",
 		"password"="123456",
 		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "file:///path/to/mysql-connector-java-8.0.25.jar",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
 		"driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
 	CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -146,8 +147,18 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"user"="root",
 		"password"="123456",
 		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
-		"driver_url" = "file:///path/to/mysql-connector-java-8.0.25.jar",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
 		"driver_class" = "com.mysql.cj.jdbc.Driver"
+	);
+ 	
+ 	-- 1.2.0 版本
+ 	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
 	```
 

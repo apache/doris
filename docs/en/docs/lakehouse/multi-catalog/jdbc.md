@@ -158,7 +158,7 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 
 7. SAP_HANA
 
-<version since="1.2.4"></version>
+<version since="dev"></version>
 
 ```sql
 CREATE CATALOG hana_catalog PROPERTIES (
@@ -372,27 +372,27 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 ### SAP_HANA
 
-| SAP_HANA     | Doris                    | Comment |
-|--------------|--------------------------|---------|
-| BOOLEAN      | BOOLEAN                  |         |
-| TINYINT      | TINYINT                  |         |
-| SMALLINT     | SMALLINT                 |         |
-| INTERGER     | INT                      |         |
-| BIGINT       | BIGINT                   |         |
-| SMALLDECIMAL | DECIMALV3                |         |
-| DECIMAL      | DECIMAL/DECIMALV3/STRING |将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型        |
-| REAL         | FLOAT                    |         |
-| DOUBLE       | DOUBLE                   |         |
-| DATE         | DATEV2                   |Jdbc Catlog连接Doris时默认使用DATEV2类型|
-| TIME         | TEXT                     |         |
-| TIMESTAMP    | DATETIMEV2               |Jdbc Catlog连接Doris时默认使用DATETIMEV2类型|
-| SECONDDATE   | DATETIMEV2               |Jdbc Catlog连接Doris时默认使用DATETIMEV2类型|
-| VARCHAR      | TEXT                     |         |
-| NVARCHAR     | TEXT                     |         |
-| ALPHANUM     | TEXT                     |         |
-| SHORTTEXT    | TEXT                     |         |
-| CHAR         | CHAR                     |         |
-| NCHAR        | CHAR                     |         |
+| SAP_HANA     | Doris                    | Comment                                                                                                            |
+|--------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
+| BOOLEAN      | BOOLEAN                  |                                                                                                                    |
+| TINYINT      | TINYINT                  |                                                                                                                    |
+| SMALLINT     | SMALLINT                 |                                                                                                                    |
+| INTERGER     | INT                      |                                                                                                                    |
+| BIGINT       | BIGINT                   |                                                                                                                    |
+| SMALLDECIMAL | DECIMALV3                |                                                                                                                    |
+| DECIMAL      | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
+| REAL         | FLOAT                    |                                                                                                                    |
+| DOUBLE       | DOUBLE                   |                                                                                                                    |
+| DATE         | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                         |
+| TIME         | TEXT                     |                                                                                                                    |
+| TIMESTAMP    | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
+| SECONDDATE   | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
+| VARCHAR      | TEXT                     |                                                                                                                    |
+| NVARCHAR     | TEXT                     |                                                                                                                    |
+| ALPHANUM     | TEXT                     |                                                                                                                    |
+| SHORTTEXT    | TEXT                     |                                                                                                                    |
+| CHAR         | CHAR                     |                                                                                                                    |
+| NCHAR        | CHAR                     |                                                                                                                    |
 
 ## FAQ
 
