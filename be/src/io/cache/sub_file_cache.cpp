@@ -319,8 +319,8 @@ Status SubFileCache::_init() {
         size_t file_size = 0;
         auto path = _cache_dir / file;
         RETURN_IF_ERROR(io::global_local_filesystem()->file_size(path, &file_size));
-        if (expect_file_size_map.find(offset) == expect_file_size_map.end()
-                || expect_file_size_map[offset] != file_size) {
+        if (expect_file_size_map.find(offset) == expect_file_size_map.end() ||
+            expect_file_size_map[offset] != file_size) {
             LOG(INFO) << "Delete invalid cache file: " << path.native() << ", offset: " << offset
                       << ", size: " << file_size;
             _clean_cache_internal(offset, nullptr);
