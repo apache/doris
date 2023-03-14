@@ -252,9 +252,10 @@ public:
         TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
-        if (which.idx == TypeIndex::BitMap)
+        if (which.idx == TypeIndex::BitMap) {
             return insert_result_data_bitmap(result_column, argument_column, null_map_data,
                                              filled_flag, input_rows_count);
+        }
 
         return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
