@@ -334,21 +334,6 @@ public class OlapScanNode extends ScanNode {
     }
 
     public void ignoreConjuncts() {
-        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
-            if (!slotDescriptor.isMaterialized()) {
-                continue;
-            }
-            boolean isBound = false;
-            for (Expr conjunct : conjuncts) {
-                if (conjunct.isBound(slotDescriptor.getId())) {
-                    isBound = true;
-                    break;
-                }
-            }
-            if (isBound) {
-                slotDescriptor.setIsMaterialized(false);
-            }
-        }
         vconjunct = null;
     }
 
@@ -484,9 +469,21 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             if (mvColumn == null) {
-                throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                boolean isBound = false;
+                for (Expr conjunct : conjuncts) {
+                    if (conjunct.isBound(slotDescriptor.getId())) {
+                        isBound = true;
+                        break;
+                    }
+                }
+                if (isBound) {
+                    slotDescriptor.setIsMaterialized(false);
+                } else {
+                    throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
+                }
+            } else {
+                slotDescriptor.setColumn(mvColumn);
             }
-            slotDescriptor.setColumn(mvColumn);
         }
         LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
     }
