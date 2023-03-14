@@ -42,9 +42,9 @@ public class LogAspect {
     }
 
     public static String getStackTrace(Throwable throwable) {
-        StringWriter sw = new StringWriter();
-        PrintWriter pw = new PrintWriter(sw);
-        throwable.printStackTrace(pw);
-        return sw.toString();
+        StringWriter stringWriter = new StringWriter();
+        PrintWriter printWriter = new PrintWriter(stringWriter);
+        throwable.printStackTrace(printWriter);
+        return stringWriter.toString();
     }
 }
