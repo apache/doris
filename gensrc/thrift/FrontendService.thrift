@@ -715,7 +715,7 @@ struct TInitExternalCtlMetaResult {
     2: optional string status;
 }
 
-enum TSchemaTableName{
+enum TSchemaTableName {
   BACKENDS = 0,
   METADATA_TABLE = 1,
 }
@@ -725,8 +725,6 @@ struct TMetadataTableRequestParams {
   2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
 }
 
-// TODO(ftw): it's confuse of the name 'TSchemaTableName'
-// may be we should change 'TSchemaTableName' name
 struct TFetchSchemaTableDataRequest {
   1: optional string cluster_name
   2: optional TSchemaTableName schema_table_name

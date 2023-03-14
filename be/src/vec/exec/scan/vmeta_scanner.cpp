@@ -154,39 +154,19 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
 }
 
 Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
-    VLOG_CRITICAL << "VMetaScanner::_fetch_iceberg_metadata";
+    VLOG_CRITICAL << "VMetaScanner::_fetch_metadata";
+    TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
     case TMetadataType::ICEBERG:
-        return _fetch_iceberg_metadata(meta_scan_range);
+        RETURN_IF_ERROR(_build_iceberg_metadata_request(meta_scan_range, &request));
+        break;
     default:
         _meta_eos = true;
-        break;
+        return Status::OK();
     }
-    return Status::OK();
-}
 
-Status VMetaScanner::_fetch_iceberg_metadata(const TMetaScanRange& meta_scan_range) {
-    VLOG_CRITICAL << "VMetaScanner::_fetch_iceberg_metadata";
-    if (!meta_scan_range.__isset.iceberg_params) {
-        return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
-    }
-    // create request
-    TFetchSchemaTableDataRequest request;
-    request.cluster_name = "";
-    request.__isset.cluster_name = true;
-    request.schema_table_name = TSchemaTableName::METADATA_TABLE;
-    request.__isset.schema_table_name = true;
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.metadata_type = TMetadataType::ICEBERG;
-    metadata_table_params.__isset.metadata_type = true;
-    metadata_table_params.iceberg_metadata_params = meta_scan_range.iceberg_params;
-    metadata_table_params.__isset.iceberg_metadata_params = true;
-
-    request.metada_table_params = metadata_table_params;
-    request.__isset.metada_table_params = true;
-
+    // _state->query_timeout() is seconds, change to milliseconds
+    int time_out = _state->query_timeout() * 1000;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -194,13 +174,34 @@ Status VMetaScanner::_fetch_iceberg_metadata(const TMetaScanRange& meta_scan_ran
             [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(result, request);
             },
-            config::txn_commit_rpc_timeout_ms));
+            time_out));
+
     Status status(result.status);
     if (!status.ok()) {
         LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
         return status;
     }
     _batch_data = std::move(result.data_batch);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                     TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_iceberg_metadata_request";
+    if (!meta_scan_range.__isset.iceberg_params) {
+        return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_cluster_name("");
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::ICEBERG);
+    metadata_table_params.__set_iceberg_metadata_params(meta_scan_range.iceberg_params);
+
+    request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 
