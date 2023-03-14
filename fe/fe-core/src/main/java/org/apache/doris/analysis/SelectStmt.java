@@ -1764,9 +1764,6 @@ public class SelectStmt extends QueryStmt {
 
     @Override
     public String toSql() {
-//        if (sqlString_ != null) {
-//            return sqlString_;
-//        }
         StringBuilder strBuilder = new StringBuilder();
         if (withClause_ != null) {
             strBuilder.append(withClause_.toSql());

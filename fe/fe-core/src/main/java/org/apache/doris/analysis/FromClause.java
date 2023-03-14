@@ -153,9 +153,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef = analyzer.resolveTableRef(tblRef);
             tableRefs_.set(i, Preconditions.checkNotNull(tblRef));
             tblRef.setLeftTblRef(leftTblRef);
-            if (tblRef instanceof InlineViewRef) {
-                ((InlineViewRef) tblRef).setNeedToSql(needToSql);
-            }
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
