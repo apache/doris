@@ -129,8 +129,8 @@ CREATE CATALOG catalog_name PROPERTIES (
 	**mysql**
 
 	```sql
-    -- 1.2.0+ 版本
-    -- 方式一 
+	-- 1.2.0+ 版本
+	-- 方式一 
 	CREATE RESOURCE mysql_resource PROPERTIES (
 		"type"="jdbc",
 		"user"="root",
@@ -141,7 +141,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
-    -- 方式二
+	-- 方式二
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
 		"user"="root",
@@ -151,7 +151,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
  	
-    -- 1.2.0 版本
+	-- 1.2.0 版本
  	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
 		"jdbc.user"="root",
