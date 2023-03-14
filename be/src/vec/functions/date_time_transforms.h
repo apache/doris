@@ -22,7 +22,7 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/type_traits.h"
 #include "vec/columns/column_nullable.h"
@@ -296,7 +296,7 @@ struct TransformerToStringTwoArgument {
             if constexpr (is_specialization_of_v<Transform, FromUnixTimeImpl>) {
                 std::tie(new_offset, is_null) =
                         Transform::execute(t, StringRef(format.c_str(), format.size()), res_data,
-                                           offset, context->impl()->state()->timezone_obj());
+                                           offset, context->state()->timezone_obj());
             } else {
                 std::tie(new_offset, is_null) = Transform::execute(
                         t, StringRef(format.c_str(), format.size()), res_data, offset);
