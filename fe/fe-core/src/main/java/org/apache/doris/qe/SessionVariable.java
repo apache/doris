@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -289,6 +290,14 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
     public static final String DRY_RUN_QUERY = "dry_run_query";
+
+    public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
+            SKIP_DELETE_PREDICATE,
+            SKIP_DELETE_BITMAP,
+            SKIP_DELETE_SIGN,
+            SKIP_STORAGE_ENGINE_MERGE,
+            SHOW_HIDDEN_COLUMNS
+    );
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -857,6 +866,10 @@ public class SessionVariable implements Serializable, Writable {
     public String nereidsTraceEventMode = "all";
 
     private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
+
+    public boolean isInDebugMode() {
+        return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge;
+    }
 
     public void setEnableNereidsTrace(boolean enableNereidsTrace) {
         this.enableNereidsTrace = enableNereidsTrace;
