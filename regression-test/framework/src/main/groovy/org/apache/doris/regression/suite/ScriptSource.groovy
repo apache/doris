@@ -78,12 +78,21 @@ class SqlFileSource implements ScriptSource {
             Object run() {
                 suite(suiteName, groupName) {
                     String tag = suiteName
+                    String exceptionStr = ""
                     boolean order = suiteName.endsWith("_order")
                     List<String> sqls = getSqls(file.text)
+                    log.info("Try to execute group: ${groupName} suite: ${suiteName} with ${sqls.size()} stmts")
                     for (int i = 0; i < sqls.size(); ++i) {
                         String singleSql = sqls.get(i)
                         String tagName = (i == 0) ? tag : "${tag}_${i + 1}"
-                        quickTest(tagName, singleSql, order)
+                        try {
+                            quickTest(tagName, singleSql, order)
+                        } catch (Throwable e) {
+                            exceptionStr += "\n${e.getMessage()}\n"
+                        }
+                    }
+                    if (exceptionStr.size() != 0) {
+                        throw new IllegalStateException("exceptions : ${exceptionStr}")
                     }
                 }
             }
