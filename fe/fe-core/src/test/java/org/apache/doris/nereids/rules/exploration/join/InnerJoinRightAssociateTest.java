@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class InnerJoinRightAssociateTest implements MemoPatternMatchSupported {
@@ -35,7 +37,7 @@ class InnerJoinRightAssociateTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
 
     @Test
-    public void testSimple() {
+    void testSimple() {
         /*-
          * LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#2 = id#4)], otherJoinConjuncts=[] )
          * |--LogicalJoin ( type=INNER_JOIN, hashJoinConjuncts=[(id#0 = id#2)], otherJoinConjuncts=[] )
@@ -62,4 +64,38 @@ class InnerJoinRightAssociateTest implements MemoPatternMatchSupported {
                         )
                 );
     }
+
+    @Test
+    void testCheckReorderFailed() {
+        JoinReorderContext joinReorderContext = new JoinReorderContext();
+
+        joinReorderContext.setHasExchange(true);
+        assertApplyFailedWithJoinReorderContext(joinReorderContext);
+        joinReorderContext.setHasExchange(false);
+
+        joinReorderContext.setHasCommute(true);
+        assertApplyFailedWithJoinReorderContext(joinReorderContext);
+        joinReorderContext.setHasCommute(false);
+
+        joinReorderContext.setHasLeftAssociate(true);
+        assertApplyFailedWithJoinReorderContext(joinReorderContext);
+        joinReorderContext.setHasLeftAssociate(false);
+
+        joinReorderContext.setHasRightAssociate(true);
+        assertApplyFailedWithJoinReorderContext(joinReorderContext);
+        joinReorderContext.setHasRightAssociate(false);
+    }
+
+    void assertApplyFailedWithJoinReorderContext(JoinReorderContext joinReorderContext) {
+        LogicalJoin topJoin = (LogicalJoin) new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(2, 0))
+                .build();
+        JoinReorderContext topJoinReorderContext = topJoin.getJoinReorderContext();
+        topJoinReorderContext.copyFrom(joinReorderContext);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+                .applyExploration(InnerJoinRightAssociate.INSTANCE.build())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
+    }
+
 }
