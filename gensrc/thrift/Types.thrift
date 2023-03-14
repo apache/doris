@@ -155,6 +155,7 @@ struct TTypeNode {
 struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
+    3: optional i64  byte_size
 }
 
 enum TAggregationType {
