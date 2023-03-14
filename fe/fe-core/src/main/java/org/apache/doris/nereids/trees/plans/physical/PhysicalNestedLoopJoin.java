@@ -115,7 +115,7 @@ public class PhysicalNestedLoopJoin<
     @Override
     public String toString() {
         // TODO: Maybe we could pull up this to the abstract class in the future.
-        return Utils.toSqlString("PhysicalNestedLoopJoin",
+        return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdAsString(),
                 "type", joinType,
                 "otherJoinCondition", otherJoinConjuncts,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
@@ -151,7 +151,7 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 
