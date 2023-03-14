@@ -110,7 +110,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
         if (!initialized) {
             if (!Env.getCurrentEnv().isMaster()) {
                 // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(ConnectContext.get());
                 try {
                     remoteExecutor.forward(extCatalog.getId(), id);
                 } catch (Exception e) {

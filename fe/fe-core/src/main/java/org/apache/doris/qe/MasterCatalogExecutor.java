@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
@@ -32,14 +33,11 @@ import org.apache.logging.log4j.Logger;
  * This client will wait for the journal ID replayed at this Observer FE before return.
  */
 public class MasterCatalogExecutor {
-
     private static final Logger LOG = LogManager.getLogger(MasterCatalogExecutor.class);
 
-    private final ConnectContext ctx;
     private int waitTimeoutMs;
 
-    public MasterCatalogExecutor() {
-        ctx = ConnectContext.get();
+    public MasterCatalogExecutor(ConnectContext ctx) {
         if (ctx == null) {
             // The method may be called by FrontendServiceImpl from BE, which does not have ConnectContext.
             waitTimeoutMs = 300 * 1000;
@@ -49,11 +47,11 @@ public class MasterCatalogExecutor {
     }
 
     public void forward(long catalogId, long dbId) throws Exception {
-        if (!ctx.getEnv().isReady()) {
+        if (!Env.getCurrentEnv().isReady()) {
             throw new Exception("Current catalog is not ready, please wait for a while.");
         }
-        String masterHost = ctx.getEnv().getMasterIp();
-        int masterRpcPort = ctx.getEnv().getMasterRpcPort();
+        String masterHost = Env.getCurrentEnv().getMasterIp();
+        int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
 
         FrontendService.Client client = null;
