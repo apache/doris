@@ -103,6 +103,8 @@ public:
     TExprOpcode::type op() const { return _opcode; }
 
     void add_child(VExpr* expr) { _children.push_back(expr); }
+    VExpr* get_child(int i) const { return _children[i]; }
+    int get_num_children() const { return _children.size(); }
 
     static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
 

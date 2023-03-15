@@ -158,6 +158,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::STRUCT:
         return TYPE_STRUCT;
+    case TPrimitiveType::LAMBDA_FUNCTION:
+        return TYPE_LAMBDA_FUNCTION;
 
     default:
         return INVALID_TYPE;
@@ -258,6 +260,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_STRUCT:
         return TPrimitiveType::STRUCT;
+    case TYPE_LAMBDA_FUNCTION:
+        return TPrimitiveType::LAMBDA_FUNCTION;
 
     default:
         return TPrimitiveType::INVALID_TYPE;
@@ -358,6 +362,8 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_STRUCT:
         return "STRUCT";
+    case TYPE_LAMBDA_FUNCTION:
+        return "LAMBDA_FUNCTION TYPE";
 
     default:
         return "";

@@ -624,7 +624,7 @@ terminal String
     KW_LINES,
     KW_IGNORE;
 
-terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER;
+terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
 terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
@@ -6030,6 +6030,21 @@ function_call_expr ::=
     } else {
       RESULT = new FunctionCallExpr(fn_name, params);
     }
+  :}
+  | function_name:fn_name LPAREN ident:id ARROW expr:e COMMA function_params:params RPAREN
+  {: 
+    List<Expr> exprs = params.exprs();
+    LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, id, exprs);
+    exprs.add(lambda);
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs); 
+  :}
+  | function_name:fn_name LPAREN LPAREN ident:id COMMA ident_list:idList RPAREN ARROW expr:e COMMA function_params:params RPAREN
+  {:
+    List<Expr> exprs = params.exprs();
+    idList.add(0, id);
+    LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, idList, exprs);
+    exprs.add(lambda);
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs);
   :}
   ;
 
