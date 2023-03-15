@@ -266,7 +266,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_STRING: {
         // TODO(zhangstar333): check array data type of postgresql
         // for oracle/pg database string must be '
-        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL || table_type == TOdbcTableType::SAP_HANA) {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
+            table_type == TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));
