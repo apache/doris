@@ -28,7 +28,9 @@ import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.analysis.ModifyBackendClause;
+import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
+import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -172,6 +174,11 @@ public class SystemHandler extends AlterHandler {
             Env.getCurrentEnv().getBrokerMgr().execute(clause);
         } else if (alterClause instanceof ModifyBackendClause) {
             Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
+        } else if (alterClause instanceof ModifyFrontendHostNameClause) {
+            ModifyFrontendHostNameClause clause = (ModifyFrontendHostNameClause) alterClause;
+            Env.getCurrentEnv().modifyFrontendHostName(clause.getIp(), clause.getNewHostName());
+        } else if (alterClause instanceof ModifyBackendHostNameClause) {
+            Env.getCurrentSystemInfo().modifyBackendHost((ModifyBackendHostNameClause) alterClause);
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }
