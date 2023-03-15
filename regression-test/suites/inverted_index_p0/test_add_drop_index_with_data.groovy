@@ -52,8 +52,6 @@ suite("test_add_drop_index_with_data", "inverted_index"){
             properties("replication_num" = "1");
     """
 
-    // set enable_vectorized_engine=true
-    sql """ SET enable_vectorized_engine=true; """
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 

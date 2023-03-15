@@ -43,8 +43,6 @@ suite("test_bkd_null_index", "inverted_index"){
 	);
     """
     
-    // set enable_vectorized_engine=true
-    sql """ SET enable_vectorized_engine=true; """
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 

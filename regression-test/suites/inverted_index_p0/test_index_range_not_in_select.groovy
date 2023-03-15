@@ -28,8 +28,6 @@ suite("test_index_range_not_in_select", "inverted_index_select"){
     def int_colume1 = "age"
     def key = ""
 
-    sql "set enable_vectorized_engine=true"
-
     def test_index_table_not_in_with_different_data_model = { Tb_name, data_model, key_columes ->
 
         //generate key set

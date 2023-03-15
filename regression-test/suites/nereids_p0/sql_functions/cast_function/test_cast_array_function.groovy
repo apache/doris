@@ -17,8 +17,7 @@
 
 suite("test_cast_array_function", "query") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "tbl_test_cast_array_function"
     // array functions only supported in vectorized engine
 
