@@ -36,7 +36,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.google.common.collect.Sets.SetView;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -237,7 +236,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             Set<Slot> childOutputSet = child.getOutputSet();
-            SetView<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
+            Set<Slot> childRequiredSlots = Sets.intersection(childrenRequiredSlots, childOutputSet);
+            if (childRequiredSlots.isEmpty()) {
+                childRequiredSlots = ImmutableSet.of(ExpressionUtils.selectMinimumColumn(childOutputSet));
+            }
             Plan prunedChild = doPruneChild(plan, child, childRequiredSlots, childOutputSet);
             if (prunedChild != child) {
                 hasNewChildren = true;
@@ -247,18 +249,13 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
     }
 
-    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots, Collection<Slot> childOutputSet) {
+    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots, Collection<Slot> childOutput) {
         boolean isProject = plan instanceof LogicalProject;
         Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
 
         // the case 2 in the class comment, prune child's output failed
-        if (!isProject && prunedChild.getOutputSet().size() > childRequiredSlots.size()) {
-            if (childRequiredSlots.isEmpty()) {
-                Slot minimumColumn = ExpressionUtils.selectMinimumColumn(childOutputSet);
-                prunedChild = new LogicalProject<>(ImmutableList.of(minimumColumn), prunedChild);
-            } else {
-                prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
-            }
+        if (!isProject && childOutput.size() > childRequiredSlots.size()) {
+            prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
         }
         return prunedChild;
     }
