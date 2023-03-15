@@ -70,8 +70,10 @@ private:
     CompactionActionType _type;
 
     bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.priv_type = TPrivilegeType::ADMIN;
+        TPrivilegeCtrl priv_ctrl;
+        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.__set_priv_ctrl(priv_ctrl);
+        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
         return true;
     }
 };

@@ -45,15 +45,15 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     if (!parse_basic_auth(*req, &auth_info)) {
         LOG(WARNING) << "parse basic authorization failed"
                      << ", request: " << req->debug_string();
-        HttpChannel::send_error(req, HttpStatus::BAD_REQUEST);
+        HttpChannel::send_error(req, HttpStatus::UNAUTHORIZED);
         return -1;
     }
 
-    auth_request.cluster = auth_info.cluster;
     auth_request.user = auth_info.user;
     auth_request.passwd = auth_info.passwd;
-    auth_request.user_ip = auth_info.user_ip;
-    auth_request.thrift_rpc_timeout_ms = config::thrift_rpc_timeout_ms;
+    auth_request.__set_cluster(auth_info.cluster);
+    auth_request.__set_user_ip(auth_info.user_ip);
+    auth_request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
 
     if (!on_privilege(*req, auth_request)) {
         LOG(WARNING) << "invalid privilege, request: " << req->debug_string();

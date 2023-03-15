@@ -40,8 +40,10 @@ private:
     int64_t _make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
 
     bool on_privilege(const HttpRequest& req, TCheckAuthRequest& auth_request) override {
-        auth_request.priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
-        auth_request.priv_type = TPrivilegeType::ADMIN;
+        TPrivilegeCtrl priv_ctrl;
+        priv_ctrl.priv_hier = TPrivilegeHier::GLOBAL;
+        auth_request.__set_priv_ctrl(priv_ctrl);
+        auth_request.__set_priv_type(TPrivilegeType::ADMIN);
         return true;
     }
 }; // end class SnapshotAction

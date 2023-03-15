@@ -46,8 +46,7 @@ const static std::string OP = "op";
 const static std::string DATA_SIZE = "data_size";
 const static std::string HEADER = "header";
 
-MetaAction::MetaAction(META_TYPE meta_type, ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env), _meta_type(meta_type) {}
+MetaAction::MetaAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
 Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
