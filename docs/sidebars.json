@@ -586,7 +586,8 @@
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
-                                "sql-manual/sql-functions/json-functions/json_valid"
+                                "sql-manual/sql-functions/json-functions/json_valid",
+                                "sql-manual/sql-functions/json-functions/json_extract"
                             ]
                         },
                         {
