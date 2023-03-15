@@ -27,16 +27,16 @@ import java.util.List;
 /**
  * change scalar sub query containing agg to window function. such as:
  * SELECT SUM(l_extendedprice) / 7.0 AS avg_yearly
- * FROM lineitem, part
- * WHERE p_partkey = l_partkey AND
- * p_brand = 'Brand#23' AND
- * p_container = 'MED BOX' AND
- * l_quantity<(SELECT 0.2*avg(l_quantity)
- * FROM lineitem
- * WHERE l_partkey = p_partkey);
+ *  FROM lineitem, part
+ *  WHERE p_partkey = l_partkey AND
+ *  p_brand = 'Brand#23' AND
+ *  p_container = 'MED BOX' AND
+ *  l_quantity<(SELECT 0.2*avg(l_quantity)
+ *  FROM lineitem
+ *  WHERE l_partkey = p_partkey);
  * to:
  * SELECT SUM(l_extendedprice) / 7.0 as avg_yearly
- * FROM (SELECT l_extendedprice, l_quantity,
+ *  FROM (SELECT l_extendedprice, l_quantity,
  *    avg(l_quantity)over(partition by p_partkey)
  *    AS avg_l_quantity
  *    FROM lineitem, part
@@ -45,12 +45,13 @@ import java.util.List;
  *    p_container = 'MED BOX') t
  * WHERE l_quantity < 0.2 * avg_l_quantity;
  */
+
 public class AggScalarSubQueryToWindowFunctionRule implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION.build(
-                        logicalApply().then(apply -> {
+                        logicalApply(logicalJoin(), logicalAggregate()).then(apply -> {
                             return null;
                         })
                 )
