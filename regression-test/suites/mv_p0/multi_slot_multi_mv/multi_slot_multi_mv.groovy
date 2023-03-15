@@ -43,7 +43,7 @@ suite ("multi_slot_multi_mv") {
         result = result.toString()
         logger.info("result: ${result}")
         if(result.contains("CANCELLED")){
-            throw new IllegalStateException("create MATERIALIZED VIEW failed:\n${result}")
+            throw new IllegalStateException("CREATE MATERIALIZED VIEW failed:\n${result}")
         }
         Thread.sleep(1000)
     }
