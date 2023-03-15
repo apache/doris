@@ -780,7 +780,7 @@ public class Config extends ConfigBase {
      * txn manager will reject coming txns
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_running_txn_num_per_db = 100;
+    public static int max_running_txn_num_per_db = 1000;
 
     /**
      * This configuration is just for compatible with old version,
