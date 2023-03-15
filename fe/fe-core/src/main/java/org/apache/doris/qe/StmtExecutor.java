@@ -1493,7 +1493,7 @@ public class StmtExecutor implements ProfileWriter {
             InterruptedException, ExecutionException, TimeoutException {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        long timeoutSecond = context.getExecTimeout();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
@@ -1554,9 +1554,6 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         analyzeVariablesInStmt(insertStmt.getQueryStmt());
-        // reset the executionTimeout since query hint maybe change the insert_timeout again
-        context.resetExecTimeoutByInsert();
-
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
         long txnId = -1;

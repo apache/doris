@@ -162,8 +162,7 @@ public class ConnectContext {
      * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
      * <p>
      * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
-     * then it is set to max(executionTimeoutS, insert_timeout) using {@link #setExecTimeout(int timeout)} at
-     * {@link StmtExecutor}.
+     * then it is set to max(executionTimeoutS, insert_timeout) using {@link #getExecTimeout()}
      */
     private int executionTimeoutS;
 
@@ -600,7 +599,6 @@ public class ConnectContext {
             long timeout;
             String timeoutTag = "query";
             if (userQueryTimeout > 0) {
-                // user set query_timeout property
                 timeout = userQueryTimeout * 1000L;
             } else {
                 //to ms
@@ -657,12 +655,20 @@ public class ConnectContext {
         executionTimeoutS = timeout;
     }
 
-    public long resetExecTimeoutByInsert() {
-        executionTimeoutS = Math.max(executionTimeoutS, sessionVariable.getInsertTimeoutS());
-        return executionTimeoutS;
-    }
-
+    /**
+     * We calculate and get the exact execution timeout here, rather than setting
+     * execution timeout in many other places.
+     *
+     * @return exact execution timeout
+     */
     public int getExecTimeout() {
+        if (executor.isInsertStmt()) {
+            // particular for insert stmt, we can expand other type of timeout in the same way
+            executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+        } else {
+            // normal query stmt
+            executionTimeoutS = sessionVariable.getQueryTimeoutS();
+        }
         return executionTimeoutS;
     }
 
