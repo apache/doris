@@ -101,9 +101,10 @@ public:
                 iterator->read_from_inverted_index(column_name, q.get(), num_rows, &roaring));
 
         if constexpr (PT == PredicateType::NE) {
-            *bitmap -= roaring;
+            roaring.flip(0, num_rows);
+            bitmap->swap(roaring);
         } else {
-            *bitmap &= roaring;
+            bitmap->swap(roaring);
         }
 
         return Status::OK();

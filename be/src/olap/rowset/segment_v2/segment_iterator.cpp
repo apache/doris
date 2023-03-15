@@ -732,7 +732,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         int32_t unique_id = _schema.unique_id(pred->column_id());
         bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
-        roaring::Roaring bitmap = _row_bitmap;
+        roaring::Roaring bitmap;
         Status res =
                 pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(), &bitmap);
         if (!res.ok()) {
@@ -807,7 +807,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
     if (_inverted_index_iterators.count(unique_id) > 0 &&
         _inverted_index_iterators[unique_id] != nullptr && predicate_set.size() > 1 &&
         all_predicates_are_range_predicate(predicate_set) && !handle_by_fulltext) {
-        roaring::Roaring output_result = _row_bitmap;
+        roaring::Roaring output_result;
 
         auto res = pred->evaluate(column_id, _schema, _inverted_index_iterators[unique_id],
                                   num_rows(), &output_result);

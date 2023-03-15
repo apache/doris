@@ -216,9 +216,10 @@ public:
         RETURN_IF_ERROR(
                 iterator->read_from_inverted_index(column_name, q.get(), num_rows, &indices));
         if constexpr (PT == PredicateType::IN_LIST) {
-            *result &= indices;
+            result->swap(indices);
         } else {
-            *result -= indices;
+            indices.flip(0, num_rows);
+            result->swap(indices);
         }
         return Status::OK();
     }

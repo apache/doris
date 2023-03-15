@@ -68,15 +68,9 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                         return q.add_value(inverted_index_query_op, predicate_params().get());
                     },
                     *query));
-            //StringRef match_value;
-            //int32_t length = _value.length();
-            //char* buffer = const_cast<char*>(_value.c_str());
-            //match_value.replace(buffer, length); //is it safe?
             s = iterator->read_from_inverted_index(column_desc->name(), query, num_rows, &roaring,
                                                    skip_try_inverted_index);
         } else if (is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
-            //char buf[column_desc->get_sub_field(0)->type_info()->size()];
-            //column_desc->get_sub_field(0)->from_string(buf, _value);
             RETURN_IF_ERROR(std::visit(
                     [&](auto& q) -> Status {
                         return q.add_value(inverted_index_query_op, predicate_params().get());
@@ -87,7 +81,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                                                    skip_try_inverted_index);
         }
     }
-    *bitmap &= roaring;
+    bitmap->swap(roaring);
     return s;
 }
 

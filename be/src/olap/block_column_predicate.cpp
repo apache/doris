@@ -250,7 +250,7 @@ Status AndBlockColumnPredicate::evaluate(ColumnId column_id, const Schema& schem
     RETURN_IF_ERROR(
             iterator->read_from_inverted_index(column_name, query_range, num_rows, &roaring));
 
-    *bitmap &= roaring;
+    bitmap->swap(roaring);
     return Status::OK();
 }
 
