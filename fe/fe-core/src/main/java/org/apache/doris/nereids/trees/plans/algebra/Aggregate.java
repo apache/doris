@@ -39,7 +39,7 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
 
     List<NamedExpression> getOutputExpressions();
 
-    Aggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutputs);
+    Aggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput);
 
     @Override
     Aggregate<Plan> withChildren(List<Plan> children);

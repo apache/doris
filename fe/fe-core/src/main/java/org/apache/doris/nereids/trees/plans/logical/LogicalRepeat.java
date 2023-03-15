@@ -161,8 +161,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutputs) {
-        return new LogicalRepeat<>(groupingSets, newOutputs, child());
+    public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
+        return new LogicalRepeat<>(groupingSets, newOutput, child());
     }
 
     public LogicalRepeat<Plan> withNormalizedExpr(List<List<Expression>> groupingSets,
