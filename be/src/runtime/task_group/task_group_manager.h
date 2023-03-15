@@ -19,11 +19,16 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "task_group.h"
+
 namespace doris::taskgroup {
 
 class TaskGroupManager {
-    DECLARE_SINGLETON(TaskGroupManager)
 public:
+    TaskGroupManager();
+    ~TaskGroupManager();
+    static TaskGroupManager* instance();
+
     // TODO pipeline task group
     TaskGroupPtr get_task_group(uint64_t id);
 

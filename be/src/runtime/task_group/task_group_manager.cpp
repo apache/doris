@@ -16,7 +16,6 @@
 // under the License.
 
 #include "task_group_manager.h"
-#include "task_group.h"
 
 namespace doris::taskgroup {
 
@@ -25,6 +24,11 @@ TaskGroupManager::TaskGroupManager() {
     _create_short_task_group();
 }
 TaskGroupManager::~TaskGroupManager() = default;
+
+TaskGroupManager* TaskGroupManager::instance() {
+    static TaskGroupManager tgm;
+    return &tgm;
+}
 
 TaskGroupPtr TaskGroupManager::get_task_group(uint64_t id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);

@@ -20,7 +20,6 @@
 
 namespace doris {
 namespace taskgroup {
-using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 
 pipeline::PipelineTask* TaskGroupEntity::take() {
     if (_queue.empty()) {
