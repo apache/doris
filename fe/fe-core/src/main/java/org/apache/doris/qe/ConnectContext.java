@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
@@ -268,9 +267,9 @@ public class ConnectContext {
         if (isTxnModel()) {
             if (isTxnBegin()) {
                 try {
-                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
-                            currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
-                } catch (UserException e) {
+                    InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(getTxnEntry());
+                    executor.abortTransaction();
+                } catch (Exception e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
                             txnEntry.getTxnConf().getTxnId(), e);
                 }
