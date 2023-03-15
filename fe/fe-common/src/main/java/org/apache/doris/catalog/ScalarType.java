@@ -180,6 +180,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
+            case LAMBDA_FUNCTION:
+                return LAMBDA_FUNCTION;
             case DATE:
                 return DATE;
             case DATETIME:
@@ -246,6 +248,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case "QUANTILE_STATE":
                 return QUANTILE_STATE;
+            case "LAMBDA_FUNCTION":
+                return LAMBDA_FUNCTION;
             case "DATE":
                 return DATE;
             case "DATETIME":
@@ -619,6 +623,7 @@ public class ScalarType extends Type {
             case BITMAP:
             case VARIANT:
             case QUANTILE_STATE:
+            case LAMBDA_FUNCTION:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
