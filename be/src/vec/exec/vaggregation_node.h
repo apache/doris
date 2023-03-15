@@ -239,6 +239,53 @@ struct AggregationMethodOneNumber {
     }
 };
 
+template <typename FieldType, typename TData, bool consecutive_keys_optimization = false>
+struct AggregationMethodOneFixedLengthString {
+    using Data = TData;
+    using Key = typename Data::key_type;
+    using Mapped = typename Data::mapped_type;
+    using Iterator = typename Data::iterator;
+
+    Data data;
+    Iterator iterator;
+    bool inited = false;
+
+    AggregationMethodOneFixedLengthString() = default;
+
+    template <typename Other>
+    AggregationMethodOneFixedLengthString(const Other& other) : data(other.data) {}
+
+    /// To use one `Method` in different threads, use different `State`.
+    using State = ColumnsHashing::HashMethodOneFixedLengthString<
+            typename Data::value_type, Mapped, FieldType, consecutive_keys_optimization>;
+
+    static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
+                                         const size_t num_rows, const Sizes& key_sizes) {
+        auto sz = key_sizes[0];
+        auto* column = static_cast<ColumnString*>(key_columns[0].get());
+        column->get_chars().template resize(sz * num_rows);
+        auto& offset = column->get_offsets();
+        offset.template reserve(num_rows);
+
+        auto* cursor = column->get_chars().data();
+        size_t cur_offset = 0;
+        for (size_t i = 0; i != num_rows; ++i) {
+            memcpy(reinterpret_cast<void*>(cursor),
+                   const_cast<const void*>(reinterpret_cast<void*>(&keys[i])), sz);
+            cursor += sz;
+            cur_offset += sz;
+            offset.template emplace_back(cur_offset);
+        }
+    }
+
+    void init_once() {
+        if (!inited) {
+            inited = true;
+            iterator = data.begin();
+        }
+    }
+};
+
 template <typename Base>
 struct AggregationDataWithNullKey : public Base {
     using Base::Base;
@@ -463,6 +510,12 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>,
         AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>,
         AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128KeyPhase2>,
+        AggregationMethodOneFixedLengthString<UInt32, AggregatedDataWithUInt32Key>,
+        AggregationMethodOneFixedLengthString<UInt64, AggregatedDataWithUInt64Key>,
+        AggregationMethodOneFixedLengthString<UInt128, AggregatedDataWithUInt128Key>,
+        AggregationMethodOneFixedLengthString<UInt32, AggregatedDataWithUInt32KeyPhase2>,
+        AggregationMethodOneFixedLengthString<UInt64, AggregatedDataWithUInt64KeyPhase2>,
+        AggregationMethodOneFixedLengthString<UInt128, AggregatedDataWithUInt128KeyPhase2>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key>>,
         AggregationMethodSingleNullableColumn<
@@ -500,6 +553,13 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodOneNumber<UInt32, PartitionedAggregatedDataWithUInt32KeyPhase2>,
         AggregationMethodOneNumber<UInt64, PartitionedAggregatedDataWithUInt64KeyPhase2>,
         AggregationMethodOneNumber<UInt128, PartitionedAggregatedDataWithUInt128KeyPhase2>,
+        AggregationMethodOneFixedLengthString<UInt32, PartitionedAggregatedDataWithUInt32Key>,
+        AggregationMethodOneFixedLengthString<UInt64, PartitionedAggregatedDataWithUInt64Key>,
+        AggregationMethodOneFixedLengthString<UInt128, PartitionedAggregatedDataWithUInt128Key>,
+        AggregationMethodOneFixedLengthString<UInt32, PartitionedAggregatedDataWithUInt32KeyPhase2>,
+        AggregationMethodOneFixedLengthString<UInt64, PartitionedAggregatedDataWithUInt64KeyPhase2>,
+        AggregationMethodOneFixedLengthString<UInt128,
+                                              PartitionedAggregatedDataWithUInt128KeyPhase2>,
         AggregationMethodSingleNullableColumn<
                 AggregationMethodOneNumber<UInt32, PartitionedAggregatedDataWithNullableUInt32Key>>,
         AggregationMethodSingleNullableColumn<
@@ -561,7 +621,7 @@ struct AggregatedDataVariants {
         _enable_partitioned_hash_table = enabled;
     }
 
-    void init(Type type, bool is_nullable = false) {
+    void init(Type type, bool is_nullable = false, bool is_string = false) {
         _type = type;
         switch (_type) {
         case Type::without_key:
@@ -599,6 +659,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt32, PartitionedAggregatedDataWithNullableUInt32Key>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt32, PartitionedAggregatedDataWithUInt32Key>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt32, PartitionedAggregatedDataWithUInt32Key>>();
@@ -608,6 +671,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt32, AggregatedDataWithNullableUInt32Key>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt32, AggregatedDataWithUInt32Key>>();
                 } else {
                     _aggregated_method_variant.emplace<
                             AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>>();
@@ -621,6 +687,9 @@ struct AggregatedDataVariants {
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt32,
                                     PartitionedAggregatedDataWithNullableUInt32KeyPhase2>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt32, PartitionedAggregatedDataWithUInt32KeyPhase2>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt32, PartitionedAggregatedDataWithUInt32KeyPhase2>>();
@@ -630,6 +699,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt32, AggregatedDataWithUInt32KeyPhase2>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt32, AggregatedDataWithUInt32KeyPhase2>>();
@@ -642,6 +714,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt64, PartitionedAggregatedDataWithNullableUInt64Key>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt64, PartitionedAggregatedDataWithUInt64Key>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt64, PartitionedAggregatedDataWithUInt64Key>>();
@@ -651,6 +726,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt64, AggregatedDataWithNullableUInt64Key>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt64, AggregatedDataWithUInt64Key>>();
                 } else {
                     _aggregated_method_variant.emplace<
                             AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>>();
@@ -664,6 +742,9 @@ struct AggregatedDataVariants {
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt64,
                                     PartitionedAggregatedDataWithNullableUInt64KeyPhase2>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt64, PartitionedAggregatedDataWithUInt64KeyPhase2>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt64, PartitionedAggregatedDataWithUInt64KeyPhase2>>();
@@ -673,6 +754,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt64, AggregatedDataWithUInt64KeyPhase2>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt64, AggregatedDataWithUInt64KeyPhase2>>();
@@ -685,6 +769,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt128, PartitionedAggregatedDataWithNullableUInt128Key>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt128, PartitionedAggregatedDataWithUInt128Key>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt128, PartitionedAggregatedDataWithUInt128Key>>();
@@ -694,6 +781,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt128, AggregatedDataWithNullableUInt128Key>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt128, AggregatedDataWithUInt128Key>>();
                 } else {
                     _aggregated_method_variant.emplace<
                             AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>>();
@@ -707,6 +797,9 @@ struct AggregatedDataVariants {
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt128,
                                     PartitionedAggregatedDataWithNullableUInt128KeyPhase2>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt128, PartitionedAggregatedDataWithUInt128KeyPhase2>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt128, PartitionedAggregatedDataWithUInt128KeyPhase2>>();
@@ -716,6 +809,9 @@ struct AggregatedDataVariants {
                     _aggregated_method_variant.emplace<
                             AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
                                     UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>>();
+                } else if (is_string) {
+                    _aggregated_method_variant.emplace<AggregationMethodOneFixedLengthString<
+                            UInt128, AggregatedDataWithUInt128KeyPhase2>>();
                 } else {
                     _aggregated_method_variant.emplace<AggregationMethodOneNumber<
                             UInt128, AggregatedDataWithUInt128KeyPhase2>>();

@@ -75,6 +75,45 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     }
 };
 
+template <typename Value, typename Mapped, typename FieldType, bool use_cache = true>
+struct HashMethodOneFixedLengthString
+        : public columns_hashing_impl::HashMethodBase<
+                  HashMethodOneFixedLengthString<Value, Mapped, FieldType, use_cache>, Value,
+                  Mapped, use_cache> {
+    using Self = HashMethodOneFixedLengthString<Value, Mapped, FieldType, use_cache>;
+    using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
+
+    const size_t byte_sz;
+    const char* vec;
+
+    /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
+    HashMethodOneFixedLengthString(const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
+                                   const HashMethodContextPtr&)
+            : byte_sz(key_sizes[0]) {
+        vec = reinterpret_cast<const ColumnString*>(key_columns[0])->get_chars().raw_data();
+    }
+
+    /// Creates context. Method is called once and result context is used in all threads.
+    using Base::createContext; /// (const HashMethodContext::Settings &) -> HashMethodContextPtr
+
+    /// Emplace key into HashTable or HashMap. If Data is HashMap, returns ptr to value, otherwise nullptr.
+    /// Data is a HashTable where to insert key from column's row.
+    /// For Serialized method, key may be placed in pool.
+    using Base::emplace_key; /// (Data & data, size_t row, Arena & pool) -> EmplaceResult
+
+    /// Find key into HashTable or HashMap. If Data is HashMap and key was found, returns ptr to value, otherwise nullptr.
+    using Base::find_key; /// (Data & data, size_t row, Arena & pool) -> FindResult
+    using Base::find_key_with_hash;
+
+    /// Get hash value of row.
+    using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
+
+    /// Is used for default implementation in HashMethodBase.
+    FieldType get_key_holder(size_t row, Arena&) const {
+        return unaligned_load<FieldType>(vec + row * byte_sz, byte_sz);
+    }
+};
+
 /// For the case when there is one string key.
 template <typename Value, typename Mapped, bool place_string_to_arena = true, bool use_cache = true>
 struct HashMethodString : public columns_hashing_impl::HashMethodBase<

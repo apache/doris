@@ -217,8 +217,35 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            // TODO:
-            _agg_data->init(AggregatedDataVariants::Type::string_key, is_nullable);
+            if (!probe_exprs[0]->root()->data_type()->have_maximum_size_of_value()) {
+                _agg_data->init(AggregatedDataVariants::Type::string_key, is_nullable);
+            } else {
+                const auto byte_sz =
+                        probe_exprs[0]->root()->data_type()->get_maximum_size_of_value_in_memory();
+                _probe_key_sz.push_back(byte_sz);
+                if (byte_sz <= sizeof(UInt32)) {
+                    if (_is_first_phase)
+                        _agg_data->init(AggregatedDataVariants::Type::int32_key, is_nullable, true);
+                    else
+                        _agg_data->init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable,
+                                        true);
+                } else if (byte_sz <= sizeof(UInt64)) {
+                    if (_is_first_phase)
+                        _agg_data->init(AggregatedDataVariants::Type::int64_key, is_nullable, true);
+                    else
+                        _agg_data->init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable,
+                                        true);
+                } else if (byte_sz <= sizeof(UInt128)) {
+                    if (_is_first_phase)
+                        _agg_data->init(AggregatedDataVariants::Type::int128_key, is_nullable,
+                                        true);
+                    else
+                        _agg_data->init(AggregatedDataVariants::Type::int128_key_phase2,
+                                        is_nullable, true);
+                } else {
+                    _agg_data->init(AggregatedDataVariants::Type::string_key, is_nullable);
+                }
+            }
             break;
         }
         default:

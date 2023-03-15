@@ -31,6 +31,13 @@ T unaligned_load(const void* address) {
     return res;
 }
 
+template <typename T>
+T unaligned_load(const void* address, const size_t sz) {
+    T res {};
+    memcpy(&res, address, sz);
+    return res;
+}
+
 /// We've had troubles before with wrong store size due to integral promotions
 /// (e.g., unaligned_store(dest, uint16_t + uint16_t) stores an uint32_t).
 /// To prevent this, make the caller specify the stored type explicitly.
