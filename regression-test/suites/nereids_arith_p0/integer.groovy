@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('nereids_arith_p0_int') {
+suite('nereids_arith_p0_integer') {
 	sql 'use regression_test_nereids_arith_p0'
 	sql 'set enable_nereids_planner=true'
 	sql 'set enable_fallback_to_original_planner=false'
