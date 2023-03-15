@@ -111,12 +111,9 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
      * Check JoinReorderContext.
      */
     public static boolean checkReorder(LogicalJoin<GroupPlan, ? extends Plan> topJoin) {
-        if (topJoin.getJoinReorderContext().hasCommute()
-                || topJoin.getJoinReorderContext().hasLeftAssociate()
-                || topJoin.getJoinReorderContext().hasRightAssociate()
-                || topJoin.getJoinReorderContext().hasExchange()) {
-            return false;
-        }
-        return true;
+        return !topJoin.getJoinReorderContext().hasCommute()
+                && !topJoin.getJoinReorderContext().hasLeftAssociate()
+                && !topJoin.getJoinReorderContext().hasRightAssociate()
+                && !topJoin.getJoinReorderContext().hasExchange();
     }
 }
