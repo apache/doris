@@ -187,7 +187,8 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
-        if (info != null && info.connectContext != null && info.connectContext.getStatsErrorEstimator() != null) {
+        if (info != null && info.connectContext != null
+                && info.connectContext.getStatsErrorEstimator() != null) {
             info.connectContext.getStatsErrorEstimator().updateExactReturnedRows(params);
         }
 
