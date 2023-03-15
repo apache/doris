@@ -85,6 +85,7 @@ public class JdbcResource extends Resource {
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
+    public static final String SPECIFIED_DATABASE_LIST = "specified_database_list";
     public static final String CHECK_SUM = "checksum";
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
@@ -94,11 +95,13 @@ public class JdbcResource extends Resource {
             DRIVER_URL,
             TYPE,
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_TABLE_NAMES
+            LOWER_CASE_TABLE_NAMES,
+            SPECIFIED_DATABASE_LIST
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_TABLE_NAMES
+            LOWER_CASE_TABLE_NAMES,
+            SPECIFIED_DATABASE_LIST
     ).build();
 
     // The default value of optional properties
@@ -108,6 +111,7 @@ public class JdbcResource extends Resource {
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(SPECIFIED_DATABASE_LIST, "");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
