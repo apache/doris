@@ -418,14 +418,10 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         for (int i = 0; i < _scan_ranges.size(); ++i) {
             auto& scan_range = _scan_ranges[i];
             auto tablet_id = scan_range->tablet_id;
-            std::string err;
-            TabletSharedPtr tablet =
-                    StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
-            if (tablet == nullptr) {
-                auto err_str = fmt::format("failed to get tablet: {}, reason: {}", tablet_id, err);
-                LOG(WARNING) << err_str;
-                return Status::InternalError(err_str);
-            }
+            auto [tablet, status] =
+                    StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id,
+                                                                                       true);
+            RETURN_IF_ERROR(status);
 
             is_duplicate_key = tablet->keys_type() == DUP_KEYS;
             if (!is_duplicate_key) {
@@ -545,9 +541,10 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     } else {
         for (auto& scan_range : _scan_ranges) {
             auto tablet_id = scan_range->tablet_id;
-            std::string err;
-            TabletSharedPtr tablet =
-                    StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
+            auto [tablet, status] =
+                    StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id,
+                                                                                       true);
+            RETURN_IF_ERROR(status);
 
             std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &cond_ranges;
             int size_based_scanners_per_tablet = 1;
@@ -570,7 +567,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                      ++j, ++i) {
                     scanner_ranges.push_back((*ranges)[i].get());
                 }
-                // Do split by segment cout
                 RETURN_IF_ERROR(build_new_scanner(*scan_range, scanner_ranges, {}, {}));
             }
         }

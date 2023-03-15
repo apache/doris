@@ -72,8 +72,10 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
     TTabletId tablet_id = scan_range.tablet_id;
     _version = strtoul(scan_range.version.c_str(), nullptr, 10);
     {
-        std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
+        auto [tablet, status] =
+                StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id, true);
+        RETURN_IF_ERROR(status);
+        _tablet = std::move(tablet);
         _tablet_schema->copy_from(*_tablet->tablet_schema());
 
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
