@@ -27,11 +27,14 @@ pipeline::PipelineTask* TaskGroupEntity::take() {
     }
     auto task = _queue.front();
     _queue.pop();
+    LOG(INFO) << "_llj3 TaskGroupEntity::take " << cpu_share() << ", vns:" << _vruntime_ns;
     return task;
 }
 
 void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns)  {
     auto v_time = runtime_ns / _tg->share();
+    LOG(INFO) << "_llj3 incr_runtime_ns " << cpu_share() << ", rs:" << runtime_ns
+              << ", v:" << v_time << ", _vruntime_ns:" << _vruntime_ns;
     _vruntime_ns += v_time;
 }
 

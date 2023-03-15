@@ -200,33 +200,48 @@ template <bool from_worker>
 void TaskGroupTaskQueue::_enqueue_task_group(taskgroup::TGEntityPtr ts_entity) {
     _total_cpu_share += ts_entity->cpu_share();
     if constexpr (!from_worker) {
-        auto* min_entity = _min_ts_entity.load();
-        if (!min_entity) {
+        auto old_v_ns = ts_entity->vruntime_ns();
+        auto* min_entity = _min_tg_entity.load();
+        if (min_entity) {
             int64_t new_vruntime_ns = min_entity->vruntime_ns() - _ideal_runtime_ns(ts_entity) / 2;
-            if (new_vruntime_ns > ts_entity->vruntime_ns()) {
+            if (new_vruntime_ns > old_v_ns) {
+                LOG(INFO) << "_llj3 adjust_vruntime_ns " << ts_entity->cpu_share() << " from "
+                          << old_v_ns << " to " << new_vruntime_ns
+                          << ", min_entity->vruntime_ns():" << min_entity->vruntime_ns()
+                          << ", _min_tg_v_runtime_ns: " << _min_tg_v_runtime_ns;
                 ts_entity->adjust_vruntime_ns(new_vruntime_ns);
             }
+        } else if (old_v_ns < _min_tg_v_runtime_ns) {
+            LOG(INFO) << "_llj3 adjust_vruntime_ns 2 " << ts_entity->cpu_share() << " from "
+                      << old_v_ns << " to " << _min_tg_v_runtime_ns;
+            ts_entity->adjust_vruntime_ns(_min_tg_v_runtime_ns);
         }
     }
     _groups.emplace(ts_entity);
-    _update_min_rg();
+    _update_min_tg();
 }
 
 void TaskGroupTaskQueue::_dequeue_task_group(taskgroup::TGEntityPtr ts_entity) {
     _total_cpu_share -= ts_entity->cpu_share();
     _groups.erase(ts_entity);
-    _update_min_rg();
+    _update_min_tg();
 }
 
-void TaskGroupTaskQueue::_update_min_rg() {
+void TaskGroupTaskQueue::_update_min_tg() {
     auto* min_entity = _next_ts_entity();
-    _min_ts_entity = min_entity;
+    _min_tg_entity = min_entity;
+    if (min_entity) {
+        auto min_v_runtime = min_entity->vruntime_ns();
+        if (min_v_runtime > _min_tg_v_runtime_ns) {
+            _min_tg_v_runtime_ns = min_v_runtime;
+        }
+    }
 }
 
 // like sched_fair.c calc_delta_fair
 int64_t TaskGroupTaskQueue::_ideal_runtime_ns(taskgroup::TGEntityPtr ts_entity) const {
     // _groups.size() -> _core_size?
-    return SCHEDULE_PERIOD_PER_WG_NS * _groups.size() * ts_entity->cpu_share() / _total_cpu_share;
+    return SCHEDULE_PERIOD_PER_WG_NS * _core_size * ts_entity->cpu_share() / _total_cpu_share;
 }
 
 taskgroup::TGEntityPtr TaskGroupTaskQueue::_next_ts_entity() {
@@ -249,7 +264,7 @@ void TaskGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_spen
     entry->incr_runtime_ns(time_spent);
     if (is_in_queue) {
         _groups.emplace(entry);
-        _update_min_rg();
+        _update_min_tg();
     }
 }
 

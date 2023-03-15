@@ -129,7 +129,7 @@ private:
     void _dequeue_task_group(taskgroup::TGEntityPtr);
     taskgroup::TGEntityPtr _next_ts_entity();
     int64_t _ideal_runtime_ns(taskgroup::TGEntityPtr ts_entity) const;
-    void _update_min_rg();
+    void _update_min_tg();
 
     static constexpr int64_t SCHEDULE_PERIOD_PER_WG_NS = 100'000'000;
 
@@ -143,7 +143,8 @@ private:
     std::mutex _rs_mutex;
     bool _closed = false;
     int _total_cpu_share = 0;
-    std::atomic<taskgroup::TGEntityPtr> _min_ts_entity = nullptr;
+    std::atomic<taskgroup::TGEntityPtr> _min_tg_entity = nullptr;
+    uint64_t _min_tg_v_runtime_ns = 0;
 };
 
 // Need consider NUMA architecture

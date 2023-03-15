@@ -673,7 +673,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             fragments_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
-        auto tg_str = " with no task group";
         if (params.query_options.enable_pipeline_engine) {
             int ts = params.query_options.query_timeout;
             taskgroup::TaskGroupPtr tg;
@@ -683,7 +682,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             }
             tg = taskgroup::TaskGroupManager::instance()->get_task_group(ts_id);
             fragments_ctx->set_task_group(tg);
-            tg_str = fmt::format(" with task group (id:{})", ts_id).c_str();
+            LOG(INFO) << "Query/load id: " << print_id(fragments_ctx->query_id)
+                      << "use tg id: " << ts_id << ", ts:" << ts << ", share: "<< tg->share();
         }
 
         {
@@ -695,8 +695,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 _fragments_ctx_map.insert(std::make_pair(fragments_ctx->query_id, fragments_ctx));
                 LOG(INFO) << "Register query/load memory tracker, query/load id: "
                           << print_id(fragments_ctx->query_id)
-                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                          << tg_str;
+                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
             } else {
                 // Already has a query fragments context, use it
                 fragments_ctx = search->second;
