@@ -1780,14 +1780,14 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.setStoragePolicy(properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
-                        final boolean enableLightSchemaChange = Boolean.parseBoolean(
+                        lightSchemaChange = Boolean.parseBoolean(
                                 properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE));
-                        if (Objects.equals(olapTable.getEnableLightSchemaChange(), enableLightSchemaChange)) {
+                        if (Objects.equals(olapTable.getEnableLightSchemaChange(), lightSchemaChange)) {
                             throw new DdlException(
                                     String.format("Table %s.%s has already support light_schema_change=%s",
-                                            db.getFullName(), olapTable.getName(), enableLightSchemaChange));
+                                            db.getFullName(), olapTable.getName(), lightSchemaChange));
                         }
-                        if (!enableLightSchemaChange) {
+                        if (!lightSchemaChange) {
                             throw new DdlException("Can not alter light_schema_change to false currently");
                         }
                         enableLightSchemaChange(db, olapTable);
@@ -1894,11 +1894,10 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private synchronized void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
-        //TODO: alter light schema change
+    private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         // 1. rpc read columnUniqueIds from BE
-        // 2. refresh table meta data
-        // 3. write table property
+        // 2. refresh table metadata
+        // 3. write edit log
         Map<Long, MaterializedIndex> tabletIdToIdx = new HashMap<>();
         olapTable.getAllPartitions()
                 .stream()
@@ -1910,7 +1909,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     final long tabletId = materializedIndex.getTablets().get(0).getId();
                     tabletIdToIdx.put(tabletId, materializedIndex);
                 });
-
         // TODO: think about can we select the right BE in this way
         BeSelectionPolicy policy = new BeSelectionPolicy
                 .Builder()
@@ -1922,8 +1920,10 @@ public class SchemaChangeHandler extends AlterHandler {
         Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
         final TFetchColIdsResponse response;
         try {
+            // TODO: need a specific timeout, use execution timeout currently
             final Client client = ClientPool.backendPool.borrowObject(
-                    new TNetworkAddress(backend.getIp(), backend.getBePort()));
+                    new TNetworkAddress(backend.getIp(), backend.getBePort()),
+                    ConnectContext.get().getExecTimeout() * 1000);
             response = client.getColumnIdsByTabletIds(
                     new TFetchColIdsRequest(tabletIdToIdx.keySet()));
         } catch (Exception e) {
@@ -1938,13 +1938,15 @@ public class SchemaChangeHandler extends AlterHandler {
             final MaterializedIndex index = tabletIdToIdx.get(tabletId);
             final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(index.getId());
             final List<Column> columns = indexMeta.getSchema();
+            // we need a pre-check for all column metadata read from BE
+            Preconditions.checkState(columns.size() == colNameToId.size(),
+                        "size mismatch for columns meta from BE");
             for (Column column : columns) {
                 final String columnName = column.getName();
                 final Integer columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
-                        "column id of column:{" + columnName + "} should be not null");
+                        "failed to fetch column id of column:{" + columnName + "} from BE");
                 column.setUniqueId(columnId);
             }
-            olapTable.updateIndexMeta(index.getId(), indexMeta);
         });
 
         //write table property
