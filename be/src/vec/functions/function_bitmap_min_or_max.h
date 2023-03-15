@@ -56,8 +56,7 @@ public:
         auto result_column = ColumnInt64::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
             // Danger: Here must dispose the null map data first! Because
             // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
