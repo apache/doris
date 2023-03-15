@@ -45,10 +45,14 @@ public class LogAspect {
         MethodSignature joinPointObject = (MethodSignature) point.getSignature();
         Method method = joinPointObject.getMethod();
         ExceptionLog exceptionLog = method.getAnnotation(ExceptionLog.class);
-        LOG.error(e.getMessage());
-        if (exceptionLog.isGetStackTrace()) {
-            LOG.error(getStackTrace(e));
+        LOG.warn(e.getMessage());
+        if (exceptionLog != null && exceptionLog.isGetStackTrace()) {
+            LOG.warn(getStackTrace(e));
         }
+        if (exceptionLog != null && exceptionLog.isExit()) {
+            System.exit(-1);
+        }
+
     }
 
     public static String getStackTrace(Throwable throwable) {

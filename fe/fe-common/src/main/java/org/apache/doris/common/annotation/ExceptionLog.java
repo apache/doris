@@ -27,4 +27,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ExceptionLog {
     boolean isGetStackTrace() default false;
+
+    boolean isExit() default false;
 }
