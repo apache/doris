@@ -33,6 +33,11 @@ public class StringType extends CharacterType {
     }
 
     @Override
+    public int width() {
+        return len;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return Type.STRING;
     }

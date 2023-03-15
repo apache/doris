@@ -109,6 +109,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public static Expr translate(Expression expression, PlanTranslatorContext context) {
         Expr staleExpr = expression.accept(INSTANCE, context);
         try {
+            if (staleExpr.getType() instanceof ScalarType) {
+                ((ScalarType) staleExpr.getType()).setByteSize((long) expression.getDataType().width());
+            }
+
             staleExpr.finalizeForNereids();
         } catch (Exception e) {
             throw new AnalysisException(
