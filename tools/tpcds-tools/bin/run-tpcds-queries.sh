@@ -20,7 +20,7 @@
 # This script is used to run TPC-DS 99 queries
 ##############################################################
 
-set -eo pipefail
+# set -eo pipefail
 
 ROOT=$(dirname "$0")
 ROOT=$(
