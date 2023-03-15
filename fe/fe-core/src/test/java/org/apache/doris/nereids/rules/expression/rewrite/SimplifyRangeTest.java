@@ -87,7 +87,7 @@ public class SimplifyRangeTest {
         assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
-        assertRewrite("TA in (1,2,3) and TA > 1", "TA in (2,3)");
+        assertRewrite("TA in (1,2,3) and TA > 1", "((TA = 2) OR (TA = 3))");
         assertRewrite("TA in (1,2,3) or TA >= 1", "TA >= 1");
         assertRewrite("TA in (1)", "TA in (1)");
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
