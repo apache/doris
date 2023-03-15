@@ -507,7 +507,8 @@ public class InsertStmt extends DdlStmt {
 
         Map<String, Expr> slotToIndex = Maps.newTreeMap();
         List<Column> baseColumns = targetTable.getBaseSchema();
-        for (int i = 0; i < baseColumns.size(); i++) {
+        int size = Math.min(baseColumns.size(), queryStmt.getResultExprs().size());
+        for (int i = 0; i < size; i++) {
             slotToIndex.put(baseColumns.get(i).getName(), queryStmt.getResultExprs().get(i));
         }
 
