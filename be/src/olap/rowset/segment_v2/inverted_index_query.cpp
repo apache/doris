@@ -154,45 +154,6 @@ Status InvertedIndexQuery<Type>::add_value(InvertedIndexQueryOp op, PredicatePar
     return Status::OK();
 }
 
-template <>
-Status InvertedIndexQuery<PrimitiveType::TYPE_VARCHAR>::add_fixed_value(InvertedIndexQueryOp op,
-                                                                        const CppType& value) {
-    _fixed_values.insert(value);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
-template <>
-Status InvertedIndexQuery<PrimitiveType::TYPE_CHAR>::add_fixed_value(InvertedIndexQueryOp op,
-                                                                     const CppType& value) {
-    _fixed_values.insert(value);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
-template <>
-Status InvertedIndexQuery<PrimitiveType::TYPE_STRING>::add_fixed_value(InvertedIndexQueryOp op,
-                                                                       const CppType& value) {
-    _fixed_values.insert(value);
-
-    _high_value = value;
-    _low_value = value;
-    _high_op = op;
-    _low_op = op;
-
-    return Status::OK();
-}
-
 template <PrimitiveType Type>
 Status InvertedIndexQuery<Type>::from_string(const std::string& str_value, CppType& value,
                                              int precision, int scale) {

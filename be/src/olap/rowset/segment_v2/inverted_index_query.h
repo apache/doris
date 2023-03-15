@@ -132,15 +132,8 @@ public:
               _type_info(type_info) {
         _value_key_coder = get_key_coder(_type_info->type());
 
-        if constexpr (Type == TYPE_DATETIME) {
-            uint64_t max_value = 99991231235959L;
-            uint64_t min_value = 101000000;
-            _value_key_coder->full_encode_ascending(&max_value, &_high_value_encoded);
-            _value_key_coder->full_encode_ascending(&min_value, &_low_value_encoded);
-        } else {
-            _value_key_coder->full_encode_ascending(&TYPE_MAX, &_high_value_encoded);
-            _value_key_coder->full_encode_ascending(&TYPE_MIN, &_low_value_encoded);
-        }
+        _value_key_coder->full_encode_ascending(&TYPE_MAX, &_high_value_encoded);
+        _value_key_coder->full_encode_ascending(&TYPE_MIN, &_low_value_encoded);
     }
 
     // if op is match, we just need to add match_value to fixed_values_str, no need to add to fixed_values.
@@ -158,9 +151,11 @@ public:
 
     Status add_fixed_value(InvertedIndexQueryOp op, const CppType& value) {
         _fixed_values.insert(value);
-        std::string tmp;
-        _value_key_coder->full_encode_ascending(&value, &tmp);
-        _fixed_values_encoded.insert(tmp);
+        if constexpr (Type != TYPE_STRING && Type != TYPE_VARCHAR && Type != TYPE_CHAR) {
+            std::string tmp;
+            _value_key_coder->full_encode_ascending(&value, &tmp);
+            _fixed_values_encoded.insert(tmp);
+        }
 
         _high_value = value;
         _low_value = value;

@@ -65,7 +65,6 @@ public:
             return Status::OK();
         }
         auto column_desc = schema.column(_column_id);
-        column_desc->type();
         std::string column_name = column_desc->name();
 
         InvertedIndexQuery<Type> query(column_desc->type_info());
