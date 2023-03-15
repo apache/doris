@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -143,33 +144,26 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     // only prune the agg functions here
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, PruneContext context) {
-        // first try to prune group by and aggregate functions
-        LogicalAggregate<? extends Plan> prunedOutputAgg =
-                (LogicalAggregate) pruneOutput(aggregate, aggregate.getOutputs(), aggregate::pruneOutputs, context);
-
-        List<Expression> groupByExpressions = prunedOutputAgg.getGroupByExpressions();
-        List<NamedExpression> outputExpressions = prunedOutputAgg.getOutputExpressions();
-
-        // then fill up group by
-        LogicalAggregate<Plan> fillUpOutputAgg = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
-                .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
-                .orElse((LogicalAggregate) prunedOutputAgg);
-
-        return pruneChildren(fillUpOutputAgg);
+        return pruneAggregate(aggregate, context);
     }
 
     // same as aggregate
     @Override
     public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, PruneContext context) {
-        LogicalRepeat<? extends Plan> prunedOutputRepeat =
-                (LogicalRepeat) pruneOutput(repeat, repeat.getOutputs(), repeat::pruneOutputs, context);
+        return pruneAggregate(repeat, context);
+    }
 
-        List<Expression> groupByExpressions = prunedOutputRepeat.getGroupByExpressions();
-        List<NamedExpression> outputExpressions = prunedOutputRepeat.getOutputExpressions();
+    private Plan pruneAggregate(Aggregate agg, PruneContext context) {
+        // first try to prune group by and aggregate functions
+        Aggregate prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
 
-        LogicalRepeat<Plan> fillUpOutputRepeat = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
-                .map(fullOutput -> prunedOutputRepeat.withAggOutput(fullOutput))
-                .orElse((LogicalRepeat) prunedOutputRepeat);
+        List<Expression> groupByExpressions = prunedOutputAgg.getGroupByExpressions();
+        List<NamedExpression> outputExpressions = prunedOutputAgg.getOutputExpressions();
+
+        // then fill up group by
+        Aggregate fillUpOutputRepeat = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
+                .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
+                .orElse(prunedOutputAgg);
 
         return pruneChildren(fillUpOutputRepeat);
     }
