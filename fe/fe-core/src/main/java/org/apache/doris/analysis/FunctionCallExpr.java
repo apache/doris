@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -77,6 +78,8 @@ public class FunctionCallExpr extends Expr {
             String.CASE_INSENSITIVE_ORDER)
             .add("round").add("round_bankers").add("ceil").add("floor")
             .add("truncate").add("dround").add("dceil").add("dfloor").build();
+
+    private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
     static {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
@@ -1016,7 +1019,9 @@ public class FunctionCallExpr extends Expr {
                     }
                 }
             }
-            children.add(new StringLiteral(blockEncryptionMode));
+            if (!blockEncryptionMode.equals(children.get(children.size() - 1))) {
+                children.add(new StringLiteral(blockEncryptionMode));
+            }
         }
 
     }
