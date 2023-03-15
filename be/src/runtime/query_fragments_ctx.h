@@ -131,9 +131,9 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
-    void set_task_group(taskgroup::TaskGroupPtr& rs_group) { _task_group = rs_group; }
+    void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
 
-    taskgroup::TaskGroup* get_task_group() { return _task_group.get(); }
+    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
 
 public:
     TUniqueId query_id;

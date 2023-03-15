@@ -16,32 +16,33 @@
 // under the License.
 
 #include "task_group_manager.h"
+#include "task_group.h"
 
 namespace doris::taskgroup {
 
 TaskGroupManager::TaskGroupManager() {
     _create_default_task_group();
-    _create_poc_task_group();
+    _create_short_task_group();
 }
 TaskGroupManager::~TaskGroupManager() = default;
 
-TaskGroupPtr TaskGroupManager::get_or_create_task_group(uint64_t id) {
+TaskGroupPtr TaskGroupManager::get_task_group(uint64_t id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     if (_task_groups.count(id)) {
         return _task_groups[id];
     } else {
-        return _task_groups[DEFAULT_RG_ID];
+        return _task_groups[DEFAULT_TG_ID];
     }
 }
 
 void TaskGroupManager::_create_default_task_group() {
-    _task_groups[DEFAULT_RG_ID] =
-            std::make_shared<TaskGroup>(DEFAULT_RG_ID, "default_rs", DEFAULT_CPU_SHARE);
+    _task_groups[DEFAULT_TG_ID] =
+            std::make_shared<TaskGroup>(DEFAULT_TG_ID, "default_rs", DEFAULT_TG_CPU_SHARE);
 }
 
-void TaskGroupManager::_create_poc_task_group() {
-    _task_groups[POC_RG_ID] =
-            std::make_shared<TaskGroup>(POC_RG_ID, "poc_rs", POC_RG_CPU_SHARE);
+void TaskGroupManager::_create_short_task_group() {
+    _task_groups[SHORT_TG_ID] =
+            std::make_shared<TaskGroup>(SHORT_TG_ID, "poc_rs", SHORT_TG_CPU_SHARE);
 }
 
 }

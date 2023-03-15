@@ -20,6 +20,7 @@
 
 namespace doris {
 namespace taskgroup {
+using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 
 pipeline::PipelineTask* TaskGroupEntity::take() {
     if (_queue.empty()) {
@@ -30,12 +31,12 @@ pipeline::PipelineTask* TaskGroupEntity::take() {
     return task;
 }
 
-void TaskGroupEntity::incr_runtime_ns(int64_t runtime_ns)  {
-    auto v_time = runtime_ns / _rs->cpu_share();
+void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns)  {
+    auto v_time = runtime_ns / _tg->share();
     _vruntime_ns += v_time;
 }
 
-void TaskGroupEntity::adjust_vruntime_ns(int64_t vruntime_ns) {
+void TaskGroupEntity::adjust_vruntime_ns(uint64_t vruntime_ns) {
     _vruntime_ns = vruntime_ns;
 }
 
@@ -43,12 +44,12 @@ void TaskGroupEntity::push_back(pipeline::PipelineTask* task) {
     _queue.emplace(task);
 }
 
-int TaskGroupEntity::cpu_share() const {
-    return _rs->cpu_share();
+uint64_t TaskGroupEntity::cpu_share() const {
+    return _tg->share();
 }
 
-TaskGroup::TaskGroup(uint64_t id, std::string name, int cpu_share)
-        : _id(id), _name(name), _cpu_share(cpu_share), _task_entry(this) {}
+TaskGroup::TaskGroup(uint64_t id, std::string name, uint64_t share)
+        : _id(id), _name(name), _share(share), _task_entity(this) {}
 
 } // namespace taskgroup
 } // namespace doris

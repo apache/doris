@@ -289,7 +289,7 @@ std::string PipelineTask::debug_string() const {
     return fmt::to_string(debug_string_buffer);
 }
 
-taskgroup::TaskGroup* PipelineTask::get_task_group() {
+taskgroup::TaskGroup* PipelineTask::get_task_group() const {
     return _fragment_context->get_task_group();
 }
 

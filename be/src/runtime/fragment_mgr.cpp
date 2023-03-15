@@ -673,16 +673,17 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             fragments_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
-        // TODO pipeline task group
+        auto tg_str = " with no task group";
         if (params.query_options.enable_pipeline_engine) {
             int ts = params.query_options.query_timeout;
-            taskgroup::TaskGroupPtr rg;
-            int ts_id = 0;
-            if (ts > 200) {
-                ts_id = 1;
+            taskgroup::TaskGroupPtr tg;
+            auto ts_id = taskgroup::TaskGroupManager::DEFAULT_TG_ID;
+            if (ts <= taskgroup::TaskGroupManager::SHORT_QUERY_TIMEOUT_S) {
+                ts_id = taskgroup::TaskGroupManager::SHORT_TG_ID;
             }
-            rg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(ts_id);
-            fragments_ctx->set_task_group(rg);
+            tg = taskgroup::TaskGroupManager::instance()->get_task_group(ts_id);
+            fragments_ctx->set_task_group(tg);
+            tg_str = fmt::format(" with task group (id:{})", ts_id).c_str();
         }
 
         {
@@ -694,7 +695,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 _fragments_ctx_map.insert(std::make_pair(fragments_ctx->query_id, fragments_ctx));
                 LOG(INFO) << "Register query/load memory tracker, query/load id: "
                           << print_id(fragments_ctx->query_id)
-                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
+                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+                          << tg_str;
             } else {
                 // Already has a query fragments context, use it
                 fragments_ctx = search->second;

@@ -19,26 +19,25 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "task_group.h"
-
 namespace doris::taskgroup {
 
 class TaskGroupManager {
     DECLARE_SINGLETON(TaskGroupManager)
 public:
     // TODO pipeline task group
-    TaskGroupPtr get_or_create_task_group(uint64_t id);
+    TaskGroupPtr get_task_group(uint64_t id);
 
-    static constexpr uint64_t DEFAULT_RG_ID = 0;
-    static constexpr int DEFAULT_CPU_SHARE = 64;
+    static constexpr uint64_t DEFAULT_TG_ID = 0;
+    static constexpr uint64_t DEFAULT_TG_CPU_SHARE = 64;
 
-    static constexpr uint64_t POC_RG_ID = 1;
-    static constexpr int POC_RG_CPU_SHARE = 128;
+    static constexpr uint64_t SHORT_TG_ID = 1;
+    static constexpr uint64_t SHORT_TG_CPU_SHARE = 128;
+
+    static constexpr int32_t SHORT_QUERY_TIMEOUT_S = 20;
 
 private:
     void _create_default_task_group();
-    // TODO pipeline task group remote this after POC
-    void _create_poc_task_group();
+    void _create_short_task_group();
 
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;

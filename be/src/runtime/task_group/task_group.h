@@ -29,47 +29,55 @@ class QueryFragmentsCtx;
 
 namespace taskgroup {
 
+class SchedEntity {
+
+};
+
+class TaskEntity {
+
+};
+
 class TaskGroup;
 
 class TaskGroupEntity {
 public:
-    explicit TaskGroupEntity(taskgroup::TaskGroup* rs) : _rs(rs) {}
+    explicit TaskGroupEntity(taskgroup::TaskGroup* ts) : _tg(ts) {}
     void push_back(pipeline::PipelineTask* task);
-    int64_t vruntime_ns() const { return _vruntime_ns; }
+    uint64_t vruntime_ns() const { return _vruntime_ns; }
 
     pipeline::PipelineTask* take();
 
-    void incr_runtime_ns(int64_t runtime_ns);
+    void incr_runtime_ns(uint64_t runtime_ns);
 
-    void adjust_vruntime_ns(int64_t vruntime_ns);
+    void adjust_vruntime_ns(uint64_t vruntime_ns);
 
-    size_t task_size() { return _queue.size(); }
+    size_t task_size() const { return _queue.size(); }
 
-    int cpu_share() const;
+    uint64_t cpu_share() const;
 
 private:
     // TODO pipeline use MLFQ
     std::queue<pipeline::PipelineTask*> _queue;
-    taskgroup::TaskGroup* _rs;
-    int64_t _vruntime_ns = 0;
+    taskgroup::TaskGroup* _tg;
+    uint64_t _vruntime_ns = 0;
 };
 
 using TGEntityPtr = TaskGroupEntity*;
 
 class TaskGroup {
 public:
-    TaskGroup(uint64_t id, std::string name, int cpu_share);
+    TaskGroup(uint64_t id, std::string name, uint64_t cpu_share);
 
-    TaskGroupEntity* task_entity() { return &_task_entry; }
+    TaskGroupEntity* task_entity() { return &_task_entity; }
 
-    int cpu_share() const { return _cpu_share; }
+    uint64_t share() const { return _share; }
     uint64_t id() const { return _id; }
 
 private:
     uint64_t _id;
     std::string _name;
-    int _cpu_share;
-    TaskGroupEntity _task_entry;
+    uint64_t _share;
+    TaskGroupEntity _task_entity;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
