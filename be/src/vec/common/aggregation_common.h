@@ -106,6 +106,13 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
             }
         }
 
+        // For fixed-length string
+        if (const auto* str_col = check_and_get_column<const ColumnString>(*column)) {
+            memcpy(bytes + offset, str_col->get_chars().data() + index * key_sizes[j],
+                   key_sizes[j]);
+            offset += key_sizes[j];
+            continue;
+        }
         switch (key_sizes[j]) {
         case 1:
             memcpy(bytes + offset,

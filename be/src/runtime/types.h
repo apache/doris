@@ -42,6 +42,8 @@ struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
+    // For Nereids, this field indicates the fixed length of string type.
+    int byte_size = -1;
     static constexpr int MAX_VARCHAR_LENGTH = 65535;
     static constexpr int MAX_CHAR_LENGTH = 255;
     static constexpr int MAX_CHAR_INLINE_LENGTH = 128;
@@ -130,6 +132,9 @@ struct TypeDescriptor {
         int idx = 0;
         TypeDescriptor result(t.types, &idx);
         DCHECK_EQ(idx, t.types.size() - 1);
+        if (t.__isset.byte_size) {
+            result.byte_size = t.byte_size;
+        }
         return result;
     }
 

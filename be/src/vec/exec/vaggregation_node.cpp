@@ -217,6 +217,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
+            // TODO:
             _agg_data->init(AggregatedDataVariants::Type::string_key, is_nullable);
             break;
         }

@@ -60,6 +60,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    bool have_maximum_size_of_value() const override { return _byte_size > 0; }
+    size_t get_size_of_value_in_memory() const override { return _byte_size; }
 };
 
 } // namespace doris::vectorized
