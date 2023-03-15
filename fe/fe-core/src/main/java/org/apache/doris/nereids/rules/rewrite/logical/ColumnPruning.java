@@ -140,14 +140,18 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return prunedOutputUnion.withChildren(prunedChildren);
     }
 
+    // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
+    // only prune the agg functions here
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, PruneContext context) {
+        // first try to prune group by and aggregate functions
         LogicalAggregate<? extends Plan> prunedOutputAgg =
                 (LogicalAggregate) pruneOutput(aggregate, aggregate.getOutputs(), aggregate::pruneOutputs, context);
 
         List<Expression> groupByExpressions = prunedOutputAgg.getGroupByExpressions();
         List<NamedExpression> outputExpressions = prunedOutputAgg.getOutputExpressions();
 
+        // then fill up group by
         LogicalAggregate<Plan> fillUpOutputAgg = fillUpGroupByToOutput(groupByExpressions, outputExpressions)
                 .map(fullOutput -> prunedOutputAgg.withAggOutput(fullOutput))
                 .orElse((LogicalAggregate) prunedOutputAgg);
@@ -155,6 +159,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(fillUpOutputAgg);
     }
 
+    // same as aggregate
     @Override
     public Plan visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, PruneContext context) {
         LogicalRepeat<? extends Plan> prunedOutputRepeat =
