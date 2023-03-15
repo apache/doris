@@ -143,14 +143,16 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
+        Preconditions.checkArgument(selectedPartitionIds != null, "selectedPartitionIds can not be null");
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.partitionPruned = partitionPruned;
         this.selectedIndexId = selectedIndexId <= 0 ? getTable().getBaseIndexId() : selectedIndexId;
         this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
         this.manuallySpecifiedPartitions = ImmutableList.copyOf(partitions);
-        this.selectedPartitionIds = ImmutableList.copyOf(
-                Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
+        this.selectedPartitionIds = selectedPartitionIds.stream()
+                .filter(partitionId -> this.getTable().getPartition(partitionId).hasData()).collect(
+                        Collectors.toList());
         this.hints = Objects.requireNonNull(hints, "hints can not be null");
         this.mvNameToSlot = Objects.requireNonNull(mvNameToSlot, "mvNameToSlot can not be null");
     }

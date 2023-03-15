@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
@@ -67,7 +66,7 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
-                        equalTo.children().stream().anyMatch(e -> !ExpressionUtils.checkTypeSkipCast(e, Slot.class))))
+                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
                 .then(join -> {
                     List<List<Expression>> exprsOfHashConjuncts =
                             Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
