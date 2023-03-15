@@ -272,8 +272,7 @@ public:
         auto& null_map = res_null_map->get_data();
         auto& res = res_data_column->get_data();
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeString>) {
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
@@ -413,7 +412,7 @@ public:
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map = data_null_map->get_data();
 
-        auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
             column = nullable->get_nested_column_ptr();
@@ -731,6 +730,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -744,8 +744,7 @@ public:
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
-        auto arg_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& arg_col = block.get_by_position(arguments[0]).column;
         auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
         const auto& bitmap_col_data = bitmap_col->get_data();
         auto& nested_column_data =
