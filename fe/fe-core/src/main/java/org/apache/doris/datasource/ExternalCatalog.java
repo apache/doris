@@ -207,6 +207,20 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     @Override
+    public List<String> getDbNamesOrEmpty() {
+        if (initialized) {
+            try {
+                return getDbNames();
+            } catch (Exception e) {
+                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                return Lists.newArrayList();
+            }
+        } else {
+            return Lists.newArrayList();
+        }
+    }
+
+    @Override
     public String getResource() {
         return catalogProperty.getResource();
     }
