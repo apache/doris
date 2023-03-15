@@ -70,7 +70,8 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     public String[] getNodes() {
         String hosts = catalogProperty.getOrDefault(EsResource.HOSTS, "");
-        String sslEnabled = catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED, "false");
+        String sslEnabled =
+                catalogProperty.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE);
         String[] hostUrls = hosts.trim().split(",");
         EsResource.fillUrlsWithSchema(hostUrls, Boolean.parseBoolean(sslEnabled));
         return hostUrls;
