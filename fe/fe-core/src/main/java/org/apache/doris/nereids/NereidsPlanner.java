@@ -159,15 +159,19 @@ public class NereidsPlanner extends Planner {
 
         try (Lock lock = new Lock(plan, cascadesContext)) {
             // resolve column, table and function
+            LOG.info("yyy1");
             analyze();
+            LOG.info("yyy1");
             if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 analyzedPlan = cascadesContext.getRewritePlan();
                 if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
                     return analyzedPlan;
                 }
             }
+            LOG.info("yyy1");
             // rule-based optimize
             rewrite();
+            LOG.info("yyy1");
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 rewrittenPlan = cascadesContext.getRewritePlan();
                 if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
@@ -175,11 +179,17 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
+            LOG.info("yyy1");
             initMemo();
+            LOG.info("yyy1");
 
+            LOG.info("yyy1");
             deriveStats();
+            LOG.info("yyy1");
 
+            LOG.info("yyy1");
             optimize();
+            LOG.info("yyy1");
 
             //print memo before choose plan.
             //if chooseNthPlan failed, we could get memo to debug
@@ -191,8 +201,10 @@ public class NereidsPlanner extends Planner {
             int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
             PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
+            LOG.info("yyy1");
             physicalPlan = postProcess(physicalPlan);
 
+            LOG.info("yyy1");
             if (ConnectContext.get().getSessionVariable().isDumpNereidsMemo()) {
                 String tree = physicalPlan.treeString();
                 LOG.info(tree);
@@ -230,9 +242,12 @@ public class NereidsPlanner extends Planner {
     }
 
     private void deriveStats() {
+        LOG.info("yyy1");
         cascadesContext.pushJob(
                 new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        LOG.info("yyy1");
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        LOG.info("yyy1");
     }
 
     private void dpHypOptimize() {
