@@ -153,9 +153,9 @@ CREATE EXTERNAL TABLE `ext_pg` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
-"resource" = "jdbc_pg",
-"table" = "pg_tbl",
-"table_type"="postgresql"
+    "resource" = "jdbc_pg",
+    "table" = "pg_tbl",
+    "table_type"="postgresql"
 );
 ```
 
@@ -179,6 +179,32 @@ Test information on more versions will be provided in the future.
 | ------------------ | ------------------------------------- |
 | 22                 | clickhouse-jdbc-0.3.2-patch11-all.jar |
 
+#### 6.Sap_HanaTest
+
+| Sap_Hana Version | Sap_Hana JDBC Driver Version |
+|------------------|------------------------------|
+| 2.0              | ngdbc.jar                    |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_hana
+properties (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "file:///path/to/ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_hana` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_hana",
+    "table" = "TEST.HANA",
+    "table_type"="sap_hana"
+);
+```
 
 ## Type Mapping
 
@@ -270,6 +296,30 @@ Note:
 
 - Some data types in ClickHouse, such as UUID, IPv4, IPv6, and Enum8, will be mapped to Varchar/String in Doris. IPv4 and IPv6 will be displayed with an `/` as a prefix. You can use the `split_part` function to remove the `/` .
 - The Point Geo type in ClickHouse cannot be mapped in Doris by far. 
+
+### SAP_HANA
+
+|   SAP_HANA   |        Doris        |
+|:------------:|:-------------------:|
+|   BOOLEAN    |       BOOLEAN       |
+|   TINYINT    |       TINYINT       |
+|   SMALLINT   |      SMALLINT       |
+|   INTERGER   |         INT         |
+|    BIGINT    |       BIGINT        |
+| SMALLDECIMAL |  DECIMAL/DECIMALV3  |
+|   DECIMAL    |  DECIMAL/DECIMALV3  |
+|     REAL     |        FLOAT        |
+|    DOUBLE    |       DOUBLE        |
+|     DATE     |     DATE/DATEV2     |
+|     TIME     |        TEXT         |
+|  TIMESTAMP   | DATETIME/DATETIMEV2 |
+|  SECONDDATE  | DATETIME/DATETIMEV2 |
+|   VARCHAR    |        TEXT         |
+|   NVARCHAR   |        TEXT         |
+|   ALPHANUM   |        TEXT         |
+|  SHORTTEXT   |        TEXT         |
+|     CHAR     |        CHAR         |
+|    NCHAR     |        CHAR         |
 
 ## Q&A
 

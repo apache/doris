@@ -271,7 +271,7 @@ See [JDBC](./jdbc.md)
 
 After you create a Catalog, Doris will automatically synchronize the databases and tables from the corresponding external catalog to it. The following shows how Doris maps different types of catalogs and tables.
 
-<version since="dev">
+<version since="1.2.2">
 
 As for types that cannot be mapped to a Doris column type, such as `UNION` and `INTERVAL` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
 
