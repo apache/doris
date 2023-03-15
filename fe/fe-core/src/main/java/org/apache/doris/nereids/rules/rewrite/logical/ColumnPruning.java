@@ -58,9 +58,9 @@ import java.util.stream.IntStream;
  *
  * 1. prune/shrink output field for OutputPrunable, e.g.
  *
- *            project(projects=[sum(v1)])                              project(projects=[sum(v1)])
+ *            project(projects=[k1, sum(v1)])                              project(projects=[k1, sum(v1)])
  *                      |                                 ->                      |
- *    agg(groupBy=[k1], output=[sum(v1), sum(v2)]                  agg(groupBy=[k1], output=[sum(v1)])
+ *    agg(groupBy=[k1], output=[k1, sum(v1), sum(v2)]                  agg(groupBy=[k1], output=[k1, sum(v1)])
  *
  * 2. add project for the plan which prune children's output failed, e.g. the filter not record
  *    the output, and we can not prune/shrink output field for the filter, so we should add project on filter.
@@ -127,8 +127,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                             .map(childOutput::get)
                             .collect(ImmutableSet.toImmutableSet());
 
-                    Plan prunedChild = doPruneChild(prunedOutputUnion, child,
-                            prunedChildOutput, ImmutableSet.copyOf(childOutput));
+                    Plan prunedChild = doPruneChild(prunedOutputUnion, child, prunedChildOutput);
                     if (prunedChild != child) {
                         changed.set(true);
                     }
@@ -255,7 +254,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             if (childRequiredSlots.isEmpty()) {
                 childRequiredSlots = ImmutableSet.of(ExpressionUtils.selectMinimumColumn(childOutputSet));
             }
-            Plan prunedChild = doPruneChild(plan, child, childRequiredSlots, childOutputSet);
+            Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
             if (prunedChild != child) {
                 hasNewChildren = true;
             }
@@ -264,12 +263,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
     }
 
-    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots, Set<Slot> childOutputSet) {
+    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots) {
         boolean isProject = plan instanceof LogicalProject;
         Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
 
         // the case 2 in the class comment, prune child's output failed
-        if (!isProject && !Sets.difference(childOutputSet, childRequiredSlots).isEmpty()) {
+        if (!isProject && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
             prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
         }
         return prunedChild;
