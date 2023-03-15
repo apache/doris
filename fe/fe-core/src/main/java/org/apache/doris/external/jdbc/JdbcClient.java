@@ -166,7 +166,7 @@ public class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
         if (isOnlySpecifiedDatabase) {
@@ -189,6 +189,9 @@ public class JdbcClient {
                     break;
                 case JdbcResource.SQLSERVER:
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
+                    break;
+                case JdbcResource.SAP_HANA:
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS");
                     break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
@@ -216,6 +219,7 @@ public class JdbcClient {
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -233,10 +237,10 @@ public class JdbcClient {
      * get all tables of one database
      */
     public List<String> getTablesNameList(String dbName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -247,6 +251,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -269,9 +274,9 @@ public class JdbcClient {
     }
 
     public boolean isTableExist(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -282,6 +287,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -325,7 +331,7 @@ public class JdbcClient {
      * get all columns of one table
      */
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         // if isLowerCaseTableNames == true, tableName is lower case
@@ -352,6 +358,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -397,6 +404,8 @@ public class JdbcClient {
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
+            case JdbcResource.SAP_HANA:
+                return saphanaTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -723,6 +732,59 @@ public class JdbcClient {
             case "image":
             case "binary":
             case "varbinary":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public Type saphanaTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String hanaType = fieldSchema.getDataTypeName();
+        switch (hanaType) {
+            case "TINYINT":
+                return Type.TINYINT;
+            case "SMALLINT":
+                return Type.SMALLINT;
+            case "INTEGER":
+                return Type.INT;
+            case "BIGINT":
+                return Type.BIGINT;
+            case "SMALLDECIMAL":
+            case "DECIMAL": {
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return createDecimalOrStringType(precision, scale);
+            }
+            case "REAL":
+                return Type.FLOAT;
+            case "DOUBLE":
+                return Type.DOUBLE;
+            case "TIMESTAMP":
+            case "SECONDDATE":
+                return ScalarType.createDatetimeV2Type(6);
+            case "DATE":
+                return ScalarType.createDateV2Type();
+            case "BOOLEAN":
+                return Type.BOOLEAN;
+            case "CHAR":
+            case "NCHAR":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.columnSize);
+                return charType;
+            case "TIME":
+            case "VARCHAR":
+            case "NVARCHAR":
+            case "ALPHANUM":
+            case "SHORTTEXT":
+                return ScalarType.createStringType();
+            case "BINARY":
+            case "VARBINARY":
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "TEXT":
+            case "BINTEXT":
+            case "ST_GEOMETRY":
+            case "ST_POINT":
             default:
                 return Type.UNSUPPORTED;
         }
