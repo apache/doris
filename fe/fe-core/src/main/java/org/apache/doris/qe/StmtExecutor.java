@@ -807,7 +807,12 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 MetaLockUtils.readLockTables(tables);
                 try {
+                    long startAnalysisTime = System.currentTimeMillis();
                     analyzeAndGenerateQueryPlan(tQueryOptions);
+                    long endAnalysisTime = System.currentTimeMillis();
+                    if (endAnalysisTime - startAnalysisTime > 10000) {
+                        LOG.info("yyyyy {}", endAnalysisTime - startAnalysisTime);
+                    }
                     break;
                 } catch (MVSelectFailedException e) {
                     /*
