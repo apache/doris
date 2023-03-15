@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.qe.ConnectContext;
+
 /**
  * Cost encapsulate the real cost with double type.
  * We do this because we want to customize the operation of adding child cost
@@ -25,19 +27,33 @@ package org.apache.doris.nereids.cost;
 public interface Cost {
     public double getValue();
 
-    public int compare(Cost other);
-
-    public Cost minus(Cost other);
-
+    /**
+     * This is for calculating the cost in simplifier
+     */
     public static Cost withRowCount(double rowCount) {
-        return new CostV1(rowCount, 0, 0, 0);
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+            return new CostV2(0, rowCount, 0);
+        }
+        return new CostV1(rowCount);
     }
 
+    /**
+     * return zero cost
+     */
     public static Cost zero() {
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+            return CostV2.zero();
+        }
         return CostV1.zero();
     }
 
+    /**
+     * return infinite cost
+     */
     public static Cost infinite() {
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+            return CostV2.infinite();
+        }
         return CostV1.infinite();
     }
 }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import com.google.common.base.Preconditions;
-
 class CostV1 implements Cost {
     private static final CostV1 INFINITE = new CostV1(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
             Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY);
@@ -58,11 +56,6 @@ class CostV1 implements Cost {
         this.networkCost = 0;
         this.memoryCost = 0;
         this.penalty = 0;
-    }
-
-    @Override
-    public Cost minus(Cost other) {
-        return new CostV1(cost - other.getValue());
     }
 
     public static CostV1 infinite() {
@@ -115,12 +108,6 @@ class CostV1 implements Cost {
         sb.append((long) cpuCost).append("/").append((long) memoryCost).append("/").append((long) networkCost)
                 .append("/").append((long) penalty);
         return sb.toString();
-    }
-
-    @Override
-    public int compare(Cost other) {
-        Preconditions.checkArgument(other instanceof CostV1, "costValueV1 can only compare with costValueV1");
-        return Double.compare(cost, ((CostV1) other).cost);
     }
 }
 

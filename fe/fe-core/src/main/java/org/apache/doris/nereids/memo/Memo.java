@@ -784,7 +784,7 @@ public class Memo {
         }
         List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
         permute(children, 0, childrenId, new ArrayList<>());
-        Cost cost = CostCalculator.calculateCost(groupExpression);
+        Cost cost = CostCalculator.calculateCost(groupExpression, inputProperties);
         for (Pair<Long, List<Integer>> c : childrenId) {
             Cost totalCost = cost;
             for (int i = 0; i < children.size(); i++) {
