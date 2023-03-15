@@ -126,7 +126,8 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         if (!initialized) {
             if (!Env.getCurrentEnv().isMaster()) {
                 // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(ConnectContext.get());
+                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                 try {
                     remoteExecutor.forward(id, -1);
                 } catch (Exception e) {
