@@ -216,7 +216,7 @@ suite("modify_replica_use_partition") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -228,9 +228,9 @@ suite("modify_replica_use_partition") {
     def LocalDataSize1 = sizes[0]
     def RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
-    assertEquals(LocalDataSize1, "0")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size not zero")
-    assertTrue(RemoteDataSize1 != "0")
+    assertTrue(RemoteDataSize1 != 0)
     def originSize = tablets.size()
 
     // alter change replication num
@@ -328,9 +328,9 @@ suite("modify_replica_use_partition") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != "0")
+    assertTrue(LocalDataSize1 != 0)
     log.info( "test remote size is zero")
-    assertEquals(RemoteDataSize1, "0")
+    assertEquals(RemoteDataSize1, 0)
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为LocalDataSize1，LocalDataSize为0
     sleep(600000)
@@ -342,7 +342,7 @@ suite("modify_replica_use_partition") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -353,9 +353,9 @@ suite("modify_replica_use_partition") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
-    assertEquals(LocalDataSize1, "0")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size not zero")
-    assertTrue(RemoteDataSize1 != "0")
+    assertTrue(RemoteDataSize1 != 0)
 
     // alter change replication num
     sql """
@@ -421,9 +421,9 @@ suite("modify_replica_use_partition") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != "0")
+    assertTrue(LocalDataSize1 != 0)
     log.info( "test remote size is zero")
-    assertEquals(RemoteDataSize1, "0")
+    assertEquals(RemoteDataSize1, 0)
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为LocalDataSize1，LocalDataSize为0
     sleep(600000)
@@ -435,7 +435,7 @@ suite("modify_replica_use_partition") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -446,9 +446,9 @@ suite("modify_replica_use_partition") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
-    assertEquals(LocalDataSize1, "0")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size not zero")
-    assertTrue(RemoteDataSize1 != "0")
+    assertTrue(RemoteDataSize1 != 0)
 
     // alter change replication num
     sql """

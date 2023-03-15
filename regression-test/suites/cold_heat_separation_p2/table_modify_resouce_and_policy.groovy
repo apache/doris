@@ -195,7 +195,7 @@ suite("table_modify_resouce") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    while (sizes[0] != "0") {
+    while (sizes[0] != 0) {
         log.info( "test local size is not zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -206,7 +206,7 @@ suite("table_modify_resouce") {
     log.info( "test all local size is zero")
     for (int i = 0; i < tablets.size(); i++) {
         fetchDataSize(sizes, tablets[i])
-        assertEquals(sizes[0], "0")
+        assertEquals(sizes[0], 0)
         tablets[i][9] = sizes[1]
     }
 
@@ -281,7 +281,7 @@ suite("table_modify_resouce") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    while (sizes[0] != "0") {
+    while (sizes[0] != 0) {
         log.info( "test local size not zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -293,7 +293,7 @@ suite("table_modify_resouce") {
     log.info( "test all local size is zero")
     for (int i = 0; i < tablets.size(); i++) {
         fetchDataSize(sizes, tablets[i])
-        assertEquals(sizes[0], "0")
+        assertEquals(sizes[0], 0)
         tablets[i][9] = sizes[1]
     }
 

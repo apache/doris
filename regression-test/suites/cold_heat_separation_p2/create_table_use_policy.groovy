@@ -205,7 +205,7 @@ suite("create_table_use_policy") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -217,7 +217,7 @@ suite("create_table_use_policy") {
     log.info( "test remote size not zero")
     assertEquals(LocalDataSize1, sizes[1])
     log.info( "test local size is zero")
-    assertEquals("0", sizes[0])
+    assertEquals(0, sizes[0])
 
 
     sql """
@@ -271,7 +271,7 @@ suite("create_table_use_policy") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -283,7 +283,7 @@ suite("create_table_use_policy") {
     log.info( "test remote size not zero")
     assertEquals(LocalDataSize1, sizes[1])
     log.info( "test local size is zero")
-    assertEquals("0", sizes[0])
+    assertEquals(0, sizes[0])
 
 
     sql """

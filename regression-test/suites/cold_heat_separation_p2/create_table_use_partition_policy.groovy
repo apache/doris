@@ -202,9 +202,9 @@ suite("create_table_use_partition_policy") {
     def LocalDataSize1 = sizes[0]
     def RemoteDataSize1 = sizes[1]
     log.info( "test local size {} not zero, remote size {}", LocalDataSize1, RemoteDataSize1)
-    assertTrue(LocalDataSize1 != "0")
+    assertTrue(LocalDataSize1 != 0)
     log.info( "test remote size is zero")
-    assertEquals(RemoteDataSize1, "0")
+    assertEquals(RemoteDataSize1, 0)
     def originLocalDataSize1 = LocalDataSize1;
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为0，LocalDataSize不为0
@@ -216,7 +216,7 @@ suite("create_table_use_partition_policy") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -227,8 +227,18 @@ suite("create_table_use_partition_policy") {
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
+    while (RemoteDataSize1 != originLocalDataSize1) {
+        log.info( "test remote size is same with origin size, sleep 10s")
+        sleep(10000)
+        tablets = sql """
+        SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
+        """
+        fetchDataSize(sizes, tablets[0])
+        LocalDataSize1 = sizes[0]
+        RemoteDataSize1 = sizes[1]
+    }
     log.info( "test local size is  zero")
-    assertEquals(LocalDataSize1, "0")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size not zero")
     assertEquals(RemoteDataSize1, originLocalDataSize1)
 
@@ -238,7 +248,7 @@ suite("create_table_use_partition_policy") {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tbalets[0])
-    // while (tablets[0][8] == "0") {
+    // while (tablets[0][8] == 0) {
     //     log.info( "test local size is zero, sleep 10s")
     //     sleep(10000)
     //     tablets = sql """
@@ -248,9 +258,9 @@ suite("create_table_use_partition_policy") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != "0")
+    assertTrue(LocalDataSize1 != 0)
     log.info( "test remote size is zero")
-    assertEquals(RemoteDataSize1, "0")
+    assertEquals(RemoteDataSize1, 0)
 
 
     sql """
@@ -301,9 +311,9 @@ suite("create_table_use_partition_policy") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != "0")
+    assertTrue(LocalDataSize1 != 0)
     log.info( "test remote size is zero")
-    assertEquals(RemoteDataSize1, "0")
+    assertEquals(RemoteDataSize1, 0)
     originLocalDataSize1 = LocalDataSize1
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为0，LocalDataSize不为0
@@ -315,7 +325,7 @@ suite("create_table_use_partition_policy") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == "0") {
+    while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -326,8 +336,18 @@ suite("create_table_use_partition_policy") {
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
+    while (RemoteDataSize1 != originLocalDataSize1) {
+        log.info( "test remote size is same with origin size, sleep 10s")
+        sleep(10000)
+        tablets = sql """
+        SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
+        """
+        fetchDataSize(sizes, tablets[0])
+        LocalDataSize1 = sizes[0]
+        RemoteDataSize1 = sizes[1]
+    }
     log.info( "test local size is zero")
-    assertEquals(LocalDataSize1, "0")
+    assertEquals(LocalDataSize1, 0)
     log.info( "test remote size not zero")
     assertEquals(RemoteDataSize1, originLocalDataSize1)
 
@@ -340,9 +360,9 @@ suite("create_table_use_partition_policy") {
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size not zero")
-    assertTrue(LocalDataSize1 != "0")
+    assertTrue(LocalDataSize1 != 0)
     log.info( "test remote size is zero")
-    assertEquals(RemoteDataSize1, "0")
+    assertEquals(RemoteDataSize1, 0)
 
 
     sql """
