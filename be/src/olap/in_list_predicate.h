@@ -88,7 +88,7 @@ public:
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
                         const ConvertFunc& convert, bool is_opposite = false,
-                        const TabletColumn* col = nullptr, MemPool* pool = nullptr)
+                        const TabletColumn* col = nullptr, vectorized::Arena* arena = nullptr)
             : ColumnPredicate(column_id, is_opposite),
               _values(new HybridSetType()),
               _min_value(type_limit<T>::max()),
@@ -96,7 +96,7 @@ public:
         for (const auto& condition : conditions) {
             T tmp;
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
-                tmp = convert(*col, condition, pool);
+                tmp = convert(*col, condition, arena);
             } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
                                  Type == TYPE_DECIMAL128I) {
                 tmp = convert(*col, condition);

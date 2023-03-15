@@ -169,9 +169,6 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
-    MemTracker tracker;
-    MemPool pool(&tracker);
-
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);
     st = delta_writer->close_wait(PSlaveTabletNodes(), false);

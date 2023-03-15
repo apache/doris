@@ -39,7 +39,7 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
         : _options(options),
           _type_info(type_info),
           _file_writer(file_writer),
-          _mem_pool(),
+          _arena(),
           _num_values(0),
           _num_data_pages(0),
           _value_key_coder(nullptr),
@@ -80,7 +80,7 @@ Status IndexedColumnWriter::init() {
 Status IndexedColumnWriter::add(const void* value) {
     if (_options.write_value_index && _data_page_builder->count() == 0) {
         // remember page's first value because it's used to build value index
-        _type_info->deep_copy(_first_value.data(), value, &_mem_pool);
+        _type_info->deep_copy(_first_value.data(), value, &_arena);
     }
     size_t num_to_write = 1;
     RETURN_IF_ERROR(

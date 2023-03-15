@@ -31,7 +31,6 @@
 #include "olap/tablet_schema.h"
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "util/threadpool.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -39,6 +38,8 @@
 namespace doris {
 
 namespace vectorized {
+
+class Arena;
 
 class RuntimePredicate {
 public:
@@ -68,7 +69,7 @@ private:
     Field _orderby_extrem {Field::Types::Null};
     std::shared_ptr<ColumnPredicate> _predictate {nullptr};
     TabletSchemaSPtr _tablet_schema;
-    std::unique_ptr<MemPool> _predicate_mem_pool;
+    std::unique_ptr<Arena> _predicate_arena;
     std::function<std::string(const Field&)> _get_value_fn;
     bool _inited = false;
 
