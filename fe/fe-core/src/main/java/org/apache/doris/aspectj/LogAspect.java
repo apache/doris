@@ -17,14 +17,19 @@
 
 package org.apache.doris.aspectj;
 
+import org.apache.doris.common.annotation.ExceptionLog;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterThrowing;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
+import org.aspectj.lang.reflect.MethodSignature;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
 
 @Aspect
 public class LogAspect {
@@ -36,9 +41,14 @@ public class LogAspect {
     }
 
     @AfterThrowing(value = "throwingLogPointCut()", throwing = "e")
-    public void exceptionLog(Exception e)  {
+    public void exceptionLog(JoinPoint point, Exception e)  {
+        MethodSignature joinPointObject = (MethodSignature) point.getSignature();
+        Method method = joinPointObject.getMethod();
+        ExceptionLog exceptionLog = method.getAnnotation(ExceptionLog.class);
         LOG.error(e.getMessage());
-        LOG.error(getStackTrace(e));
+        if (exceptionLog.isGetStackTrace()) {
+            LOG.error(getStackTrace(e));
+        }
     }
 
     public static String getStackTrace(Throwable throwable) {
