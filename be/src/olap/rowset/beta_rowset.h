@@ -61,6 +61,14 @@ public:
     static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
                                            int segment_id);
 
+    static std::string inverted_index_file_path(const std::string& rowset_dir,
+                                                const RowsetId& rowset_id, int segment_id,
+                                                int64_t index_id);
+
+    static std::string local_inverted_index_path_segcompacted(const std::string& tablet_path,
+                                                              const RowsetId& rowset_id,
+                                                              int64_t begin, int64_t end,
+                                                              int64_t index_id);
     Status remove() override;
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
