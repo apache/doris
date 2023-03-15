@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -45,6 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -138,6 +141,25 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
 
         return prunedOutputUnion.withChildren(prunedChildren);
+    }
+
+    // can not prune except & intersect, direct prune the children.
+    @Override
+    public Plan visitLogicalExcept(LogicalExcept except, PruneContext context) {
+        Set<Slot> requireAllOutputOfChildren = except.children()
+                .stream()
+                .flatMap(child -> child.getOutputSet().stream())
+                .collect(Collectors.toSet());
+        return pruneChildren(except, requireAllOutputOfChildren);
+    }
+
+    @Override
+    public Plan visitLogicalIntersect(LogicalIntersect intersect, PruneContext context) {
+        Set<Slot> requireAllOutputOfChildren = intersect.children()
+                .stream()
+                .flatMap(child -> child.getOutputSet().stream())
+                .collect(Collectors.toSet());
+        return pruneChildren(intersect, requireAllOutputOfChildren);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
