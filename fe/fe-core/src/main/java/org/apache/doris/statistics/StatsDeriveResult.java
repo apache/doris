@@ -204,4 +204,8 @@ public class StatsDeriveResult {
     public void setPenalty(double penalty) {
         this.penalty = penalty;
     }
+
+    public int getBENumber() {
+        return 1;
+    }
 }
