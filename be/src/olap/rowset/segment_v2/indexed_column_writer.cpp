@@ -39,7 +39,6 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
         : _options(options),
           _type_info(type_info),
           _file_writer(file_writer),
-          _arena(),
           _num_values(0),
           _num_data_pages(0),
           _value_key_coder(nullptr),

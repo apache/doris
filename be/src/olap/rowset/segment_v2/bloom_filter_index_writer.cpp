@@ -68,7 +68,6 @@ public:
                                         const TypeInfo* type_info)
             : _bf_options(bf_options),
               _type_info(type_info),
-              _arena(),
               _has_null(false),
               _bf_buffer_size(0) {}
 

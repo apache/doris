@@ -264,7 +264,7 @@ public:
 
     virtual void TearDown() {}
 
-    std::unique_ptr<Arena> _arena;
+    std::unique_ptr<vectorized::Arena> _arena;
 };
 
 TEST_F(TestRowCursor, InitRowCursor) {

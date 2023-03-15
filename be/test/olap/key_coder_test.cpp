@@ -28,8 +28,8 @@ namespace doris {
 
 class KeyCoderTest : public testing::Test {
 public:
-    KeyCoderTest() {}
-    virtual ~KeyCoderTest() {}
+    KeyCoderTest() = default;
+    virtual ~KeyCoderTest() = default;
 };
 
 template <FieldType type>
