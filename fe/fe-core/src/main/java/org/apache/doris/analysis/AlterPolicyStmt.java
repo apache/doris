@@ -31,8 +31,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import lombok.Data;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -82,60 +80,6 @@ public class AlterPolicyStmt extends DdlStmt {
             throw new AnalysisException("not support change storage policy's storage resource"
                     + ", you can change s3 properties by alter resource");
         }
-
-        boolean hasCooldownDatetime = false;
-        boolean hasCooldownTtl = false;
-
-        if (properties.containsKey(StoragePolicy.COOLDOWN_DATETIME)) {
-            hasCooldownDatetime = true;
-            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            try {
-                df.parse(properties.get(StoragePolicy.COOLDOWN_DATETIME));
-            } catch (ParseException e) {
-                throw new AnalysisException(String.format("cooldown_datetime format error: %s",
-                    properties.get(StoragePolicy.COOLDOWN_DATETIME)), e);
-            }
-        }
-
-        if (properties.containsKey(StoragePolicy.COOLDOWN_TTL)) {
-            hasCooldownTtl = true;
-            // support 1h, 1hour to 3600s
-            properties.put(StoragePolicy.COOLDOWN_TTL, String.valueOf(
-                    StoragePolicy.getSecondsByCooldownTtl(properties.get(StoragePolicy.COOLDOWN_TTL))));
-        }
-
-        if (hasCooldownDatetime && hasCooldownTtl) {
-            throw new AnalysisException(StoragePolicy.COOLDOWN_DATETIME + " and "
-                + StoragePolicy.COOLDOWN_TTL + " can't be set together.");
-        }
-        if (!hasCooldownDatetime && !hasCooldownTtl) {
-            throw new AnalysisException(StoragePolicy.COOLDOWN_DATETIME + " or "
-                + StoragePolicy.COOLDOWN_TTL + " must be set");
-        }
-
-        do {
-            if (policyName.equalsIgnoreCase(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME)) {
-                // default storage policy
-                if (storagePolicy.getStorageResource() != null && hasCooldownDatetime) {
-                    // alter cooldown datetime, can do
-                    break;
-                }
-
-                if (storagePolicy.getStorageResource() != null && hasCooldownTtl) {
-                    // alter cooldown ttl, can do
-                    break;
-                }
-
-                if (storagePolicy.getStorageResource() == null) {
-                    // alter add s3 resource, can do, check must have ttl or datetime.
-                    if (hasCooldownTtl == false && hasCooldownDatetime == false) {
-                        throw new AnalysisException("please alter default policy to add s3 , ttl or datetime.");
-                    }
-                    break;
-                }
-                throw new AnalysisException("default storage policy has been set s3 Resource.");
-            }
-        } while (false);
 
         // check properties
         storagePolicy.checkProperties(properties);
