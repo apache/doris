@@ -41,7 +41,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -128,7 +127,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                             .map(childOutput::get)
                             .collect(ImmutableSet.toImmutableSet());
 
-                    Plan prunedChild = doPruneChild(prunedOutputUnion, child, prunedChildOutput, childOutput);
+                    Plan prunedChild = doPruneChild(prunedOutputUnion, child,
+                            prunedChildOutput, ImmutableSet.copyOf(childOutput));
                     if (prunedChild != child) {
                         changed.set(true);
                     }
@@ -143,23 +143,15 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return prunedOutputUnion.withChildren(prunedChildren);
     }
 
-    // can not prune except & intersect, direct prune the children.
+    // we should keep the output of LogicalSetOperation and all the children
     @Override
     public Plan visitLogicalExcept(LogicalExcept except, PruneContext context) {
-        Set<Slot> requireAllOutputOfChildren = except.children()
-                .stream()
-                .flatMap(child -> child.getOutputSet().stream())
-                .collect(Collectors.toSet());
-        return pruneChildren(except, requireAllOutputOfChildren);
+        return skipPruneThisAndFirstLevelChildren(except);
     }
 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, PruneContext context) {
-        Set<Slot> requireAllOutputOfChildren = intersect.children()
-                .stream()
-                .flatMap(child -> child.getOutputSet().stream())
-                .collect(Collectors.toSet());
-        return pruneChildren(intersect, requireAllOutputOfChildren);
+        return skipPruneThisAndFirstLevelChildren(intersect);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
@@ -190,6 +182,14 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(fillUpOutputRepeat);
     }
 
+    private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
+        Set<Slot> requireAllOutputOfChildren = plan.children()
+                .stream()
+                .flatMap(child -> child.getOutputSet().stream())
+                .collect(Collectors.toSet());
+        return pruneChildren(plan, requireAllOutputOfChildren);
+    }
+
     private static Optional<List<NamedExpression>> fillUpGroupByToOutput(
             List<Expression> groupBy, List<NamedExpression> output) {
 
@@ -217,7 +217,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             List<NamedExpression> originOutput, PruneContext context) {
         List<NamedExpression> prunedOutputs = originOutput.stream()
                 .filter(output -> context.requiredSlots.contains(output.toSlot()))
-                .distinct()
                 .collect(ImmutableList.toImmutableList());
 
         if (prunedOutputs.isEmpty()) {
@@ -265,12 +264,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
     }
 
-    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots, Collection<Slot> childOutput) {
+    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots, Set<Slot> childOutputSet) {
         boolean isProject = plan instanceof LogicalProject;
         Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
 
         // the case 2 in the class comment, prune child's output failed
-        if (!isProject && childOutput.size() > childRequiredSlots.size()) {
+        if (!isProject && !Sets.difference(childOutputSet, childRequiredSlots).isEmpty()) {
             prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
         }
         return prunedChild;
