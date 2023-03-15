@@ -277,8 +277,7 @@ public:
         if constexpr (std::is_same_v<T, StringRef>) {
             const auto total_mem_size = offsets[num] - offsets[0];
             strings.resize(strings.size() + total_mem_size);
-            char* destination = strings.end().base();
-            ;
+            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -304,7 +303,7 @@ public:
             }
 
             strings.resize(strings.size() + total_mem_size);
-            char* destination = strings.end().base();
+            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -540,7 +539,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    PaddedPODArray<char> strings;
+    ColumnString::Chars strings;
 };
 
 } // namespace doris::vectorized
