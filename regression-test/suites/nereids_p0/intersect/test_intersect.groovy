@@ -17,8 +17,7 @@
 
 suite("test_intersect") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_select """
                 SELECT * FROM (SELECT k1 FROM test_query_db.baseall
                     INTERSECT SELECT k1 FROM test_query_db.test) a ORDER BY k1

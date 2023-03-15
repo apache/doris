@@ -24,7 +24,6 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             table "${table_name}"
 
             // set http request header params
-            set 'enable_vectorized_engine', vec_flag
             set 'read_json_by_line', read_flag
             set 'format', format_flag
             set 'read_json_by_line', read_flag

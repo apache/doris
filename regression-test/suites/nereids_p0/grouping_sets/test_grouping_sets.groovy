@@ -17,8 +17,7 @@
 
 suite("test_grouping_sets") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_select """
                 SELECT k1, k2, SUM(k3) FROM test_query_db.test
                 GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ) ) order by k1, k2

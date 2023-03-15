@@ -85,7 +85,6 @@ suite("test_materialized_view_nereids") {
     sql "insert into ${tbName2} values(2, 1, 1, '2020-05-30',100);"
     Thread.sleep(1000)
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
 
