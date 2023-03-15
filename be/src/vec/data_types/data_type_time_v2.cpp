@@ -178,4 +178,13 @@ void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
     to = from >> TIME_PART_LENGTH;
 }
+
+DataTypePtr create_datetimev2(UInt64 scale_value) {
+    if (scale_value > 6) {
+        LOG(WARNING) << "Wrong scale " << scale_value;
+        return nullptr;
+    }
+    return std::make_shared<DataTypeDateTimeV2>(scale_value);
+}
+
 } // namespace doris::vectorized
