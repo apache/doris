@@ -81,7 +81,6 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -1894,10 +1893,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    /**
+     * 1. rpc read columnUniqueIds from BE
+     * 2. refresh table metadata
+     * 3. write edit log
+     */
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
-        // 1. rpc read columnUniqueIds from BE
-        // 2. refresh table metadata
-        // 3. write edit log
         Map<Long, MaterializedIndex> tabletIdToIdx = new HashMap<>();
         final List<MaterializedIndex> materializedIndices = olapTable.getAllPartitions()
                 .stream()
@@ -1905,6 +1906,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 .orElseThrow(() -> new DdlException(String.format("No partition available for %s.%s",
                         db.getFullName(), olapTable.getName())))
                 .getMaterializedIndices(IndexExtState.ALL);
+        materializedIndices.forEach(materializedIndex -> {
+            final long tabletId = materializedIndex.getTablets().get(0).getId();
+            tabletIdToIdx.put(tabletId, materializedIndex);
+        });
 
         // select a suitable backend
         final Tablet tablet = materializedIndices
@@ -1916,17 +1921,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 .findFirst()
                 .orElseThrow(() -> new DdlException("Fail to find one backend for " + tablet));
         final Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
-        materializedIndices.forEach(materializedIndex -> {
-                    final long tabletId = materializedIndex.getTablets().get(0).getId();
-                    tabletIdToIdx.put(tabletId, materializedIndex);
-                });
 
+
+        // rpc for column meta from be
         final TFetchColIdsResponse response;
         try {
-            // TODO: need a specific timeout, use execution timeout currently
             final Client client = ClientPool.backendPool.borrowObject(
-                    new TNetworkAddress(backend.getIp(), backend.getBePort()),
-                    ConnectContext.get().getExecTimeout() * 1000);
+                    new TNetworkAddress(backend.getIp(), backend.getBePort()));
             response = client.getColumnIdsByTabletIds(new TFetchColIdsRequest(tabletIdToIdx.keySet()));
         } catch (Exception e) {
             throw new DdlException("RPC for " + backend.toString() + "failed", e);
@@ -1938,19 +1939,24 @@ public class SchemaChangeHandler extends AlterHandler {
             final long tabletId = entry.getTabletId();
             final Map<String, Integer> colNameToId = entry.getColNameToId();
             final MaterializedIndex index = tabletIdToIdx.get(tabletId);
+            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(index.getId());
             final List<Column> columns = olapTable.getSchemaByIndexId(index.getId(), true);
             // we need a pre-check for all column metadata read from BE
             Preconditions.checkState(columns.size() == colNameToId.size(),
-                        "size mismatch for columns meta from BE");
+                    "size mismatch for columns meta from BE");
+            int maxColId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             for (Column column : columns) {
                 final String columnName = column.getName();
-                final Integer columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
+                final int columnId = Preconditions.checkNotNull(colNameToId.get(columnName),
                         "failed to fetch column id of column:{" + columnName + "} from BE");
                 column.setUniqueId(columnId);
+                maxColId = Math.max(columnId, maxColId);
             }
+            indexMeta.setSchema(columns);
+            indexMeta.setMaxColUniqueId(maxColId);
         });
 
-        //write table property
+        // write table property
         olapTable.setEnableLightSchemaChange(true);
     }
 
