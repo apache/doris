@@ -1511,6 +1511,27 @@ public class FunctionSet<T> {
                 prefix + "17count_star_removeEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 null, false, true, true, true));
 
+        // count(array/map/struct)
+        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                    Lists.newArrayList(complexType), Type.BIGINT, Type.BIGINT,
+                    prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                    null, null,
+                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    null, false, true, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(FunctionSet.COUNT,
+                    Lists.newArrayList(complexType), Type.BIGINT, Type.BIGINT,
+                    prefix + "18init_zero_not_nullIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
+                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
+                    null, null,
+                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
+                    null, false, true, true, true));
+        }
+
         // windowFunnel
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
                 Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),

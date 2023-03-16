@@ -684,7 +684,7 @@ public class FunctionCallExpr extends Expr {
             }
 
             for (Expr child : children) {
-                if (child.type.isOnlyMetricType()) {
+                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }

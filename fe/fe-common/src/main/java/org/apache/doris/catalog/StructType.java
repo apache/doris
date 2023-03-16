@@ -160,7 +160,8 @@ public class StructType extends Type {
         StructType other = (StructType) t;
         if (fields.size() != other.getFields().size()) {
             // Temp to make NullPredict from fe send to be
-            return other.getFields().size() == 1 && Objects.equals(other.getFields().get(0).name, "null_pred");
+            return other.getFields().size() == 1 && Objects.equals(other.getFields().get(0).name,
+                Type.GENERIC_STRUCT.getFields().get(0).name);
         }
 
         for (int i = 0; i < fields.size(); i++) {
