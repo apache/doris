@@ -143,7 +143,7 @@ public class PaloFe {
             // So we set the default HTTP client to UrlConnectionHttpClient.
             // TODO: remove this after we remove ApacheHttpClient
             System.setProperty("software.amazon.awssdk.http.service.impl",
-                    "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
+                "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
 
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
@@ -194,19 +194,19 @@ public class PaloFe {
 
     private static void checkAllPorts() throws IOException {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
-                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
+            "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
-                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
+            "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
-                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
+            "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.query_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
-                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
+            "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }
@@ -357,7 +357,7 @@ public class PaloFe {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
                 System.out.println("image does not exist: " + imageFile.getAbsolutePath()
-                        + " . Please put an absolute path instead");
+                    + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
                 System.out.println("Start to load image: ");

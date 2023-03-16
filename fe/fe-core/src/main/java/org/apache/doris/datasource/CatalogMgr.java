@@ -493,7 +493,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable, Runnable {
                 } catch (NumberFormatException e) {
                     throw new DdlException("Invalid properties: " + METADATA_REFRESH_INTERVAL_SEC);
                 }
-                Integer[] sec = { metadataRefreshIntervalSec, metadataRefreshIntervalSec };
+                Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
 
                 refreshMap.put(catalogName, sec);
 
@@ -1005,7 +1005,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable, Runnable {
                 try {
                     DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
 
-                }  catch (Exception e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
 
