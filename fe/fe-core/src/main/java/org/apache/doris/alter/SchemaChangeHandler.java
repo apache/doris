@@ -1899,33 +1899,35 @@ public class SchemaChangeHandler extends AlterHandler {
         // 2. refresh table metadata
         // 3. write edit log
         Map<Long, MaterializedIndex> tabletIdToIdx = new HashMap<>();
-        olapTable.getAllPartitions()
+        final List<MaterializedIndex> materializedIndices = olapTable.getAllPartitions()
                 .stream()
                 .findFirst()
                 .orElseThrow(() -> new DdlException(String.format("No partition available for %s.%s",
                         db.getFullName(), olapTable.getName())))
-                .getMaterializedIndices(IndexExtState.ALL)
-                .forEach(materializedIndex -> {
+                .getMaterializedIndices(IndexExtState.ALL);
+
+        // select a suitable backend
+        final Tablet tablet = materializedIndices
+                .get(0)
+                .getTablets()
+                .get(0);
+        final Long backendId = tablet.getBackendIds()
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new DdlException("Fail to find one backend for " + tablet));
+        final Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+        materializedIndices.forEach(materializedIndex -> {
                     final long tabletId = materializedIndex.getTablets().get(0).getId();
                     tabletIdToIdx.put(tabletId, materializedIndex);
                 });
-        // TODO: think about can we select the right BE in this way
-        BeSelectionPolicy policy = new BeSelectionPolicy
-                .Builder()
-                .setCluster(db.getClusterName())
-                .needLoadAvailable()
-                .needQueryAvailable()
-                .build();
-        List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
+
         final TFetchColIdsResponse response;
         try {
             // TODO: need a specific timeout, use execution timeout currently
             final Client client = ClientPool.backendPool.borrowObject(
                     new TNetworkAddress(backend.getIp(), backend.getBePort()),
                     ConnectContext.get().getExecTimeout() * 1000);
-            response = client.getColumnIdsByTabletIds(
-                    new TFetchColIdsRequest(tabletIdToIdx.keySet()));
+            response = client.getColumnIdsByTabletIds(new TFetchColIdsRequest(tabletIdToIdx.keySet()));
         } catch (Exception e) {
             throw new DdlException("RPC for " + backend.toString() + "failed", e);
         }
@@ -1936,8 +1938,7 @@ public class SchemaChangeHandler extends AlterHandler {
             final long tabletId = entry.getTabletId();
             final Map<String, Integer> colNameToId = entry.getColNameToId();
             final MaterializedIndex index = tabletIdToIdx.get(tabletId);
-            final MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(index.getId());
-            final List<Column> columns = indexMeta.getSchema();
+            final List<Column> columns = olapTable.getSchemaByIndexId(index.getId(), true);
             // we need a pre-check for all column metadata read from BE
             Preconditions.checkState(columns.size() == colNameToId.size(),
                         "size mismatch for columns meta from BE");
