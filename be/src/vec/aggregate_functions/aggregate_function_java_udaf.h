@@ -256,7 +256,8 @@ public:
             /*so add this limit avoid std::bad_alloc, (1024<<10) is enough*/                       \
             /*but this maybe get a mistake of result,when could handle exception need removethis*/ \
             if (increase_buffer_size == 10) {                                                      \
-                return Status::OK();                                                               \
+                return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",      \
+                                                 increase_buffer_size, buffer_size);               \
             }                                                                                      \
             increase_buffer_size++;                                                                \
             buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);               \
@@ -298,7 +299,8 @@ public:
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
                 if (increase_buffer_size == 10) {                                                  \
-                    return Status::OK();                                                           \
+                    return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",  \
+                                                     increase_buffer_size, buffer_size);           \
                 }                                                                                  \
                 increase_buffer_size++;                                                            \
                 buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
@@ -319,7 +321,8 @@ public:
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
                 if (increase_buffer_size == 10) {                                                  \
-                    return Status::OK();                                                           \
+                    return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",  \
+                                                     increase_buffer_size, buffer_size);           \
                 }                                                                                  \
                 increase_buffer_size++;                                                            \
                 buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
