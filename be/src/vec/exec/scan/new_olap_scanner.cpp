@@ -52,7 +52,9 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                                const std::vector<TCondition>& filters,
                                const FilterPredicates& filter_predicates,
                                const std::vector<FunctionFilter>& function_filters,
-                               VExprContext** common_vexpr_ctxs_pushdown) {
+                               VExprContext** common_vexpr_ctxs_pushdown,
+                               const std::vector<RowsetReaderSharedPtr>& rs_readers,
+                               const std::vector<std::pair<int, int>>& rs_reader_seg_offsets) {
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     if (common_vexpr_ctxs_pushdown != nullptr) {
         // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
@@ -70,14 +72,10 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
     TTabletId tablet_id = scan_range.tablet_id;
     _version = strtoul(scan_range.version.c_str(), nullptr, 10);
     {
-        std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
-        if (_tablet.get() == nullptr) {
-            std::stringstream ss;
-            ss << "failed to get tablet. tablet_id=" << tablet_id << ", reason=" << err;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
-        }
+        auto [tablet, status] =
+                StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id, true);
+        RETURN_IF_ERROR(status);
+        _tablet = std::move(tablet);
         _tablet_schema->copy_from(*_tablet->tablet_schema());
 
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
@@ -116,27 +114,32 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
 
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
-            const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
-            if (rowset == nullptr) {
-                std::stringstream ss;
-                ss << "fail to get latest version of tablet: " << tablet_id;
-                LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
+            if (rs_readers.empty()) {
+                const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
+                if (rowset == nullptr) {
+                    std::stringstream ss;
+                    ss << "fail to get latest version of tablet: " << tablet_id;
+                    LOG(WARNING) << ss.str();
+                    return Status::InternalError(ss.str());
+                }
 
-            // acquire tablet rowset readers at the beginning of the scan node
-            // to prevent this case: when there are lots of olap scanners to run for example 10000
-            // the rowsets maybe compacted when the last olap scanner starts
-            Version rd_version(0, _version);
-            Status acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
-            if (!acquire_reader_st.ok()) {
-                LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
-                std::stringstream ss;
-                ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
-                   << ", res=" << acquire_reader_st
-                   << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str());
+                // acquire tablet rowset readers at the beginning of the scan node
+                // to prevent this case: when there are lots of olap scanners to run for example 10000
+                // the rowsets maybe compacted when the last olap scanner starts
+                Version rd_version(0, _version);
+                Status acquire_reader_st =
+                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
+                if (!acquire_reader_st.ok()) {
+                    LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
+                    std::stringstream ss;
+                    ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
+                       << ", res=" << acquire_reader_st
+                       << ", backend=" << BackendOptions::get_localhost();
+                    return Status::InternalError(ss.str());
+                }
+            } else {
+                _tablet_reader_params.rs_readers = rs_readers;
+                _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
             }
 
             // Initialize tablet_reader_params
