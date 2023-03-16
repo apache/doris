@@ -86,7 +86,8 @@ public class SelectStmt extends QueryStmt {
 
     protected SelectList selectList;
     private final ArrayList<String> colLabels; // lower case column labels
-    protected final FromClause fromClause;
+    protected FromClause fromClause;
+    protected FromClause originalFromClause;
     protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
 
@@ -139,6 +140,7 @@ public class SelectStmt extends QueryStmt {
         this.selectList = new SelectList();
         this.fromClause = new FromClause();
         this.colLabels = Lists.newArrayList();
+        this.originalFromClause = null;
     }
 
     SelectStmt(
@@ -161,6 +163,11 @@ public class SelectStmt extends QueryStmt {
         if (whereClause != null) {
             this.originalWhereClause = whereClause.clone();
         }
+        if (fromClause != null) {
+            this.originalFromClause = fromClause.clone();
+        } else {
+            originalFromClause = null;
+        }
         this.groupByClause = groupByClause;
         this.havingClause = havingPredicate;
 
@@ -178,6 +185,7 @@ public class SelectStmt extends QueryStmt {
         fromClause = other.fromClause.clone();
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
         originalWhereClause = (other.originalWhereClause != null) ? other.originalWhereClause.clone() : null;
+        originalFromClause = (other.originalFromClause != null) ? other.originalFromClause.clone() : null;
         groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
         havingClause = (other.havingClause != null) ? other.havingClause.clone() : null;
         havingClauseAfterAnaylzed =
@@ -245,9 +253,13 @@ public class SelectStmt extends QueryStmt {
         if (originSelectList != null) {
             selectList = originSelectList;
         }
-        if (whereClause != null) {
+        if (originalWhereClause != null) {
             whereClause = originalWhereClause;
         }
+        if (originalFromClause != null) {
+            fromClause = originalFromClause;
+        }
+
         for (TableRef tableRef : getTableRefs()) {
             if (tableRef instanceof InlineViewRef) {
                 ((InlineViewRef) tableRef).getViewStmt().resetSelectList();
