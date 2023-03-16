@@ -192,14 +192,14 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
     return StringRef(nested_ref.data - s, nested_ref.size + s);
 }
 
-const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
+const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos, size_t sz) {
     UInt8 val = *reinterpret_cast<const UInt8*>(pos);
     pos += sizeof(val);
 
     _get_null_map_data().push_back(val);
 
     if (val == 0) {
-        pos = get_nested_column().deserialize_and_insert_from_arena(pos);
+        pos = get_nested_column().deserialize_and_insert_from_arena(pos, sz);
     } else {
         get_nested_column().insert_default();
         _has_null = true;
@@ -213,8 +213,7 @@ size_t ColumnNullable::get_max_row_byte_size() const {
     return flag_size + get_nested_column().get_max_row_byte_size();
 }
 
-void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                                   size_t max_row_byte_size) const {
+void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows, size_t sz) const {
     const auto& arr = get_null_map_data();
     static constexpr auto s = sizeof(arr[0]);
     for (size_t i = 0; i < num_rows; ++i) {
@@ -223,10 +222,11 @@ void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows
         keys[i].size += s;
     }
 
-    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), max_row_byte_size);
+    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), sz);
 }
 
-void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows,
+                                     size_t sz) {
     auto& arr = _get_null_map_data();
     const size_t old_size = arr.size();
     arr.resize(old_size + num_rows);
@@ -240,7 +240,7 @@ void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t 
         keys[i].data += sizeof(val);
         keys[i].size -= sizeof(val);
     }
-    get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data());
+    get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data(), sz);
 }
 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {

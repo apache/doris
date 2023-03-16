@@ -296,11 +296,6 @@ public:
         return StringRef();
     }
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "should not call the method in column object";
-        return nullptr;
-    }
-
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         LOG(FATAL) << "should not call the method in column object";
     }

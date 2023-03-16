@@ -142,10 +142,6 @@ public:
         LOG(FATAL) << "serialize_value_into_arena not supported in ColumnDictionary";
     }
 
-    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not supported in ColumnDictionary";
-    }
-
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in ColumnDictionary";

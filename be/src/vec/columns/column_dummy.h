@@ -67,7 +67,7 @@ public:
         return {arena.alloc_continue(0, begin), 0};
     }
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override {
+    const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) override {
         ++s;
         return pos;
     }

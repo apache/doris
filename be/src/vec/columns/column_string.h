@@ -361,9 +361,10 @@ public:
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override;
+    const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows,
+                         size_t sz = 4) override;
 
     size_t get_max_row_byte_size() const override;
 
@@ -375,7 +376,7 @@ public:
                                      size_t max_row_byte_size) const override;
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
+                                       const uint8_t* null_map, size_t sz = 4) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);
@@ -434,7 +435,9 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
-    void insert_default() override { offsets.push_back(chars.size()); }
+    void insert_default() override {
+        offsets.push_back(chars.size());
+    }
 
     void insert_many_defaults(size_t length) override {
         offsets.resize_fill(offsets.size() + length, chars.size());
@@ -472,19 +475,31 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
+    bool can_be_inside_nullable() const override {
+        return true;
+    }
 
-    bool is_column_string() const override { return true; }
+    bool is_column_string() const override {
+        return true;
+    }
 
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnString);
     }
 
-    Chars& get_chars() { return chars; }
-    const Chars& get_chars() const { return chars; }
+    Chars& get_chars() {
+        return chars;
+    }
+    const Chars& get_chars() const {
+        return chars;
+    }
 
-    Offsets& get_offsets() { return offsets; }
-    const Offsets& get_offsets() const { return offsets; }
+    Offsets& get_offsets() {
+        return offsets;
+    }
+    const Offsets& get_offsets() const {
+        return offsets;
+    }
 
     void clear() override {
         chars.clear();
@@ -532,7 +547,9 @@ public:
         return shrinked_column;
     }
 
-    TypeIndex get_data_type() const override { return TypeIndex::String; }
+    TypeIndex get_data_type() const override {
+        return TypeIndex::String;
+    }
 
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override {

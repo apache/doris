@@ -116,8 +116,8 @@ public:
         return data->serialize_value_into_arena(0, arena, begin);
     }
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override {
-        auto res = data->deserialize_and_insert_from_arena(pos);
+    const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) override {
+        auto res = data->deserialize_and_insert_from_arena(pos, sz);
         data->pop_back(1);
         ++s;
         return res;
@@ -125,15 +125,13 @@ public:
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override {
-        data->serialize_vec(keys, num_rows, max_row_byte_size);
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows, size_t sz) const override {
+        data->serialize_vec(keys, num_rows, sz);
     }
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override {
-        data->serialize_vec_with_null_map(keys, num_rows, null_map, max_row_byte_size);
+                                     const uint8_t* null_map, size_t sz) const override {
+        data->serialize_vec_with_null_map(keys, num_rows, null_map, sz);
     }
 
     void update_hash_with_value(size_t, SipHash& hash) const override {

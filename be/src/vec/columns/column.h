@@ -313,7 +313,9 @@ public:
 
     /// Deserializes a value that was serialized using IColumn::serialize_value_into_arena method.
     /// Returns pointer to the position after the read data.
-    virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
+    virtual const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) {
+        LOG(FATAL) << "deserialize_and_insert_from_arena not supported in PredicateColumnType";
+    }
 
     /// Return the size of largest row.
     /// This is for calculating the memory size for vectorized serialization of aggregation keys.
@@ -334,13 +336,14 @@ public:
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows,
+                                 size_t sz = 4) {
         LOG(FATAL) << "deserialize_vec not supported";
     }
 
     // Used in ColumnNullable::deserialize_vec
     virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                               const uint8_t* null_map) {
+                                               const uint8_t* null_map, size_t sz = 4) {
         LOG(FATAL) << "deserialize_vec_with_null_map not supported";
     }
 
@@ -704,7 +707,7 @@ protected:
 
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
-};
+}; // namespace doris::vectorized
 
 using ColumnPtr = IColumn::Ptr;
 using MutableColumnPtr = IColumn::MutablePtr;

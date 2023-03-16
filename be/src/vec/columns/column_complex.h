@@ -211,10 +211,6 @@ public:
         LOG(FATAL) << "serialize_value_into_arena not implemented";
     }
 
-    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
-    }
-
     // maybe we do not need to impl the function
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         // TODO add hash function

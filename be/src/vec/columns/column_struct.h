@@ -84,7 +84,7 @@ public:
     void insert_default() override;
     void pop_back(size_t n) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
-    const char* deserialize_and_insert_from_arena(const char* pos) override;
+    const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,

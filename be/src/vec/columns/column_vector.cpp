@@ -49,7 +49,7 @@ StringRef ColumnVector<T>::serialize_value_into_arena(size_t n, Arena& arena,
 }
 
 template <typename T>
-const char* ColumnVector<T>::deserialize_and_insert_from_arena(const char* pos) {
+const char* ColumnVector<T>::deserialize_and_insert_from_arena(const char* pos, size_t sz) {
     data.push_back(unaligned_load<T>(pos));
     return pos + sizeof(T);
 }
@@ -61,7 +61,7 @@ size_t ColumnVector<T>::get_max_row_byte_size() const {
 
 template <typename T>
 void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                                    size_t max_row_byte_size) const {
+                                    size_t sz) const {
     for (size_t i = 0; i < num_rows; ++i) {
         memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
         keys[i].size += sizeof(T);
@@ -70,8 +70,7 @@ void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_row
 
 template <typename T>
 void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                  const uint8_t* null_map,
-                                                  size_t max_row_byte_size) const {
+                                                  const uint8_t* null_map, size_t sz) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
@@ -81,20 +80,21 @@ void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, 
 }
 
 template <typename T>
-void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows,
+                                      size_t sz) {
     for (size_t i = 0; i != num_rows; ++i) {
-        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
+        keys[i].data = deserialize_and_insert_from_arena(keys[i].data, sz);
         keys[i].size -= sizeof(T);
     }
 }
 
 template <typename T>
 void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                    const size_t num_rows,
-                                                    const uint8_t* null_map) {
+                                                    const size_t num_rows, const uint8_t* null_map,
+                                                    size_t sz) {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
+            keys[i].data = deserialize_and_insert_from_arena(keys[i].data, sz);
             keys[i].size -= sizeof(T);
         } else {
             insert_default();

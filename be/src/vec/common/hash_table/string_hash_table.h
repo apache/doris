@@ -559,51 +559,51 @@ public:
             StringKey24 k24;
             doris::vectorized::UInt64 n[3];
         };
-        if ((sz - 1) >> 2 == 0) {
+        switch ((sz - 1) >> 2) {
+        case 0: // 1..4 bytes
+        {
             const char* lp = x.data + x.size - 4;
             memcpy(&n[0], lp, 4);
             n[0] >>= ((-sz & 3) * 8);
             key_holder_discard_key(key_holder);
             return func(self.m1, k4, hash(k4));
-        } else {
-            switch ((sz - 1) >> 3) {
-            case 0: // 1..8 bytes
-            {
-                // first half page
-                if ((reinterpret_cast<uintptr_t>(p) & 2048) == 0) {
-                    memcpy(&n[0], p, 8);
-                    n[0] &= -1ULL >> s;
-                } else {
-                    const char* lp = x.data + x.size - 8;
-                    memcpy(&n[0], lp, 8);
-                    n[0] >>= s;
-                }
-                key_holder_discard_key(key_holder);
-                return func(self.m2, k8, hash(k8));
-            }
-            case 1: // 9..16 bytes
-            {
+        }
+        case 1: // 5..8 bytes
+        {
+            // first half page
+            if ((reinterpret_cast<uintptr_t>(p) & 2048) == 0) {
                 memcpy(&n[0], p, 8);
+                n[0] &= -1ULL >> s;
+            } else {
                 const char* lp = x.data + x.size - 8;
-                memcpy(&n[1], lp, 8);
-                n[1] >>= s;
-                key_holder_discard_key(key_holder);
-                return func(self.m3, k16, hash(k16));
+                memcpy(&n[0], lp, 8);
+                n[0] >>= s;
             }
-            case 2: // 17..24 bytes
-            {
-                memcpy(&n[0], p, 16);
-                const char* lp = x.data + x.size - 8;
-                memcpy(&n[2], lp, 8);
-                n[2] >>= s;
-                key_holder_discard_key(key_holder);
-                return func(self.m4, k24, hash(k24));
-            }
-            default: // >= 25 bytes
-            {
-                return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
-            }
-            }
+            key_holder_discard_key(key_holder);
+            return func(self.m2, k8, hash(k8));
+        }
+        case 2: // 9..16 bytes
+        case 3: {
+            memcpy(&n[0], p, 8);
+            const char* lp = x.data + x.size - 8;
+            memcpy(&n[1], lp, 8);
+            n[1] >>= s;
+            key_holder_discard_key(key_holder);
+            return func(self.m3, k16, hash(k16));
+        }
+        case 4: // 17..24 bytes
+        case 5: {
+            memcpy(&n[0], p, 16);
+            const char* lp = x.data + x.size - 8;
+            memcpy(&n[2], lp, 8);
+            n[2] >>= s;
+            key_holder_discard_key(key_holder);
+            return func(self.m4, k24, hash(k24));
+        }
+        default: // >= 25 bytes
+        {
+            return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
+        }
         }
     }
 
@@ -713,7 +713,9 @@ public:
     }
 
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t get_collisions() const { return 0; }
+    size_t get_collisions() const {
+        return 0;
+    }
 #endif
 };
 

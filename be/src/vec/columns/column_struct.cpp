@@ -164,9 +164,9 @@ StringRef ColumnStruct::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
-const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos) {
+const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos, size_t sz) {
     for (auto& column : columns) {
-        pos = column->deserialize_and_insert_from_arena(pos);
+        pos = column->deserialize_and_insert_from_arena(pos, sz);
     }
 
     return pos;

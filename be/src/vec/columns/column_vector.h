@@ -227,12 +227,13 @@ public:
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override;
+    const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows,
+                         size_t sz = 4) override;
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
+                                       const uint8_t* null_map, size_t sz = 4) override;
 
     size_t get_max_row_byte_size() const override;
 

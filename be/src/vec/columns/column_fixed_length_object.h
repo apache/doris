@@ -147,10 +147,6 @@ public:
         LOG(FATAL) << "serialize_value_into_arena not supported";
     }
 
-    const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not supported";
-    }
-
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         LOG(FATAL) << "update_hash_with_value not supported";
     }

@@ -69,14 +69,19 @@ struct AggregationMethodSerialized {
     template <typename Other>
     explicit AggregationMethodSerialized(const Other& other) : data(other.data) {}
 
-    size_t serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
+    size_t serialize_keys(const ColumnRawPtrs& key_columns, const Sizes key_sizes,
+                          size_t num_rows) {
         if (keys.size() < num_rows) {
             keys.resize(num_rows);
         }
 
         size_t max_one_row_byte_size = 0;
-        for (const auto& column : key_columns) {
-            max_one_row_byte_size += column->get_max_row_byte_size();
+        for (size_t i = 0; i < key_columns.size(); i++) {
+            max_one_row_byte_size +=
+                    key_sizes[i] > 0 ? key_sizes[i] : key_columns[i]->get_max_row_byte_size();
+            if (key_columns[i]->is_column_string() && key_sizes[i] > 0) {
+                max_one_row_byte_size += key_sizes[i] < 256 ? sizeof(uint8_t) : sizeof(uint32_t);
+            }
         }
         size_t total_bytes = max_one_row_byte_size * num_rows;
 
@@ -104,26 +109,20 @@ struct AggregationMethodSerialized {
                 keys[i].size = 0;
             }
 
-            for (const auto& column : key_columns) {
-                column->serialize_vec(keys, num_rows, max_one_row_byte_size);
+            for (size_t i = 0; i < key_columns.size(); i++) {
+                key_columns[i]->serialize_vec(
+                        keys, num_rows, key_sizes[i] < 256 ? sizeof(uint8_t) : sizeof(uint32_t));
             }
             keys_memory_usage = _serialized_key_buffer_size;
         }
         return max_one_row_byte_size;
     }
 
-    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
-                                        const Sizes&) {
-        auto pos = key.data;
-        for (auto& column : key_columns) {
-            pos = column->deserialize_and_insert_from_arena(pos);
-        }
-    }
-
     static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
-                                         const size_t num_rows, const Sizes&) {
-        for (auto& column : key_columns) {
-            column->deserialize_vec(keys, num_rows);
+                                         const size_t num_rows, const Sizes& key_sizes) {
+        for (size_t i = 0; i < key_columns.size(); i++) {
+            key_columns[i]->deserialize_vec(
+                    keys, num_rows, key_sizes[i] < 256 ? sizeof(uint8_t) : sizeof(uint32_t));
         }
     }
 
@@ -1108,7 +1107,8 @@ private:
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
             auto old_keys_memory = agg_method.keys_memory_usage;
             SCOPED_TIMER(_serialize_key_timer);
-            int64_t row_size = (int64_t)(agg_method.serialize_keys(key_columns, num_rows));
+            int64_t row_size =
+                    (int64_t)(agg_method.serialize_keys(key_columns, _probe_key_sz, num_rows));
             COUNTER_SET(_max_row_size_counter, std::max(_max_row_size_counter->value(), row_size));
             state.set_serialized_keys(agg_method.keys.data());
 

@@ -104,7 +104,7 @@ public:
     bool is_default_at(size_t n) const override;
     void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
-    const char* deserialize_and_insert_from_arena(const char* pos) override;
+    const char* deserialize_and_insert_from_arena(const char* pos, size_t sz = 4) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert(const Field& x) override;

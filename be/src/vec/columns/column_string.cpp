@@ -224,9 +224,10 @@ StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
-const char* ColumnString::deserialize_and_insert_from_arena(const char* pos) {
-    const uint32_t string_size = unaligned_load<uint32_t>(pos);
-    pos += sizeof(string_size);
+const char* ColumnString::deserialize_and_insert_from_arena(const char* pos, size_t sz) {
+    uint32_t string_size {};
+    memcpy(&string_size, pos, sz);
+    pos += sz;
 
     const size_t old_size = chars.size();
     const size_t new_size = old_size + string_size;
@@ -248,22 +249,20 @@ size_t ColumnString::get_max_row_byte_size() const {
     return max_size + sizeof(uint32_t);
 }
 
-void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                                 size_t max_row_byte_size) const {
+void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows, size_t sz) const {
     for (size_t i = 0; i < num_rows; ++i) {
         uint32_t offset(offset_at(i));
         uint32_t string_size(size_at(i));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-        memcpy(ptr, &string_size, sizeof(string_size));
-        memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-        keys[i].size += sizeof(string_size) + string_size;
+        memcpy(ptr, &string_size, sz);
+        memcpy(ptr + sz, &chars[offset], string_size);
+        keys[i].size += sz + string_size;
     }
 }
 
 void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map,
-                                               size_t max_row_byte_size) const {
+                                               const uint8_t* null_map, size_t sz) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             uint32_t offset(offset_at(i));
@@ -277,20 +276,21 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
     }
 }
 
-void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows, size_t sz) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto original_ptr = keys[i].data;
-        keys[i].data = deserialize_and_insert_from_arena(original_ptr);
+        keys[i].data = deserialize_and_insert_from_arena(original_ptr, sz);
         keys[i].size -= keys[i].data - original_ptr;
     }
 }
 
 void ColumnString::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                 const size_t num_rows, const uint8_t* null_map) {
+                                                 const size_t num_rows, const uint8_t* null_map,
+                                                 size_t sz) {
     for (size_t i = 0; i != num_rows; ++i) {
         if (null_map[i] == 0) {
             auto original_ptr = keys[i].data;
-            keys[i].data = deserialize_and_insert_from_arena(original_ptr);
+            keys[i].data = deserialize_and_insert_from_arena(original_ptr, sz);
             keys[i].size -= keys[i].data - original_ptr;
         } else {
             insert_default();
