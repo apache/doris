@@ -18,36 +18,23 @@
 #include "olap/tablet_manager.h"
 
 #include <gen_cpp/Types_types.h>
-#include <rapidjson/document.h>
 #include <re2/re2.h>
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/split.hpp>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 
-#include "common/compiler_util.h"
 #include "env/env.h"
-#include "env/env_util.h"
 #include "gutil/strings/strcat.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/push_handler.h"
-#include "olap/reader.h"
-#include "olap/rowset/rowset_id_generator.h"
-#include "olap/schema_change.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
-#include "rapidjson/document.h"
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
 #include "runtime/thread_context.h"
@@ -56,7 +43,6 @@
 #include "util/file_utils.h"
 #include "util/histogram.h"
 #include "util/path_util.h"
-#include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
 #include "util/trace.h"
@@ -532,6 +518,19 @@ Status TabletManager::drop_tablets_on_error_root_path(
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
     return _get_tablet_unlocked(tablet_id, include_deleted, err);
+}
+
+std::pair<TabletSharedPtr, Status> TabletManager::get_tablet_and_status(TTabletId tablet_id,
+                                                                        bool include_deleted) {
+    std::string err;
+    auto tablet = get_tablet(tablet_id, include_deleted, &err);
+    if (tablet == nullptr) {
+        auto err_str = fmt::format("failed to get tablet: {}, reason: {}", tablet_id, err);
+        LOG(WARNING) << err_str;
+        return {tablet, Status::InternalError(err_str)};
+    }
+
+    return {tablet, Status::OK()};
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
