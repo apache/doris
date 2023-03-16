@@ -89,8 +89,8 @@ public class StoragePolicyTest {
         props.put(COOLDOWN_DATETIME, "2023-01-01 00:00:00");
         props.put(COOLDOWN_TTL, "10d");
         exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.init(props, false));
-        Assertions.assertEquals("errCode = 2, detailMessage = cooldown_datetime and cooldown_ttl " +
-                "can't be set together.", exception.getMessage());
+        Assertions.assertEquals("errCode = 2, detailMessage = cooldown_datetime and cooldown_ttl "
+                + "can't be set together.", exception.getMessage());
         props.remove(COOLDOWN_TTL);
         props.put(COOLDOWN_DATETIME, "test");
         exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.init(props, false));
@@ -104,16 +104,16 @@ public class StoragePolicyTest {
                 exception.getMessage());
         props.put(STORAGE_RESOURCE, SPARK_RESOURCE_NAME);
         exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.init(props, false));
-        Assertions.assertEquals("errCode = 2, detailMessage = current storage policy just support " +
-                        "resource type S3_COOLDOWN", exception.getMessage());
+        Assertions.assertEquals("errCode = 2, detailMessage = current storage policy just support "
+                + "resource type S3_COOLDOWN", exception.getMessage());
         props.put(STORAGE_RESOURCE, "s3_resource_test_no_rootpath");
         exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.init(props, false));
-        Assertions.assertEquals("errCode = 2, detailMessage = Missing [AWS_ROOT_PATH] in " +
-                        "'s3_resource_test_no_rootpath' resource", exception.getMessage());
+        Assertions.assertEquals("errCode = 2, detailMessage = Missing [AWS_ROOT_PATH] in "
+                + "'s3_resource_test_no_rootpath' resource", exception.getMessage());
         props.put(STORAGE_RESOURCE, "s3_resource_test_no_bucket");
         exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.init(props, false));
-        Assertions.assertEquals("errCode = 2, detailMessage = Missing [AWS_BUCKET] in " +
-                        "'s3_resource_test_no_bucket' resource", exception.getMessage());
+        Assertions.assertEquals("errCode = 2, detailMessage = Missing [AWS_BUCKET] in "
+                + "'s3_resource_test_no_bucket' resource", exception.getMessage());
         props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
         Assertions.assertDoesNotThrow(() -> storagePolicy.init(props, false));
     }
