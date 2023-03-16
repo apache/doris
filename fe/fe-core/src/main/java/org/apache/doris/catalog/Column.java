@@ -792,6 +792,10 @@ public class Column implements Writable, GsonPostProcessable {
         isCompoundKey = compoundKey;
     }
 
+    public boolean hasDefaultValue() {
+        return defaultValue != null || realDefaultValue != null || defaultValueExprDef != null;
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         // This just for bugfix. Because when user upgrade from 0.x to 1.1.x,
