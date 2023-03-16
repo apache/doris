@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
+import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
@@ -98,6 +100,7 @@ import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
+import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
@@ -224,6 +227,7 @@ import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -361,8 +365,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitCreateRowPolicy(CreateRowPolicyContext ctx) {
-        // Only wherePredicate is needed at present
-        return new CreatePolicyCommand(PolicyTypeEnum.ROW, getExpression(ctx.booleanExpression()));
+        FilterType filterType = FilterType.of(ctx.type.getText());
+        List<String> nameParts = visitMultipartIdentifier(ctx.table);
+        return new CreatePolicyCommand(PolicyTypeEnum.ROW, ctx.name.getText(),
+                ctx.EXISTS() != null, nameParts, Optional.of(filterType), visitUserIdentify(ctx.user),
+                Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+    }
+
+    @Override
+    public String visitIdentifierOrText(IdentifierOrTextContext ctx) {
+        if (ctx.STRING() != null) {
+            return ctx.STRING().getText().substring(1, ctx.STRING().getText().length() - 1);
+        } else {
+            return ctx.errorCapturingIdentifier().getText();
+        }
+    }
+
+    @Override
+    public UserIdentity visitUserIdentify(UserIdentifyContext ctx) {
+        String user = visitIdentifierOrText(ctx.user);
+        String host = null;
+        if (ctx.host != null) {
+            host = visitIdentifierOrText(ctx.host);
+        }
+        if (host == null) {
+            host = "%";
+        }
+        boolean isDomain = ctx.LEFT_PAREN() != null;
+        return new UserIdentity(user, host, isDomain);
     }
 
     @Override
@@ -544,14 +574,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitNamedExpression(NamedExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression expression = getExpression(ctx.expression());
-            if (ctx.errorCapturingIdentifier() != null) {
-                return new UnboundAlias(expression, ctx.errorCapturingIdentifier().getText());
-            } else if (ctx.STRING() != null) {
-                return new UnboundAlias(expression, ctx.STRING().getText()
-                        .substring(1, ctx.STRING().getText().length() - 1));
-            } else {
+            if (ctx.identifierOrText() == null) {
                 return expression;
             }
+            String alias = visitIdentifierOrText(ctx.identifierOrText());
+            return new UnboundAlias(expression, alias);
         });
     }
 
