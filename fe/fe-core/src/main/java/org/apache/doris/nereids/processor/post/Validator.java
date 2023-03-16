@@ -26,6 +26,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.ArrayType;
@@ -37,7 +41,7 @@ import org.apache.doris.nereids.types.StructType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.Collection;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -53,11 +57,9 @@ public class Validator extends PlanPostProcessor {
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         Plan child = project.child();
         // Forbidden project-project, we must merge project.
-        Preconditions.checkArgument(!(child instanceof PhysicalProject));
-
-        // TODO: Check projects is from child output.
-        // List<NamedExpression> projects = project.getProjects();
-        // Set<Slot> childOutputSet = child.getOutputSet();
+        if (child instanceof PhysicalProject) {
+            throw new AnalysisException("Nereids must merge a project-project plan");
+        }
 
         child.accept(this, context);
         return visit(project, context);
@@ -75,16 +77,6 @@ public class Validator extends PlanPostProcessor {
                     "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
         }
 
-        // Check filter is from child output.
-        Set<Slot> childOutputSet = child.getOutputSet();
-        Set<Slot> slotsUsedByFilter = filter.getConjuncts().stream()
-                .<Set<Slot>>map(expr -> expr.collect(Slot.class::isInstance))
-                .flatMap(Collection::stream).collect(Collectors.toSet());
-        for (Slot slot : slotsUsedByFilter) {
-            Preconditions.checkState(childOutputSet.contains(slot)
-                    || slot instanceof MarkJoinSlotReference);
-        }
-
         child.accept(this, context);
         return visit(filter, context);
     }
@@ -93,7 +85,37 @@ public class Validator extends PlanPostProcessor {
     public Plan visit(Plan plan, CascadesContext context) {
         plan.getExpressions().forEach(ExpressionChecker.INSTANCE::check);
         plan.children().forEach(child -> child.accept(this, context));
+        Optional<Slot> opt = checkAllSlotFromChildren(plan);
+        if (opt.isPresent()) {
+            throw new AnalysisException("A expression contains slot not from children\n"
+                    + "Plan: " + plan + "\n"
+                    + "Plan Output: " + plan.getOutput() + "\n"
+                    + "Slot: " + opt.get() + "\n");
+        }
         return plan;
+    }
+
+    /**
+     * Check all slot must from children.
+     */
+    public static Optional<Slot> checkAllSlotFromChildren(Plan plan) {
+        if (plan.arity() == 0) {
+            return Optional.empty();
+        }
+        if (!(plan instanceof Project || plan instanceof Filter || plan instanceof Join || plan instanceof Sort)) {
+            return Optional.empty();
+        }
+        Set<Slot> childOutputSet = plan.children().stream().flatMap(child -> child.getOutputSet().stream())
+                .collect(Collectors.toSet());
+        for (Expression expr : plan.getExpressions()) {
+            Set<Slot> inputSlots = expr.getInputSlots();
+            for (Slot slot : inputSlots) {
+                if (!(childOutputSet.contains(slot) || slot instanceof MarkJoinSlotReference)) {
+                    return Optional.of(slot);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private static class ExpressionChecker extends DefaultExpressionVisitor<Expression, Void> {
