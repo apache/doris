@@ -161,6 +161,9 @@ public class UdafExecutor extends BaseExecutor {
      */
     public boolean getValue(long row, long place) throws UdfRuntimeException {
         try {
+            if (stateObjMap.get(place) == null) {
+                stateObjMap.put(place, createAggState());
+            }
             return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place)),
                     row, retClass);
         } catch (Exception e) {
