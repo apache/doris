@@ -658,13 +658,11 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeout() {
-        if (env != null) {
-            userQueryTimeout = env.getAuth().getQueryTimeout(qualifiedUser);
-        }
+        userQueryTimeout = Env.getCurrentEnv().getAuth().getQueryTimeout(qualifiedUser);
         if (userQueryTimeout > 0) {
             // user-set query-timeout, has the highest priority
             executionTimeoutS = (int) userQueryTimeout;
-        } else if (executor.isInsertStmt()) {
+        } else if (executor != null && executor.isInsertStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
         } else {
