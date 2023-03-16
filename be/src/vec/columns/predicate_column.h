@@ -276,8 +276,9 @@ public:
         }
         if constexpr (std::is_same_v<T, StringRef>) {
             const auto total_mem_size = offsets[num] - offsets[0];
+            size_t prev_size = strings.size();
             strings.resize(strings.size() + total_mem_size);
-            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
+            char* destination = reinterpret_cast<char*>(strings.data()) + prev_size;
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -301,9 +302,9 @@ public:
             for (size_t i = 0; i < num; i++) {
                 total_mem_size += len_array[i];
             }
-
+            size_t prev_size = strings.size();
             strings.resize(strings.size() + total_mem_size);
-            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
+            char* destination = reinterpret_cast<char*>(strings.data()) + prev_size;
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
