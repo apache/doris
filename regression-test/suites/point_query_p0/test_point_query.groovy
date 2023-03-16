@@ -22,6 +22,15 @@ suite("test_point_query") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
+
+    def generateString = {len ->
+        def str = ""
+        for (int i = 0; i < len; i++) {
+            str += "a"
+        }
+        return str
+    }
+
     // def url = context.config.jdbcUrl
     def result1 = connect(user=user, password=password, url=url) {
     sql """DROP TABLE IF EXISTS ${tableName}"""
@@ -45,7 +54,7 @@ suite("test_point_query") {
               CREATE TABLE IF NOT EXISTS ${tableName} (
                 `k1` int(11) NULL COMMENT "",
                 `k2` decimalv3(27, 9) NULL COMMENT "",
-                `k3` varchar(30) NULL COMMENT "",
+                `k3` varchar(300) NULL COMMENT "",
                 `k4` varchar(30) NULL COMMENT "",
                 `k5` date NULL COMMENT "",
                 `k6` datetime NULL COMMENT "",
@@ -69,6 +78,9 @@ suite("test_point_query") {
       sql """ INSERT INTO ${tableName} VALUES(1235, 991129292901.11138, "dd", null, "2120-01-02", "2020-01-01 12:36:38", 652.692, "5022-01-01 11:30:38") """
       sql """ INSERT INTO ${tableName} VALUES(1236, 100320.11139, "laa    ddd", "laooq", "2220-01-02", "2020-01-01 12:36:38", 2.7692, "6022-01-01 11:30:38") """
       sql """ INSERT INTO ${tableName} VALUES(1237, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38") """
+      sql """ INSERT INTO ${tableName} VALUES(251, 120939.11130, "${generateString(251)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 251, "7022-01-01 11:30:38") """
+      sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01 11:30:38") """
+      sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38") """
 
       def stmt = prepareStatement "select * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
       assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
@@ -83,6 +95,19 @@ suite("test_point_query") {
       stmt.setInt(1, 1237)
       stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
       stmt.setString(3, "a    ddd")
+      qe_point_select stmt
+
+      stmt.setInt(1, 251)
+      stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+      stmt.setString(3, generateString(251))
+      qe_point_select stmt
+      stmt.setInt(1, 252)
+      stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+      stmt.setString(3, generateString(252))
+      qe_point_select stmt
+      stmt.setInt(1, 298)
+      stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+      stmt.setString(3, generateString(298))
       qe_point_select stmt
 
       stmt = prepareStatement "select * from ${tableName} where k1 = 1235 and k2 = ? and k3 = ?"
