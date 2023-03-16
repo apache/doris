@@ -110,7 +110,7 @@ public class StoragePolicyTest {
         Assertions.assertEquals("Missing [AWS_BUCKET] in 's3_resource_test_no_bucket' resource",
                 exception.getMessage());
         props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
-        Assertions.assertDoesNotThrow(()->storagePolicy.init(props, false));
+        Assertions.assertDoesNotThrow(() -> storagePolicy.init(props, false));
     }
 
 }
