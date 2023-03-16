@@ -18,6 +18,7 @@
 from unittest import result
 import mysql.connector
 from typing import List, Tuple
+import re
 
 
 class SQLExecutor:
@@ -43,7 +44,28 @@ class SQLExecutor:
     def get_execute_time(self, query: str) -> float:
         self.execute_query(query, None)
         profile = self.execute_query("show query profile\"\"", None)
-        return float(profile[0][self.wait_fetch_time_index].replace("ms", ""))
+        return self.get_n_ms(profile[0][self.wait_fetch_time_index])
+
+    def get_n_ms(self, t: str):
+        res = re.search(r"(\d+h)*(\d+min)*(\d+s)*(\d+ms)", t)
+        if res is None:
+            raise Exception(f"invalid time {t}")
+        n = 0
+
+        h = res.group(1)
+        if h is not None:
+            n += int(h.replace("h", "")) * 60 * 60 * 1000
+        min = res.group(2)
+        if min is not None != 0:
+            n += int(min.replace("min", "")) * 60 * 1000
+        s = res.group(3)
+        if s is not None != 0:
+            n += int(s.replace("s", "")) * 1000
+        ms = res.group(4)
+        if len(ms) != 0:
+            n += int(ms.replace("ms", ""))
+        
+        return n
 
     def execute_many_queries(self, queries: List[Tuple[str, Tuple]]) -> List[List[Tuple]]:
         results = []
