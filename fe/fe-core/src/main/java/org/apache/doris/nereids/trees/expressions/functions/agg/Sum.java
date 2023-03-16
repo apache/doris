@@ -46,14 +46,14 @@ public class Sum extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD)
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(TinyIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(IntegerType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BigIntType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).varArgs(LargeIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).varArgs(DoubleType.INSTANCE),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).varArgs(DecimalV3Type.WILDCARD)
     );
 
     /**
@@ -71,6 +71,17 @@ public class Sum extends NullableAggregateFunction
     }
 
     public Sum(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("sum", distinct, alwaysNullable, arg);
+    }
+
+    /**
+     * constructor with multi arguments.
+     */
+    public Sum(Expression ...args) {
+        this(false, false, args);
+    }
+
+    public Sum(boolean distinct, boolean alwaysNullable, Expression ...arg) {
         super("sum", distinct, alwaysNullable, arg);
     }
 
