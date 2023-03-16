@@ -27,6 +27,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -55,6 +56,8 @@ import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
@@ -172,6 +175,12 @@ public class PaloFe {
                 QeService qeService = new QeService(Config.query_port, ExecuteEnv.getInstance().getScheduler());
                 qeService.start();
             }
+
+            ScheduledThreadPoolExecutor refreshTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+                "refresh-timer-pool", true);
+            Integer refreshTime = 20;
+            CatalogMgr catalogMgr = new CatalogMgr(refreshTime);
+            refreshTimer.scheduleAtFixedRate(catalogMgr, 0, refreshTime, TimeUnit.SECONDS);
 
             ThreadPoolManager.registerAllThreadPoolMetric();
 

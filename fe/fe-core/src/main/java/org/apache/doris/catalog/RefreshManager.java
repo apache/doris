@@ -33,11 +33,16 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+
+
+
 import java.util.Map;
 
 // Manager for refresh database and table action
 public class RefreshManager {
     private static final Logger LOG = LogManager.getLogger(RefreshManager.class);
+
+
 
     public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
         String catalogName = stmt.getCtl();
@@ -146,4 +151,6 @@ public class RefreshManager {
                 stmt.getTableName(), "ICEBERG", icebergProperties, "");
         env.createTable(createTableStmt);
     }
+
+
 }
