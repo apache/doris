@@ -674,16 +674,16 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         }
 
         if (params.query_options.enable_pipeline_engine) {
-            int ts = params.query_options.query_timeout;
+            int ts = fragments_ctx->timeout_second;
             taskgroup::TaskGroupPtr tg;
             auto ts_id = taskgroup::TaskGroupManager::DEFAULT_TG_ID;
-            if (ts <= taskgroup::TaskGroupManager::SHORT_QUERY_TIMEOUT_S) {
+            if (ts > 0 && ts <= taskgroup::TaskGroupManager::SHORT_QUERY_TIMEOUT_S) {
                 ts_id = taskgroup::TaskGroupManager::SHORT_TG_ID;
             }
             tg = taskgroup::TaskGroupManager::instance()->get_task_group(ts_id);
             fragments_ctx->set_task_group(tg);
             LOG(INFO) << "Query/load id: " << print_id(fragments_ctx->query_id)
-                      << "use tg id: " << ts_id << ", ts:" << ts << ", share: "<< tg->share();
+                      << "use task group: " << tg->debug_string();
         }
 
         {

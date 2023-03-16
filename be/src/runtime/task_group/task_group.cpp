@@ -56,5 +56,9 @@ std::string TaskGroupEntity::debug_string() const {
 TaskGroup::TaskGroup(uint64_t id, std::string name, uint64_t share)
         : _id(id), _name(name), _share(share), _task_entity(this) {}
 
+std::string TaskGroup::debug_string() const {
+    return fmt::format("TG[id = {}, name = {}, share = {}", _id, _name, share());
+}
+
 } // namespace taskgroup
 } // namespace doris

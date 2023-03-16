@@ -75,6 +75,8 @@ public:
     uint64_t share() const { return _share; }
     uint64_t id() const { return _id; }
 
+    std::string debug_string() const;
+
 private:
     uint64_t _id;
     std::string _name;
