@@ -80,6 +80,10 @@ private:
 
     bool _rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
+    int compare_row(Block* lhs, int lhs_pos, Block* rhs, int rhs_pos) {
+        return lhs->compare_at(lhs_pos, rhs_pos, *rhs, -1);
+    }
+
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
@@ -110,6 +114,8 @@ private:
     ColumnPtr _delete_filter_column;
 
     bool _is_rowsets_overlapping = true;
+
+    bool _should_check_same_row = false;
 };
 
 } // namespace vectorized

@@ -171,6 +171,11 @@ Status BlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
     }
+    if (_reader_type == READER_BASE_COMPACTION || _reader_type == READER_CUMULATIVE_COMPACTION ||
+        _reader_type == READER_CHECKSUM) {
+        _should_check_same_row = true;
+        LOG(INFO) << "should check same row";
+    }
 
     switch (tablet()->keys_type()) {
     case KeysType::DUP_KEYS:
@@ -247,6 +252,12 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
 
         if (!_get_next_row_same()) {
             if (target_block_row == _reader_context.batch_size) {
+                if (_should_check_same_row) {
+                    // compare current block last row and first_row in next block
+                    DCHECK(compare_row(block, target_block_row - 1, _next_row.block.get(),
+                                       _next_row.row_pos) != 0)
+                            << "find same row when do _agg_key_next_block";
+                }
                 break;
             }
             _agg_data_counters.push_back(_last_agg_data_counter);
@@ -254,6 +265,11 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
 
             _insert_data_normal(target_columns);
             target_block_row++;
+            // check whether current row is same as before
+            if (_should_check_same_row && target_block_row > 1) {
+                DCHECK(compare_row(block, target_block_row - 1, block, target_block_row - 2) != 0)
+                        << "find same row when do _agg_key_next_block";
+            }
         } else {
             merged_row++;
         }
@@ -287,6 +303,10 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
         }
         target_block_row++;
+        if (_should_check_same_row && target_block_row > 1) {
+            DCHECK(compare_row(block, target_block_row - 1, block, target_block_row - 2) != 0)
+                    << "find same row when do _unique_key_next_block";
+        }
 
         // the version is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
@@ -306,6 +326,12 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             return res;
         }
     } while (target_block_row < _reader_context.batch_size);
+    if (_should_check_same_row && target_block_row >= _reader_context.batch_size) {
+        // compare current block last row with next block first row
+        DCHECK(compare_row(block, target_block_row - 1, _next_row.block.get(), _next_row.row_pos) !=
+               0)
+                << "find same row when do _unique_key_next_block";
+    }
 
     // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
