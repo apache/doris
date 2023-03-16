@@ -73,11 +73,11 @@ suite("aggregate_strategies") {
          * "disable_auto_compaction" = "false"
          * );
          *
-         * insert into n select number from numbers('number'='10000000');
-         * insert into n select number from numbers('number'='10000000');
+         * insert into n select number from numbers('number'='100');
+         * insert into n select number from numbers('number'='100');
          * ```
          *
-         * when open streaming aggregate, the result is 19999800, but the correct result is 10000000
+         * when open streaming aggregate, the result is 19999800, but the correct result is 100
          */
         explain {
             sql """
