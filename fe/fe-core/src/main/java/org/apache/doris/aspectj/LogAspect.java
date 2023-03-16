@@ -28,13 +28,13 @@ public class LogAspect {
 
     private static final Logger LOG = LogManager.getLogger(LogAspect.class);
 
-    @Pointcut("@annotation(org.apache.doris.common.annotation.ExceptionLog)")
+    @Pointcut("@annotation(org.apache.doris.common.annotation.LogException)")
     public void throwingLogPointCut() {
     }
 
     @AfterThrowing(value = "throwingLogPointCut()", throwing = "e")
-    public void exceptionLog(Throwable e)  {
-        LOG.warn(e.getMessage());
+    public void logException(Throwable e)  {
+        LOG.warn(e);
     }
 
 }

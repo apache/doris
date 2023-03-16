@@ -55,7 +55,7 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.annotation.ExceptionLog;
+import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -496,7 +496,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    @ExceptionLog
+    @LogException
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
         LOG.debug("get table name request: {}", params);

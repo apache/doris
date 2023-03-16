@@ -25,5 +25,5 @@ import java.lang.annotation.Target;
 // You can use this annotation when you want add try catch logger error.
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface ExceptionLog {
+public @interface LogException {
 }

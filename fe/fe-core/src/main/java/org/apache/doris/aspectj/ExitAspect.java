@@ -34,8 +34,8 @@ public class ExitAspect {
 
     @AfterThrowing(value = "exitPointCut()", throwing = "e")
     public void exit(Throwable e)  {
-        LOG.error("A problem that does not allow errors has occurred.");
-        LOG.error(e.getMessage());
+        LOG.warn("A problem that does not allow errors has occurred.");
+        LOG.warn(e);
         System.exit(-1);
     }
 

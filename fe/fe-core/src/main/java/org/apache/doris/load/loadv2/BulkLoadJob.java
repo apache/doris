@@ -31,7 +31,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.annotation.ExceptionLog;
+import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -182,7 +182,7 @@ public abstract class BulkLoadJob extends LoadJob {
                 .collect(Collectors.toSet());
     }
 
-    @ExceptionLog
+    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
