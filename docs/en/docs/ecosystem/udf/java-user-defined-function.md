@@ -107,13 +107,11 @@ The following SimpleDemo will implement a simple function similar to sum, the in
 ```JAVA
 package org.apache.doris.udf.demo;
 
-import org.apache.hadoop.hive.ql.exec.UDAF;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class SimpleDemo extends UDAF {
+public class SimpleDemo  {
     //Need an inner class to store data
     /*required*/
     public static class State {
@@ -134,7 +132,7 @@ public class SimpleDemo extends UDAF {
 
     /*required*/
     //first argument is State, then other types your input
-    public void add(State state, Integer val) {
+    public void add(State state, Integer val) throws Exception {
         /* here doing update work when input data*/
         if (val != null) {
             state.sum += val;
@@ -142,36 +140,36 @@ public class SimpleDemo extends UDAF {
     }
 
     /*required*/
-    public void serialize(State state, DataOutputStream out) {
+    public void serialize(State state, DataOutputStream out) throws Exception {
         /* serialize some data into buffer */
         try {
             out.writeInt(state.sum);
-        } catch ( IOException e ) {
-            throw new RuntimeException (e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
     /*required*/
-    public void deserialize(State state, DataInputStream in) {
+    public void deserialize(State state, DataInputStream in) throws Exception {
         /* deserialize get data from buffer before you put */
         int val = 0;
         try {
             val = in.readInt();
-        } catch ( IOException e ) {
-            throw new RuntimeException (e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
         state.sum = val;
     }
 
     /*required*/
-    public void merge(State state, State rhs) {
+    public void merge(State state, State rhs) throws Exception {
         /* merge data from state */
         state.sum += rhs.sum;
     }
 
     /*required*/
     //return Type you defined
-    public Integer getValue(State state) {
+    public Integer getValue(State state) throws Exception {
         /* return finally result */
         return state.sum;
     }
