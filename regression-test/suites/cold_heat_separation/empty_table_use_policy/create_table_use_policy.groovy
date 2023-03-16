@@ -94,5 +94,11 @@ suite("create_table_use_policy") {
     sql """
     DROP TABLE IF EXISTS create_table_use_created_policy
     """
+    sql """
+    DROP STORAGE POLICY test_create_table_use_policy
+    """
+    sql """
+    DROP RESOURCE test_create_table_use_resource
+    """
 
 }
