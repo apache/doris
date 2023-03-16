@@ -85,6 +85,7 @@ public class UdafExecutor extends BaseExecutor {
                 } while (isSinglePlace && idx < rowEnd);
             } while (idx < rowEnd);
         } catch (Exception e) {
+            LOG.info("invoke add function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to add: ", e);
         }
     }
@@ -96,6 +97,7 @@ public class UdafExecutor extends BaseExecutor {
         try {
             return allMethods.get(UDAF_CREATE_FUNCTION).invoke(udf, null);
         } catch (Exception e) {
+            LOG.info("invoke createAggState function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to create: ", e);
         }
     }
@@ -110,6 +112,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             stateObjMap.clear();
         } catch (Exception e) {
+            LOG.info("invoke destroy function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to destroy: ", e);
         }
     }
@@ -126,6 +129,7 @@ public class UdafExecutor extends BaseExecutor {
             allMethods.get(UDAF_SERIALIZE_FUNCTION).invoke(udf, args);
             return baos.toByteArray();
         } catch (Exception e) {
+            LOG.info("invoke serialize function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to serialize: ", e);
         }
     }
@@ -147,6 +151,7 @@ public class UdafExecutor extends BaseExecutor {
             args[0] = stateObjMap.get(curPlace);
             allMethods.get(UDAF_MERGE_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
+            LOG.info("invoke merge function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to merge: ", e);
         }
     }
@@ -159,6 +164,7 @@ public class UdafExecutor extends BaseExecutor {
             return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place)),
                     row, retClass);
         } catch (Exception e) {
+            LOG.info("invoke getValue function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to result", e);
         }
     }
