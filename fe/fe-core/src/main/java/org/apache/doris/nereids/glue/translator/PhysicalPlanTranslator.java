@@ -1414,20 +1414,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 
-        boolean allIsSlot = project.getProjects().stream().allMatch(Slot.class::isInstance);
-        boolean uselessProject = project.getProjects().equals(project.child().getOutput());
-        if (!uselessProject && !(inputPlanNode instanceof ScanNode && allIsSlot
-                && project.getOutputSet().size() < project.child().getOutputSet().size())) {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-            inputPlanNode.setProjectList(execExprList);
-            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-        }
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+        inputPlanNode.setProjectList(execExprList);
+        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
 
         if (inputPlanNode instanceof ScanNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet, requiredByProjectSlotIdSet, context);
             return inputFragment;
         }
-
         return inputFragment;
     }
 
