@@ -596,20 +596,13 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            long timeout;
             String timeoutTag = "query";
-            if (userQueryTimeout > 0) {
-                // user set query_timeout property
-                timeout = userQueryTimeout * 1000L;
-            } else {
-                //to ms
-                timeout = executionTimeoutS * 1000L;
-            }
-            //deal with insert stmt particularly
+            // insert stmt particularly
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-
+            //to ms
+            long timeout = executionTimeoutS * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
                         timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
@@ -666,7 +659,10 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeout() {
-        if (executor.isInsertStmt()) {
+        if (userQueryTimeout > 0) {
+            // user-set query-timeout, has the highest priority
+            executionTimeoutS = (int) userQueryTimeout;
+        } else if (executor.isInsertStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
         } else {
