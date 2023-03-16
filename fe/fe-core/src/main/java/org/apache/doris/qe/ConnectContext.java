@@ -645,7 +645,7 @@ public class ConnectContext {
     }
 
     /**
-     * Keep it just for controlling kill_thread_timeout
+     * Keep it just for directly controlling kill_thread_timeout in {@link #checkTimeout(long)}
      */
     public void setExecTimeout(int timeout) {
         executionTimeoutS = timeout;
@@ -658,6 +658,9 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeout() {
+        if (env != null) {
+            userQueryTimeout = env.getAuth().getQueryTimeout(qualifiedUser);
+        }
         if (userQueryTimeout > 0) {
             // user-set query-timeout, has the highest priority
             executionTimeoutS = (int) userQueryTimeout;
