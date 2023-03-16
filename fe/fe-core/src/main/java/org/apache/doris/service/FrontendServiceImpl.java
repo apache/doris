@@ -1099,7 +1099,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Env.getCurrentGlobalTransactionMgr()
                     .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
-            Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
         }
@@ -1221,9 +1221,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
+        List<Table> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
                 request.isSetReason() ? request.getReason() : "system cancel",
-                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
     }
 
     @Override
