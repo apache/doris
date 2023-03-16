@@ -218,12 +218,21 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
                 to_add_min_version = rs->start_version();
             }
         }
-        Version calc_delete_bitmap_ver;
-        calc_delete_bitmap_ver = Version(to_add_min_version, max_version().second);
-        RETURN_IF_ERROR(
-                capture_consistent_rowsets(calc_delete_bitmap_ver, &calc_delete_bitmap_rowsets));
-        for (auto rs : calc_delete_bitmap_rowsets) {
-            RETURN_IF_ERROR(update_delete_bitmap_without_lock(rs));
+        for (auto& [ver, rs] : _rs_version_map) {
+            if (ver.first >= to_add_min_version) {
+                calc_delete_bitmap_rowsets.push_back(rs);
+            }
+        }
+        std::sort(calc_delete_bitmap_rowsets.begin(), calc_delete_bitmap_rowsets.end(),
+                  Rowset::comparator);
+        for (size_t i = 0; i < calc_delete_bitmap_rowsets.size(); i++) {
+            CHECK(i == 0 || calc_delete_bitmap_rowsets[i]->start_version() ==
+                                    calc_delete_bitmap_rowsets[i - 1]->end_version() + 1)
+                    << "calc_delete_bitmap_rowsets[" << i
+                    << "] version: " << calc_delete_bitmap_rowsets[i]->version()
+                    << " calc_delete_bitmap_rowsets[" << i - 1
+                    << "] version: " << calc_delete_bitmap_rowsets[i - 1]->version();
+            CHECK(update_delete_bitmap_without_lock(rs_to_add[i]).ok());
         }
     }
 
