@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.common.BitmapValueUtil;
 import org.apache.doris.common.io.BitmapValue;
+
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -26,12 +27,15 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
-@Description(name = "bitmap_or", value = "a _FUNC_ b - Compute union of two or more input bitmaps, returns the new bitmap")
+@Description(name = "bitmap_or", value = "a _FUNC_ b - Compute"
+        + " union of two or more input bitmaps, returns the new bitmap")
 public class BitmapOrUDF extends GenericUDF {
-
+    private static final Logger LOG = LogManager.getLogger(BitmapOrUDF.class);
     private transient BinaryObjectInspector inputOI0;
     private transient BinaryObjectInspector inputOI1;
 
@@ -52,19 +56,19 @@ public class BitmapOrUDF extends GenericUDF {
 
     @Override
     public Object evaluate(DeferredObject[]  args) throws HiveException {
-        if(args[0] == null || args[1] == null){
+        if (args[0] == null || args[1] == null) {
             return null;
         }
         byte[] inputBytes0 = this.inputOI0.getPrimitiveJavaObject(args[0].get());
         byte[] inputBytes1 = this.inputOI1.getPrimitiveJavaObject(args[1].get());
 
-        try{
+        try {
             BitmapValue bitmapValue0 = BitmapValueUtil.deserializeToBitmap(inputBytes0);
             BitmapValue bitmapValue1 = BitmapValueUtil.deserializeToBitmap(inputBytes1);
             bitmapValue0.or(bitmapValue1);
             return BitmapValueUtil.serializeToBytes(bitmapValue1);
-        }catch (IOException ioException){
-            ioException.printStackTrace();
+        } catch (IOException ioException) {
+            LOG.warn("", ioException);
             throw new RuntimeException(ioException);
         }
     }

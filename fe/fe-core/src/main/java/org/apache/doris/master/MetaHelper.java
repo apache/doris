@@ -17,7 +17,7 @@
 
 package org.apache.doris.master;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.IOUtils;
 
 import java.io.BufferedInputStream;
@@ -36,14 +36,14 @@ public class MetaHelper {
     private static final int CHECKPOINT_LIMIT_BYTES = 30 * 1024 * 1024;
 
     public static File getMasterImageDir() {
-        String metaDir = Catalog.getCurrentCatalog().getImageDir();
+        String metaDir = Env.getCurrentEnv().getImageDir();
         return new File(metaDir);
     }
-    
+
     public static int getLimit() {
         return CHECKPOINT_LIMIT_BYTES;
     }
-    
+
     // rename the .PART_SUFFIX file to filename
     public static File complete(String filename, File dir) throws IOException {
         File file = new File(dir, filename + MetaHelper.PART_SUFFIX);

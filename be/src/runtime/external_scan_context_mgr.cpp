@@ -39,7 +39,7 @@ ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
                   .ok());
 
     REGISTER_HOOK_METRIC(active_scan_context_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _active_contexts.size();
     });
 }
@@ -108,7 +108,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
 void ExternalScanContextMgr::gc_expired_context() {
 #ifndef BE_TEST
     while (!_stop_background_threads_latch.wait_for(
-            MonoDelta::FromSeconds(doris::config::scan_context_gc_interval_min * 60))) {
+            std::chrono::seconds(doris::config::scan_context_gc_interval_min * 60))) {
         time_t current_time = time(nullptr);
         std::vector<std::shared_ptr<ScanContext>> expired_contexts;
         {

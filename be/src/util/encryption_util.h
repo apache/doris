@@ -21,7 +21,7 @@
 
 namespace doris {
 
-enum EncryptionMode {
+enum class EncryptionMode {
     AES_128_ECB,
     AES_192_ECB,
     AES_256_ECB,
@@ -58,12 +58,12 @@ enum EncryptionState { AES_SUCCESS = 0, AES_BAD_DATA = -1 };
 class EncryptionUtil {
 public:
     static int encrypt(EncryptionMode mode, const unsigned char* source, uint32_t source_length,
-                       const unsigned char* key, uint32_t key_length, const unsigned char* iv,
-                       bool padding, unsigned char* encrypt);
+                       const unsigned char* key, uint32_t key_length, const char* iv_str,
+                       int iv_input_length, bool padding, unsigned char* encrypt);
 
     static int decrypt(EncryptionMode mode, const unsigned char* encrypt, uint32_t encrypt_length,
-                       const unsigned char* key, uint32_t key_length, const unsigned char* iv,
-                       bool padding, unsigned char* decrypt_content);
+                       const unsigned char* key, uint32_t key_length, const char* iv_str,
+                       int iv_input_length, bool padding, unsigned char* decrypt_content);
 };
 
 } // namespace doris

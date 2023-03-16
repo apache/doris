@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef DORIS_BE_SRC_OLAP_SKIPLIST_H
-#define DORIS_BE_SRC_OLAP_SKIPLIST_H
+#pragma once
 
 // Thread safety
 // -------------
@@ -74,7 +73,7 @@ public:
     // Use hint to insert a key. the hint is from previous Find()
     void InsertWithHint(const Key& key, bool is_exist, Hint* hint);
 
-    // Returns true iff an entry that compares equal to key is in the list.
+    // Returns true if an entry that compares equal to key is in the list.
     bool Contains(const Key& key) const;
     // Like Contains(), but it will return the position info as a hint. We can use this
     // position info to insert directly using InsertWithHint().
@@ -87,7 +86,7 @@ public:
         // The returned iterator is not valid.
         explicit Iterator(const SkipList* list);
 
-        // Returns true iff the iterator is positioned at a valid node.
+        // Returns true if the iterator is positioned at a valid node.
         bool Valid() const;
 
         // Returns the key at the current position.
@@ -106,11 +105,11 @@ public:
         void Seek(const Key& target);
 
         // Position at the first entry in list.
-        // Final state of iterator is Valid() iff list is not empty.
+        // Final state of iterator is Valid() if list is not empty.
         void SeekToFirst();
 
         // Position at the last entry in list.
-        // Final state of iterator is Valid() iff list is not empty.
+        // Final state of iterator is Valid() if list is not empty.
         void SeekToLast();
 
     private:
@@ -132,7 +131,7 @@ private:
     // values are ok.
     std::atomic<int> max_height_; // Height of the entire list
 
-    inline int GetMaxHeight() const { return max_height_.load(std::memory_order_relaxed); }
+    int GetMaxHeight() const { return max_height_.load(std::memory_order_relaxed); }
 
     // Read/written only by Insert().
     Random rnd_;
@@ -210,30 +209,30 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(con
 }
 
 template <typename Key, class Comparator>
-inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
+SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
     list_ = list;
     node_ = nullptr;
 }
 
 template <typename Key, class Comparator>
-inline bool SkipList<Key, Comparator>::Iterator::Valid() const {
+bool SkipList<Key, Comparator>::Iterator::Valid() const {
     return node_ != nullptr;
 }
 
 template <typename Key, class Comparator>
-inline const Key& SkipList<Key, Comparator>::Iterator::key() const {
+const Key& SkipList<Key, Comparator>::Iterator::key() const {
     DCHECK(Valid());
     return node_->key;
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::Next() {
+void SkipList<Key, Comparator>::Iterator::Next() {
     DCHECK(Valid());
     node_ = node_->Next(0);
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::Prev() {
+void SkipList<Key, Comparator>::Iterator::Prev() {
     // Instead of using explicit "prev" links, we just search for the
     // last node that falls before key.
     DCHECK(Valid());
@@ -244,17 +243,17 @@ inline void SkipList<Key, Comparator>::Iterator::Prev() {
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
+void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
     node_ = list_->FindGreaterOrEqual(target, nullptr);
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
+void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
     node_ = list_->head_->Next(0);
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
+void SkipList<Key, Comparator>::Iterator::SeekToLast() {
     node_ = list_->FindLast();
     if (node_ == list_->head_) {
         node_ = nullptr;
@@ -461,5 +460,3 @@ bool SkipList<Key, Comparator>::Find(const Key& key, Hint* hint) const {
 }
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_SKIPLIST_H

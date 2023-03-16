@@ -15,51 +15,71 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TABLET_SCHEMA_H
-#define DORIS_BE_SRC_OLAP_TABLET_SCHEMA_H
+#pragma once
 
 #include <vector>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace vectorized {
 class Block;
 }
 
+struct OlapTableIndexSchema;
+
 class TabletColumn {
 public:
     TabletColumn();
+    TabletColumn(const ColumnPB& column);
+    TabletColumn(const TColumn& column);
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
                  int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
-    void to_schema_pb(ColumnPB* column);
-    uint32_t mem_size() const;
+    void init_from_thrift(const TColumn& column);
+    void to_schema_pb(ColumnPB* column) const;
 
-    inline int32_t unique_id() const { return _unique_id; }
-    inline std::string name() const { return _col_name; }
-    inline void set_name(std::string col_name) { _col_name = col_name; }
-    inline FieldType type() const { return _type; }
-    inline bool is_key() const { return _is_key; }
-    inline bool is_nullable() const { return _is_nullable; }
-    inline bool is_bf_column() const { return _is_bf_column; }
-    inline bool has_bitmap_index() const { return _has_bitmap_index; }
+    int32_t unique_id() const { return _unique_id; }
+    void set_unique_id(int32_t id) { _unique_id = id; }
+    std::string name() const { return _col_name; }
+    void set_name(std::string col_name) { _col_name = col_name; }
+    FieldType type() const { return _type; }
+    void set_type(FieldType type) { _type = type; }
+    bool is_key() const { return _is_key; }
+    bool is_nullable() const { return _is_nullable; }
+    bool is_variant_type() const { return _type == OLAP_FIELD_TYPE_VARIANT; }
+    bool is_bf_column() const { return _is_bf_column; }
+    bool has_bitmap_index() const { return _has_bitmap_index; }
+    bool is_array_type() const { return _type == OLAP_FIELD_TYPE_ARRAY; }
+    bool is_length_variable_type() const {
+        return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
+               _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
+               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
+    }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
-    bool has_reference_column() const { return _has_referenced_column; }
-    int32_t referenced_column_id() const { return _referenced_column_id; }
-    std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
-    inline void set_index_length(size_t index_length) { _index_length = index_length; }
+    void set_index_length(size_t index_length) { _index_length = index_length; }
+    void set_is_key(bool is_key) { _is_key = is_key; }
+    void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
+    void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
+    vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
+                                                            std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
-    inline bool visible() { return _visible; }
+    inline bool visible() const { return _visible; }
+
+    void set_aggregation_method(FieldAggregationMethod agg) { _aggregation = agg; }
+
     /**
      * Add a sub column.
      */
@@ -76,6 +96,7 @@ public:
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
+    bool is_row_store_column() const;
 
 private:
     int32_t _unique_id;
@@ -97,10 +118,6 @@ private:
 
     bool _is_bf_column = false;
 
-    bool _has_referenced_column = false;
-    int32_t _referenced_column_id;
-    std::string _referenced_column;
-
     bool _has_bitmap_index = false;
     bool _visible = true;
 
@@ -112,43 +129,144 @@ private:
 bool operator==(const TabletColumn& a, const TabletColumn& b);
 bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
+class TabletSchema;
+
+class TabletIndex {
+public:
+    void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
+    void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
+    void init_from_pb(const TabletIndexPB& index);
+    void to_schema_pb(TabletIndexPB* index) const;
+
+    int64_t index_id() const { return _index_id; }
+    const std::string& index_name() const { return _index_name; }
+    IndexType index_type() const { return _index_type; }
+    const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
+    const std::map<string, string>& properties() const { return _properties; }
+    int32_t get_gram_size() const {
+        if (_properties.count("gram_size")) {
+            return std::stoi(_properties.at("gram_size"));
+        }
+
+        return 0;
+    }
+    int32_t get_gram_bf_size() const {
+        if (_properties.count("bf_size")) {
+            return std::stoi(_properties.at("bf_size"));
+        }
+
+        return 0;
+    }
+
+private:
+    int64_t _index_id;
+    std::string _index_name;
+    IndexType _index_type;
+    std::vector<int32_t> _col_unique_ids;
+    std::map<string, string> _properties;
+};
+
 class TabletSchema {
 public:
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
-    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema)
+    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
-    void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
-    uint32_t mem_size() const;
+    void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
+    void append_column(TabletColumn column, bool is_dropped_column = false);
+    // Must make sure the row column is always the last column
+    void add_row_column();
+    void copy_from(const TabletSchema& tablet_schema);
+    std::string to_key() const;
+    int64_t mem_size() const { return _mem_size; }
 
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
+    int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
+    const TabletColumn& column(const std::string& field_name) const;
+    const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
-    inline size_t num_columns() const { return _num_columns; }
-    inline size_t num_key_columns() const { return _num_key_columns; }
-    inline size_t num_null_columns() const { return _num_null_columns; }
-    inline size_t num_short_key_columns() const { return _num_short_key_columns; }
-    inline size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
-    inline KeysType keys_type() const { return _keys_type; }
-    inline SortType sort_type() const { return _sort_type; }
-    inline size_t sort_col_num() const { return _sort_col_num; }
-    inline CompressKind compress_kind() const { return _compress_kind; }
-    inline size_t next_column_unique_id() const { return _next_column_unique_id; }
-    inline double bloom_filter_fpp() const { return _bf_fpp; }
-    inline bool is_in_memory() const { return _is_in_memory; }
-    inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
-    inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
-    inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
-    inline bool has_sequence_col() const { return _sequence_col_idx != -1; }
-    inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
-    vectorized::Block create_block(const std::vector<uint32_t>& return_columns) const;
+    size_t num_columns() const { return _num_columns; }
+    size_t num_key_columns() const { return _num_key_columns; }
+    size_t num_null_columns() const { return _num_null_columns; }
+    size_t num_short_key_columns() const { return _num_short_key_columns; }
+    size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
+    KeysType keys_type() const { return _keys_type; }
+    SortType sort_type() const { return _sort_type; }
+    size_t sort_col_num() const { return _sort_col_num; }
+    CompressKind compress_kind() const { return _compress_kind; }
+    size_t next_column_unique_id() const { return _next_column_unique_id; }
+    bool has_bf_fpp() const { return _has_bf_fpp; }
+    double bloom_filter_fpp() const { return _bf_fpp; }
+    bool is_in_memory() const { return _is_in_memory; }
+    void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
+    void set_disable_auto_compaction(bool disable_auto_compaction) {
+        _disable_auto_compaction = disable_auto_compaction;
+    }
+    bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
+    bool store_row_column() const { return _store_row_column; }
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+    void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
+    bool has_sequence_col() const { return _sequence_col_idx != -1; }
+    int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
+    int32_t version_col_idx() const { return _version_col_idx; }
+    segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
+
+    const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
+    bool has_inverted_index(int32_t col_unique_id) const;
+    const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
+    bool has_ngram_bf_index(int32_t col_unique_id) const;
+    const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
+
+    int32_t schema_version() const { return _schema_version; }
+    void clear_columns();
+    vectorized::Block create_block(
+            const std::vector<uint32_t>& return_columns,
+            const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
+    vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    void set_schema_version(int32_t version) { _schema_version = version; }
+
+    void set_table_id(int32_t table_id) { _table_id = table_id; }
+    int32_t table_id() const { return _table_id; }
+    void build_current_tablet_schema(int64_t index_id, int32_t version,
+                                     const OlapTableIndexSchema* index,
+                                     const TabletSchema& out_tablet_schema);
+
+    // Merge columns that not exit in current schema, these column is dropped in current schema
+    // but they are useful in some cases. For example,
+    // 1. origin schema is  ColA, ColB
+    // 2. insert values     1, 2
+    // 3. delete where ColB = 2
+    // 4. drop ColB
+    // 5. insert values  3
+    // 6. add column ColB, although it is name ColB, but it is different with previous ColB, the new ColB we name could call ColB'
+    // 7. insert value  4, 5
+    // Then the read schema should be ColA, ColB, ColB' because the delete predicate need ColB to remove related data.
+    // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
+    void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
+
+    bool is_dropped_column(const TabletColumn& col) const;
+
+    string get_all_field_names() const {
+        string str = "[";
+        for (auto p : _field_name_to_index) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += p.first;
+        }
+        str += "]";
+        return str;
+    }
 
 private:
-    // Only for unit test
-    void init_field_index_for_test();
-
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
@@ -157,25 +275,35 @@ private:
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumn> _cols;
+    std::vector<TabletIndex> _indexes;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
+    std::unordered_map<int32_t, int32_t> _field_id_to_index;
     size_t _num_columns = 0;
     size_t _num_key_columns = 0;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
+    segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     size_t _next_column_unique_id = 0;
 
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
+    bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
+    int32_t _version_col_idx = -1;
+    int32_t _schema_version = -1;
+    int32_t _table_id = -1;
+    bool _disable_auto_compaction = false;
+    int64_t _mem_size = 0;
+    bool _store_row_column = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
 bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
-} // namespace doris
+using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
-#endif // DORIS_BE_SRC_OLAP_TABLET_SCHEMA_H
+} // namespace doris

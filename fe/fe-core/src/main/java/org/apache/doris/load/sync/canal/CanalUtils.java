@@ -23,9 +23,7 @@ import org.apache.doris.load.sync.position.EntryPosition;
 import com.alibaba.otter.canal.common.CanalException;
 import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.alibaba.otter.canal.protocol.Message;
-
 import com.google.protobuf.InvalidProtocolBufferException;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.SystemUtils;
@@ -55,7 +53,8 @@ public class CanalUtils {
         context_format += "| End : [{}] " + SEP;
         context_format += "----------------------------------------------------------" + SEP;
         row_format = SEP
-                + "----------------> binlog[{}:{}] , name[{},{}] , eventType : {} , executeTime : {}({}) , gtid : ({}) , delay : {} ms"
+                + "----------------> binlog[{}:{}] , name[{},{}] , eventType : {} ,"
+                + " executeTime : {}({}) , gtid : ({}) , delay : {} ms"
                 + SEP;
         transaction_format = SEP
                 + "================> binlog[{}:{}] , executeTime : {}({}) , gtid : ({}) , delay : {}ms"
@@ -70,7 +69,8 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(entries.get(0));
         String endPosition = buildPositionForDump(entries.get(entries.size() - 1));
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
-        logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(), format.format(new Date()), startPosition, endPosition);
+        logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(),
+                format.format(new Date()), startPosition, endPosition);
     }
 
     public static void printSummary(Message message, int size, long memsize) {
@@ -81,7 +81,8 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(message.getEntries().get(0));
         String endPosition = buildPositionForDump(message.getEntries().get(message.getEntries().size() - 1));
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
-        logger.info(context_format, message.getId(), size, memsize, format.format(new Date()), startPosition, endPosition);
+        logger.info(context_format, message.getId(), size, memsize,
+                format.format(new Date()), startPosition, endPosition);
     }
 
     public static String buildPositionForDump(CanalEntry.Entry entry) {
@@ -116,7 +117,7 @@ public class CanalUtils {
 
     public static void printRow(CanalEntry.RowChange rowChange, CanalEntry.Header header) {
         long executeTime = header.getExecuteTime();
-        long delayTime = new Date().getTime() - executeTime;
+        long delayTime = System.currentTimeMillis() - executeTime;
         Date date = new Date(executeTime);
         CanalEntry.EventType eventType = rowChange.getEventType();
         logger.info(row_format, header.getLogfileName(),
@@ -156,6 +157,7 @@ public class CanalUtils {
                             .append(column.getValue());
                 }
             } catch (UnsupportedEncodingException e) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
             builder.append("    type=").append(column.getMysqlType());
             if (column.getUpdated()) {
@@ -187,7 +189,7 @@ public class CanalUtils {
 
     public static void transactionBegin(CanalEntry.Entry entry) {
         long executeTime = entry.getHeader().getExecuteTime();
-        long delayTime = new Date().getTime() - executeTime;
+        long delayTime = System.currentTimeMillis() - executeTime;
         Date date = new Date(executeTime);
         CanalEntry.TransactionBegin begin = null;
         try {
@@ -196,7 +198,7 @@ public class CanalUtils {
             throw new CanalException("parse event has an error , data:" + entry.toString(), e);
         }
         // print transaction begin info, thread ID, time consumption
-        logger.info(transaction_format,entry.getHeader().getLogfileName(),
+        logger.info(transaction_format, entry.getHeader().getLogfileName(),
                 String.valueOf(entry.getHeader().getLogfileOffset()),
                 String.valueOf(entry.getHeader().getExecuteTime()), simpleDateFormat.format(date),
                 entry.getHeader().getGtid(), String.valueOf(delayTime));
@@ -206,7 +208,7 @@ public class CanalUtils {
 
     public static void transactionEnd(CanalEntry.Entry entry) {
         long executeTime = entry.getHeader().getExecuteTime();
-        long delayTime = new Date().getTime() - executeTime;
+        long delayTime = System.currentTimeMillis() - executeTime;
         Date date = new Date(executeTime);
         CanalEntry.TransactionEnd end = null;
         try {

@@ -17,15 +17,15 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import java.util.List;
+
 public class IntersectNode extends SetOperationNode {
-    protected IntersectNode(PlanNodeId id, TupleId tupleId) {
+    public IntersectNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "INTERSECT");
     }
 

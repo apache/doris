@@ -17,6 +17,12 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.Version;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
@@ -32,13 +38,6 @@ import oshi.software.os.OSProcess;
 import oshi.software.os.OperatingSystem;
 import oshi.util.FormatUtil;
 import oshi.util.Util;
-
-import org.apache.doris.common.Version;
-import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -114,24 +113,34 @@ public class HardwareInfoController {
         Util.sleep(1000);
         long[] ticks = processor.getSystemCpuLoadTicks();
         processorInfo.add("CPU, IOWait, and IRQ ticks @ 1 sec:&nbsp;&nbsp;" + Arrays.toString(ticks));
-        long user = ticks[CentralProcessor.TickType.USER.getIndex()] - prevTicks[CentralProcessor.TickType.USER.getIndex()];
-        long nice = ticks[CentralProcessor.TickType.NICE.getIndex()] - prevTicks[CentralProcessor.TickType.NICE.getIndex()];
-        long sys = ticks[CentralProcessor.TickType.SYSTEM.getIndex()] - prevTicks[CentralProcessor.TickType.SYSTEM.getIndex()];
-        long idle = ticks[CentralProcessor.TickType.IDLE.getIndex()] - prevTicks[CentralProcessor.TickType.IDLE.getIndex()];
-        long iowait = ticks[CentralProcessor.TickType.IOWAIT.getIndex()] - prevTicks[CentralProcessor.TickType.IOWAIT.getIndex()];
-        long irq = ticks[CentralProcessor.TickType.IRQ.getIndex()] - prevTicks[CentralProcessor.TickType.IRQ.getIndex()];
-        long softirq = ticks[CentralProcessor.TickType.SOFTIRQ.getIndex()] - prevTicks[CentralProcessor.TickType.SOFTIRQ.getIndex()];
-        long steal = ticks[CentralProcessor.TickType.STEAL.getIndex()] - prevTicks[CentralProcessor.TickType.STEAL.getIndex()];
+        long user = ticks[CentralProcessor.TickType.USER.getIndex()]
+                - prevTicks[CentralProcessor.TickType.USER.getIndex()];
+        long nice = ticks[CentralProcessor.TickType.NICE.getIndex()]
+                - prevTicks[CentralProcessor.TickType.NICE.getIndex()];
+        long sys = ticks[CentralProcessor.TickType.SYSTEM.getIndex()]
+                - prevTicks[CentralProcessor.TickType.SYSTEM.getIndex()];
+        long idle = ticks[CentralProcessor.TickType.IDLE.getIndex()]
+                - prevTicks[CentralProcessor.TickType.IDLE.getIndex()];
+        long iowait = ticks[CentralProcessor.TickType.IOWAIT.getIndex()]
+                - prevTicks[CentralProcessor.TickType.IOWAIT.getIndex()];
+        long irq = ticks[CentralProcessor.TickType.IRQ.getIndex()]
+                - prevTicks[CentralProcessor.TickType.IRQ.getIndex()];
+        long softirq = ticks[CentralProcessor.TickType.SOFTIRQ.getIndex()]
+                - prevTicks[CentralProcessor.TickType.SOFTIRQ.getIndex()];
+        long steal = ticks[CentralProcessor.TickType.STEAL.getIndex()]
+                - prevTicks[CentralProcessor.TickType.STEAL.getIndex()];
         long totalCpu = user + nice + sys + idle + iowait + irq + softirq + steal;
 
         processorInfo.add(String.format(
-                "User: %.1f%% Nice: %.1f%% System: %.1f%% Idle: %.1f%% IOwait: %.1f%% IRQ: %.1f%% SoftIRQ: %.1f%% Steal: %.1f%%",
+                "User: %.1f%% Nice: %.1f%% System: %.1f%% Idle:"
+                        + " %.1f%% IOwait: %.1f%% IRQ: %.1f%% SoftIRQ: %.1f%% Steal: %.1f%%",
                 100d * user / totalCpu, 100d * nice / totalCpu, 100d * sys / totalCpu, 100d * idle / totalCpu,
                 100d * iowait / totalCpu, 100d * irq / totalCpu, 100d * softirq / totalCpu, 100d * steal / totalCpu));
         processorInfo.add(String.format("CPU load:&nbsp;&nbsp; %.1f%%",
                 processor.getSystemCpuLoadBetweenTicks(prevTicks) * 100));
         double[] loadAverage = processor.getSystemLoadAverage(3);
-        processorInfo.add("CPU load averages:&nbsp;&nbsp;" + (loadAverage[0] < 0 ? " N/A" : String.format(" %.2f", loadAverage[0]))
+        processorInfo.add("CPU load averages:&nbsp;&nbsp;"
+                + (loadAverage[0] < 0 ? " N/A" : String.format(" %.2f", loadAverage[0]))
                 + (loadAverage[1] < 0 ? " N/A" : String.format(" %.2f", loadAverage[1]))
                 + (loadAverage[2] < 0 ? " N/A" : String.format(" %.2f", loadAverage[2])));
         // per core CPU
@@ -175,14 +184,16 @@ public class HardwareInfoController {
 
     private List<String> getProcesses(OperatingSystem os, GlobalMemory memory) {
         List<String> processInfo = new ArrayList<>();
-        processInfo.add("Processes:&nbsp;&nbsp; " + os.getProcessCount() + ", Threads:&nbsp;&nbsp; " + os.getThreadCount());
+        processInfo.add("Processes:&nbsp;&nbsp; " + os.getProcessCount()
+                + ", Threads:&nbsp;&nbsp; " + os.getThreadCount());
         // Sort by highest CPU
         List<OSProcess> procs = Arrays.asList(os.getProcesses(5, OperatingSystem.ProcessSort.CPU));
 
         processInfo.add("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; PID  %CPU %MEM       VSZ       RSS Name");
         for (int i = 0; i < procs.size() && i < 5; i++) {
             OSProcess p = procs.get(i);
-            processInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; %5d %5.1f %4.1f %9s %9s %s", p.getProcessID(),
+            processInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; %5d %5.1f %4.1f %9s %9s %s",
+                    p.getProcessID(),
                     100d * (p.getKernelTime() + p.getUserTime()) / p.getUpTime(),
                     100d * p.getResidentSetSize() / memory.getTotal(), FormatUtil.formatBytes(p.getVirtualSize()),
                     FormatUtil.formatBytes(p.getResidentSetSize()), p.getName()));
@@ -195,7 +206,8 @@ public class HardwareInfoController {
         diskInfo.add("Disks:&nbsp;&nbsp;");
         for (HWDiskStore disk : diskStores) {
             boolean readwrite = disk.getReads() > 0 || disk.getWrites() > 0;
-            diskInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; %s: (model: %s - S/N: %s) size: %s, reads: %s (%s), writes: %s (%s), xfer: %s ms",
+            diskInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; %s:"
+                            + " (model: %s - S/N: %s) size: %s, reads: %s (%s), writes: %s (%s), xfer: %s ms",
                     disk.getName(), disk.getModel(), disk.getSerial(),
                     disk.getSize() > 0 ? FormatUtil.formatBytesDecimal(disk.getSize()) : "?",
                     readwrite ? disk.getReads() : "?", readwrite ? FormatUtil.formatBytes(disk.getReadBytes()) : "?",
@@ -203,7 +215,8 @@ public class HardwareInfoController {
                     readwrite ? disk.getTransferTime() : "?"));
             HWPartition[] partitions = disk.getPartitions();
             for (HWPartition part : partitions) {
-                diskInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |-- %s: %s (%s) Maj:Min=%d:%d, size: %s%s", part.getIdentification(),
+                diskInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                                + " |-- %s: %s (%s) Maj:Min=%d:%d, size: %s%s", part.getIdentification(),
                         part.getName(), part.getType(), part.getMajor(), part.getMinor(),
                         FormatUtil.formatBytesDecimal(part.getSize()),
                         part.getMountPoint().isEmpty() ? "" : " @ " + part.getMountPoint()));
@@ -223,9 +236,10 @@ public class HardwareInfoController {
         for (OSFileStore fs : fsArray) {
             long usable = fs.getUsableSpace();
             long total = fs.getTotalSpace();
-            fsInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;%s (%s) [%s] %s of %s free (%.1f%%), %s of %s files free (%.1f%%) is %s " +
-                            (fs.getLogicalVolume() != null && fs.getLogicalVolume().length() > 0 ? "[%s]" : "%s") +
-                            " and is mounted at %s",
+            fsInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+                            + "%s (%s) [%s] %s of %s free (%.1f%%), %s of %s files free (%.1f%%) is %s "
+                            + (fs.getLogicalVolume() != null && fs.getLogicalVolume().length() > 0 ? "[%s]" : "%s")
+                            + " and is mounted at %s",
                     fs.getName(), fs.getDescription().isEmpty() ? "file system" : fs.getDescription(), fs.getType(),
                     FormatUtil.formatBytes(usable), FormatUtil.formatBytes(fs.getTotalSpace()), 100d * usable / total,
                     FormatUtil.formatValue(fs.getFreeInodes(), ""), FormatUtil.formatValue(fs.getTotalInodes(), ""),
@@ -239,14 +253,20 @@ public class HardwareInfoController {
         List<String> getNetwork = new ArrayList<>();
         getNetwork.add("Network interfaces:&nbsp;&nbsp;");
         for (NetworkIF net : networkIFs) {
-            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;Name: %s (%s)", net.getName(), net.getDisplayName()));
-            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MAC Address: %s", net.getMacaddr()));
-            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MTU: %s, Speed: %s", net.getMTU(), FormatUtil.formatValue(net.getSpeed(), "bps")));
-            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IPv4: %s", Arrays.toString(net.getIPv4addr())));
-            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IPv6: %s", Arrays.toString(net.getIPv6addr())));
+            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;Name: %s (%s)",
+                    net.getName(), net.getDisplayName()));
+            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MAC Address: %s",
+                    net.getMacaddr()));
+            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MTU: %s, Speed: %s",
+                    net.getMTU(), FormatUtil.formatValue(net.getSpeed(), "bps")));
+            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IPv4: %s",
+                    Arrays.toString(net.getIPv4addr())));
+            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IPv6: %s",
+                    Arrays.toString(net.getIPv6addr())));
             boolean hasData = net.getBytesRecv() > 0 || net.getBytesSent() > 0 || net.getPacketsRecv() > 0
                     || net.getPacketsSent() > 0;
-            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Traffic: received %s/%s%s; transmitted %s/%s%s",
+            getNetwork.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Traffic:"
+                            + " received %s/%s%s; transmitted %s/%s%s",
                     hasData ? net.getPacketsRecv() + " packets" : "?",
                     hasData ? FormatUtil.formatBytes(net.getBytesRecv()) : "?",
                     hasData ? " (" + net.getInErrors() + " err)" : "",
@@ -260,11 +280,16 @@ public class HardwareInfoController {
     private List<String> getNetworkParameters(NetworkParams networkParams) {
         List<String> networkParameterInfo = new ArrayList<>();
         networkParameterInfo.add("Network parameters:&nbsp;&nbsp;&nbsp;&nbsp;");
-        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Host name: %s", networkParams.getHostName()));
-        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Domain name: %s", networkParams.getDomainName()));
-        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; DNS servers: %s", Arrays.toString(networkParams.getDnsServers())));
-        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; IPv4 Gateway: %s", networkParams.getIpv4DefaultGateway()));
-        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; IPv6 Gateway: %s", networkParams.getIpv6DefaultGateway()));
+        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Host name: %s",
+                networkParams.getHostName()));
+        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Domain name: %s",
+                networkParams.getDomainName()));
+        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; DNS servers: %s",
+                Arrays.toString(networkParams.getDnsServers())));
+        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; IPv4 Gateway: %s",
+                networkParams.getIpv4DefaultGateway()));
+        networkParameterInfo.add(String.format("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; IPv6 Gateway: %s",
+                networkParams.getIpv6DefaultGateway()));
         return networkParameterInfo;
     }
 

@@ -36,9 +36,10 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::HLL; }
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
     bool get_is_parametric() const override { return false; }
@@ -65,12 +66,13 @@ public:
 
     bool can_be_inside_low_cardinality() const override { return false; }
 
-    std::string to_string(const IColumn& column, size_t row_num) const { return "HLL()"; }
+    std::string to_string(const IColumn& column, size_t row_num) const override { return "HLL()"; }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    [[noreturn]] virtual Field get_default() const {
+    Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
-        __builtin_unreachable();
+        // unreachable
+        return String();
     }
 
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);

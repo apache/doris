@@ -7,8 +7,7 @@
 // consistent hashing libraries. New code which does not explicitly desire this
 // behavior should use the generic hashing routines in hash.h.
 
-#ifndef UTIL_HASH_JENKINS_H_
-#define UTIL_HASH_JENKINS_H_
+#pragma once
 
 #include "gutil/integral_types.h"
 
@@ -35,5 +34,3 @@ uint64 Hash64StringWithSeed(const char* s, uint32 len, uint64 c);
 // This is a reference implementation of the same fundamental algorithm as
 // Hash32StringWithSeed. It is used primarily as a performance metric.
 uint32 Hash32StringWithSeedReferenceImplementation(const char* s, uint32 len, uint32 c);
-
-#endif // UTIL_HASH_JENKINS_H_

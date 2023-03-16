@@ -24,12 +24,16 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -44,12 +48,6 @@ import java.net.URISyntaxException;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 
 public class RepositoryTest {
@@ -170,7 +168,7 @@ public class RepositoryTest {
                 result = Status.OK;
             }
         };
-        
+
         repo = new Repository(10000, "repo", false, location, storage);
         Assert.assertTrue(repo.ping());
         Assert.assertTrue(repo.getErrorMsg() == null);
@@ -331,15 +329,15 @@ public class RepositoryTest {
             repo.write(out);
             out.flush();
             out.close();
-            
+
             DataInputStream in = new DataInputStream(new FileInputStream(file));
             Repository newRepo = Repository.read(in);
             in.close();
-            
+
             Assert.assertEquals(repo.getName(), newRepo.getName());
             Assert.assertEquals(repo.getId(), newRepo.getId());
             Assert.assertEquals(repo.getLocation(), newRepo.getLocation());
-            
+
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();

@@ -24,7 +24,6 @@ import org.apache.doris.thrift.TStatusCode;
 public class Status {
     public static final Status OK = new Status();
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
-    public static final Status THRIFT_RPC_ERROR = new Status(TStatusCode.THRIFT_RPC_ERROR, "Thrift RPC failed");
 
     public TStatusCode getErrorCode() {
         return errorCode;
@@ -36,12 +35,12 @@ public class Status {
 
     private TStatusCode  errorCode; // anything other than OK
     private String errorMsg;
-    
+
     public Status() {
         this.errorCode = TStatusCode.OK;
         this.errorMsg = null;
     }
-    
+
     public Status(Status status) {
         this(status.getErrorCode(), status.getErrorMsg());
     }
@@ -61,20 +60,20 @@ public class Status {
     public boolean ok() {
         return this.errorCode == TStatusCode.OK;
     }
-    
+
     public boolean isCancelled() {
         return this.errorCode == TStatusCode.CANCELLED;
     }
-    
+
     public boolean isRpcError() {
         return this.errorCode == TStatusCode.THRIFT_RPC_ERROR;
     }
-    
+
     public void setStatus(Status status) {
         this.errorCode = status.errorCode;
         this.errorMsg = status.getErrorMsg();
     }
-    
+
     public void setStatus(String msg) {
         this.errorCode = TStatusCode.INTERNAL_ERROR;
         this.errorMsg = msg;
@@ -96,7 +95,7 @@ public class Status {
         if (ok()) {
             return;
         }
-        
+
         switch (errorCode) {
             case CANCELLED: {
                 this.errorMsg = "Cancelled";

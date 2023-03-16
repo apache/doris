@@ -49,7 +49,7 @@ module.exports = {
         filename: '[name].[hash].js',
         chunkFilename: '[name].[hash].js'
     },
-    devtool: 'source-map',
+    devtool: 'none',
     resolve: {
         extensions: ['*', '.ts', '.tsx', 'jsx', '.js', 'json'],
         alias: {
@@ -237,5 +237,9 @@ module.exports = {
             ignoreOrder: true
         }),
         new CleanWebpackPlugin()
-    ]
+    ],
+    performance: {
+        maxAssetSize: 2097152,
+        maxEntrypointSize: 2097152
+    }
 };

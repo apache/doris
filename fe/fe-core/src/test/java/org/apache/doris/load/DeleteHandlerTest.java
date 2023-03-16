@@ -26,23 +26,25 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DeleteJob.DeleteState;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -53,12 +55,15 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
@@ -66,12 +71,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 public class DeleteHandlerTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     private DeleteHandler deleteHandler;
 
@@ -87,16 +88,19 @@ public class DeleteHandlerTest {
     private static final long DB_ID = 20000L;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
     @Mocked
     private AgentTaskQueue agentTaskQueue;
     @Mocked
     private AgentTaskExecutor executor;
+    @Mocked
+    private SystemInfoService systemInfoService;
 
     private Database db;
-    private PaloAuth auth;
+    private Auth auth;
+    private AccessControllerManager accessManager;
 
     Analyzer analyzer;
 
@@ -108,10 +112,11 @@ public class DeleteHandlerTest {
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
 
-        globalTransactionMgr = new GlobalTransactionMgr(catalog);
+        globalTransactionMgr = new GlobalTransactionMgr(env);
         globalTransactionMgr.setEditLog(editLog);
         deleteHandler = new DeleteHandler();
-        auth = AccessTestUtil.fetchAdminAccess();
+        accessManager = AccessTestUtil.fetchAdminAccess();
+        auth = accessManager.getAuth();
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         db = CatalogMocker.mockDb();
         TabletMeta tabletMeta = new TabletMeta(DB_ID, TBL_ID, PARTITION_ID, TBL_ID, 0, null);
@@ -124,13 +129,23 @@ public class DeleteHandlerTest {
             @Mock
             public void logSaveTransactionId(long transactionId) {
             }
+
             @Mock
             public void logInsertTransactionState(TransactionState transactionState) {
             }
         };
 
+        InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
         new Expectations() {
             {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                env.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
@@ -139,40 +154,52 @@ public class DeleteHandlerTest {
                 minTimes = 0;
                 result = db;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getAuth();
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessManager;
+
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 10L;
 
-                catalog.getTabletInvertedIndex();
+                env.getTabletInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                env.getClusterInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                systemInfoService.getBackendIds(false);
+                minTimes = 0;
+                result = Lists.newArrayList(1L);
             }
         };
         globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
 
         new Expectations() {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = globalTransactionMgr;
 
@@ -191,7 +218,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         new Expectations(globalTransactionMgr) {
@@ -199,6 +226,7 @@ public class DeleteHandlerTest {
                 try {
                     globalTransactionMgr.abortTransaction(db.getId(), anyLong, anyString);
                 } catch (UserException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
                 minTimes = 0;
             }
@@ -217,7 +245,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -249,7 +277,8 @@ public class DeleteHandlerTest {
         }
         try {
             deleteHandler.process(deleteStmt);
-        }catch (QueryStateException e) {
+        } catch (QueryStateException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
@@ -265,7 +294,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -300,6 +329,7 @@ public class DeleteHandlerTest {
         try {
             deleteHandler.process(deleteStmt);
         } catch (QueryStateException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
@@ -315,7 +345,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -337,6 +367,7 @@ public class DeleteHandlerTest {
                 try {
                     countDownLatch.await(anyLong, (TimeUnit) any);
                 } catch (InterruptedException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
                 result = false;
             }
@@ -347,6 +378,7 @@ public class DeleteHandlerTest {
                 try {
                     globalTransactionMgr.commitTransaction(anyLong, (List<Table>) any, anyLong, (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
                 } catch (UserException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
                 result = new UserException("commit fail");
             }
@@ -368,6 +400,7 @@ public class DeleteHandlerTest {
             }
             throw e;
         } catch (QueryStateException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
         Assert.fail();
     }
@@ -377,7 +410,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -399,6 +432,7 @@ public class DeleteHandlerTest {
                 try {
                     countDownLatch.await(anyLong, (TimeUnit) any);
                 } catch (InterruptedException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
                 result = false;
             }
@@ -419,6 +453,7 @@ public class DeleteHandlerTest {
         try {
             deleteHandler.process(deleteStmt);
         } catch (QueryStateException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
@@ -434,7 +469,7 @@ public class DeleteHandlerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
-        DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
+        DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
@@ -456,6 +491,7 @@ public class DeleteHandlerTest {
                 try {
                     countDownLatch.await(anyLong, (TimeUnit) any);
                 } catch (InterruptedException e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
                 result = false;
             }
@@ -469,6 +505,7 @@ public class DeleteHandlerTest {
         try {
             deleteHandler.process(deleteStmt);
         } catch (QueryStateException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");

@@ -17,18 +17,19 @@
 
 package org.apache.doris.common.proc;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class EsShardProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -38,13 +39,13 @@ public class EsShardProcDir implements ProcDirInterface {
     private Database db;
     private EsTable esTable;
     private String indexName;
-    
+
     public EsShardProcDir(Database db, EsTable esTable, String indexName) {
         this.db = db;
         this.esTable = esTable;
         this.indexName = indexName;
     }
-    
+
     @Override
     public ProcResult fetchResult() {
         Preconditions.checkNotNull(db);
@@ -62,7 +63,7 @@ public class EsShardProcDir implements ProcDirInterface {
                     for (EsShardRouting esShardRouting : shardRoutings) {
                         List<Comparable> shardInfo = new ArrayList<Comparable>();
                         shardInfo.add(shardId);
-                        shardInfo.add(esShardRouting.getAddress().toString());
+                        shardInfo.add(esShardRouting.getHttpAddress().toString());
                         shardInfo.add(esShardRouting.isPrimary());
                         shardInfos.add(shardInfo);
                     }

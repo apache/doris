@@ -30,7 +30,7 @@
 
 #include <boost/utility/binary.hpp>
 
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
@@ -269,18 +269,18 @@ TEST_F(TestRle, TestBulkPut) {
 
     RleDecoder<bool> decoder(buffer.data(), encoder.len(), 1);
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_TRUE(val);
-    ASSERT_EQ(10, run_length);
+    EXPECT_TRUE(val);
+    EXPECT_EQ(10, run_length);
 
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_FALSE(val);
-    ASSERT_EQ(7, run_length);
+    EXPECT_FALSE(val);
+    EXPECT_EQ(7, run_length);
 
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_TRUE(val);
-    ASSERT_EQ(20, run_length);
+    EXPECT_TRUE(val);
+    EXPECT_EQ(20, run_length);
 
-    ASSERT_EQ(0, decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max()));
+    EXPECT_EQ(0, decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max()));
 }
 
 TEST_F(TestRle, TestGetNextRun) {
@@ -308,8 +308,8 @@ TEST_F(TestRle, TestGetNextRun) {
                 run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
                 run_length = std::min(run_length, count);
 
-                ASSERT_EQ(!!(j & 1), val);
-                ASSERT_EQ(block, run_length);
+                EXPECT_EQ(!!(j & 1), val);
+                EXPECT_EQ(block, run_length);
                 count -= run_length;
             }
             DCHECK_EQ(count, 0);
@@ -353,12 +353,12 @@ TEST_F(TestRle, TestRoundTripRandomSequencesWithRuns) {
         bool val;
         while (rem_to_read > 0 &&
                (run_len = decoder.GetNextRun(&val, std::min(kMaxToReadAtOnce, rem_to_read))) != 0) {
-            ASSERT_LE(run_len, kMaxToReadAtOnce);
+            EXPECT_LE(run_len, kMaxToReadAtOnce);
             roundtrip_str.append(run_len, val ? '1' : '0');
             rem_to_read -= run_len;
         }
 
-        ASSERT_EQ(string_rep, roundtrip_str);
+        EXPECT_EQ(string_rep, roundtrip_str);
     }
 }
 TEST_F(TestRle, TestSkip) {
@@ -392,35 +392,30 @@ TEST_F(TestRle, TestSkip) {
     RleDecoder<bool> decoder(buffer.data(), encoder.len(), 1);
 
     // position before "A"
-    ASSERT_EQ(3, decoder.Skip(7));
+    EXPECT_EQ(3, decoder.Skip(7));
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_TRUE(val);
-    ASSERT_EQ(1, run_length);
+    EXPECT_TRUE(val);
+    EXPECT_EQ(1, run_length);
 
     // position before "B"
-    ASSERT_EQ(7, decoder.Skip(14));
+    EXPECT_EQ(7, decoder.Skip(14));
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_FALSE(val);
-    ASSERT_EQ(2, run_length);
+    EXPECT_FALSE(val);
+    EXPECT_EQ(2, run_length);
 
     // position before "C"
-    ASSERT_EQ(18, decoder.Skip(46));
+    EXPECT_EQ(18, decoder.Skip(46));
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_TRUE(val);
-    ASSERT_EQ(10, run_length);
+    EXPECT_TRUE(val);
+    EXPECT_EQ(10, run_length);
 
     // position before "D"
-    ASSERT_EQ(24, decoder.Skip(49));
+    EXPECT_EQ(24, decoder.Skip(49));
     run_length = decoder.GetNextRun(&val, std::numeric_limits<std::size_t>::max());
-    ASSERT_FALSE(val);
-    ASSERT_EQ(11, run_length);
+    EXPECT_FALSE(val);
+    EXPECT_EQ(11, run_length);
 
     encoder.Flush();
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

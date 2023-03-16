@@ -2,14 +2,13 @@
 //
 // A collection of useful (static) bit-twiddling functions.
 
+#pragma once
+
 #include <common/logging.h>
 
 #include "gutil/basictypes.h"
 #include "gutil/integral_types.h"
 #include "gutil/macros.h"
-
-#ifndef _BITS_H_
-#define _BITS_H_
 
 class Bits {
 public:
@@ -230,7 +229,7 @@ inline int Bits::FindLSBSetNonZero64_Portable(uint64 n) {
 }
 
 template <class T>
-inline bool Bits::BytesContainByteLessThan(T bytes, uint8 c) {
+ bool Bits::BytesContainByteLessThan(T bytes, uint8 c) {
     T l = BitPattern<T>::l;
     T h = BitPattern<T>::h;
     // The c <= 0x80 code is straight out of Knuth Volume 4.
@@ -240,13 +239,13 @@ inline bool Bits::BytesContainByteLessThan(T bytes, uint8 c) {
 }
 
 template <class T>
-inline bool Bits::BytesContainByte(T bytes, uint8 c) {
+ bool Bits::BytesContainByte(T bytes, uint8 c) {
     // Usually c will be manifestly constant.
     return Bits::BytesContainByteLessThan<T>(bytes ^ (c * BitPattern<T>::l), 1);
 }
 
 template <class T>
-inline bool Bits::BytesAllInRange(T bytes, uint8 lo, uint8 hi) {
+ bool Bits::BytesAllInRange(T bytes, uint8 lo, uint8 hi) {
     T l = BitPattern<T>::l;
     T h = BitPattern<T>::h;
     // In the common case, lo and hi are manifest constants.
@@ -260,5 +259,3 @@ inline bool Bits::BytesAllInRange(T bytes, uint8 lo, uint8 hi) {
     }
     return !Bits::BytesContainByteLessThan(bytes + (255 - hi) * l, lo + (255 - hi));
 }
-
-#endif // _BITS_H_

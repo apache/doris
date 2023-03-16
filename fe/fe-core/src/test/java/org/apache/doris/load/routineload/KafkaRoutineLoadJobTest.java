@@ -24,8 +24,9 @@ import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -47,7 +48,12 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import mockit.Verifications;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,13 +66,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Verifications;
 
 public class KafkaRoutineLoadJobTest {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJobTest.class);
@@ -100,7 +99,7 @@ public class KafkaRoutineLoadJobTest {
     @Test
     public void testRoutineLoadTaskConcurrentNum(@Injectable PartitionInfo partitionInfo1,
                              @Injectable PartitionInfo partitionInfo2,
-                             @Mocked Catalog catalog,
+                             @Mocked Env env,
                              @Mocked SystemInfoService systemInfoService,
                              @Mocked Database database,
                              @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
@@ -116,7 +115,7 @@ public class KafkaRoutineLoadJobTest {
 
         new Expectations() {
             {
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
                 systemInfoService.getClusterBackendIds(clusterName1, true);
@@ -131,25 +130,25 @@ public class KafkaRoutineLoadJobTest {
         // 2 partitions, 1 be
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName1, 1L,
-                        1L, "127.0.0.1:9020", "topic1");
+                        1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList1);
         Assert.assertEquals(2, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 3 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
-                1L, "127.0.0.1:9020", "topic1");
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList2);
         Assert.assertEquals(3, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 4 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
-                1L, "127.0.0.1:9020", "topic1");
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList3);
         Assert.assertEquals(4, routineLoadJob.calculateCurrentConcurrentTaskNum());
 
         // 7 partitions, 4 be
         routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", clusterName2, 1L,
-                1L, "127.0.0.1:9020", "topic1");
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", partitionList4);
         Assert.assertEquals(6, routineLoadJob.calculateCurrentConcurrentTaskNum());
     }
@@ -160,22 +159,22 @@ public class KafkaRoutineLoadJobTest {
                                          @Mocked RoutineLoadDesc routineLoadDesc)
             throws UserException {
 
-        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        Env env = Deencapsulation.newInstance(Env.class);
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
-                        1L, "127.0.0.1:9020", "topic1");
+                        1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
             }
         };
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.setField(catalog, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+        Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
         Deencapsulation.setField(routineLoadJob, "currentKafkaPartitions", Arrays.asList(1, 4, 6));
 
@@ -205,16 +204,16 @@ public class KafkaRoutineLoadJobTest {
             throws AnalysisException, LabelAlreadyUsedException,
             BeginTransactionException {
 
-        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
+        Env env = Deencapsulation.newInstance(Env.class);
 
         RoutineLoadJob routineLoadJob =
                 new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "default", 1L,
-                        1L, "127.0.0.1:9020", "topic1");
+                        1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
         long maxBatchIntervalS = 10;
         Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", maxBatchIntervalS);
         new Expectations() {
             {
-                catalog.getRoutineLoadManager();
+                env.getRoutineLoadManager();
                 minTimes = 0;
                 result = routineLoadManager;
             }
@@ -242,7 +241,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testFromCreateStmt(@Mocked Catalog catalog,
+    public void testFromCreateStmt(@Mocked Env env,
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
@@ -252,7 +251,7 @@ public class KafkaRoutineLoadJobTest {
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
         List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
         for (String s : kafkaPartitionString.split(",")) {
-            partitionIdToOffset.add(new Pair<>(Integer.valueOf(s), 0l));
+            partitionIdToOffset.add(Pair.of(Integer.valueOf(s), 0L));
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
@@ -262,7 +261,7 @@ public class KafkaRoutineLoadJobTest {
         Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
         Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
 
-        long dbId = 1l;
+        long dbId = 1L;
         long tableId = 2L;
 
         new Expectations() {
@@ -317,7 +316,7 @@ public class KafkaRoutineLoadJobTest {
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+                                                                                LoadTask.MergeType.APPEND, "");
         Deencapsulation.setField(createRoutineLoadStmt, "name", jobName);
         return createRoutineLoadStmt;
     }

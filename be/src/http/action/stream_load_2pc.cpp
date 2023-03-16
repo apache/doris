@@ -40,30 +40,21 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     Status status = Status::OK();
     std::string status_result;
 
-    if (config::disable_stream_load_2pc) {
-        status = Status::InternalError("Two phase commit (2PC) for stream load was disabled");
-        status_result = to_json(status);
-        HttpChannel::send_reply(req, HttpStatus::OK, status_result);
-        return;
-    }
-
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
-    ctx->ref();
-    req->set_handler_ctx(ctx);
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->db = req->param(HTTP_DB_KEY);
     std::string req_txn_id = req->header(HTTP_TXN_ID_KEY);
     try {
         ctx->txn_id = std::stoull(req_txn_id);
     } catch (const std::exception& e) {
-        status = Status::InternalError("convert txn_id [" + req_txn_id + "] failed");
-        status_result = to_json(status);
+        status = Status::InternalError("convert txn_id [{}] failed", req_txn_id);
+        status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;
     }
     ctx->txn_operation = req->header(HTTP_TXN_OPERATION_KEY);
     if (ctx->txn_operation.compare("commit") != 0 && ctx->txn_operation.compare("abort") != 0) {
         status = Status::InternalError("transaction operation should be \'commit\' or \'abort\'");
-        status_result = to_json(status);
+        status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;
     }
@@ -73,17 +64,18 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         status = Status::InternalError("no valid Basic authorization");
     }
 
-    status =_exec_env->stream_load_executor()->operate_txn_2pc(ctx);
+    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx.get());
 
     if (!status.ok()) {
-        status_result = to_json(status);
+        status_result = status.to_json();
     } else {
         status_result = get_success_info(req_txn_id, ctx->txn_operation);
     }
     HttpChannel::send_reply(req, HttpStatus::OK, status_result);
 }
 
-std::string StreamLoad2PCAction::get_success_info(const std::string txn_id, const std::string txn_operation) {
+std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
+                                                  const std::string txn_operation) {
     rapidjson::StringBuffer s;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
 

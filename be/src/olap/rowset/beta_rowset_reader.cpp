@@ -20,32 +20,38 @@
 #include <utility>
 
 #include "olap/delete_handler.h"
-#include "olap/generic_iterators.h"
-#include "olap/row_block.h"
-#include "olap/row_block2.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
-
+#include "olap/tablet_meta.h"
 #include "vec/core/block.h"
+#include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 
-BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                                   std::shared_ptr<MemTracker> parent_tracker)
-        : _context(nullptr),
-          _rowset(std::move(rowset)),
-          _stats(&_owned_stats),
-          _parent_tracker(std::move(parent_tracker)) {
+BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
+        : _context(nullptr), _rowset(std::move(rowset)), _stats(&_owned_stats) {
     _rowset->acquire();
 }
 
-OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
-    // If do not init the RowsetReader with a parent_tracker, use the runtime_state instance_mem_tracker
-    if (_parent_tracker == nullptr && read_context->runtime_state != nullptr) {
-        _parent_tracker = read_context->runtime_state->instance_mem_tracker();
-    }
+void BetaRowsetReader::reset_read_options() {
+    _read_options.delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
+    _read_options.column_predicates.clear();
+    _read_options.col_id_to_predicates.clear();
+    _read_options.del_predicates_for_zone_map.clear();
+    _read_options.key_ranges.clear();
+}
 
+bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+    if (_iterator != nullptr) {
+        return _iterator->update_profile(profile);
+    }
+    return false;
+}
+
+Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
+                                               std::vector<RowwiseIteratorUPtr>* out_iters,
+                                               bool use_cache) {
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
@@ -54,169 +60,225 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         // only statistics of this RowsetReader is necessary.
         _stats = _context->stats;
     }
-    // SegmentIterator will load seek columns on demand
-    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
-    StorageReadOptions read_options;
-    read_options.stats = _stats;
-    read_options.conditions = read_context->conditions;
+    _read_options.block_row_max = read_context->batch_size;
+    _read_options.stats = _stats;
+    _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
+    _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
+    _read_options.common_vexpr_ctxs_pushdown = _context->common_vexpr_ctxs_pushdown;
+    _read_options.rowset_id = _rowset->rowset_id();
+    _read_options.version = _rowset->version();
+    _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
-            read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
-                                                 read_context->is_lower_keys_included->at(i),
-                                                 &read_context->upper_bound_keys->at(i),
-                                                 read_context->is_upper_keys_included->at(i));
+            _read_options.key_ranges.emplace_back(&read_context->lower_bound_keys->at(i),
+                                                  read_context->is_lower_keys_included->at(i),
+                                                  &read_context->upper_bound_keys->at(i),
+                                                  read_context->is_upper_keys_included->at(i));
         }
     }
+
+    // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
+    // or predicates when it is not inited.
     if (read_context->delete_handler != nullptr) {
         read_context->delete_handler->get_delete_conditions_after_version(
-                _rowset->end_version(), &read_options.delete_conditions,
-                read_options.delete_condition_predicates.get());
+                _rowset->end_version(), _read_options.delete_condition_predicates.get(),
+                &_read_options.del_predicates_for_zone_map);
     }
+
+    std::vector<uint32_t> read_columns;
+    std::set<uint32_t> read_columns_set;
+    std::set<uint32_t> delete_columns_set;
+    for (int i = 0; i < _context->return_columns->size(); ++i) {
+        read_columns.push_back(_context->return_columns->at(i));
+        read_columns_set.insert(_context->return_columns->at(i));
+    }
+    _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
+    for (auto cid : delete_columns_set) {
+        if (read_columns_set.find(cid) == read_columns_set.end()) {
+            read_columns.push_back(cid);
+        }
+    }
+    VLOG_NOTICE << "read columns size: " << read_columns.size();
+    _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
+
     if (read_context->predicates != nullptr) {
-        read_options.column_predicates.insert(read_options.column_predicates.end(),
-                                              read_context->predicates->begin(),
-                                              read_context->predicates->end());
+        _read_options.column_predicates.insert(_read_options.column_predicates.end(),
+                                               read_context->predicates->begin(),
+                                               read_context->predicates->end());
+        for (auto pred : *(read_context->predicates)) {
+            if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
+                _read_options.col_id_to_predicates.insert(
+                        {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+            }
+            auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+            _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                    single_column_block_predicate);
+        }
     }
-    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y]
-    if (_rowset->keys_type() == UNIQUE_KEYS &&
-        (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
+
+    if (read_context->predicates_except_leafnode_of_andnode != nullptr) {
+        _read_options.column_predicates_except_leafnode_of_andnode.insert(
+                _read_options.column_predicates_except_leafnode_of_andnode.end(),
+                read_context->predicates_except_leafnode_of_andnode->begin(),
+                read_context->predicates_except_leafnode_of_andnode->end());
+    }
+
+    // Take a delete-bitmap for each segment, the bitmap contains all deletes
+    // until the max read version, which is read_context->version.second
+    if (read_context->delete_bitmap != nullptr) {
+        RowsetId rowset_id = rowset()->rowset_id();
+        for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+            auto d = read_context->delete_bitmap->get_agg(
+                    {rowset_id, seg_id, read_context->version.second});
+            if (d->isEmpty()) {
+                continue; // Empty delete bitmap for the segment
+            }
+            VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
+                       << ", segment id:" << seg_id << ", size:" << d->cardinality();
+            _read_options.delete_bitmap.emplace(seg_id, std::move(d));
+        }
+    }
+
+    if (_should_push_down_value_predicates()) {
         if (read_context->value_predicates != nullptr) {
-            read_options.column_predicates.insert(read_options.column_predicates.end(),
-                                                  read_context->value_predicates->begin(),
-                                                  read_context->value_predicates->end());
-        }
-        if (read_context->all_conditions != nullptr && !read_context->all_conditions->empty()) {
-            read_options.conditions = read_context->all_conditions;
+            _read_options.column_predicates.insert(_read_options.column_predicates.end(),
+                                                   read_context->value_predicates->begin(),
+                                                   read_context->value_predicates->end());
+            for (auto pred : *(read_context->value_predicates)) {
+                if (_read_options.col_id_to_predicates.count(pred->column_id()) < 1) {
+                    _read_options.col_id_to_predicates.insert(
+                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                }
+                auto single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+                _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
+                        single_column_block_predicate);
+            }
         }
     }
-    read_options.use_page_cache = read_context->use_page_cache;
+    _read_options.use_page_cache = read_context->use_page_cache;
+    _read_options.tablet_schema = read_context->tablet_schema;
+    _read_options.record_rowids = read_context->record_rowids;
+    _read_options.use_topn_opt = read_context->use_topn_opt;
+    _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
+    _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
+    _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.runtime_state = read_context->runtime_state;
+    _read_options.output_columns = read_context->output_columns;
 
     // load segments
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle, read_context->reader_type == ReaderType::READER_QUERY));
+    // use cache is true when do vertica compaction
+    bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;
+    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
+                                                           should_use_cache));
 
     // create iterator for each segment
-    std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*_schema, read_options, _parent_tracker, &iter);
+        auto s = seg_ptr->new_iterator(*_input_schema, _read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return OLAP_ERR_ROWSET_READER_INIT;
+            return Status::Error<ROWSET_READER_INIT>();
         }
-        seg_iterators.push_back(std::move(iter));
+        if (iter->empty()) {
+            continue;
+        }
+        auto st = iter->init(_read_options);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init iterator: " << st.to_string();
+            return Status::Error<ROWSET_READER_INIT>();
+        }
+        out_iters->push_back(std::move(iter));
     }
+    return Status::OK();
+}
 
-    std::vector<RowwiseIterator*> iterators;
-    for (auto& owned_it : seg_iterators) {
-        // transfer ownership of segment iterator to `_iterator`
-        iterators.push_back(owned_it.release());
-    }
+Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    _context = read_context;
+    std::vector<RowwiseIteratorUPtr> iterators;
+    RETURN_NOT_OK(get_segment_iterators(_context, &iterators));
 
     // merge or union segment iterator
-    RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
-    } else {
-        final_iterator = new_union_iterator(iterators, _parent_tracker);
-    }
-    auto s = final_iterator->init(read_options);
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to init iterator: " << s.to_string();
-        return OLAP_ERR_ROWSET_READER_INIT;
-    }
-    _iterator.reset(final_iterator);
-
-    // init input block
-    _input_block.reset(new RowBlockV2(*_schema,
-            std::min(1024, read_context->batch_size), _parent_tracker));
-
-    if (!read_context->is_vec) {
-        // init input/output block and row
-        _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
-
-        RowBlockInfo output_block_info;
-        output_block_info.row_num = std::min(1024, read_context->batch_size);
-        output_block_info.null_supported = true;
-        // the output block's schema should be seek_columns to conform to v1
-        // TODO(hkp): this should be optimized to use return_columns
-        output_block_info.column_ids = *(_context->seek_columns);
-        _output_block->init(output_block_info);
-        _row.reset(new RowCursor());
-        RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
-    }
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    // read next input block
-    _input_block->clear();
-    {
-        auto s = _iterator->next_batch(_input_block.get());
-        if (!s.ok()) {
-            if (s.is_end_of_file()) {
-                *block = nullptr;
-                return OLAP_ERR_DATA_EOF;
-            }
-            LOG(WARNING) << "failed to read next block: " << s.to_string();
-            return OLAP_ERR_ROWSET_READ_FAILED;
-        }
-    }
-
-    // convert to output block
-    _output_block->clear();
-    {
-        SCOPED_RAW_TIMER(&_stats->block_convert_ns);
-        _input_block->convert_to_row_block(_row.get(), _output_block.get());
-    }
-    *block = _output_block.get();
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
-    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
-    bool is_first = true;
-
-    do {
-        // read next input block
-        {
-            _input_block->clear();
-            {
-                auto s = _iterator->next_batch(_input_block.get());
-                if (!s.ok()) {
-                    if (s.is_end_of_file()) {
-                        if (is_first) {
-                            return OLAP_ERR_DATA_EOF;
-                        } else {
-                            break;
-                        }
-                    } else {
-                        LOG(WARNING) << "failed to read next block: " << s.to_string();
-                        return OLAP_ERR_ROWSET_READ_FAILED;
-                    }
-                } else if (_input_block->selected_size() == 0) {
-                    continue;
+        auto sequence_loc = -1;
+        if (read_context->sequence_id_idx != -1) {
+            for (size_t loc = 0; loc < read_context->return_columns->size(); loc++) {
+                if (read_context->return_columns->at(loc) == read_context->sequence_id_idx) {
+                    sequence_loc = loc;
+                    break;
                 }
             }
         }
-
-        {
-            SCOPED_RAW_TIMER(&_stats->block_convert_ns);
-            auto s = _input_block->convert_to_vec_block(block);
-            if (UNLIKELY(!s.ok())) {
-                LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE;
-            }
+        _iterator = vectorized::new_merge_iterator(
+                std::move(iterators), sequence_loc, read_context->is_unique,
+                read_context->read_orderby_key_reverse, read_context->merged_rows);
+    } else {
+        if (read_context->read_orderby_key_reverse) {
+            // reverse iterators to read backward for ORDER BY key DESC
+            std::reverse(iterators.begin(), iterators.end());
         }
-        is_first = false;
-    } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
+        _iterator = vectorized::new_union_iterator(std::move(iterators));
+    }
 
-    return OLAP_SUCCESS;
+    auto s = _iterator->init(_read_options);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to init iterator: " << s.to_string();
+        _iterator.reset();
+        return Status::Error<ROWSET_READER_INIT>();
+    }
+    return Status::OK();
 }
 
+Status BetaRowsetReader::next_block(vectorized::Block* block) {
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    if (_empty) {
+        return Status::Error<END_OF_FILE>();
+    }
+
+    do {
+        auto s = _iterator->next_batch(block);
+        if (!s.ok()) {
+            if (!s.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to read next block: " << s.to_string();
+            }
+            return s;
+        }
+    } while (block->empty());
+
+    return Status::OK();
+}
+
+Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    do {
+        auto s = _iterator->next_block_view(block_view);
+        if (!s.ok()) {
+            if (!s.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to read next block view: " << s.to_string();
+            }
+            return s;
+        }
+    } while (block_view->empty());
+
+    return Status::OK();
+}
+
+bool BetaRowsetReader::_should_push_down_value_predicates() const {
+    // if unique table with rowset [0-x] or [0-1] [2-y] [...],
+    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    return _rowset->keys_type() == UNIQUE_KEYS &&
+           (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
+             !_rowset->_rowset_meta->is_segments_overlapping()) ||
+            _context->enable_unique_key_merge_on_write);
+}
+
+Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
+    auto& seg_ptrs = _segment_cache_handle.get_segments();
+    segment_num_rows->resize(seg_ptrs.size());
+    for (size_t i = 0; i < seg_ptrs.size(); i++) {
+        (*segment_num_rows)[i] = seg_ptrs[i]->num_rows();
+    }
+    return Status::OK();
+}
 } // namespace doris

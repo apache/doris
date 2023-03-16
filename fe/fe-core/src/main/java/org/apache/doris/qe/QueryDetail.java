@@ -22,16 +22,16 @@ public class QueryDetail {
         RUNNING,
         FINISHED,
         FAILED,
-        CANCELLED 
-    };
+        CANCELLED
+    }
 
     // When query received, FE will construct a QueryDetail
     // object. This object will set queryId, startTime, sql
-    // fields. As well state is be set as RUNNING. 
+    // fields. As well state is be set as RUNNING.
     // After query finished, endTime and latency will
     // be set and state will be updated to be FINISHED/FAILED/CANCELLED
     // according to the query execution results.
-    // So, one query will be inserted into as a item and 
+    // So, one query will be inserted into as a item and
     // be updated upon finished. To indicate the two event,
     // a extra field named eventTime is added.
     private long eventTime;
@@ -94,7 +94,7 @@ public class QueryDetail {
     public long getEndTime() {
         return endTime;
     }
-     
+
     public void setLatency(long latency) {
         this.latency = latency;
     }

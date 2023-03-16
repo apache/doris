@@ -17,20 +17,14 @@
 
 #include "olap/rowset/rowset_meta.h"
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/alpha_rowset_meta.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
 
 using ::testing::_;
 using ::testing::Return;
@@ -45,12 +39,12 @@ class RowsetMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
         std::string meta_path = "./meta";
-        ASSERT_TRUE(std::filesystem::create_directory(meta_path));
+        EXPECT_TRUE(std::filesystem::create_directory(meta_path));
         _meta = new (std::nothrow) OlapMeta(meta_path);
-        ASSERT_NE(nullptr, _meta);
-        OLAPStatus st = _meta->init();
-        ASSERT_TRUE(st == OLAP_SUCCESS);
-        ASSERT_TRUE(std::filesystem::exists("./meta"));
+        EXPECT_NE(nullptr, _meta);
+        Status st = _meta->init();
+        EXPECT_TRUE(st == Status::OK());
+        EXPECT_TRUE(std::filesystem::exists("./meta"));
 
         std::ifstream infile(rowset_meta_path);
         char buffer[1024];
@@ -64,7 +58,7 @@ public:
 
     virtual void TearDown() {
         delete _meta;
-        ASSERT_TRUE(std::filesystem::remove_all("./meta"));
+        EXPECT_TRUE(std::filesystem::remove_all("./meta"));
     }
 
 private:
@@ -75,25 +69,25 @@ private:
 void do_check(RowsetMeta rowset_meta) {
     RowsetId rowset_id;
     rowset_id.init(540081);
-    ASSERT_EQ(rowset_id, rowset_meta.rowset_id());
-    ASSERT_EQ(15673, rowset_meta.tablet_id());
-    ASSERT_EQ(4042, rowset_meta.txn_id());
-    ASSERT_EQ(567997577, rowset_meta.tablet_schema_hash());
-    ASSERT_EQ(ALPHA_ROWSET, rowset_meta.rowset_type());
-    ASSERT_EQ(VISIBLE, rowset_meta.rowset_state());
-    ASSERT_EQ(2, rowset_meta.start_version());
-    ASSERT_EQ(2, rowset_meta.end_version());
-    ASSERT_EQ(3929, rowset_meta.num_rows());
-    ASSERT_EQ(84699, rowset_meta.total_disk_size());
-    ASSERT_EQ(84464, rowset_meta.data_disk_size());
-    ASSERT_EQ(235, rowset_meta.index_disk_size());
-    ASSERT_EQ(false, rowset_meta.empty());
-    ASSERT_EQ(1553765670, rowset_meta.creation_time());
+    EXPECT_EQ(rowset_id, rowset_meta.rowset_id());
+    EXPECT_EQ(15673, rowset_meta.tablet_id());
+    EXPECT_EQ(4042, rowset_meta.txn_id());
+    EXPECT_EQ(567997577, rowset_meta.tablet_schema_hash());
+    EXPECT_EQ(BETA_ROWSET, rowset_meta.rowset_type());
+    EXPECT_EQ(VISIBLE, rowset_meta.rowset_state());
+    EXPECT_EQ(2, rowset_meta.start_version());
+    EXPECT_EQ(2, rowset_meta.end_version());
+    EXPECT_EQ(3929, rowset_meta.num_rows());
+    EXPECT_EQ(84699, rowset_meta.total_disk_size());
+    EXPECT_EQ(84464, rowset_meta.data_disk_size());
+    EXPECT_EQ(235, rowset_meta.index_disk_size());
+    EXPECT_EQ(false, rowset_meta.empty());
+    EXPECT_EQ(1553765670, rowset_meta.creation_time());
 }
 
 TEST_F(RowsetMetaTest, TestInit) {
     RowsetMeta rowset_meta;
-    ASSERT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
     do_check(rowset_meta);
     RowsetMetaPB rowset_meta_pb;
     rowset_meta.to_rowset_pb(&rowset_meta_pb);
@@ -109,92 +103,8 @@ TEST_F(RowsetMetaTest, TestInit) {
 
 TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
     RowsetMeta rowset_meta;
-    ASSERT_FALSE(rowset_meta.init_from_json("invalid json meta data"));
-    ASSERT_FALSE(rowset_meta.init("invalid pb meta data"));
-}
-
-void do_check_for_alpha(AlphaRowsetMeta alpha_rowset_meta) {
-    RowsetId rowset_id;
-    rowset_id.init(540081);
-    ASSERT_EQ(rowset_id, alpha_rowset_meta.rowset_id());
-    ASSERT_EQ(15673, alpha_rowset_meta.tablet_id());
-    ASSERT_EQ(4042, alpha_rowset_meta.txn_id());
-    ASSERT_EQ(567997577, alpha_rowset_meta.tablet_schema_hash());
-    ASSERT_EQ(ALPHA_ROWSET, alpha_rowset_meta.rowset_type());
-    ASSERT_EQ(VISIBLE, alpha_rowset_meta.rowset_state());
-    ASSERT_EQ(2, alpha_rowset_meta.start_version());
-    ASSERT_EQ(2, alpha_rowset_meta.end_version());
-    ASSERT_EQ(3929, alpha_rowset_meta.num_rows());
-    ASSERT_EQ(84699, alpha_rowset_meta.total_disk_size());
-    ASSERT_EQ(84464, alpha_rowset_meta.data_disk_size());
-    ASSERT_EQ(235, alpha_rowset_meta.index_disk_size());
-    ASSERT_EQ(false, alpha_rowset_meta.empty());
-    ASSERT_EQ(1553765670, alpha_rowset_meta.creation_time());
-    std::vector<SegmentGroupPB> segment_groups;
-    alpha_rowset_meta.get_segment_groups(&segment_groups);
-    ASSERT_EQ(2, segment_groups.size());
-}
-
-TEST_F(RowsetMetaTest, TestAlphaRowsetMeta) {
-    AlphaRowsetMeta rowset_meta;
-    rowset_meta.init_from_json(_json_rowset_meta);
-    do_check_for_alpha(rowset_meta);
-    RowsetMetaPB rowset_meta_pb;
-    rowset_meta.to_rowset_pb(&rowset_meta_pb);
-    AlphaRowsetMeta rowset_meta_2;
-    rowset_meta_2.init_from_pb(rowset_meta_pb);
-    do_check_for_alpha(rowset_meta_2);
-    std::string value = "";
-    rowset_meta_pb.SerializeToString(&value);
-    AlphaRowsetMeta rowset_meta_3;
-    rowset_meta_3.init(value);
-    do_check_for_alpha(rowset_meta_3);
-}
-
-TEST_F(RowsetMetaTest, TestAlphaRowsetMetaAdd) {
-    AlphaRowsetMeta rowset_meta;
-    rowset_meta.init_from_json(_json_rowset_meta);
-    do_check_for_alpha(rowset_meta);
-    SegmentGroupPB new_segment_group;
-    new_segment_group.set_segment_group_id(88888);
-    new_segment_group.set_num_segments(3);
-    new_segment_group.set_empty(true);
-    new_segment_group.set_index_size(100);
-    new_segment_group.set_data_size(1000);
-    new_segment_group.set_num_rows(1000);
-    rowset_meta.add_segment_group(new_segment_group);
-    std::vector<SegmentGroupPB> segment_groups;
-    rowset_meta.get_segment_groups(&segment_groups);
-    ASSERT_EQ(3, segment_groups.size());
-    std::string meta_pb_string = "";
-    ASSERT_TRUE(rowset_meta.serialize(&meta_pb_string));
-    AlphaRowsetMeta rowset_meta_2;
-    ASSERT_TRUE(rowset_meta_2.init(meta_pb_string));
-    segment_groups.clear();
-    rowset_meta_2.get_segment_groups(&segment_groups);
-    ASSERT_EQ(3, segment_groups.size());
-}
-
-TEST_F(RowsetMetaTest, TestAlphaRowsetMetaClear) {
-    AlphaRowsetMeta rowset_meta;
-    rowset_meta.init_from_json(_json_rowset_meta);
-    do_check_for_alpha(rowset_meta);
-    rowset_meta.clear_segment_group();
-    std::vector<SegmentGroupPB> segment_groups;
-    rowset_meta.get_segment_groups(&segment_groups);
-    ASSERT_EQ(0, segment_groups.size());
-    std::string meta_pb_string = "";
-    ASSERT_TRUE(rowset_meta.serialize(&meta_pb_string));
-    AlphaRowsetMeta rowset_meta_2;
-    ASSERT_TRUE(rowset_meta_2.init(meta_pb_string));
-    segment_groups.clear();
-    rowset_meta_2.get_segment_groups(&segment_groups);
-    ASSERT_EQ(0, segment_groups.size());
+    EXPECT_FALSE(rowset_meta.init_from_json("invalid json meta data"));
+    EXPECT_FALSE(rowset_meta.init("invalid pb meta data"));
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

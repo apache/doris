@@ -31,8 +31,6 @@
 #include <vector>
 
 #include "gutil/strings/substitute.h"
-#include "gutil/walltime.h"
-#include "util/logging.h"
 //#include "util/memory/arena.h"
 
 using std::pair;
@@ -41,6 +39,17 @@ using std::vector;
 using strings::internal::SubstituteArg;
 
 namespace doris {
+
+// Format a timestamp in the same format as used by GLog.
+static std::string FormatTimestampForLog(int64_t micros_since_epoch) {
+    time_t secs_since_epoch = micros_since_epoch / 1000000;
+    int usecs = micros_since_epoch % 1000000;
+    struct tm tm_time;
+    localtime_r(&secs_since_epoch, &tm_time);
+
+    return StringPrintf("%02d%02d %02d:%02d:%02d.%06d", 1 + tm_time.tm_mon, tm_time.tm_mday,
+                        tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, usecs);
+}
 
 __thread Trace* Trace::threadlocal_trace_;
 
@@ -56,7 +65,7 @@ Trace::Trace()
 
 // Struct which precedes each entry in the trace.
 struct TraceEntry {
-    MicrosecondsInt64 timestamp_micros;
+    int64_t timestamp_micros;
 
     // The source file and line number which generated the trace message.
     const char* file_path;

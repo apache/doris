@@ -104,6 +104,7 @@ public:
 
     void reset() override {
         _count = 0;
+        _finished = false;
         _rle_encoder->Clear();
         _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
     }
@@ -207,30 +208,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override {
-        DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
-            *n = 0;
-            return Status::OK();
-        }
-
-        size_t to_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
-        size_t remaining = to_fetch;
-        uint8_t* data_ptr = dst->data();
-        bool result = false;
-        while (remaining > 0) {
-            result = _rle_decoder.Get(reinterpret_cast<CppType*>(data_ptr));
-            DCHECK(result);
-            remaining--;
-            data_ptr += SIZE_OF_TYPE;
-        }
-
-        _cur_index += to_fetch;
-        *n = to_fetch;
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
@@ -251,7 +229,39 @@ public:
         _cur_index += to_fetch;
         *n = to_fetch;
         return Status::OK();
-    };
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        bool result = false;
+        size_t read_count = 0;
+        CppType value;
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elements)) {
+                *n = read_count;
+                return Status::OK();
+            }
+
+            _rle_decoder.Skip(ord - _cur_index);
+            _cur_index = ord;
+
+            result = _rle_decoder.Get(&value);
+            _cur_index++;
+            DCHECK(result);
+            dst->insert_data((char*)(&value), SIZE_OF_TYPE);
+            read_count++;
+        }
+        *n = read_count;
+        return Status::OK();
+    }
 
     size_t count() const override { return _num_elements; }
 

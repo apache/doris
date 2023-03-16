@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class LoadLoadingTask extends LoadTask {
     private static final Logger LOG = LogManager.getLogger(LoadLoadingTask.class);
@@ -67,6 +69,8 @@ public class LoadLoadingTask extends LoadTask {
     private final int loadParallelism;
     private final int sendBatchParallelism;
     private final boolean loadZeroTolerance;
+    private final boolean singleTabletLoadPerSink;
+    private final boolean useNewLoadScanNode;
 
     private LoadingTaskPlanner planner;
 
@@ -74,11 +78,12 @@ public class LoadLoadingTask extends LoadTask {
     private long beginTime;
 
     public LoadLoadingTask(Database db, OlapTable table,
-                           BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
-                           long jobDeadlineMs, long execMemLimit, boolean strictMode,
-                           long txnId, LoadTaskCallback callback, String timezone,
-                           long timeoutS, int loadParallelism, int sendBatchParallelism,
-                           boolean loadZeroTolerance, RuntimeProfile profile) {
+            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
+            long jobDeadlineMs, long execMemLimit, boolean strictMode,
+            long txnId, LoadTaskCallback callback, String timezone,
+            long timeoutS, int loadParallelism, int sendBatchParallelism,
+            boolean loadZeroTolerance, RuntimeProfile profile, boolean singleTabletLoadPerSink,
+            boolean useNewLoadScanNode) {
         super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
@@ -96,12 +101,16 @@ public class LoadLoadingTask extends LoadTask {
         this.sendBatchParallelism = sendBatchParallelism;
         this.loadZeroTolerance = loadZeroTolerance;
         this.jobProfile = profile;
+        this.singleTabletLoadPerSink = singleTabletLoadPerSink;
+        this.useNewLoadScanNode = useNewLoadScanNode;
     }
 
-    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo) throws UserException {
+    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
+            int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table,
-                brokerDesc, fileGroups, strictMode, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism, userInfo);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
+                strictMode, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
+                this.useNewLoadScanNode, userInfo);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -115,7 +124,10 @@ public class LoadLoadingTask extends LoadTask {
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
         beginTime = System.nanoTime();
-        ((BrokerLoadJob) callback).updateState(JobState.LOADING);
+        if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
+            // job may already be cancelled
+            return;
+        }
         executeOnce();
     }
 
@@ -125,6 +137,8 @@ public class LoadLoadingTask extends LoadTask {
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
+        curCoordinator.setExecVecEngine(Config.enable_vectorized_load);
+        curCoordinator.setExecPipEngine(Config.enable_pipeline_load);
         /*
          * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
          * And the variable 'load_mem_limit' does not make any effect.
@@ -164,7 +178,9 @@ public class LoadLoadingTask extends LoadTask {
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
                         TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
-                        ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()));
+                        ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
+                                .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())));
+                curCoordinator.getErrorTabletInfos().clear();
                 // Create profile of this task and add to the job profile.
                 createProfile(curCoordinator);
             } else {
@@ -176,7 +192,7 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     private long getLeftTimeMs() {
-        return jobDeadlineMs - System.currentTimeMillis();
+        return Math.max(jobDeadlineMs - System.currentTimeMillis(), 1000L);
     }
 
     private void createProfile(Coordinator coord) {

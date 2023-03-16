@@ -27,7 +27,6 @@ import java.util.List;
 
 public class PartitionLoadInfo implements Writable {
     private long version;
-    private long versionHash;
     private List<Source> sources;
     private boolean needLoad;
 
@@ -37,31 +36,22 @@ public class PartitionLoadInfo implements Writable {
 
     public PartitionLoadInfo(List<Source> sources) {
         this.version = -1L;
-        this.versionHash = 0L;
         this.sources = sources;
         this.needLoad = true;
     }
-    
+
     public void setVersion(long version) {
         this.version = version;
     }
-    
+
     public long getVersion() {
         return version;
-    }
-
-    public void setVersionHash(long versionHash) {
-        this.versionHash = versionHash;
-    }
-
-    public long getVersionHash() {
-        return versionHash;
     }
 
     public List<Source> getSources() {
         return sources;
     }
-    
+
     public boolean isNeedLoad() {
         return needLoad;
     }
@@ -72,8 +62,9 @@ public class PartitionLoadInfo implements Writable {
 
     public void write(DataOutput out) throws IOException {
         out.writeLong(version);
-        out.writeLong(versionHash);
-        
+        // Versionhash useless just for compatible
+        out.writeLong(0L);
+
         int count = 0;
         if (sources == null) {
             out.writeBoolean(false);
@@ -88,11 +79,13 @@ public class PartitionLoadInfo implements Writable {
 
         out.writeBoolean(needLoad);
     }
+
     public void readFields(DataInput in) throws IOException {
         version = in.readLong();
-        versionHash = in.readLong();
+        // Versionhash useless just for compatible
+        in.readLong();
         int count = 0;
-        
+
         if (in.readBoolean()) {
             count = in.readInt();
             for (int i = 0; i < count; i++) {
@@ -101,27 +94,26 @@ public class PartitionLoadInfo implements Writable {
                 sources.add(source);
             }
         }
-        
+
         needLoad = in.readBoolean();
     }
 
     @Override
     public String toString() {
-        return "PartitionLoadInfo{version=" + version + ", versionHash=" + versionHash
-                + ", needLoad=" + needLoad + "}";
+        return "PartitionLoadInfo{version=" + version + ", needLoad=" + needLoad + "}";
     }
 
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof PartitionLoadInfo)) {
             return false;
         }
-        
+
         PartitionLoadInfo info = (PartitionLoadInfo) obj;
-        
+
         if (sources != info.sources) {
             if (sources == null || info.sources == null) {
                 return false;
@@ -135,14 +127,12 @@ public class PartitionLoadInfo implements Writable {
                 }
             }
         }
-       
-        return version == info.version 
-                && versionHash == info.versionHash
-                && needLoad == info.needLoad;
+
+        return version == info.version && needLoad == info.needLoad;
     }
-    
+
     public int hashCode() {
-        int ret = (int) (version ^ versionHash);
+        int ret = (int) (version);
         ret ^= sources.size();
         return ret;
     }

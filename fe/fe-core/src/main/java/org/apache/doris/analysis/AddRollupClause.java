@@ -42,6 +42,17 @@ public class AddRollupClause extends AlterTableClause {
 
     private Map<String, String> properties;
 
+    public AddRollupClause(String rollupName, List<String> columnNames,
+                           List<String> dupKeys, String baseRollupName,
+                           Map<String, String> properties) {
+        super(AlterOpType.ADD_ROLLUP);
+        this.rollupName = rollupName;
+        this.columnNames = columnNames;
+        this.dupKeys = dupKeys;
+        this.baseRollupName = baseRollupName;
+        this.properties = properties;
+    }
+
     public String getRollupName() {
         return rollupName;
     }
@@ -58,17 +69,6 @@ public class AddRollupClause extends AlterTableClause {
         return baseRollupName;
     }
 
-    public AddRollupClause(String rollupName, List<String> columnNames,
-                           List<String> dupKeys, String baseRollupName,
-                           Map<String, String> properties) {
-        super(AlterOpType.ADD_ROLLUP);
-        this.rollupName = rollupName;
-        this.columnNames = columnNames;
-        this.dupKeys = dupKeys;
-        this.baseRollupName = baseRollupName;
-        this.properties = properties;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         FeNameFormat.checkTableName(rollupName);
@@ -79,18 +79,14 @@ public class AddRollupClause extends AlterTableClause {
         Set<String> colSet = Sets.newHashSet();
         for (String col : columnNames) {
             if (Strings.isNullOrEmpty(col)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, col);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                        col, FeNameFormat.getColumnNameRegex());
             }
             if (!colSet.add(col)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col);
             }
         }
         baseRollupName = Strings.emptyToNull(baseRollupName);
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return this.properties;
     }
 
     @Override
@@ -110,6 +106,11 @@ public class AddRollupClause extends AlterTableClause {
             stringBuilder.append(" FROM `").append(baseRollupName).append("`");
         }
         return stringBuilder.toString();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return this.properties;
     }
 
     @Override

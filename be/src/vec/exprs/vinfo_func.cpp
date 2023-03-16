@@ -28,32 +28,29 @@ namespace doris::vectorized {
 VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
     Field field;
     switch (_type.type) {
-        case TYPE_BIGINT: {
-            field = Int64(node.info_func.int_value);
-            break;
-        }
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR: {
-            field = node.info_func.str_value;
-            break;
-        }
-        default: {
-            DCHECK(false) << "Invalid type: " << _type.type;
-            break;
-        }
+    case TYPE_BIGINT: {
+        field = Int64(node.info_func.int_value);
+        break;
+    }
+    case TYPE_STRING:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR: {
+        field = node.info_func.str_value;
+        break;
+    }
+    default: {
+        DCHECK(false) << "Invalid type: " << _type.type;
+        break;
+    }
     }
     this->_column_ptr = _data_type->create_column_const(1, field);
 }
 
 Status VInfoFunc::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    int rows = block->rows();
-    if (rows < 1) {
-        rows = 1;
-    }
-    *result_column_id = block->columns();
-    block->insert({_column_ptr->clone_resized(rows), _data_type, _expr_name});
+    // Info function should return least one row, e.g. select current_user().
+    size_t row_size = std::max(block->rows(), size_t(1));
+    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

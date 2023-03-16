@@ -1,5 +1,7 @@
 // Copyright 2008 Google Inc.  All rights reserved.
 
+#pragma once
+
 #include <string.h>
 
 #include <string>
@@ -8,9 +10,6 @@ using std::string;
 #include "gutil/basictypes.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
-
-#ifndef STRINGS_SUBSTITUTE_H_
-#define STRINGS_SUBSTITUTE_H_
 
 namespace strings {
 
@@ -179,5 +178,3 @@ inline string Substitute(StringPiece format,
 }
 
 } // namespace strings
-
-#endif // STRINGS_SUBSTITUTE_H_

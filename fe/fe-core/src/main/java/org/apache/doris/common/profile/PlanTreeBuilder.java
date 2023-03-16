@@ -25,7 +25,7 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.thrift.TExplainLevel;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -56,8 +56,13 @@ public class PlanTreeBuilder {
             PlanTreeNode sinkNode = null;
             if (sink != null) {
                 StringBuilder sb = new StringBuilder();
-                sb.append("[").append(sink.getExchNodeId().asInt()).append(": ").append(sink.getClass().getSimpleName()).append("]");
-                sb.append("\n[Fragment: ").append(fragment.getId().asInt()).append("]");
+                if (sink.getExchNodeId() != null) {
+                    sb.append("[").append(sink.getExchNodeId().asInt()).append(": ")
+                            .append(sink.getClass().getSimpleName()).append("]");
+                } else {
+                    sb.append("[").append(sink.getClass().getSimpleName()).append("]");
+                }
+                sb.append("\n[Fragment: ").append(fragment.getFragmentSequenceNum()).append("]");
                 sb.append("\n").append(sink.getExplainString("", TExplainLevel.BRIEF));
                 sinkNode = new PlanTreeNode(sink.getExchNodeId(), sb.toString());
                 if (i == 0) {
@@ -108,9 +113,7 @@ public class PlanTreeBuilder {
             parent.addChild(node);
         }
 
-        if (planNode.getPlanNodeName().equals(ExchangeNode.EXCHANGE_NODE)
-                || planNode.getPlanNodeName().equals(ExchangeNode.VEXCHANGE_NODE)
-                || planNode.getPlanNodeName().equals(ExchangeNode.MERGING_EXCHANGE_NODE)) {
+        if (planNode.getPlanNodeName().contains(ExchangeNode.EXCHANGE_NODE)) {
             exchangeNodes.add(node);
         } else {
             // Do not traverse children of exchange node,

@@ -34,22 +34,6 @@ set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 
-# Check gcc
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
-        message(FATAL_ERROR "Need GCC version at least 7.3.0")
-    endif()
-
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
-        message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
-    else()
-        #   -Werror: compile warnings should be errors when using the toolchain compiler.
-        set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -Werror")
-    endif()
-elseif (NOT APPLE)
-    message(FATAL_ERROR "Compiler should be GNU")
-endif()
-
 # Just for clang-tidy:  -Wno-expansion-to-defined -Wno-deprecated-declaration
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -g -ggdb -std=c++11 -Wall -Werror -Wno-unused-variable -Wno-expansion-to-defined -Wno-deprecated-declarations -O3")
 

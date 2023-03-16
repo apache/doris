@@ -18,23 +18,30 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 public class RecoverTableStmt extends DdlStmt {
     private TableName dbTblName;
+    private long tableId = -1;
+    private String newTableName = "";
 
-    public RecoverTableStmt(TableName dbTblName) {
+    public RecoverTableStmt(TableName dbTblName, long tableId, String newTableName) {
         this.dbTblName = dbTblName;
+        this.tableId = tableId;
+        if (newTableName != null) {
+            this.newTableName = newTableName;
+        }
     }
 
     public String getDbName() {
@@ -45,16 +52,24 @@ public class RecoverTableStmt extends DdlStmt {
         return dbTblName.getTbl();
     }
 
+    public long getTableId() {
+        return tableId;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         dbTblName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTblName.getDb(),
-                                                                dbTblName.getTbl(),
-                                                                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ALTER_PRIV,
-                                                                                               PaloPrivilege.CREATE_PRIV,
-                                                                                               PaloPrivilege.ADMIN_PRIV),
-                                                                                 Operator.OR))) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                ConnectContext.get(), dbTblName.getDb(), dbTblName.getTbl(), PrivPredicate.of(
+                        PrivBitSet.of(Privilege.ALTER_PRIV, Privilege.CREATE_PRIV, Privilege.ADMIN_PRIV),
+                        Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
@@ -70,6 +85,14 @@ public class RecoverTableStmt extends DdlStmt {
             sb.append(getDbName()).append(".");
         }
         sb.append(getTableName());
+        if (this.tableId != -1) {
+            sb.append(" ");
+            sb.append(this.tableId);
+        }
+        if (!Strings.isNullOrEmpty(newTableName)) {
+            sb.append(" AS ");
+            sb.append(this.newTableName);
+        }
         return sb.toString();
     }
 }

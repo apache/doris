@@ -18,8 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -34,7 +36,7 @@ import java.nio.ByteOrder;
 
 public class FloatLiteral extends LiteralExpr {
     private double value;
-    
+
     public FloatLiteral() {
     }
 
@@ -129,10 +131,30 @@ public class FloatLiteral extends LiteralExpr {
     public String getStringValue() {
         // TODO: Here is weird use float to represent TIME type
         // rethink whether it is reasonable to use this way
-        if (type.equals(Type.TIME)) {
+        if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
         return Double.toString(value);
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    public static Type getDefaultTimeType(Type type) throws AnalysisException {
+        switch (type.getPrimitiveType()) {
+            case TIME:
+                if (Config.enable_date_conversion) {
+                    return Type.TIMEV2;
+                } else {
+                    return Type.TIME;
+                }
+            case TIMEV2:
+                return type;
+            default:
+                throw new AnalysisException("Invalid time type: " + type);
+        }
     }
 
     @Override
@@ -157,7 +179,7 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2())) {
+        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2() || targetType.isDecimalV3())) {
             return super.uncheckedCastTo(targetType);
         }
         if (targetType.isFloatingPointType()) {
@@ -168,7 +190,15 @@ public class FloatLiteral extends LiteralExpr {
             }
             return this;
         } else if (targetType.isDecimalV2()) {
-            return new DecimalLiteral(new BigDecimal(value));
+            // the double constructor does an exact translation, use valueOf() instead.
+            DecimalLiteral res = new DecimalLiteral(BigDecimal.valueOf(value));
+            res.setType(targetType);
+            return res;
+        } else if (targetType.isDecimalV3()) {
+            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            res.setType(ScalarType.createDecimalV3Type(targetType.getPrecision(),
+                    ((ScalarType) targetType).decimalScale()));
+            return res;
         }
         return this;
     }
@@ -189,7 +219,7 @@ public class FloatLiteral extends LiteralExpr {
         super.readFields(in);
         value = in.readDouble();
     }
-    
+
     public static FloatLiteral read(DataInput in) throws IOException {
         FloatLiteral literal = new FloatLiteral();
         literal.readFields(in);
@@ -201,7 +231,7 @@ public class FloatLiteral extends LiteralExpr {
         return 31 * super.hashCode() + Double.hashCode(value);
     }
 
-    private String timeStrFromFloat (double time) {
+    private String timeStrFromFloat(double time) {
         String timeStr = "";
 
         if (time < 0) {
@@ -209,11 +239,21 @@ public class FloatLiteral extends LiteralExpr {
             time = -time;
         }
         int hour = (int) (time / 60 / 60);
-        int minute = (int)((time / 60)) % 60;
+        int minute = (int) ((time / 60)) % 60;
         int second = (int) (time) % 60;
 
         return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
     }
 
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
+            value = data.getFloat();
+            return;
+        }
+        if (type.getPrimitiveType() == PrimitiveType.DOUBLE) {
+            value = data.getDouble();
+            return;
+        }
+    }
 }
-

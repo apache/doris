@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
-#define DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
+#pragma once
 
 #include <mutex>
 #include <vector>
@@ -38,14 +37,14 @@ public:
     T* add(T* t) {
         // TODO: Consider using a lock-free structure.
         std::lock_guard<SpinLock> l(_lock);
-        _objects.emplace_back(Element{t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
+        _objects.emplace_back(Element {t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
         return t;
     }
 
     template <class T>
     T* add_array(T* t) {
         std::lock_guard<SpinLock> l(_lock);
-        _objects.emplace_back(Element{t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
+        _objects.emplace_back(Element {t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
         return t;
     }
 
@@ -60,8 +59,14 @@ public:
         src->_objects.clear();
     }
 
+    uint64_t size() {
+        std::lock_guard<SpinLock> l(_lock);
+        return _objects.size();
+    }
+
 private:
-    DISALLOW_COPY_AND_ASSIGN(ObjectPool);
+    ObjectPool(const ObjectPool&) = delete;
+    void operator=(const ObjectPool&) = delete;
 
     /// A generic deletion function pointer. Deletes its first argument.
     using DeleteFn = void (*)(void*);
@@ -77,5 +82,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -17,20 +17,21 @@
 
 package org.apache.doris.load.sync.canal;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TStorageMedium;
@@ -46,7 +47,10 @@ import com.alibaba.otter.canal.protocol.exception.CanalClientException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -59,11 +63,6 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
-
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class CanalSyncDataTest {
     private static final Logger LOG = LogManager.getLogger(CanalSyncDataTest.class);
@@ -85,7 +84,7 @@ public class CanalSyncDataTest {
     @Mocked
     OlapTable table;
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
     Backend backend;
     @Mocked
@@ -126,7 +125,7 @@ public class CanalSyncDataTest {
 
         new Expectations() {
             {
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 101L;
 
@@ -150,8 +149,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execPlanFragmentParams;
 
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any, anyBoolean, anyString,
-                        (TStorageMedium) any, (Tag) any);
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
+                        anyString, (TStorageMedium) any);
                 minTimes = 0;
                 result = backendIds;
 
@@ -159,11 +158,11 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = backendMap;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
@@ -176,21 +175,26 @@ public class CanalSyncDataTest {
             @Mock
             void connect() throws CanalClientException {
             }
+
             @Mock
             void disconnect() throws CanalClientException {
             }
+
             @Mock
             Message getWithoutAck(int var1, Long var2, TimeUnit var3) throws CanalClientException {
                 offset += batchSize * 1; // Simply set one entry as one byte
                 return CanalTestUtil.fetchMessage(
                         ++nextId, false, batchSize, binlogFile, offset, "mysql_db", "mysql_tbl");
             }
+
             @Mock
             void rollback() throws CanalClientException {
             }
+
             @Mock
             void ack(long var1) throws CanalClientException {
             }
+
             @Mock
             void subscribe(String var1) throws CanalClientException {
             }
@@ -209,7 +213,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = new AnalysisException("test exception");
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
             }
@@ -254,15 +258,17 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = 105L;
 
-                backendServiceProxy.execPlanFragmentAsync((TNetworkAddress) any, (TExecPlanFragmentParams) any);
+                backendServiceProxy.execPlanFragmentsAsync((TNetworkAddress) any, (TExecPlanFragmentParamsList) any,
+                        anyBoolean);
                 minTimes = 0;
                 result = execFuture;
 
-                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any,
+                        (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 
@@ -278,7 +284,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = sendDataOKResult;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
 
@@ -325,11 +331,12 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = 105L;
 
-                backendServiceProxy.execPlanFragmentAsync((TNetworkAddress) any, (TExecPlanFragmentParams) any);
+                backendServiceProxy.execPlanFragmentsAsync((TNetworkAddress) any, (TExecPlanFragmentParamsList) any,
+                        anyBoolean);
                 minTimes = 0;
                 result = execFuture;
 
-                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = abortFuture;
 
@@ -341,7 +348,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = abortOKResult;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
 
@@ -391,19 +398,21 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = 105L;
 
-                backendServiceProxy.execPlanFragmentAsync((TNetworkAddress) any, (TExecPlanFragmentParams) any);
+                backendServiceProxy.execPlanFragmentsAsync((TNetworkAddress) any, (TExecPlanFragmentParamsList) any,
+                        anyBoolean);
                 minTimes = 0;
                 result = execFuture;
 
-                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.commit((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any);
+                backendServiceProxy.rollback((TNetworkAddress) any, (Types.PUniqueId) any, (Types.PUniqueId) any);
                 minTimes = 0;
                 result = abortFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                        (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 
@@ -423,7 +432,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = sendDataOKResult;
 
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 minTimes = 0;
                 result = transactionMgr;
 

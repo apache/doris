@@ -54,23 +54,26 @@ template <typename>
 struct AbsImpl;
 template <typename>
 struct NegativeImpl;
+template <typename>
+struct PositiveImpl;
 
 /// Used to indicate undefined operation
 struct InvalidType;
 
 template <template <typename> class Op, typename Name, bool is_injective>
 class FunctionUnaryArithmetic : public IFunction {
-    static constexpr bool allow_decimal =
-            std::is_same_v<Op<Int8>, NegativeImpl<Int8>> || std::is_same_v<Op<Int8>, AbsImpl<Int8>>;
+    static constexpr bool allow_decimal = std::is_same_v<Op<Int8>, NegativeImpl<Int8>> ||
+                                          std::is_same_v<Op<Int8>, AbsImpl<Int8>> ||
+                                          std::is_same_v<Op<Int8>, PositiveImpl<Int8>>;
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
-        return cast_type_to_either<
-                DataTypeUInt8, DataTypeUInt16, DataTypeUInt32, DataTypeUInt64, DataTypeInt8,
-                DataTypeInt16, DataTypeInt32, DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
-                //                                            DataTypeDecimal<Decimal32>,
-                //                                            DataTypeDecimal<Decimal64>,
-                DataTypeDecimal<Decimal128>>(type, std::forward<F>(f));
+        return cast_type_to_either<DataTypeUInt8, DataTypeUInt16, DataTypeUInt32, DataTypeUInt64,
+                                   DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
+                                   DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
+                                   DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
+                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>>(
+                type, std::forward<F>(f));
     }
 
 public:
@@ -140,8 +143,8 @@ public:
                     return false;
                 });
         if (!valid) {
-            return Status::RuntimeError(
-                    fmt::format("{}'s argument does not match the expected data type", get_name()));
+            return Status::RuntimeError("{}'s argument does not match the expected data type",
+                                        get_name());
         }
         return Status::OK();
     }

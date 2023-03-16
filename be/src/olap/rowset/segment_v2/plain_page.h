@@ -71,7 +71,7 @@ public:
         _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
@@ -111,19 +111,16 @@ public:
         CHECK(!_parsed);
 
         if (_data.size < PLAIN_PAGE_HEADER_SIZE) {
-            std::stringstream ss;
-            ss << "file corruption: not enough bytes for header in PlainPageDecoder ."
-                  "invalid data size:"
-               << _data.size << ", header size:" << PLAIN_PAGE_HEADER_SIZE;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    "file corruption: not enough bytes for header in PlainPageDecoder ."
+                    "invalid data size:{}, header size:{}",
+                    _data.size, PLAIN_PAGE_HEADER_SIZE);
         }
 
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[0]);
 
         if (_data.size != PLAIN_PAGE_HEADER_SIZE + _num_elems * SIZE_OF_TYPE) {
-            std::stringstream ss;
-            ss << "file corruption: unexpected data size.";
-            return Status::InternalError(ss.str());
+            return Status::InternalError("file corruption: unexpected data size.");
         }
 
         _parsed = true;
@@ -184,33 +181,8 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return Status::NotSupported("plain page not implement vec op now");
-    };
-
-    template <bool forward_index>
-    inline Status next_batch(size_t* n, ColumnBlockView* dst) {
-        DCHECK(_parsed);
-
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
-            *n = 0;
-            return Status::OK();
-        }
-
-        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
-        memcpy(dst->data(), &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE],
-               max_fetch * SIZE_OF_TYPE);
-        if (forward_index) {
-            _cur_idx += max_fetch;
-        }
-        *n = max_fetch;
-        return Status::OK();
-    }
-
-    Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch<false>(n, dst);
     }
 
     size_t count() const override {

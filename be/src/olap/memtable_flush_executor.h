@@ -31,12 +31,14 @@ class DataDir;
 class DeltaWriter;
 class ExecEnv;
 class MemTable;
+class MemTrackerLimiter;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     std::atomic_uint64_t flush_time_ns = 0;
-    std::atomic_uint64_t flush_count = 0;
+    std::atomic_uint64_t flush_running_count = 0;
+    std::atomic_uint64_t flush_finish_count = 0;
     std::atomic_uint64_t flush_size_bytes = 0;
     std::atomic_uint64_t flush_disk_size_bytes = 0;
     std::atomic_uint64_t flush_wait_time_ns = 0;
@@ -54,28 +56,30 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 class FlushToken {
 public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-            : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
+            : _flush_token(std::move(flush_pool_token)), _flush_status(ErrorCode::OK) {}
 
-    OLAPStatus submit(const std::shared_ptr<MemTable>& mem_table);
+    Status submit(std::unique_ptr<MemTable> mem_table);
 
-    // error has happpens, so we cancel this token
+    // error has happens, so we cancel this token
     // And remove all tasks in the queue.
     void cancel();
 
     // wait all tasks in token to be completed.
-    OLAPStatus wait();
+    Status wait();
 
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
 
 private:
-    void _flush_memtable(std::shared_ptr<MemTable> mem_table, int64_t submit_task_time);
+    friend class MemtableFlushTask;
+
+    void _flush_memtable(MemTable* mem_table, int64_t submit_task_time);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<OLAPStatus> _flush_status;
+    std::atomic<int> _flush_status;
 
     FlushStatistic _stats;
 };
@@ -101,9 +105,8 @@ public:
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    OLAPStatus create_flush_token(
-            std::unique_ptr<FlushToken>* flush_token,
-            RowsetTypePB rowset_type, bool is_high_priority);
+    Status create_flush_token(std::unique_ptr<FlushToken>* flush_token, RowsetTypePB rowset_type,
+                              bool should_serial, bool is_high_priority);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;

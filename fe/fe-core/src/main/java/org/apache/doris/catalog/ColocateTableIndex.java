@@ -36,7 +36,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,7 +72,7 @@ public class ColocateTableIndex implements Writable {
         }
 
         public static GroupId read(DataInput in) throws IOException {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
                 GroupId groupId = new GroupId();
                 groupId.readFields(in);
                 return groupId;
@@ -110,7 +109,7 @@ public class ColocateTableIndex implements Writable {
             result = 31 * result + grpId.hashCode();
             return result;
         }
-        
+
         @Override
         public String toString() {
             return dbId + "." + grpId;
@@ -169,7 +168,7 @@ public class ColocateTableIndex implements Writable {
                     groupId = assignedGroupId;
                 } else {
                     // generate a new one
-                    groupId = new GroupId(dbId, Catalog.getCurrentCatalog().getNextId());
+                    groupId = new GroupId(dbId, Env.getCurrentEnv().getNextId());
                 }
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
@@ -217,7 +216,7 @@ public class ColocateTableIndex implements Writable {
                 group2ErrMsgs.put(groupId, Strings.nullToEmpty(reason));
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkUnstable(groupId);
-                    Catalog.getCurrentCatalog().getEditLog().logColocateMarkUnstable(info);
+                    Env.getCurrentEnv().getEditLog().logColocateMarkUnstable(info);
                 }
                 LOG.info("mark group {} as unstable", groupId);
             }
@@ -236,7 +235,7 @@ public class ColocateTableIndex implements Writable {
                 group2ErrMsgs.put(groupId, "");
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
-                    Catalog.getCurrentCatalog().getEditLog().logColocateMarkStable(info);
+                    Env.getCurrentEnv().getEditLog().logColocateMarkStable(info);
                 }
                 LOG.info("mark group {} as stable", groupId);
             }
@@ -522,8 +521,9 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getGroupId().dbId);
-        OlapTable tbl = db.getTableOrMetaException(info.getTableId(), org.apache.doris.catalog.Table.TableType.OLAP);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getGroupId().dbId);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(info.getTableId(),
+                org.apache.doris.catalog.Table.TableType.OLAP);
         writeLock();
         try {
             Map<Tag, List<List<Long>>> map = info.getBackendsPerBucketSeq();
@@ -631,60 +631,55 @@ public class ColocateTableIndex implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
-            throw new IOException("This is a very old metadata with version: "
-                    + Catalog.getCurrentCatalogJournalVersion() + ", can not be read");
-        } else {
-            for (int i = 0; i < size; i++) {
-                String fullGrpName = Text.readString(in);
-                GroupId grpId = GroupId.read(in);
-                groupName2Id.put(fullGrpName, grpId);
-                int tableSize = in.readInt();
-                for (int j = 0; j < tableSize; j++) {
-                    long tblId = in.readLong();
-                    group2Tables.put(grpId, tblId);
-                    table2Group.put(tblId, grpId);
-                }
-                ColocateGroupSchema groupSchema = ColocateGroupSchema.read(in);
-                group2Schema.put(grpId, groupSchema);
+        for (int i = 0; i < size; i++) {
+            String fullGrpName = Text.readString(in);
+            GroupId grpId = GroupId.read(in);
+            groupName2Id.put(fullGrpName, grpId);
+            int tableSize = in.readInt();
+            for (int j = 0; j < tableSize; j++) {
+                long tblId = in.readLong();
+                group2Tables.put(grpId, tblId);
+                table2Group.put(tblId, grpId);
+            }
+            ColocateGroupSchema groupSchema = ColocateGroupSchema.read(in);
+            group2Schema.put(grpId, groupSchema);
 
-                // backends seqs
-                if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            // backends seqs
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
+                List<List<Long>> bucketsSeq = Lists.newArrayList();
+                int beSize = in.readInt();
+                for (int j = 0; j < beSize; j++) {
+                    int seqSize = in.readInt();
+                    List<Long> seq = Lists.newArrayList();
+                    for (int k = 0; k < seqSize; k++) {
+                        long beId = in.readLong();
+                        seq.add(beId);
+                    }
+                    bucketsSeq.add(seq);
+                }
+                group2BackendsPerBucketSeq.put(grpId, Tag.DEFAULT_BACKEND_TAG, bucketsSeq);
+            } else {
+                int tagSize = in.readInt();
+                for (int j = 0; j < tagSize; j++) {
+                    Tag tag = Tag.read(in);
+                    int bucketSize = in.readInt();
                     List<List<Long>> bucketsSeq = Lists.newArrayList();
-                    int beSize = in.readInt();
-                    for (int j = 0; j < beSize; j++) {
-                        int seqSize = in.readInt();
-                        List<Long> seq = Lists.newArrayList();
-                        for (int k = 0; k < seqSize; k++) {
-                            long beId = in.readLong();
-                            seq.add(beId);
+                    for (int k = 0; k < bucketSize; k++) {
+                        List<Long> beIds = Lists.newArrayList();
+                        int beSize = in.readInt();
+                        for (int l = 0; l < beSize; l++) {
+                            beIds.add(in.readLong());
                         }
-                        bucketsSeq.add(seq);
+                        bucketsSeq.add(beIds);
                     }
-                    group2BackendsPerBucketSeq.put(grpId, Tag.DEFAULT_BACKEND_TAG, bucketsSeq);
-                } else {
-                    int tagSize = in.readInt();
-                    for (int j = 0; j < tagSize; j++) {
-                        Tag tag = Tag.read(in);
-                        int bucketSize = in.readInt();
-                        List<List<Long>> bucketsSeq = Lists.newArrayList();
-                        for (int k = 0; k < bucketSize; k++) {
-                            List<Long> beIds = Lists.newArrayList();
-                            int beSize = in.readInt();
-                            for (int l = 0; l < beSize; l++) {
-                                beIds.add(in.readLong());
-                            }
-                            bucketsSeq.add(beIds);
-                        }
-                        group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
-                    }
+                    group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
                 }
             }
+        }
 
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                unstableGroups.add(GroupId.read(in));
-            }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            unstableGroups.add(GroupId.read(in));
         }
     }
 

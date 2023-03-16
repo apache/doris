@@ -14,18 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/static-asserts.cpp
+// and modified by Doris
 
 #include "runtime/datetime_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris {
 // This class is unused.  It contains static (compile time) asserts.
 // This is useful to validate struct sizes and other similar things
-// at compile time.  If these asserts fail, the compile will fail.
+// at compile time.  If these assertions fail, the compiling will fail.
 class UnusedClass {
 private:
-    static_assert(sizeof(StringValue) == 16);
-    static_assert(offsetof(StringValue, len) == 8);
+    static_assert(sizeof(StringRef) == 16);
+    static_assert(offsetof(StringRef, size) == 8);
     // Datetime value
     static_assert(sizeof(DateTimeValue) == 16);
     static_assert(sizeof(doris::vectorized::VecDateTimeValue) == 8);

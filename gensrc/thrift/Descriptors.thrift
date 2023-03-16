@@ -21,6 +21,24 @@ namespace java org.apache.doris.thrift
 include "Types.thrift"
 include "Exprs.thrift"
 
+struct TColumn {
+    1: required string column_name
+    2: required Types.TColumnType column_type
+    3: optional Types.TAggregationType aggregation_type
+    4: optional bool is_key
+    5: optional bool is_allow_null
+    6: optional string default_value
+    7: optional bool is_bloom_filter_column
+    8: optional Exprs.TExpr define_expr
+    9: optional bool visible = true
+    10: optional list<TColumn> children_column
+    11: optional i32 col_unique_id  = -1
+    12: optional bool has_bitmap_index = false
+    13: optional bool has_ngram_bf_index = false
+    14: optional i32 gram_size
+    15: optional i32 gram_bf_size
+}
+
 struct TSlotDescriptor {
   1: required Types.TSlotId id
   2: required Types.TTupleId parent
@@ -32,6 +50,11 @@ struct TSlotDescriptor {
   8: required string colName;
   9: required i32 slotIdx
   10: required bool isMaterialized
+  11: optional i32 col_unique_id = -1
+  12: optional bool is_key = false
+  // If set to false, then such slots will be ignored during
+  // materialize them.Used to optmize to read less data and less memory usage
+  13: optional bool need_materialize = true
 }
 
 struct TTupleDescriptor {
@@ -86,7 +109,9 @@ enum TSchemaTableType {
     SCH_USER_PRIVILEGES,
     SCH_VARIABLES,
     SCH_VIEWS,
-    SCH_INVALID
+    SCH_INVALID,
+    SCH_ROWSETS,
+    SCH_BACKENDS
 }
 
 enum THdfsCompression {
@@ -100,7 +125,10 @@ enum THdfsCompression {
 }
 
 enum TIndexType {
-  BITMAP
+  BITMAP,
+  INVERTED,
+  BLOOMFILTER,
+  NGRAM_BF
 }
 
 // Mapping from names defined by Avro to the enum.
@@ -134,6 +162,9 @@ struct TOlapTablePartition {
     6: optional list<Exprs.TExprNode> start_keys
     7: optional list<Exprs.TExprNode> end_keys
     8: optional list<list<Exprs.TExprNode>> in_keys
+    9: optional bool is_mutable = true
+    // only used in List Partition
+    10: optional bool is_default_partition;
 }
 
 struct TOlapTablePartitionParam {
@@ -158,6 +189,8 @@ struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
     3: required i32 schema_hash
+    4: optional list<TColumn> columns_desc
+    5: optional list<TOlapTableIndex> indexes_desc
 }
 
 struct TOlapTableSchemaParam {
@@ -169,6 +202,7 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
+    7: optional bool is_dynamic_schema
 }
 
 struct TOlapTableIndex {
@@ -176,6 +210,8 @@ struct TOlapTableIndex {
   2: optional list<string> columns
   3: optional TIndexType index_type
   4: optional string comment
+  5: optional i64 index_id
+  6: optional map<string, string> properties
 }
 
 struct TTabletLocation {
@@ -214,6 +250,7 @@ struct TMySQLTable {
   4: required string passwd
   5: required string db
   6: required string table
+  7: required string charset
 }
 
 struct TOdbcTable {
@@ -249,6 +286,23 @@ struct TIcebergTable {
   3: required map<string, string> properties
 }
 
+struct THudiTable {
+  1: optional string dbName
+  2: optional string tableName
+  3: optional map<string, string> properties
+}
+
+struct TJdbcTable {
+  1: optional string jdbc_url
+  2: optional string jdbc_table_name
+  3: optional string jdbc_user
+  4: optional string jdbc_password
+  5: optional string jdbc_driver_url
+  6: optional string jdbc_resource_name
+  7: optional string jdbc_driver_class
+  8: optional string jdbc_driver_checksum
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -269,6 +323,8 @@ struct TTableDescriptor {
   16: optional TOdbcTable odbcTable
   17: optional THiveTable hiveTable
   18: optional TIcebergTable icebergTable
+  19: optional THudiTable hudiTable
+  20: optional TJdbcTable jdbcTable
 }
 
 struct TDescriptorTable {

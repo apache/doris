@@ -15,9 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_CIDR_H
-#define DORIS_BE_SRC_COMMON_UTIL_CIDR_H
+#pragma once
 
+#include <sys/socket.h>
+
+#include <array>
 #include <string>
 
 namespace doris {
@@ -25,19 +27,15 @@ namespace doris {
 // Classless Inter-Domain Routing
 class CIDR {
 public:
-    CIDR();
     void reset();
     bool reset(const std::string& cidr_str);
-    bool contains(const std::string& ip);
+    bool contains(const CIDR& ip) const;
 
 private:
-    bool ip_to_int(const std::string& ip_str, uint32_t* value);
     bool contains(uint32_t ip_int);
-
-    uint32_t _address;
-    uint32_t _netmask;
+    sa_family_t _family;
+    std::array<std::uint8_t, 16> _address;
+    std::uint8_t _netmask_len;
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_UTIL_CIDR_H

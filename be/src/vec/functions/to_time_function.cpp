@@ -23,20 +23,53 @@
 
 namespace doris::vectorized {
 
-using FunctionYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl>;
-using FunctionQuarter = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl>;
-using FunctionMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl>;
-using FunctionDay = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl>;
-using FunctionWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl>;
-using FunctionHour = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl>;
-using FunctionMinute = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl>;
-using FunctionSecond = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl>;
-using FunctionToDays = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl>;
-using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl>;
-using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl>;
-using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl>;
+using FunctionYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<Int64>>;
+using FunctionYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<UInt32>>;
+using FunctionQuarter = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<Int64>>;
+using FunctionQuarterV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt32>>;
+using FunctionMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<Int64>>;
+using FunctionMonthV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt32>>;
+using FunctionDay = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<Int64>>;
+using FunctionDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt32>>;
+using FunctionWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<Int64>>;
+using FunctionWeekV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt32>>;
+using FunctionHour = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<Int64>>;
+using FunctionHourV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<UInt32>>;
+using FunctionMinute = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<Int64>>;
+using FunctionMinuteV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<UInt32>>;
+using FunctionSecond = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<Int64>>;
+using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<UInt32>>;
+using FunctionToDays = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<Int64>>;
+using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt32>>;
+using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl<Int64>>;
+using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt32>>;
+using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<Int64>>;
+using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt32>>;
 
-void register_function_to_time_fuction(SimpleFunctionFactory& factory) {
+using FunctionDateTimeV2Year = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearImpl<UInt64>>;
+using FunctionDateTimeV2Quarter =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToQuarterImpl<UInt64>>;
+using FunctionDateTimeV2Month =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMonthImpl<UInt64>>;
+using FunctionDateTimeV2Day = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDayImpl<UInt64>>;
+using FunctionDateTimeV2Week =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToWeekOneArgImpl<UInt64>>;
+using FunctionDateTimeV2Hour = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToHourImpl<UInt64>>;
+using FunctionDateTimeV2Minute =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMinuteImpl<UInt64>>;
+using FunctionDateTimeV2Second =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToSecondImpl<UInt64>>;
+using FunctionDateTimeV2ToDays =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt64>>;
+using FunctionDateTimeV2ToDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt64>>;
+using FunctionDateTimeV2Date = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt64>>;
+
+using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
+using FunctionTimeStampV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<UInt64>>;
+
+void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecond>();
     factory.register_function<FunctionMinute>();
     factory.register_function<FunctionHour>();
@@ -49,6 +82,31 @@ void register_function_to_time_fuction(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToDate>();
     factory.register_function<FunctionDate>();
     factory.register_function<FunctionTimeStamp>();
+    factory.register_function<FunctionTimeStampV2>();
+    factory.register_function<FunctionSecondV2>();
+    factory.register_function<FunctionMinuteV2>();
+    factory.register_function<FunctionHourV2>();
+    factory.register_function<FunctionDayV2>();
+    factory.register_function<FunctionWeekV2>();
+    factory.register_function<FunctionMonthV2>();
+    factory.register_function<FunctionYearV2>();
+    factory.register_function<FunctionQuarterV2>();
+    factory.register_function<FunctionToDaysV2>();
+    factory.register_function<FunctionToDateV2>();
+    factory.register_function<FunctionDateV2>();
+    factory.register_function<FunctionDateTimeV2Second>();
+    factory.register_function<FunctionDateTimeV2Minute>();
+    factory.register_function<FunctionDateTimeV2Hour>();
+    factory.register_function<FunctionDateTimeV2Day>();
+    factory.register_function<FunctionDateTimeV2Week>();
+    factory.register_function<FunctionDateTimeV2Month>();
+    factory.register_function<FunctionDateTimeV2Year>();
+    factory.register_function<FunctionDateTimeV2Quarter>();
+    factory.register_function<FunctionDateTimeV2ToDays>();
+    factory.register_function<FunctionDateTimeV2ToDate>();
+    factory.register_function<FunctionDateTimeV2Date>();
+    factory.register_alias("date", "datev2");
+    factory.register_alias("to_date", "to_datev2");
 }
 
 } // namespace doris::vectorized

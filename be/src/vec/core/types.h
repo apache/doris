@@ -25,11 +25,21 @@
 #include <string>
 #include <vector>
 
+#include "common/consts.h"
 #include "util/binary_cast.hpp"
-#include "util/bitmap_value.h"
-#include "olap/hll.h"
+#include "vec/common/int_exp.h"
 
-namespace doris::vectorized {
+namespace doris {
+
+class BitmapValue;
+class HyperLogLog;
+struct decimal12_t;
+struct uint24_t;
+
+template <typename T>
+class QuantileState;
+
+namespace vectorized {
 
 /// Data types for representing elementary values from a database in RAM.
 
@@ -69,6 +79,16 @@ enum class TypeIndex {
     LowCardinality,
     BitMap,
     HLL,
+    DateV2,
+    DateTimeV2,
+    TimeV2,
+    FixedLengthObject,
+    JSONB,
+    Decimal128I,
+    Map,
+    Struct,
+    VARIANT,
+    QuantileState,
 };
 
 struct Consted {
@@ -118,6 +138,24 @@ inline constexpr bool IsNumber<Float64> = true;
 
 template <typename T>
 struct TypeName;
+
+// only used at predicate_column
+template <>
+struct TypeName<bool> {
+    static const char* get() { return "bool"; }
+};
+template <>
+struct TypeName<decimal12_t> {
+    static const char* get() { return "decimal12_t"; }
+};
+template <>
+struct TypeName<uint24_t> {
+    static const char* get() { return "uint24_t"; }
+};
+template <>
+struct TypeName<StringRef> {
+    static const char* get() { return "StringRef"; }
+};
 
 template <>
 struct TypeName<UInt8> {
@@ -172,6 +210,11 @@ struct TypeName<HyperLogLog> {
     static const char* get() { return "HLL"; }
 };
 
+template <>
+struct TypeName<QuantileState<double>> {
+    static const char* get() { return "QuantileState"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>
@@ -214,6 +257,10 @@ template <>
 struct TypeId<Float64> {
     static constexpr const TypeIndex value = TypeIndex::Float64;
 };
+template <>
+struct TypeId<String> {
+    static constexpr const TypeIndex value = TypeIndex::String;
+};
 
 /// Not a data type in database, defined just for convenience.
 using Strings = std::vector<String>;
@@ -232,6 +279,25 @@ struct TypeId<Int128> {
 
 using Date = Int64;
 using DateTime = Int64;
+using DateV2 = UInt32;
+using DateTimeV2 = UInt64;
+
+struct Int128I {};
+
+template <typename T>
+inline T decimal_scale_multiplier(UInt32 scale);
+template <>
+inline Int32 decimal_scale_multiplier<Int32>(UInt32 scale) {
+    return common::exp10_i32(scale);
+}
+template <>
+inline Int64 decimal_scale_multiplier<Int64>(UInt32 scale) {
+    return common::exp10_i64(scale);
+}
+template <>
+inline Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
+    return common::exp10_i128(scale);
+}
 
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
@@ -243,7 +309,17 @@ struct Decimal {
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
-    Decimal(const T& value_) : value(value_) {}
+#define DECLARE_NUMERIC_CTOR(TYPE) \
+    Decimal(const TYPE& value_) : value(value_) {}
+
+    DECLARE_NUMERIC_CTOR(Int128)
+    DECLARE_NUMERIC_CTOR(Int32)
+    DECLARE_NUMERIC_CTOR(Int64)
+    DECLARE_NUMERIC_CTOR(UInt32)
+    DECLARE_NUMERIC_CTOR(UInt64)
+    DECLARE_NUMERIC_CTOR(Float32)
+    DECLARE_NUMERIC_CTOR(Float64)
+#undef DECLARE_NUMERIC_CTOR
 
     static Decimal double_to_decimal(double value_) {
         DecimalV2Value decimal_value;
@@ -252,7 +328,9 @@ struct Decimal {
     }
 
     template <typename U>
-    Decimal(const Decimal<U>& x) : value(x) {}
+    Decimal(const Decimal<U>& x) {
+        value = x;
+    }
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
     constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
@@ -280,12 +358,84 @@ struct Decimal {
         return *this;
     }
 
+    std::string to_string(UInt32 scale) const {
+        if (value == std::numeric_limits<T>::min()) {
+            fmt::memory_buffer buffer;
+            fmt::format_to(buffer, "{}", value);
+            std::string res {buffer.data(), buffer.size()};
+            res.insert(res.size() - scale, ".");
+            return res;
+        }
+
+        static constexpr auto precision =
+                std::is_same_v<T, Int32>
+                        ? BeConsts::MAX_DECIMAL32_PRECISION
+                        : (std::is_same_v<T, Int64> ? BeConsts::MAX_DECIMAL64_PRECISION
+                                                    : BeConsts::MAX_DECIMAL128_PRECISION);
+        bool is_nagetive = value < 0;
+        int max_result_length = precision + (scale > 0) // Add a space for decimal place
+                                + (scale == precision)  // Add a space for leading 0
+                                + (is_nagetive);        // Add a space for negative sign
+        std::string str = std::string(max_result_length, '0');
+
+        T abs_value = value;
+        int pos = 0;
+
+        if (is_nagetive) {
+            abs_value = -value;
+            str[pos++] = '-';
+        }
+
+        T whole_part = abs_value;
+        T frac_part;
+        if (scale) {
+            whole_part = abs_value / decimal_scale_multiplier<T>(scale);
+            frac_part = abs_value % decimal_scale_multiplier<T>(scale);
+        }
+        auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
+        pos = end - str.data();
+
+        if (scale) {
+            str[pos++] = '.';
+            for (auto end_pos = pos + scale - 1; end_pos >= pos && frac_part > 0;
+                 --end_pos, frac_part /= 10) {
+                str[end_pos] += frac_part % 10;
+            }
+        }
+
+        str.resize(pos + scale);
+        return str;
+    }
+
     T value;
+};
+
+template <>
+struct Decimal<Int128I> : public Decimal<Int128> {
+    Decimal() = default;
+
+#define DECLARE_NUMERIC_CTOR(TYPE) \
+    Decimal(const TYPE& value_) : Decimal<Int128>(value_) {}
+
+    DECLARE_NUMERIC_CTOR(Int128)
+    DECLARE_NUMERIC_CTOR(Int32)
+    DECLARE_NUMERIC_CTOR(Int64)
+    DECLARE_NUMERIC_CTOR(UInt32)
+    DECLARE_NUMERIC_CTOR(UInt64)
+    DECLARE_NUMERIC_CTOR(Float32)
+    DECLARE_NUMERIC_CTOR(Float64)
+#undef DECLARE_NUMERIC_CTOR
+
+    template <typename U>
+    Decimal(const Decimal<U>& x) {
+        value = x;
+    }
 };
 
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
+using Decimal128I = Decimal<Int128I>;
 
 template <>
 struct TypeName<Decimal32> {
@@ -298,6 +448,10 @@ struct TypeName<Decimal64> {
 template <>
 struct TypeName<Decimal128> {
     static const char* get() { return "Decimal128"; }
+};
+template <>
+struct TypeName<Decimal128I> {
+    static const char* get() { return "Decimal128I"; }
 };
 
 template <>
@@ -312,6 +466,10 @@ template <>
 struct TypeId<Decimal128> {
     static constexpr const TypeIndex value = TypeIndex::Decimal128;
 };
+template <>
+struct TypeId<Decimal128I> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+};
 
 template <typename T>
 constexpr bool IsDecimalNumber = false;
@@ -321,6 +479,32 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal64> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128> = true;
+template <>
+inline constexpr bool IsDecimalNumber<Decimal128I> = true;
+
+template <typename T>
+constexpr bool IsDecimal128 = false;
+template <>
+inline constexpr bool IsDecimal128<Decimal128> = true;
+
+template <typename T>
+constexpr bool IsDecimal128I = false;
+template <>
+inline constexpr bool IsDecimal128I<Decimal128I> = true;
+
+template <typename T>
+constexpr bool IsDecimalV2 = IsDecimal128<T> && !IsDecimal128I<T>;
+
+template <typename T, typename U>
+using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128,
+                                          std::conditional_t<IsDecimalNumber<T>, Decimal128I, U>>;
+
+template <typename T>
+constexpr bool IsFloatNumber = false;
+template <>
+inline constexpr bool IsFloatNumber<Float32> = true;
+template <>
+inline constexpr bool IsFloatNumber<Float64> = true;
 
 template <typename T>
 struct NativeType {
@@ -336,6 +520,10 @@ struct NativeType<Decimal64> {
 };
 template <>
 struct NativeType<Decimal128> {
+    using Type = Int128;
+};
+template <>
+struct NativeType<Decimal128I> {
     using Type = Int128;
 };
 
@@ -371,6 +559,12 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Date";
     case TypeIndex::DateTime:
         return "DateTime";
+    case TypeIndex::DateV2:
+        return "DateV2";
+    case TypeIndex::DateTimeV2:
+        return "DateTimeV2";
+    case TypeIndex::TimeV2:
+        return "TimeV2";
     case TypeIndex::String:
         return TypeName<String>::get();
     case TypeIndex::FixedString:
@@ -385,12 +579,16 @@ inline const char* getTypeName(TypeIndex idx) {
         return TypeName<Decimal64>::get();
     case TypeIndex::Decimal128:
         return TypeName<Decimal128>::get();
+    case TypeIndex::Decimal128I:
+        return TypeName<Decimal128I>::get();
     case TypeIndex::UUID:
         return "UUID";
     case TypeIndex::Array:
         return "Array";
     case TypeIndex::Tuple:
         return "Tuple";
+    case TypeIndex::Map:
+        return "Map";
     case TypeIndex::Set:
         return "Set";
     case TypeIndex::Interval:
@@ -403,26 +601,35 @@ inline const char* getTypeName(TypeIndex idx) {
         return "AggregateFunction";
     case TypeIndex::LowCardinality:
         return "LowCardinality";
+    case TypeIndex::VARIANT:
+        return "Variant";
     case TypeIndex::BitMap:
         return TypeName<BitmapValue>::get();
     case TypeIndex::HLL:
         return TypeName<HyperLogLog>::get();
+    case TypeIndex::FixedLengthObject:
+        return "FixedLengthObject";
+    case TypeIndex::JSONB:
+        return "JSONB";
+    case TypeIndex::Struct:
+        return "Struct";
+    case TypeIndex::QuantileState:
+        return TypeName<QuantileState<double>>::get();
     }
 
     __builtin_unreachable();
 }
-
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.
-namespace std {
 template <typename T>
-struct hash<doris::vectorized::Decimal<T>> {
+struct std::hash<doris::vectorized::Decimal<T>> {
     size_t operator()(const doris::vectorized::Decimal<T>& x) const { return hash<T>()(x.value); }
 };
 
 template <>
-struct hash<doris::vectorized::Decimal128> {
+struct std::hash<doris::vectorized::Decimal128> {
     size_t operator()(const doris::vectorized::Decimal128& x) const {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
@@ -430,7 +637,16 @@ struct hash<doris::vectorized::Decimal128> {
     }
 };
 
-constexpr bool is_integer(doris::vectorized::TypeIndex index) {
+template <>
+struct std::hash<doris::vectorized::Decimal128I> {
+    size_t operator()(const doris::vectorized::Decimal<doris::vectorized::Int128I>& x) const {
+        return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
+               std::hash<doris::vectorized::Int64>()(
+                       x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
+    }
+};
+
+constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
     using TypeIndex = doris::vectorized::TypeIndex;
     switch (index) {
     case TypeIndex::UInt8:
@@ -450,4 +666,3 @@ constexpr bool is_integer(doris::vectorized::TypeIndex index) {
     }
     }
 }
-} // namespace std

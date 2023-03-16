@@ -18,8 +18,7 @@
 // of a+b is easily derived from the hashes of a and b.  This property
 // doesn't hold for any hash functions in this file.
 
-#ifndef UTIL_HASH_CITY_H_
-#define UTIL_HASH_CITY_H_
+#pragma once
 
 #include <stddef.h> // for size_t.
 
@@ -48,5 +47,3 @@ uint128 CityHash128(const char* s, size_t len);
 uint128 CityHash128WithSeed(const char* s, size_t len, uint128 seed);
 
 } // namespace util_hash
-
-#endif // UTIL_HASH_CITY_H_

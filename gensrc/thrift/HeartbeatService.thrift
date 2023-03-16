@@ -18,6 +18,7 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+include "AgentService.thrift"
 include "Status.thrift"
 include "Types.thrift"
 
@@ -41,6 +42,7 @@ struct TBackendInfo {
     4: optional Types.TPort brpc_port
     5: optional string version
     6: optional i64 be_start_time
+    7: optional string be_node_role
 }
 
 struct THeartbeatResult {

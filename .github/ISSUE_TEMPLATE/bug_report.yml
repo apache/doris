@@ -18,7 +18,7 @@
 name: Doris Bug report
 title: "[Bug] "
 description: Problems and issues with code of Apache Doris
-labels: [ "kind/bug" ]
+labels: ["kind/bug"]
 body:
   - type: markdown
     attributes:
@@ -28,24 +28,24 @@ body:
         If it is an idea or help wanted, please go to:
 
         1. [Dev Mail List](mailto:dev@doris.apache.org): This will be your FASTEST way to get help！[How to subscribe](mailto:dev-subscribe@doris.apache.org)
-        2. [Github Discussion](https://github.com/apache/incubator-doris/discussions)
+        2. [Github Discussion](https://github.com/apache/doris/discussions)
 
   - type: checkboxes
     attributes:
       label: Search before asking
       description: >
-        Please make sure to search in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) first to see
+        Please make sure to search in the [issues](https://github.com/apache/doris/issues?q=is%3Aissue) first to see
         whether the same issue was reported already.
       options:
         - label: >
-            I had searched in the [issues](https://github.com/apache/incubator-doris/issues?q=is%3Aissue) and found no similar
+            I had searched in the [issues](https://github.com/apache/doris/issues?q=is%3Aissue) and found no similar
             issues.
           required: true
 
   - type: textarea
     attributes:
       label: Version
-      description: What is the current version 
+      description: What is the current version
       placeholder: >
         Please provide the version you are using.
         If it is the trunk version, please input commit id.
@@ -106,4 +106,3 @@ body:
   - type: markdown
     attributes:
       value: "Thanks for completing our form!"
-

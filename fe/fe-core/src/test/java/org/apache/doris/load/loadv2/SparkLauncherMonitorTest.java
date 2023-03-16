@@ -63,6 +63,7 @@ public class SparkLauncherMonitorTest {
             try {
                 logMonitor.join();
             } catch (InterruptedException e) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
         } catch (IOException e) {
             Assert.fail();

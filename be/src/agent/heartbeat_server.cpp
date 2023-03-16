@@ -19,26 +19,15 @@
 
 #include <thrift/TProcessor.h>
 
-#include <ctime>
-#include <filesystem>
-#include <fstream>
-
 #include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/storage_engine.h"
-#include "olap/utils.h"
 #include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
-
-using std::fstream;
-using std::nothrow;
-using std::string;
-using std::vector;
-using apache::thrift::transport::TProcessor;
 
 namespace doris {
 
@@ -72,6 +61,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
+        heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
     }
 }
 
@@ -94,7 +84,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         // write and update cluster id
         auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
         if (!st.ok()) {
-            LOG(WARNING) << "fail to set cluster id. status=" << st.get_error_msg();
+            LOG(WARNING) << "fail to set cluster id. status=" << st;
             return Status::InternalError("fail to set cluster id.");
         } else {
             _master_info->cluster_id = master_info.cluster_id;
@@ -104,7 +94,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
-            OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
+            LOG(WARNING) << "invalid cluster id: " << master_info.cluster_id << ". ignore.";
             return Status::InternalError("invalid cluster id. ignore.");
         }
     }
@@ -170,21 +160,21 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     return Status::OK();
 }
 
-AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
-                                    ThriftServer** thrift_server, uint32_t worker_thread_num,
-                                    TMasterInfo* local_master_info) {
-    HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
+Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
+                               ThriftServer** thrift_server, uint32_t worker_thread_num,
+                               TMasterInfo* local_master_info) {
+    HeartbeatServer* heartbeat_server = new HeartbeatServer(local_master_info);
     if (heartbeat_server == nullptr) {
-        return DORIS_ERROR;
+        return Status::InternalError("Get heartbeat server failed");
     }
 
     heartbeat_server->init_cluster_id();
 
     std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
-    std::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
-    string server_name("heartbeat");
+    std::shared_ptr<HeartbeatServiceProcessor::TProcessor> server_processor(
+            new HeartbeatServiceProcessor(handler));
     *thrift_server =
-            new ThriftServer(server_name, server_processor, server_port, worker_thread_num);
-    return DORIS_SUCCESS;
+            new ThriftServer("heartbeat", server_processor, server_port, worker_thread_num);
+    return Status::OK();
 }
 } // namespace doris

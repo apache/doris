@@ -17,15 +17,18 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.io.DataInput;
@@ -35,6 +38,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class RangePartitionInfo extends PartitionInfo {
 
@@ -77,14 +82,28 @@ public class RangePartitionInfo extends PartitionInfo {
         return itemEntryList;
     }
 
+    public List<Map.Entry<Long, PartitionItem>> getAllPartitionItemEntryList(boolean isSorted) {
+        Map<Long, PartitionItem> tmpMap = Maps.newHashMap();
+
+        tmpMap.putAll(idToItem);
+        tmpMap.putAll(idToTempItem);
+
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
+    }
+
     // create a new range and check it.
     private Range<PartitionKey> createAndCheckNewRange(PartitionKeyDesc partKeyDesc, boolean isTemp)
             throws AnalysisException, DdlException {
-        boolean isFixedPartitionKeyValueType = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
+        boolean isFixedPartitionKeyValueType
+                = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
 
         // generate partitionItemEntryList
-        List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType ?
-                        getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
+        List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType
+                        ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
 
         if (isFixedPartitionKeyValueType) {
             return createNewRangeForFixedPartitionValueType(partKeyDesc, partitionItemEntryList);
@@ -123,7 +142,7 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     private Range<PartitionKey> createNewRangeForFixedPartitionValueType(PartitionKeyDesc partKeyDesc,
-                                                                         List<Map.Entry<Long, PartitionItem>> partitionItemEntryList)
+            List<Map.Entry<Long, PartitionItem>> partitionItemEntryList)
             throws AnalysisException, DdlException {
         PartitionKey lowKey = PartitionKey.createPartitionKey(partKeyDesc.getLowerValues(), partitionColumns);
         PartitionKey upperKey =  PartitionKey.createPartitionKey(partKeyDesc.getUpperValues(), partitionColumns);
@@ -138,10 +157,9 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     private Range<PartitionKey> createNewRangeForLessThanPartitionValueType(PartitionKey newRangeUpper,
-                                                                            Range<PartitionKey> lastRange, Range<PartitionKey> currentRange)
-            throws AnalysisException, DdlException {
-        PartitionKey lowKey = lastRange == null ?
-                PartitionKey.createInfinityPartitionKey(partitionColumns, false) : lastRange.upperEndpoint();
+            Range<PartitionKey> lastRange, Range<PartitionKey> currentRange) throws AnalysisException, DdlException {
+        PartitionKey lowKey = lastRange == null
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false) : lastRange.upperEndpoint();
 
         // check: [left, right), error if left equal right
         if (lowKey.compareTo(newRangeUpper) >= 0) {
@@ -171,7 +189,8 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     @Override
-    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public void checkPartitionItemListsConflict(List<PartitionItem> list1, List<PartitionItem> list2)
+            throws DdlException {
         RangeUtils.checkRangeConflict(list1, list2);
     }
 
@@ -222,13 +241,11 @@ public class RangePartitionInfo extends PartitionInfo {
             idToItem.put(partitionId, new RangePartitionItem(range));
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
-            counter = in.readInt();
-            for (int i = 0; i < counter; i++) {
-                long partitionId = in.readLong();
-                Range<PartitionKey> range = RangeUtils.readRange(in);
-                idToTempItem.put(partitionId, new RangePartitionItem(range));
-            }
+        counter = in.readInt();
+        for (int i = 0; i < counter; i++) {
+            long partitionId = in.readLong();
+            Range<PartitionKey> range = RangeUtils.readRange(in);
+            idToTempItem.put(partitionId, new RangePartitionItem(range));
         }
     }
 
@@ -261,6 +278,13 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
 
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(p).append("\")");
+                }
+            });
+
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;
@@ -274,5 +298,33 @@ public class RangePartitionInfo extends PartitionInfo {
         sb.append(")");
         return sb.toString();
     }
-}
 
+    @Override
+    public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
+        List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+        List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
+
+        // sort range
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        for (Map.Entry<Long, PartitionItem> entry : entries) {
+            Partition partition = table.getPartition(entry.getKey());
+            String partitionName = partition.getName();
+
+            Range<PartitionKey> range = entry.getValue().getItems();
+            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
+                    PartitionInfo.toPartitionValue(range.lowerEndpoint()),
+                    PartitionInfo.toPartitionValue(range.upperEndpoint()));
+
+            Map<String, String> properties = Maps.newHashMap();
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    properties.put("STORAGE POLICY", p);
+                }
+            });
+
+            allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
+        }
+        return new RangePartitionDesc(partitionColumnNames, allPartitionDescs);
+    }
+}

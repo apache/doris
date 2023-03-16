@@ -31,18 +31,6 @@ public class AddPartitionClause extends AlterTableClause {
     // true if this is to add a temporary partition
     private boolean isTempPartition;
 
-    public SinglePartitionDesc getSingeRangePartitionDesc() {
-        return partitionDesc;
-    }
-
-    public DistributionDesc getDistributionDesc() {
-        return distributionDesc;
-    }
-
-    public boolean isTempPartition() {
-        return isTempPartition;
-    }
-
     public AddPartitionClause(SinglePartitionDesc partitionDesc,
                               DistributionDesc distributionDesc,
                               Map<String, String> properties,
@@ -56,13 +44,20 @@ public class AddPartitionClause extends AlterTableClause {
         this.needTableStable = false;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public SinglePartitionDesc getSingeRangePartitionDesc() {
+        return partitionDesc;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distributionDesc;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 
     @Override
-    public Map<String, String> getProperties() {
-        return this.properties;
+    public void analyze(Analyzer analyzer) throws AnalysisException {
     }
 
     @Override
@@ -74,6 +69,11 @@ public class AddPartitionClause extends AlterTableClause {
             sb.append(distributionDesc.toSql());
         }
         return sb.toString();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return this.properties;
     }
 
     @Override

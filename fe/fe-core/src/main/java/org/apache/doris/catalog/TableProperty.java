@@ -19,20 +19,18 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,10 +40,11 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/**  TableProperty contains additional information about OlapTable
- *  TableProperty includes properties to persistent the additional information
- *  Different properties is recognized by prefix such as dynamic_partition
- *  If there is different type properties is added, write a method such as buildDynamicProperty to build it.
+/**
+ * TableProperty contains additional information about OlapTable
+ * TableProperty includes properties to persistent the additional information
+ * Different properties is recognized by prefix such as dynamic_partition
+ * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
@@ -60,6 +59,9 @@ public class TableProperty implements Writable {
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
 
+    private String storagePolicy = "";
+    private boolean isDynamicSchema = false;
+
     /*
      * the default storage format of this table.
      * DEFAULT: depends on BE's config 'default_rowset_type'
@@ -69,6 +71,14 @@ public class TableProperty implements Writable {
      * This property should be set when creating the table, and can only be changed to V2 using Alter Table stmt.
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+
+    private TCompressionType compressionType = TCompressionType.LZ4F;
+
+    private boolean enableLightSchemaChange = false;
+
+    private boolean disableAutoCompaction = false;
+
+    private boolean storeRowColumn = false;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -95,6 +105,7 @@ public class TableProperty implements Writable {
                 break;
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
+                buildStoragePolicy();
                 break;
             default:
                 break;
@@ -102,14 +113,27 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildDynamicProperty() throws DdlException {
-        if (properties.containsKey(DynamicPartitionProperty.ENABLE)
-                && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))
-                && !Config.dynamic_partition_enable) {
-            throw new DdlException("Could not create table with dynamic partition "
-                    + "when fe config dynamic_partition_enable is false. "
-                    + "Please ADMIN SET FRONTEND CONFIG (\"dynamic_partition_enable\" = \"true\") firstly.");
+    /**
+     * Reset properties to correct values.
+     *
+     * @return this for chained
+     */
+    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
+            ReplicaAllocation replicaAlloc) {
+        // disable dynamic partition
+        if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
+            if (!reserveDynamicPartitionEnable) {
+                properties.put(DynamicPartitionProperty.ENABLE, "false");
+            }
+            executeBuildDynamicProperty();
         }
+        if (!reserveReplica) {
+            setReplicaAlloc(replicaAlloc);
+        }
+        return this;
+    }
+
+    public TableProperty buildDynamicProperty() {
         executeBuildDynamicProperty();
         return this;
     }
@@ -130,6 +154,47 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildEnableLightSchemaChange() {
+        enableLightSchemaChange = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "false"));
+        return this;
+    }
+
+    public TableProperty buildDisableAutoCompaction() {
+        disableAutoCompaction = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
+        return this;
+    }
+
+    public boolean disableAutoCompaction() {
+        return disableAutoCompaction;
+    }
+
+    public TableProperty buildStoreRowColumn() {
+        storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        return this;
+    }
+
+    public boolean storeRowColumn() {
+        return storeRowColumn;
+    }
+
+    public TableProperty buildStoragePolicy() {
+        storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
+        return this;
+    }
+
+    public String getStoragePolicy() {
+        return storagePolicy;
+    }
+
+    public TableProperty buildDynamicSchema() {
+        isDynamicSchema = Boolean.parseBoolean(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "false"));
+        return this;
+    }
+
     public TableProperty buildDataSortInfo() {
         HashMap<String, String> dataSortInfoProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -141,6 +206,12 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildCompressionType() {
+        compressionType = TCompressionType.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPRESSION,
+                TCompressionType.LZ4F.name()));
+        return this;
+    }
+
     public TableProperty buildStorageFormat() {
         storageFormat = TStorageFormat.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT,
                 TStorageFormat.DEFAULT.name()));
@@ -149,6 +220,7 @@ public class TableProperty implements Writable {
 
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
+        removeDuplicateReplicaNumProperty();
     }
 
     public void modifyDataSortInfoProperties(DataSortInfo dataSortInfo) {
@@ -193,7 +265,23 @@ public class TableProperty implements Writable {
         return isInMemory;
     }
 
+    public boolean isAutoBucket() {
+        return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
+    }
+
+    public String getEstimatePartitionSize() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
+    }
+
+    public boolean isDynamicSchema() {
+        return isDynamicSchema;
+    }
+
     public TStorageFormat getStorageFormat() {
+        // Force convert all V1 table to V2 table
+        if (TStorageFormat.V1 == storageFormat) {
+            return TStorageFormat.V2;
+        }
         return storageFormat;
     }
 
@@ -201,9 +289,36 @@ public class TableProperty implements Writable {
         return dataSortInfo;
     }
 
+    public TCompressionType getCompressionType() {
+        return compressionType;
+    }
+
+    public boolean getUseSchemaLightChange() {
+        return enableLightSchemaChange;
+    }
+
+    public void setEnableUniqueKeyMergeOnWrite(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true"));
+    }
+
+    public void setSequenceMapCol(String colName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);
+    }
+
+    public String getSequenceMapCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
     public void buildReplicaAllocation() {
         try {
-            // Must copy the properties because "analyzeReplicaAllocation" with remove the property
+            // Must copy the properties because "analyzeReplicaAllocation" will remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
             this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
@@ -223,9 +338,14 @@ public class TableProperty implements Writable {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
                 .buildInMemory()
+                .buildDynamicSchema()
                 .buildStorageFormat()
-                .buildDataSortInfo();
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+                .buildDataSortInfo()
+                .buildCompressionType()
+                .buildStoragePolicy()
+                .buildEnableLightSchemaChange()
+                .buildStoreRowColumn();
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
             if (!Strings.isNullOrEmpty(repNum)) {
@@ -237,7 +357,20 @@ public class TableProperty implements Writable {
                         ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
             }
         }
+        tableProperty.removeDuplicateReplicaNumProperty();
         tableProperty.buildReplicaAllocation();
         return tableProperty;
+    }
+
+    // For some historical reason,
+    // both "dynamic_partition.replication_num" and "dynamic_partition.replication_allocation"
+    // may be exist in "properties". we need remove the "dynamic_partition.replication_num", or it will always replace
+    // the "dynamic_partition.replication_allocation",
+    // result in unable to set "dynamic_partition.replication_allocation".
+    private void removeDuplicateReplicaNumProperty() {
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
+                && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+        }
     }
 }

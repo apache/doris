@@ -14,10 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/thread.cc
+// and modified by Doris
 
 #include "thread.h"
 
+#ifndef __APPLE__
 #include <sys/prctl.h>
+#else
+#include <pthread.h>
+
+#include <cstdint>
+#endif
+
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -32,12 +42,10 @@
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
 #include "gutil/map-util.h"
-#include "gutil/once.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
-#include "util/mutex.h"
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
@@ -56,7 +64,7 @@ __thread Thread* Thread::_tls = nullptr;
 static std::shared_ptr<ThreadMgr> thread_manager;
 //
 // Controls the single (lazy) initialization of thread_manager.
-static GoogleOnceType once = GOOGLE_ONCE_INIT;
+static std::once_flag once;
 
 // A singleton class that tracks all live threads, and groups them together for easy
 // auditing. Used only by Thread.
@@ -65,11 +73,15 @@ public:
     ThreadMgr() : _threads_started_metric(0), _threads_running_metric(0) {}
 
     ~ThreadMgr() {
-        MutexLock lock(&_lock);
+        std::unique_lock<std::mutex> lock(_lock);
         _thread_categories.clear();
     }
 
     static void set_thread_name(const std::string& name, int64_t tid);
+
+#ifndef __APPLE__
+    static void set_idle_sched(int64_t tid);
+#endif
 
     // not the system TID, since pthread_t is less prone to being recycled.
     void add_thread(const pthread_t& pthread_id, const std::string& name,
@@ -112,7 +124,7 @@ private:
     typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
 
     // Protects _thread_categories and thread metrics.
-    mutable Mutex _lock;
+    mutable std::mutex _lock;
 
     // All thread categories that ever contained a thread, even if empty
     ThreadCategoryMap _thread_categories;
@@ -129,11 +141,28 @@ void ThreadMgr::set_thread_name(const std::string& name, int64_t tid) {
     if (tid == getpid()) {
         return;
     }
+#ifdef __APPLE__
+    int err = pthread_setname_np(name.c_str());
+#else
     int err = prctl(PR_SET_NAME, name.c_str());
+#endif
     if (err < 0 && errno != EPERM) {
         LOG(ERROR) << "set_thread_name";
     }
 }
+
+#ifndef __APPLE__
+void ThreadMgr::set_idle_sched(int64_t tid) {
+    if (tid == getpid()) {
+        return;
+    }
+    struct sched_param sp = {.sched_priority = 0};
+    int err = sched_setscheduler(0, SCHED_IDLE, &sp);
+    if (err < 0 && errno != EPERM) {
+        LOG(ERROR) << "set_thread_idle_sched";
+    }
+}
+#endif
 
 void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
                            const std::string& category, int64_t tid) {
@@ -152,7 +181,7 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
     ANNOTATE_IGNORE_SYNC_BEGIN();
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
-        MutexLock l(&_lock);
+        std::unique_lock<std::mutex> l(_lock);
         _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
         _threads_running_metric++;
         _threads_started_metric++;
@@ -164,7 +193,7 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
     ANNOTATE_IGNORE_SYNC_BEGIN();
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
-        MutexLock l(&_lock);
+        std::unique_lock<std::mutex> l(_lock);
         auto category_it = _thread_categories.find(category);
         DCHECK(category_it != _thread_categories.end());
         category_it->second.erase(pthread_id);
@@ -186,7 +215,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         // imposed on new threads that acquire the lock in write mode.
         std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
-            MutexLock l(&_lock);
+            std::unique_lock<std::mutex> l(_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
             if (!category) {
                 return;
@@ -195,7 +224,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
                 descriptors_to_print.emplace_back(elem.second);
             }
         } else {
-            MutexLock l(&_lock);
+            std::unique_lock<std::mutex> l(_lock);
             for (const auto& category : _thread_categories) {
                 for (const auto& elem : category.second) {
                     descriptors_to_print.emplace_back(elem.second);
@@ -210,10 +239,10 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         }
     } else {
         // List all thread groups and the number of threads running in each.
-        std::vector<pair<string, uint64_t>> thread_categories_info;
+        std::vector<std::pair<string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
-            MutexLock l(&_lock);
+            std::unique_lock<std::mutex> l(_lock);
             running = _threads_running_metric;
             thread_categories_info.reserve(_thread_categories.size());
             for (const auto& category : _thread_categories) {
@@ -256,6 +285,16 @@ Thread::~Thread() {
     }
 }
 
+void Thread::set_self_name(const std::string& name) {
+    ThreadMgr::set_thread_name(name, current_thread_id());
+}
+
+#ifndef __APPLE__
+void Thread::set_idle_sched() {
+    ThreadMgr::set_idle_sched(current_thread_id());
+}
+#endif
+
 void Thread::join() {
     ThreadJoiner(this).join();
 }
@@ -290,11 +329,23 @@ Thread* Thread::current_thread() {
 }
 
 int64_t Thread::unique_thread_id() {
+#ifdef __APPLE__
+    uint64_t tid;
+    pthread_threadid_np(pthread_self(), &tid);
+    return tid;
+#else
     return static_cast<int64_t>(pthread_self());
+#endif
 }
 
 int64_t Thread::current_thread_id() {
+#ifdef __APPLE__
+    uint64_t tid;
+    pthread_threadid_np(nullptr, &tid);
+    return tid;
+#else
     return syscall(SYS_gettid);
+#endif
 }
 
 int64_t Thread::wait_for_tid() const {
@@ -326,7 +377,7 @@ int64_t Thread::wait_for_tid() const {
 Status Thread::start_thread(const std::string& category, const std::string& name,
                             const ThreadFunctor& functor, uint64_t flags,
                             scoped_refptr<Thread>* holder) {
-    GoogleOnceInit(&once, &init_threadmgr);
+    std::call_once(once, init_threadmgr);
 
     // Temporary reference for the duration of this function.
     scoped_refptr<Thread> t(new Thread(category, name, functor));
@@ -355,7 +406,7 @@ Status Thread::start_thread(const std::string& category, const std::string& name
 
     int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
     if (ret) {
-        return Status::RuntimeError("Could not create thread", ret, strerror(ret));
+        return Status::RuntimeError("Could not create thread. (error {}) {}", ret, strerror(ret));
     }
 
     // The thread has been created and is now joinable.
@@ -451,7 +502,8 @@ ThreadJoiner& ThreadJoiner::give_up_after_ms(int ms) {
 
 Status ThreadJoiner::join() {
     if (Thread::current_thread() && Thread::current_thread()->tid() == _thread->tid()) {
-        return Status::InvalidArgument("Can't join on own thread", -1, _thread->_name);
+        return Status::InvalidArgument("Can't join on own thread. (error {}) {}", -1,
+                                       _thread->_name);
     }
 
     // Early exit: double join is a no-op.
@@ -483,7 +535,7 @@ Status ThreadJoiner::join() {
 
         int wait_for = std::min(remaining_before_giveup, remaining_before_next_warn);
 
-        if (_thread->_done.wait_for(MonoDelta::FromMilliseconds(wait_for))) {
+        if (_thread->_done.wait_for(std::chrono::milliseconds(wait_for))) {
             // Unconditionally join before returning, to guarantee that any TLS
             // has been destroyed (pthread_key_create() destructors only run
             // after a pthread's user method has returned).
@@ -494,8 +546,7 @@ Status ThreadJoiner::join() {
         }
         waited_ms += wait_for;
     }
-    return Status::Aborted(
-            strings::Substitute("Timed out after $0ms joining on $1", waited_ms, _thread->_name));
+    return Status::Aborted("Timed out after {}ms joining on {}", waited_ms, _thread->_name);
 }
 
 void register_thread_display_page(WebPageHandler* web_page_handler) {

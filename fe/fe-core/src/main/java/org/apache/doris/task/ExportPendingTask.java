@@ -17,8 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.load.ExportFailMsg;
@@ -58,7 +58,7 @@ public class ExportPendingTask extends MasterTask {
         }
 
         long dbId = job.getDbId();
-        db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
@@ -84,7 +84,7 @@ public class ExportPendingTask extends MasterTask {
             return;
         }
     }
-    
+
     private Status makeSnapshots() {
         List<TScanRangeLocations> tabletLocations = job.getTabletLocations();
         if (tabletLocations == null) {
@@ -101,19 +101,18 @@ public class ExportPendingTask extends MasterTask {
                 TNetworkAddress address = location.getServer();
                 String host = address.getHostname();
                 int port = address.getPort();
-                Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, port);
+                Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
                 if (backend == null) {
                     return Status.CANCELLED;
                 }
                 long backendId = backend.getId();
-                if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
+                if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                     return Status.CANCELLED;
                 }
                 TSnapshotRequest snapshotRequest = new TSnapshotRequest();
                 snapshotRequest.setTabletId(paloScanRange.getTabletId());
                 snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setVersionHash(Long.parseLong(paloScanRange.getVersionHash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
                 snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 
@@ -126,7 +125,7 @@ public class ExportPendingTask extends MasterTask {
                     LOG.warn("{}, export job: {}", err, job.getId());
                     return new Status(TStatusCode.CANCELLED, err);
                 }
-                job.addSnapshotPath(new Pair<TNetworkAddress, String>(address, result.getSnapshotPath()));
+                job.addSnapshotPath(Pair.of(address, result.getSnapshotPath()));
             }
         }
         return Status.OK;

@@ -42,9 +42,9 @@ public class LiteralExprCompareTest {
         LiteralExpr boolTrue2 = new BoolLiteral(true);
 
         // value equal
-        Assert.assertTrue(boolTrue1.equals(boolTrue2));
+        Assert.assertEquals(boolTrue1, boolTrue2);
         // self equal
-        Assert.assertTrue(boolTrue1.equals(boolTrue1));
+        Assert.assertEquals(boolTrue1, boolTrue1);
 
         // value compare
         Assert.assertTrue(!boolTrue1.equals(boolFalse1) && 1 == boolTrue1.compareLiteral(boolFalse1));
@@ -57,13 +57,25 @@ public class LiteralExprCompareTest {
 
     @Test(expected = AnalysisException.class)
     public void dateFormat1Test() throws AnalysisException {
-        LiteralExpr date = new DateLiteral("2015-02-15 12:12:12", ScalarType.DATE);
+        new DateLiteral("2015-02-15 12:12:12", ScalarType.DATE);
+        Assert.fail();
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void dateV2Format1Test() throws AnalysisException {
+        new DateLiteral("2015-02-15 12:12:12", ScalarType.DATEV2);
         Assert.fail();
     }
 
     @Test(expected = AnalysisException.class)
     public void dateFormat2Test() throws AnalysisException {
-        LiteralExpr datetime = new DateLiteral("2015-02-15", ScalarType.DATETIME);
+        new DateLiteral("2015-02-15", ScalarType.DATETIME);
+        Assert.fail();
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void dateV2Format2Test() throws AnalysisException {
+        new DateLiteral("2015-02-15", ScalarType.DATETIMEV2);
         Assert.fail();
     }
 
@@ -122,6 +134,114 @@ public class LiteralExprCompareTest {
     }
 
     @Test
+    public void dateV2Test() throws AnalysisException {
+        LiteralExpr date1 = new DateLiteral("2015-02-15", ScalarType.DATEV2);
+        LiteralExpr date1Same = new DateLiteral("2015-02-15", ScalarType.DATEV2);
+        LiteralExpr date1Large = new DateLiteral("2015-02-16", ScalarType.DATEV2);
+        LiteralExpr datetime1 = new DateLiteral("2015-02-15 13:14:00", ScalarType.DATETIMEV2);
+        LiteralExpr datetime1Same = new DateLiteral("2015-02-15 13:14:00", ScalarType.DATETIMEV2);
+        LiteralExpr datetime1Large = new DateLiteral("2015-02-15 13:14:15", ScalarType.DATETIMEV2);
+
+        // infinity
+        LiteralExpr maxDate1 = new DateLiteral(ScalarType.DATEV2, true);
+        LiteralExpr maxDate1Same = new DateLiteral(ScalarType.DATEV2, true);
+        LiteralExpr minDate1 = new DateLiteral(ScalarType.DATEV2, false);
+        LiteralExpr minDate1Same = new DateLiteral(ScalarType.DATEV2, false);
+        LiteralExpr maxDatetime1 = new DateLiteral(ScalarType.DATETIMEV2, true);
+        LiteralExpr maxDatetime1Same = new DateLiteral(ScalarType.DATETIMEV2, true);
+        LiteralExpr minDatetime1 = new DateLiteral(ScalarType.DATETIMEV2, false);
+        LiteralExpr minDatetime1Same = new DateLiteral(ScalarType.DATETIMEV2, false);
+        LiteralExpr date8 = new DateLiteral("9999-12-31", ScalarType.DATEV2);
+        LiteralExpr date9 = new DateLiteral("9999-12-31 23:59:59", ScalarType.DATETIMEV2);
+        LiteralExpr date10 = new DateLiteral("0000-01-01", ScalarType.DATEV2);
+        LiteralExpr date11 = new DateLiteral("0000-01-01 00:00:00", ScalarType.DATETIMEV2);
+
+        Assert.assertTrue(date1.equals(date1Same) && date1.compareLiteral(date1Same) == 0);
+        Assert.assertTrue(date1.equals(date1Same) && date1.compareLiteral(date1Same) == 0);
+        Assert.assertTrue(datetime1.equals(datetime1Same) && datetime1.compareLiteral(datetime1Same) == 0);
+        Assert.assertTrue(datetime1.equals(datetime1) && datetime1.compareLiteral(datetime1) == 0);
+
+        // value compare
+        Assert.assertTrue(!date1Large.equals(date1Same) && 1 == date1Large.compareLiteral(date1Same));
+        Assert.assertTrue(!datetime1Large.equals(datetime1Same) && 1 == datetime1Large.compareLiteral(datetime1Same));
+        Assert.assertTrue(!datetime1Same.equals(datetime1Large) && -1 == datetime1Same.compareLiteral(datetime1Large));
+
+        // infinity
+        Assert.assertTrue(maxDate1.equals(maxDate1) && maxDate1.compareLiteral(maxDate1) == 0);
+        Assert.assertTrue(maxDate1.equals(maxDate1Same) && maxDate1.compareLiteral(maxDate1Same) == 0);
+        Assert.assertTrue(minDate1.equals(minDate1) && minDate1.compareLiteral(minDate1) == 0);
+        Assert.assertTrue(minDate1.equals(minDate1Same) && minDate1.compareLiteral(minDate1Same) == 0);
+        Assert.assertTrue(maxDatetime1.equals(maxDatetime1) && maxDatetime1.compareLiteral(maxDatetime1) == 0);
+        Assert.assertTrue(maxDatetime1.equals(maxDatetime1Same) && maxDatetime1.compareLiteral(maxDatetime1Same) == 0);
+        Assert.assertTrue(minDatetime1.equals(minDatetime1) && minDatetime1.compareLiteral(minDatetime1) == 0);
+        Assert.assertTrue(minDatetime1.equals(minDatetime1Same) && minDatetime1.compareLiteral(minDatetime1Same) == 0);
+
+        Assert.assertTrue(maxDate1.equals(date8) && maxDate1.compareLiteral(date8) == 0);
+        Assert.assertTrue(minDate1.equals(date10) && minDate1.compareLiteral(date10) == 0);
+        Assert.assertTrue(maxDatetime1.equals(date9) && maxDatetime1.compareLiteral(date9) == 0);
+        Assert.assertTrue(minDatetime1.equals(date11) && minDatetime1.compareLiteral(date11) == 0);
+
+        Assert.assertTrue(!maxDate1.equals(date1) && 1 == maxDate1.compareLiteral(date1));
+        Assert.assertTrue(!minDate1.equals(date1) && -1 == minDate1.compareLiteral(date1));
+        Assert.assertTrue(!maxDatetime1.equals(datetime1) && 1 == maxDatetime1.compareLiteral(datetime1));
+        Assert.assertTrue(!minDatetime1.equals(datetime1) && -1 == minDatetime1.compareLiteral(datetime1));
+    }
+
+    @Test
+    public void dateCompatibilityTest() throws AnalysisException {
+        LiteralExpr date1 = new DateLiteral("2015-02-15", ScalarType.DATEV2);
+        LiteralExpr date1Same = new DateLiteral("2015-02-15", ScalarType.DATEV2);
+        LiteralExpr date1Large = new DateLiteral("2015-02-16", ScalarType.DATEV2);
+        LiteralExpr datetime1 = new DateLiteral("2015-02-15 13:14:00", ScalarType.DATETIMEV2);
+        LiteralExpr datetime1Same = new DateLiteral("2015-02-15 13:14:00", ScalarType.DATETIMEV2);
+        LiteralExpr datetime1Large = new DateLiteral("2015-02-15 13:14:15", ScalarType.DATETIMEV2);
+
+        // infinity
+        LiteralExpr maxDate1 = new DateLiteral(ScalarType.DATE, true);
+        LiteralExpr maxDate1Same = new DateLiteral(ScalarType.DATE, true);
+        LiteralExpr minDate1 = new DateLiteral(ScalarType.DATE, false);
+        LiteralExpr minDate1Same = new DateLiteral(ScalarType.DATE, false);
+        LiteralExpr maxDatetime1 = new DateLiteral(ScalarType.DATETIME, true);
+        LiteralExpr maxDatetime1Same = new DateLiteral(ScalarType.DATETIME, true);
+        LiteralExpr minDatetime1 = new DateLiteral(ScalarType.DATETIME, false);
+        LiteralExpr minDatetime1Same = new DateLiteral(ScalarType.DATETIME, false);
+        LiteralExpr date8 = new DateLiteral("9999-12-31", ScalarType.DATEV2);
+        LiteralExpr date9 = new DateLiteral("9999-12-31 23:59:59", ScalarType.DATETIMEV2);
+        LiteralExpr date10 = new DateLiteral("0000-01-01", ScalarType.DATEV2);
+        LiteralExpr date11 = new DateLiteral("0000-01-01 00:00:00", ScalarType.DATETIMEV2);
+
+        Assert.assertTrue(date1.equals(date1Same) && date1.compareLiteral(date1Same) == 0);
+        Assert.assertTrue(date1.equals(date1Same) && date1.compareLiteral(date1Same) == 0);
+        Assert.assertTrue(datetime1.equals(datetime1Same) && datetime1.compareLiteral(datetime1Same) == 0);
+        Assert.assertTrue(datetime1.equals(datetime1) && datetime1.compareLiteral(datetime1) == 0);
+
+        // value compare
+        Assert.assertTrue(!date1Large.equals(date1Same) && 1 == date1Large.compareLiteral(date1Same));
+        Assert.assertTrue(!datetime1Large.equals(datetime1Same) && 1 == datetime1Large.compareLiteral(datetime1Same));
+        Assert.assertTrue(!datetime1Same.equals(datetime1Large) && -1 == datetime1Same.compareLiteral(datetime1Large));
+
+        // infinity
+        Assert.assertTrue(maxDate1.equals(maxDate1) && maxDate1.compareLiteral(maxDate1) == 0);
+        Assert.assertTrue(maxDate1.equals(maxDate1Same) && maxDate1.compareLiteral(maxDate1Same) == 0);
+        Assert.assertTrue(minDate1.equals(minDate1) && minDate1.compareLiteral(minDate1) == 0);
+        Assert.assertTrue(minDate1.equals(minDate1Same) && minDate1.compareLiteral(minDate1Same) == 0);
+        Assert.assertTrue(maxDatetime1.equals(maxDatetime1) && maxDatetime1.compareLiteral(maxDatetime1) == 0);
+        Assert.assertTrue(maxDatetime1.equals(maxDatetime1Same) && maxDatetime1.compareLiteral(maxDatetime1Same) == 0);
+        Assert.assertTrue(minDatetime1.equals(minDatetime1) && minDatetime1.compareLiteral(minDatetime1) == 0);
+        Assert.assertTrue(minDatetime1.equals(minDatetime1Same) && minDatetime1.compareLiteral(minDatetime1Same) == 0);
+
+        Assert.assertTrue(maxDate1.equals(date8) && maxDate1.compareLiteral(date8) == 0);
+        Assert.assertTrue(minDate1.equals(date10) && minDate1.compareLiteral(date10) == 0);
+        Assert.assertTrue(maxDatetime1.equals(date9) && maxDatetime1.compareLiteral(date9) == 0);
+        Assert.assertTrue(minDatetime1.equals(date11) && minDatetime1.compareLiteral(date11) == 0);
+
+        Assert.assertTrue(!maxDate1.equals(date1) && 1 == maxDate1.compareLiteral(date1));
+        Assert.assertTrue(!minDate1.equals(date1) && -1 == minDate1.compareLiteral(date1));
+        Assert.assertTrue(!maxDatetime1.equals(datetime1) && 1 == maxDatetime1.compareLiteral(datetime1));
+        Assert.assertTrue(!minDatetime1.equals(datetime1) && -1 == minDatetime1.compareLiteral(datetime1));
+    }
+
+    @Test
     public void decimalTest() throws AnalysisException {
         LiteralExpr decimal1 = new DecimalLiteral("1.23456");
         LiteralExpr decimal2 = new DecimalLiteral("1.23456");
@@ -129,9 +249,9 @@ public class LiteralExprCompareTest {
         LiteralExpr decimal4 = new DecimalLiteral("2.23457");
 
         // value equal
-        Assert.assertTrue(decimal1.equals(decimal2));
+        Assert.assertEquals(decimal1, decimal2);
         // self equal
-        Assert.assertTrue(decimal1.equals(decimal1));
+        Assert.assertEquals(decimal1, decimal1);
 
         // value compare
         Assert.assertTrue(!decimal3.equals(decimal2) && 1 == decimal3.compareLiteral(decimal2));
@@ -156,9 +276,9 @@ public class LiteralExprCompareTest {
 
         // float
         // value equal
-        Assert.assertTrue(float1.equals(float2));
+        Assert.assertEquals(float1, float2);
         // self equal
-        Assert.assertTrue(float1.equals(float1));
+        Assert.assertEquals(float1, float1);
 
         // value compare
         Assert.assertTrue(!float3.equals(float2) && 1 == float3.compareLiteral(float2));
@@ -171,9 +291,9 @@ public class LiteralExprCompareTest {
 
         // double
         // value equal
-        Assert.assertTrue(double1.equals(double2));
+        Assert.assertEquals(double1, double2);
         // self equal
-        Assert.assertTrue(double1.equals(double1));
+        Assert.assertEquals(double1, double1);
 
         // value compare
         Assert.assertTrue(!double3.equals(double2) && 1 == double3.compareLiteral(double2));
@@ -223,9 +343,9 @@ public class LiteralExprCompareTest {
         LiteralExpr infinity4 = LiteralExpr.createInfinity(type, false);
 
         // value equal
-        Assert.assertTrue(tinyint1.equals(tinyint1));
+        Assert.assertEquals(tinyint1, tinyint1);
         // self equal
-        Assert.assertTrue(tinyint1.equals(tinyint2));
+        Assert.assertEquals(tinyint1, tinyint2);
 
         // value compare
         Assert.assertTrue(!tinyint1.equals(tinyint3) && 1 == tinyint1.compareLiteral(tinyint3));
@@ -237,12 +357,12 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(0 == tinyint1.compareLiteral(tinyint2));
 
         // infinity
-        Assert.assertTrue(infinity1.equals(infinity1));
-        Assert.assertTrue(infinity1.equals(infinity2));
-        Assert.assertTrue(infinity3.equals(infinity3));
-        Assert.assertTrue(infinity3.equals(infinity4));
-        Assert.assertFalse(tinyint1.equals(infinity1));
-        Assert.assertTrue(tinyint3.equals(infinity3));
+        Assert.assertEquals(infinity1, infinity1);
+        Assert.assertEquals(infinity1, infinity2);
+        Assert.assertEquals(infinity3, infinity3);
+        Assert.assertEquals(infinity3, infinity4);
+        Assert.assertNotEquals(tinyint1, infinity1);
+        Assert.assertEquals(tinyint3, infinity3);
 
         Assert.assertTrue(0 == infinity1.compareLiteral(infinity1));
         Assert.assertTrue(0 == infinity1.compareLiteral(infinity2));
@@ -273,7 +393,7 @@ public class LiteralExprCompareTest {
         LiteralExpr infinity3 = new LargeIntLiteral(false);
 
         // value equal
-        Assert.assertTrue(largeInt1.equals(largeInt1));
+        Assert.assertEquals(largeInt1, largeInt1);
 
         // value compare
         Assert.assertTrue(!largeInt1.equals(largeInt3) && 1 == largeInt1.compareLiteral(largeInt3));
@@ -281,10 +401,10 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(0 == largeInt1.compareLiteral(largeInt1));
 
         // infinity
-        Assert.assertTrue(infinity1.equals(infinity1));
-        Assert.assertTrue(infinity3.equals(infinity3));
-        Assert.assertTrue(infinity1.equals(largeInt1));
-        Assert.assertTrue(infinity3.equals(largeInt3));
+        Assert.assertEquals(infinity1, infinity1);
+        Assert.assertEquals(infinity3, infinity3);
+        Assert.assertEquals(infinity1, largeInt1);
+        Assert.assertEquals(infinity3, largeInt3);
 
         Assert.assertTrue(!infinity1.equals(largeInt3) && 1 == infinity1.compareLiteral(largeInt3));
         Assert.assertTrue(!infinity3.equals(infinity1) && -1 == infinity3.compareLiteral(infinity1));

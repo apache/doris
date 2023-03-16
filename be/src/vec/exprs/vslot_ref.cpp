@@ -22,44 +22,44 @@
 #include "runtime/descriptors.h"
 
 namespace doris::vectorized {
-using doris::Status;
-using doris::SlotDescriptor;
+
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node),
-          _slot_id(node.slot_ref.slot_id),
-          _column_id(-1),
-          _column_name(nullptr) {
-            if (node.__isset.is_nullable) {
-              _is_nullable = node.is_nullable;
-            } else {
-              _is_nullable = true;
-            }
-        }
+        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_name(nullptr) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
           _slot_id(desc->id()),
           _column_id(-1),
-          _is_nullable(desc->is_nullable()),
           _column_name(nullptr) {}
 
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                          VExprContext* context) {
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
         return Status::OK();
     }
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
-    if (slot_desc == NULL) {
-        return Status::InternalError(fmt::format("couldn't resolve slot descriptor {}", _slot_id));
+    if (slot_desc == nullptr) {
+        return Status::InternalError("couldn't resolve slot descriptor {}", _slot_id);
+    }
+    _column_name = &slot_desc->col_name();
+    if (!slot_desc->need_materialize()) {
+        // slot should be ignored manually
+        _column_id = -1;
+        return Status::OK();
     }
     _column_id = desc.get_column_id(_slot_id);
-    _column_name = &slot_desc->col_name();
+    if (_column_id < 0) {
+        return Status::InternalError(
+                "VSlotRef have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
+                *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
+                state->desc_tbl().debug_string());
+    }
     return Status::OK();
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    DCHECK_GE(_column_id, 0);
     *result_column_id = _column_id;
     return Status::OK();
 }

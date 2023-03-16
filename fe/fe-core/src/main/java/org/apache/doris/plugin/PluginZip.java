@@ -23,7 +23,6 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -49,7 +48,7 @@ import java.util.zip.ZipInputStream;
  *
  */
 class PluginZip {
-    private final static Logger LOG = LogManager.getLogger(PluginZip.class);
+    private static final Logger LOG = LogManager.getLogger(PluginZip.class);
 
     private static final List<String> DEFAULT_PROTOCOL = ImmutableList.of("https://", "http://");
 
@@ -129,7 +128,8 @@ class PluginZip {
                 BufferedReader br = new BufferedReader(new InputStreamReader(in));
                 expectedChecksum = br.readLine();
             } catch (IOException e) {
-                throw new UserException(e.getMessage() + ". you should set md5sum in plugin properties or provide a md5 URI to check plugin file");
+                throw new UserException(e.getMessage()
+                        + ". you should set md5sum in plugin properties or provide a md5 URI to check plugin file");
             }
         }
 
@@ -172,8 +172,8 @@ class PluginZip {
                 // normalizing the path (which removes foo/..) and ensuring the normalized entry
                 // is still rooted with the target plugin directory.
                 if (!targetFile.normalize().startsWith(targetPath)) {
-                    throw new UserException("Zip contains entry name '" +
-                            entry.getName() + "' resolving outside of plugin directory");
+                    throw new UserException("Zip contains entry name '"
+                            + entry.getName() + "' resolving outside of plugin directory");
                 }
 
                 // be on the safe side: do not rely on that directories are always extracted

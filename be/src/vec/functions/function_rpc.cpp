@@ -21,41 +21,41 @@
 
 #include <memory>
 
-#include "gen_cpp/function_service.pb.h"
-#include "runtime/exec_env.h"
-#include "runtime/user_function_cache.h"
-#include "service/brpc.h"
-#include "util/brpc_client_cache.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+#include "gen_cpp/Exprs_types.h"
+#include "json2pb/json_to_pb.h"
+#include "json2pb/pb_to_json.h"
 
 namespace doris::vectorized {
-RPCFnCall::RPCFnCall(const std::string& symbol, const std::string& server,
-                     const DataTypes& argument_types, const DataTypePtr& return_type)
-        : _symbol(symbol),
-          _server(server),
-          _name(fmt::format("{}/{}", server, symbol)),
-          _argument_types(argument_types),
-          _return_type(return_type) {}
-Status RPCFnCall::prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server);
 
-    if (_client == nullptr) {
-        return Status::InternalError("rpc env init error");
+RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
+    _function_name = _fn.scalar_fn.symbol;
+    _server_addr = _fn.hdfs_location;
+    _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
+    _signature = fmt::format("{}: [{}/{}]", _fn.name.function_name, _fn.hdfs_location,
+                             _fn.scalar_fn.symbol);
+}
+
+void RPCFnImpl::_convert_nullable_col_to_pvalue(const ColumnPtr& column,
+                                                const DataTypePtr& data_type,
+                                                const ColumnUInt8& null_col, PValues* arg,
+                                                int start, int end) {
+    int row_count = end - start;
+    if (column->has_null(row_count)) {
+        auto* null_map = arg->mutable_null_map();
+        null_map->Reserve(row_count);
+        const auto* col = check_and_get_column<ColumnUInt8>(null_col);
+        auto& data = col->get_data();
+        null_map->Add(data.begin() + start, data.begin() + end);
+        this->_convert_col_to_pvalue<true>(column, data_type, arg, start, end);
+    } else {
+        this->_convert_col_to_pvalue<false>(column, data_type, arg, start, end);
     }
-    return Status::OK();
 }
 
 template <bool nullable>
-void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type, PValues* arg,
-                           size_t row_count) {
+void RPCFnImpl::_convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type,
+                                       PValues* arg, int start, int end) {
+    int row_count = end - start;
     PGenericType* ptype = arg->mutable_type();
     switch (data_type->get_type_id()) {
     case TypeIndex::UInt8: {
@@ -64,7 +64,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnUInt8>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::UInt16: {
@@ -73,7 +73,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnUInt16>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::UInt32: {
@@ -82,7 +82,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnUInt32>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::UInt64: {
@@ -91,13 +91,13 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnUInt64>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::UInt128: {
         ptype->set_id(PGenericType::UINT128);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -118,7 +118,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnInt8>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::Int16: {
@@ -127,7 +127,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnInt16>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::Int32: {
@@ -136,7 +136,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnInt32>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::Int64: {
@@ -145,13 +145,13 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnInt64>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::Int128: {
         ptype->set_id(PGenericType::INT128);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -172,7 +172,7 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnFloat32>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
 
@@ -182,34 +182,13 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
         values->Reserve(row_count);
         const auto* col = check_and_get_column<ColumnFloat64>(column);
         auto& data = col->get_data();
-        values->Add(data.begin(), data.begin() + row_count);
-        break;
-    }
-    case TypeIndex::Decimal128: {
-        ptype->set_id(PGenericType::DECIMAL128);
-        auto dec_type = std::reinterpret_pointer_cast<const DataTypeDecimal<Decimal128>>(data_type);
-        ptype->mutable_decimal_type()->set_precision(dec_type->get_precision());
-        ptype->mutable_decimal_type()->set_scale(dec_type->get_scale());
-        arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
-            if constexpr (nullable) {
-                if (column->is_null_at(row_num)) {
-                    arg->add_bytes_value(nullptr);
-                } else {
-                    StringRef data = column->get_data_at(row_num);
-                    arg->add_bytes_value(data.data, data.size);
-                }
-            } else {
-                StringRef data = column->get_data_at(row_num);
-                arg->add_bytes_value(data.data, data.size);
-            }
-        }
+        values->Add(data.begin() + start, data.begin() + end);
         break;
     }
     case TypeIndex::String: {
         ptype->set_id(PGenericType::STRING);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_string_value(nullptr);
@@ -227,17 +206,19 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
     case TypeIndex::Date: {
         ptype->set_id(PGenericType::DATE);
         arg->mutable_datetime_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             PDateTime* date_time = arg->add_datetime_value();
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
-                    VecDateTimeValue v = VecDateTimeValue(column->get_int(row_num));
+                    VecDateTimeValue v =
+                            VecDateTimeValue::create_from_olap_date(column->get_int(row_num));
                     date_time->set_day(v.day());
                     date_time->set_month(v.month());
                     date_time->set_year(v.year());
                 }
             } else {
-                VecDateTimeValue v = VecDateTimeValue(column->get_int(row_num));
+                VecDateTimeValue v =
+                        VecDateTimeValue::create_from_olap_date(column->get_int(row_num));
                 date_time->set_day(v.day());
                 date_time->set_month(v.month());
                 date_time->set_year(v.year());
@@ -248,11 +229,12 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
     case TypeIndex::DateTime: {
         ptype->set_id(PGenericType::DATETIME);
         arg->mutable_datetime_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
             PDateTime* date_time = arg->add_datetime_value();
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
-                    VecDateTimeValue v = VecDateTimeValue(column->get_int(row_num));
+                    VecDateTimeValue v =
+                            VecDateTimeValue::create_from_olap_datetime(column->get_int(row_num));
                     date_time->set_day(v.day());
                     date_time->set_month(v.month());
                     date_time->set_year(v.year());
@@ -261,7 +243,8 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
                     date_time->set_second(v.second());
                 }
             } else {
-                VecDateTimeValue v = VecDateTimeValue(column->get_int(row_num));
+                VecDateTimeValue v =
+                        VecDateTimeValue::create_from_olap_datetime(column->get_int(row_num));
                 date_time->set_day(v.day());
                 date_time->set_month(v.month());
                 date_time->set_year(v.year());
@@ -275,7 +258,43 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
     case TypeIndex::BitMap: {
         ptype->set_id(PGenericType::BITMAP);
         arg->mutable_bytes_value()->Reserve(row_count);
-        for (size_t row_num = 0; row_num < row_count; ++row_num) {
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            if constexpr (nullable) {
+                if (column->is_null_at(row_num)) {
+                    arg->add_bytes_value(nullptr);
+                } else {
+                    StringRef data = column->get_data_at(row_num);
+                    arg->add_bytes_value(data.data, data.size);
+                }
+            } else {
+                StringRef data = column->get_data_at(row_num);
+                arg->add_bytes_value(data.data, data.size);
+            }
+        }
+        break;
+    }
+    case TypeIndex::HLL: {
+        ptype->set_id(PGenericType::HLL);
+        arg->mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = start; row_num < end; ++row_num) {
+            if constexpr (nullable) {
+                if (column->is_null_at(row_num)) {
+                    arg->add_bytes_value(nullptr);
+                } else {
+                    StringRef data = column->get_data_at(row_num);
+                    arg->add_bytes_value(data.data, data.size);
+                }
+            } else {
+                StringRef data = column->get_data_at(row_num);
+                arg->add_bytes_value(data.data, data.size);
+            }
+        }
+        break;
+    }
+    case TypeIndex::QuantileState: {
+        ptype->set_id(PGenericType::QUANTILE_STATE);
+        arg->mutable_bytes_value()->Reserve(row_count);
+        for (size_t row_num = start; row_num < end; ++row_num) {
             if constexpr (nullable) {
                 if (column->is_null_at(row_num)) {
                     arg->add_bytes_value(nullptr);
@@ -297,42 +316,8 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
     }
 }
 
-void convert_nullable_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type,
-                                    const ColumnUInt8& null_col, PValues* arg, size_t row_count) {
-    if (column->has_null(row_count)) {
-        auto* null_map = arg->mutable_null_map();
-        null_map->Reserve(row_count);
-        const auto* col = check_and_get_column<ColumnUInt8>(null_col);
-        auto& data = col->get_data();
-        null_map->Add(data.begin(), data.begin() + row_count);
-        convert_col_to_pvalue<true>(column, data_type, arg, row_count);
-    } else {
-        convert_col_to_pvalue<false>(column, data_type, arg, row_count);
-    }
-}
-
-void convert_block_to_proto(Block& block, const ColumnNumbers& arguments, size_t input_rows_count,
-                            PFunctionCallRequest* request) {
-    size_t row_count = std::min(block.rows(), input_rows_count);
-    for (size_t col_idx : arguments) {
-        PValues* arg = request->add_args();
-        ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        arg->set_has_null(column.column->has_null(row_count));
-        auto col = column.column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*col)) {
-            auto data_col = nullable->get_nested_column_ptr();
-            auto& null_col = nullable->get_null_map_column();
-            auto data_type = std::reinterpret_pointer_cast<const DataTypeNullable>(column.type);
-            convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
-                                           data_type->get_nested_type(), null_col, arg, row_count);
-        } else {
-            convert_col_to_pvalue<false>(col, column.type, arg, row_count);
-        }
-    }
-}
-
 template <bool nullable>
-void convert_to_column(MutableColumnPtr& column, const PValues& result) {
+void RPCFnImpl::_convert_to_column(MutableColumnPtr& column, const PValues& result) {
     switch (result.type().id()) {
     case PGenericType::UINT8: {
         column->reserve(result.uint32_value_size());
@@ -469,6 +454,20 @@ void convert_to_column(MutableColumnPtr& column, const PValues& result) {
         }
         break;
     }
+    case PGenericType::HLL: {
+        column->reserve(result.bytes_value_size());
+        for (int i = 0; i < result.bytes_value_size(); ++i) {
+            column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());
+        }
+        break;
+    }
+    case PGenericType::QUANTILE_STATE: {
+        column->reserve(result.bytes_value_size());
+        for (int i = 0; i < result.bytes_value_size(); ++i) {
+            column->insert_data(result.bytes_value(i).c_str(), result.bytes_value(i).size());
+        }
+        break;
+    }
     default: {
         LOG(WARNING) << "unknown PGenericType: " << result.type().DebugString();
         break;
@@ -476,12 +475,57 @@ void convert_to_column(MutableColumnPtr& column, const PValues& result) {
     }
 }
 
-void convert_to_block(Block& block, const PValues& result, size_t pos) {
+Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                           size_t result, size_t input_rows_count) {
+    PFunctionCallRequest request;
+    PFunctionCallResponse response;
+    request.set_function_name(_function_name);
+    _convert_block_to_proto(block, arguments, input_rows_count, &request);
+    brpc::Controller cntl;
+    _client->fn_call(&cntl, &request, &response, nullptr);
+    if (cntl.Failed()) {
+        return Status::InternalError("call to rpc function {} failed: {}", _signature,
+                                     cntl.ErrorText());
+    }
+    if (!response.has_status() || response.result_size() == 0) {
+        return Status::InternalError("call rpc function {} failed: status or result is not set.",
+                                     _signature);
+    }
+    if (response.status().status_code() != 0) {
+        return Status::InternalError("call to rpc function {} failed: {}", _signature,
+                                     response.status().DebugString());
+    }
+    _convert_to_block(block, response.result(0), result);
+    return Status::OK();
+}
+
+void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arguments,
+                                        size_t input_rows_count, PFunctionCallRequest* request) {
+    size_t row_count = std::min(block.rows(), input_rows_count);
+    for (size_t col_idx : arguments) {
+        PValues* arg = request->add_args();
+        ColumnWithTypeAndName& column = block.get_by_position(col_idx);
+        arg->set_has_null(column.column->has_null(row_count));
+        auto col = column.column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*col)) {
+            auto data_col = nullable->get_nested_column_ptr();
+            auto& null_col = nullable->get_null_map_column();
+            auto data_type = std::reinterpret_pointer_cast<const DataTypeNullable>(column.type);
+            _convert_nullable_col_to_pvalue(data_col->convert_to_full_column_if_const(),
+                                            data_type->get_nested_type(), null_col, arg, 0,
+                                            row_count);
+        } else {
+            _convert_col_to_pvalue<false>(col, column.type, arg, 0, row_count);
+        }
+    }
+}
+
+void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
     auto data_type = block.get_data_type(pos);
     if (data_type->is_nullable()) {
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(data_type);
         auto data_col = null_type->get_nested_type()->create_column();
-        convert_to_column<true>(data_col, result);
+        _convert_to_column<true>(data_col, result);
         auto null_col = ColumnUInt8::create(data_col->size(), 0);
         auto& null_map_data = null_col->get_data();
         null_col->reserve(data_col->size());
@@ -495,33 +539,30 @@ void convert_to_block(Block& block, const PValues& result, size_t pos) {
                 null_map_data[i] = false;
             }
         }
-        block.replace_by_position(
-                pos, std::move(ColumnNullable::create(std::move(data_col), std::move(null_col))));
+        block.replace_by_position(pos,
+                                  ColumnNullable::create(std::move(data_col), std::move(null_col)));
     } else {
         auto column = data_type->create_column();
-        convert_to_column<false>(column, result);
+        _convert_to_column<false>(column, result);
         block.replace_by_position(pos, std::move(column));
     }
 }
 
-Status RPCFnCall::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count, bool dry_run) {
-    PFunctionCallRequest request;
-    PFunctionCallResponse response;
-    request.set_function_name(_symbol);
-    convert_block_to_proto(block, arguments, input_rows_count, &request);
-    brpc::Controller cntl;
-    _client->fn_call(&cntl, &request, &response, nullptr);
-    if (cntl.Failed()) {
-        return Status::InternalError(
-                fmt::format("call to rpc function {} failed: {}", _symbol, cntl.ErrorText())
-                        .c_str());
+FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
+                         const DataTypePtr& return_type)
+        : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
+
+Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    _fn = std::make_unique<RPCFnImpl>(_tfn);
+
+    if (!_fn->available()) {
+        return Status::InternalError("rpc env init error");
     }
-    if (response.status().status_code() != 0) {
-        return Status::InternalError(fmt::format("call to rpc function {} failed: {}", _symbol,
-                                                 response.status().DebugString()));
-    }
-    convert_to_block(block, response.result(), result);
     return Status::OK();
+}
+
+Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                            size_t result, size_t input_rows_count, bool dry_run) {
+    return _fn->vec_call(context, block, arguments, result, input_rows_count);
 }
 } // namespace doris::vectorized

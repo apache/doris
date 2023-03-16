@@ -17,7 +17,8 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -30,7 +31,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,14 +64,14 @@ public class SimpleScheduler {
                                           Reference<Long> backendIdRef)
             throws UserException {
         if (CollectionUtils.isEmpty(locations) || backends == null || backends.isEmpty()) {
-            throw new UserException("scan range location or candidate backends is empty");
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
         LOG.debug("getHost backendID={}, backendSize={}", backendId, backends.size());
         Backend backend = backends.get(backendId);
 
         if (isAvailable(backend)) {
             backendIdRef.setRef(backendId);
-            return new TNetworkAddress(backend.getHost(), backend.getBePort());
+            return new TNetworkAddress(backend.getIp(), backend.getBePort());
         } else {
             for (TScanRangeLocation location : locations) {
                 if (location.backend_id == backendId) {
@@ -81,14 +81,14 @@ public class SimpleScheduler {
                 Backend candidateBackend = backends.get(location.backend_id);
                 if (isAvailable(candidateBackend)) {
                     backendIdRef.setRef(location.backend_id);
-                    return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
+                    return new TNetworkAddress(candidateBackend.getIp(), candidateBackend.getBePort());
                 }
             }
         }
 
         // no backend returned
-        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
@@ -119,46 +119,28 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
     public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
                                           Reference<Long> backendIdRef)
             throws UserException {
-        if (backends == null || backends.isEmpty()) {
-            throw new UserException("candidate backends is empty");
+        if (backends.isEmpty()) {
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
-        int backendSize = backends.size();
-        long id = nextId.getAndIncrement() % backendSize;
-
-        List<Long> idToBackendId = Lists.newArrayList();
-        idToBackendId.addAll(backends.keySet());
-        Long backendId = idToBackendId.get((int) id);
-        Backend backend = backends.get(backendId);
-
-        if (isAvailable(backend)) {
-            backendIdRef.setRef(backendId);
-            return new TNetworkAddress(backend.getHost(), backend.getBePort());
-        } else {
-            long candidateId = id + 1;  // get next candidate id
-            for (int i = 0; i < backendSize; i++, candidateId++) {
-                LOG.debug("i={} candidatedId={}", i, candidateId);
-                if (candidateId >= backendSize) {
-                    candidateId = 0;
-                }
-                if (candidateId == id) {
-                    continue;
-                }
-                Long candidatebackendId = idToBackendId.get((int) candidateId);
-                LOG.debug("candidatebackendId={}", candidatebackendId);
-                Backend candidateBackend = backends.get(candidatebackendId);
-                if (isAvailable(candidateBackend)) {
-                    backendIdRef.setRef(candidatebackendId);
-                    return new TNetworkAddress(candidateBackend.getHost(), candidateBackend.getBePort());
-                }
-            }
+        long id = nextId.getAndIncrement() % backends.size();
+        Map.Entry<Long, Backend> backendEntry = backends.entrySet().stream().skip(id).filter(
+                e -> isAvailable(e.getValue())).findFirst().orElse(null);
+        if (backendEntry == null && id > 0) {
+            backendEntry = backends.entrySet().stream().limit(id).filter(
+                e -> isAvailable(e.getValue())).findFirst().orElse(null);
+        }
+        if (backendEntry != null) {
+            Backend backend = backendEntry.getValue();
+            backendIdRef.setRef(backendEntry.getKey());
+            return new TNetworkAddress(backend.getIp(), backend.getBePort());
         }
         // no backend returned
         throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
@@ -188,22 +170,24 @@ public class SimpleScheduler {
     }
 
     public static void addToBlacklist(Long backendID, String reason) {
-        if (backendID == null) {
+        if (backendID == null || Config.disable_backend_black_list) {
+            LOG.warn("ignore backend black list for backend: {}, disabled: {}", backendID,
+                    Config.disable_backend_black_list);
             return;
         }
 
-        blacklistBackends.put(backendID, Pair.create(FeConstants.heartbeat_interval_second + 1, reason));
+        blacklistBackends.put(backendID, Pair.of(FeConstants.heartbeat_interval_second + 1, reason));
         LOG.warn("add backend {} to black list. reason: {}", backendID, reason);
     }
 
     public static boolean isAvailable(Backend backend) {
         return (backend != null && backend.isQueryAvailable() && !blacklistBackends.containsKey(backend.getId()));
     }
-    
+
     private static class UpdateBlacklistThread implements Runnable {
         private static final Logger LOG = LogManager.getLogger(UpdateBlacklistThread.class);
         private static Thread thread;
-        
+
         public UpdateBlacklistThread() {
             thread = new Thread(this, "UpdateBlacklistThread");
             thread.setDaemon(true);
@@ -212,14 +196,14 @@ public class SimpleScheduler {
         public void start() {
             thread.start();
         }
- 
+
         @Override
         public void run() {
             LOG.debug("UpdateBlacklistThread is start to run");
             while (true) {
                 try {
                     Thread.sleep(1000L);
-                    SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
+                    SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
                     LOG.debug("UpdateBlacklistThread retry begin");
 
                     Iterator<Map.Entry<Long, Pair<Integer, String>>> iterator = blacklistBackends.entrySet().iterator();
@@ -238,7 +222,8 @@ public class SimpleScheduler {
                                 iterator.remove();
                                 LOG.warn("remove backend {} from black list. reach max try time", backendId);
                             } else {
-                                LOG.debug("blacklistBackends backendID={} retryTimes={}", backendId, entry.getValue().first);
+                                LOG.debug("blacklistBackends backendID={} retryTimes={}",
+                                        backendId, entry.getValue().first);
                             }
                         }
                     }
@@ -251,16 +236,9 @@ public class SimpleScheduler {
             }
         }
     }
-    
-    public static TNetworkAddress getHostByCurrentBackend(Map<TNetworkAddress, Long> addressToBackendID) {
-        int backendSize = addressToBackendID.size();
-        if (backendSize == 0) {
-            return null;
-        }
-        Long id = nextId.getAndIncrement() % backendSize;
 
-        List<TNetworkAddress> idToBackendId = Lists.newArrayList();
-        idToBackendId.addAll(addressToBackendID.keySet());
-        return idToBackendId.get(id.intValue());
+    public static TNetworkAddress getHostByCurrentBackend(Map<TNetworkAddress, Long> addressToBackendID) {
+        long id = nextId.getAndIncrement() % addressToBackendID.size();
+        return addressToBackendID.keySet().stream().skip(id).findFirst().orElse(null);
     }
 }

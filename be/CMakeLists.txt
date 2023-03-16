@@ -20,13 +20,13 @@ cmake_minimum_required(VERSION 3.19.2)
 project(doris CXX C)
 
 # Write compile_commands.json
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set platforms
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
     set (ARCH_AMD64 1)
 endif ()
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*)")
     set (ARCH_AARCH64 1)
 endif ()
 if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
@@ -43,14 +43,43 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64le.*|PPC64LE.*)")
     set (ARCH_PPC64LE 1)
 endif ()
 
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    set (OS_LINUX 1)
+    add_definitions(-D OS_LINUX)
+elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set (OS_MACOSX 1)
+    add_definitions(-D OS_MACOSX)
+endif ()
+
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set (COMPILER_GCC 1)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set (COMPILER_CLANG 1)
 endif ()
 
-option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+# Set boost/stacktrace use backtrace api to unwind
+if (NOT OS_MACOSX)
+    add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
+else()
+    add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
+endif()
+
+# Options
+if (NOT OS_MACOSX)
+    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+    option(USE_LIBCPP "Use libc++" OFF)
+    option(USE_MEM_TRACKER, "Use memory tracker" ON)
+else()
+    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." OFF)
+    option(USE_LIBCPP "Use libc++" ON)
+    option(USE_MEM_TRACKER, "Use memory tracker" OFF)
+endif()
+option(USE_JEMALLOC "Use jemalloc" ON)
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
+message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
+message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
+message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -70,49 +99,25 @@ message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{DORIS_HOME} "${BASE_DIR}/../")
+set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed/")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
-
-if (APPLE)
-    set(MAKE_TEST "ON")
-else()
-    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
+if (NOT DEFINED ENV{DORIS_THIRDPARTY})
+    set(ENV{DORIS_THIRDPARTY} "$ENV{DORIS_HOME}/thirdparty")
 endif()
+set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
+message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
+
+option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
 
-# Check gcc
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
-        message(FATAL_ERROR "Need GCC version at least 11.0")
-    endif()
-endif()
-
-set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
-if(PIC_LIB_PATH)
-    message(STATUS "defined PIC_LIB_PATH")
-    set(CMAKE_SKIP_RPATH TRUE)
-    set(Boost_USE_STATIC_LIBS ON)
-    set(Boost_USE_STATIC_RUNTIME ON)
-    set(LIBBZ2 ${PIC_LIB_PATH}/lib/libbz2.a)
-    set(LIBZ ${PIC_LIB_PATH}/lib/libz.a)
-    set(LIBEVENT ${PIC_LIB_PATH}/lib/libevent.a)
-    set(LIBEVENT_PTHREADS ${PIC_LIB_PATH}/lib/libevent_pthreads.a)
-else()
-    message(STATUS "undefined PIC_LIB_PATH")
-    set(Boost_USE_STATIC_LIBS ON)
-    set(Boost_USE_STATIC_RUNTIME ON)
-    set(LIBBZ2 -lbz2)
-    set(LIBZ -lz)
-    set(LIBEVENT event)
-    set(LIBEVENT_PTHREADS libevent_pthreads)
-endif()
-
+set(CMAKE_SKIP_RPATH TRUE)
+set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_STATIC_RUNTIME ON)
 
 # Compile generated source if necessary
 message(STATUS "build gensrc if necessary")
@@ -125,26 +130,46 @@ endif()
 # Set Boost
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
-set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
+set(BOOST_VERSION "1.73.0")
 
 if (NOT APPLE)
-    find_package(Boost 1.73.0 REQUIRED COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
 else()
-    find_package(Boost 1.73.0 COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
+    find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
 endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 # Set all libraries
+add_library(ic STATIC IMPORTED)
+set_target_properties(ic PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libic.a)
+
+add_library(clucene-core STATIC IMPORTED)
+set_target_properties(clucene-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-core-static.a)
+
+add_library(clucene-shared STATIC IMPORTED)
+set_target_properties(clucene-shared PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-shared-static.a)
+
+add_library(clucene-contribs-lib STATIC IMPORTED)
+set_target_properties(clucene-contribs-lib PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-contribs-lib.a)
+
 add_library(gflags STATIC IMPORTED)
 set_target_properties(gflags PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgflags.a)
 
 add_library(glog STATIC IMPORTED)
 set_target_properties(glog PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libglog.a)
 
+add_library(backtrace STATIC IMPORTED)
+set_target_properties(backtrace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbacktrace.a)
+
 add_library(re2 STATIC IMPORTED)
 set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
+
+add_library(hyperscan STATIC IMPORTED)
+set_target_properties(hyperscan PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhs.a)
 
 add_library(odbc STATIC IMPORTED)
 set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
@@ -165,6 +190,9 @@ set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 
 add_library(gtest STATIC IMPORTED)
 set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
+
+add_library(gtest_main STATIC IMPORTED)
+set_target_properties(gtest_main PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest_main.a)
 
 add_library(benchmark STATIC IMPORTED)
 set_target_properties(benchmark PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbenchmark.a)
@@ -203,6 +231,12 @@ set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 add_library(libevent_pthreads STATIC IMPORTED)
 set_target_properties(libevent_pthreads PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent_pthreads.a)
 
+add_library(libbz2 STATIC IMPORTED)
+set_target_properties(libbz2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbz2.a)
+
+add_library(libz STATIC IMPORTED)
+set_target_properties(libz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libz.a)
+
 add_library(crypto STATIC IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
 
@@ -213,7 +247,10 @@ add_library(leveldb STATIC IMPORTED)
 set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
 
 add_library(jemalloc STATIC IMPORTED)
-set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libjemalloc_doris.a)
+
+add_library(jemalloc_arrow STATIC IMPORTED)
+set_target_properties(jemalloc_arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
 
 add_library(brotlicommon STATIC IMPORTED)
 set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
@@ -272,8 +309,24 @@ set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR
 add_library(aws-sdk-s3 STATIC IMPORTED)
 set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
 
+add_library(aws-sdk-transfer STATIC IMPORTED)
+set_target_properties(aws-sdk-transfer PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-transfer.a)
+
+add_library(aws-sdk-s3-crt STATIC IMPORTED)
+set_target_properties(aws-sdk-s3-crt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3-crt.a)
+
+
+add_library(aws-crt-cpp STATIC IMPORTED)
+set_target_properties(aws-crt-cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-crt-cpp.a)
+
 add_library(aws-c-cal STATIC IMPORTED)
 set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
+
+add_library(aws-c-auth STATIC IMPORTED)
+set_target_properties(aws-c-auth PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-auth.a)
+
+add_library(aws-c-compression STATIC IMPORTED)
+set_target_properties(aws-c-compression PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-compression.a)
 
 add_library(aws-c-common STATIC IMPORTED)
 set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
@@ -284,37 +337,104 @@ set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPAR
 add_library(aws-c-io STATIC IMPORTED)
 set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
 
+add_library(aws-c-http STATIC IMPORTED)
+set_target_properties(aws-c-http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-http.a)
+
+add_library(aws-c-mqtt STATIC IMPORTED)
+set_target_properties(aws-c-mqtt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-mqtt.a)
+
 add_library(aws-checksums STATIC IMPORTED)
 set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
 
-add_library(aws-s2n STATIC IMPORTED)
-set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+add_library(aws-c-s3 STATIC IMPORTED)
+set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
+
+if (NOT OS_MACOSX)
+    add_library(aws-s2n STATIC IMPORTED)
+    set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+endif()
 
 add_library(minizip STATIC IMPORTED)
 set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
+add_library(simdjson STATIC IMPORTED)
+set_target_properties(simdjson PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libsimdjson.a)
+
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
+add_library(opentelemetry_common STATIC IMPORTED)
+set_target_properties(opentelemetry_common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_common.a)
+
+add_library(opentelemetry_exporter_zipkin_trace STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_zipkin_trace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_zipkin_trace.a)
+
+add_library(opentelemetry_resources STATIC IMPORTED)
+set_target_properties(opentelemetry_resources PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_resources.a)
+
+add_library(opentelemetry_version STATIC IMPORTED)
+set_target_properties(opentelemetry_version PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_version.a)
+
+add_library(opentelemetry_exporter_ostream_span STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_ostream_span PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_ostream_span.a)
+
+add_library(opentelemetry_trace STATIC IMPORTED)
+set_target_properties(opentelemetry_trace PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_trace.a)
+
+add_library(opentelemetry_http_client_curl STATIC IMPORTED)
+set_target_properties(opentelemetry_http_client_curl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_http_client_curl.a)
+
+add_library(opentelemetry_exporter_otlp_http STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_otlp_http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_otlp_http.a)
+
+add_library(opentelemetry_exporter_otlp_http_client STATIC IMPORTED)
+set_target_properties(opentelemetry_exporter_otlp_http_client PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_exporter_otlp_http_client.a)
+
+add_library(opentelemetry_otlp_recordable STATIC IMPORTED)
+set_target_properties(opentelemetry_otlp_recordable PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_otlp_recordable.a)
+
+add_library(opentelemetry_proto STATIC IMPORTED)
+set_target_properties(opentelemetry_proto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libopentelemetry_proto.a)
+
+add_library(xml2 STATIC IMPORTED)
+set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+
+add_library(lzma STATIC IMPORTED)
+set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
+
 add_library(gsasl STATIC IMPORTED)
-set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgsasl.a)
 
-add_library(breakpad STATIC IMPORTED)
-set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
+add_library(krb5support STATIC IMPORTED)
+set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5support.a)
 
-if (ARCH_AMD64)
-    # libhdfs3 only support x86 or amd64
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
+add_library(krb5 STATIC IMPORTED)
+set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libkrb5.a)
 
-    add_library(xml2 STATIC IMPORTED)
-    set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+add_library(com_err STATIC IMPORTED)
+set_target_properties(com_err PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcom_err.a)
 
-    add_library(lzma STATIC IMPORTED)
-    set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
-endif()
+add_library(k5crypto STATIC IMPORTED)
+set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libk5crypto.a)
+
+add_library(gssapi_krb5 STATIC IMPORTED)
+set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgssapi_krb5.a)
+
+add_library(hdfs3 STATIC IMPORTED)
+set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
+
+if (OS_MACOSX)
+    add_library(bfd STATIC IMPORTED)
+    set_target_properties(bfd PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libbfd.a")
+
+    add_library(iberty STATIC IMPORTED)
+    set_target_properties(iberty PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libiberty.a")
+
+    add_library(intl STATIC IMPORTED)
+    set_target_properties(intl PROPERTIES IMPORTED_LOCATION "${THIRDPARTY_DIR}/lib/libintl.a")
+endif()
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -323,226 +443,189 @@ find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 include(CheckFunctionExists)
 check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 
-# compiler flags that are common across debug/release builds
-#  -Wall: Enable all warnings.
-#  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
-#    integers
-#  -Wno-unknown-pragmas: suppress warnings for unknown (compiler specific) pragmas
-#  -Wno-deprecated: gutil contains deprecated headers
-#  -Wno-vla: we use C99-style variable-length arrays
-#  -pthread: enable multithreaded malloc
-#  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
-#  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
-# Enable the cpu and heap profile of brpc
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
+function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
+    if (CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=${LINKER_COMMAND} -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
+        if ("${LD_VERSION}" MATCHES ${LINKER_NAME})
+            message(STATUS "Linker ${LINKER_NAME} is available, change linker to ${LINKER_NAME}")
+            set(CUSTUM_LINKER_COMMAND "${LINKER_COMMAND}" PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
 
-if (USE_LDD)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
-endif ()
-
-if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++ -lstdc++")
-    add_definitions(-DUSE_LIBCPP)
+# In terms of performance, mold> lld> gold> ld
+set(CUSTUM_LINKER_COMMAND "ld")
+TRY_TO_CHANGE_LINKER("mold" "mold")
+TRY_TO_CHANGE_LINKER("lld" "LLD")
+TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 17)
+
+add_compile_options(-g
+                    -Wall
+                    -Wextra
+                    -Werror
+                    -pthread
+                    -fstrict-aliasing
+                    -fno-omit-frame-pointer)
+
+add_compile_options(-Wno-unused-parameter
+                    -Wno-sign-compare
+                    -Wno-array-bounds)
+
 if (COMPILER_GCC)
-    # Avoid GCC 11 false alarm
-    # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
-    # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
-    add_compile_options(-Wno-stringop-overflow)
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
+        message(FATAL_ERROR "Need GCC version at least 11.1")
+    endif()
+
+    add_compile_options(-fdiagnostics-color=always)
 endif ()
 
 if (COMPILER_CLANG)
-
-    if(MAKE_TEST STREQUAL "OFF")
-        add_compile_options(-Qunused-arguments)
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
+        message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
-    # TODO: Fix all these warnings
-    add_compile_options(
-        -Wno-address-of-packed-member
-        -Wno-ambiguous-reversed-operator
-        -Wno-atomic-implicit-seq-cst
-        -Wno-cast-align
-        -Wno-cast-qual
-        -Wno-comma
-        -Wno-conditional-uninitialized
-        -Wno-constant-conversion
-        -Wno-covered-switch-default
-        -Wno-delete-abstract-non-virtual-dtor
-        -Wno-delete-non-abstract-non-virtual-dtor
-        -Wno-deprecated
-        -Wno-deprecated-copy-with-dtor
-        -Wno-deprecated-copy-with-user-provided-copy
-        -Wno-deprecated-copy-with-user-provided-dtor
-        -Wno-deprecated-declarations
-        -Wno-deprecated-this-capture
-        -Wno-documentation
-        -Wno-embedded-directive
-        -Wno-enum-compare-switch
-        -Wno-extra-semi
-        -Wno-extra-semi-stmt
-        -Wno-format-nonliteral
-        -Wno-frame-larger-than
-        -Wno-gnu-label-as-value
-        -Wno-gnu-redeclared-enum
-        -Wno-gnu-statement-expression
-        -Wno-gnu-zero-variadic-macro-arguments
-        -Wno-header-hygiene
-        -Wno-ignored-qualifiers
-        -Wno-implicit-const-int-float-conversion
-        -Wno-implicit-exception-spec-mismatch
-        -Wno-implicit-fallthrough
-        -Wno-inconsistent-missing-destructor-override
-        -Wno-inconsistent-missing-override
-        -Wno-instantiation-after-specialization
-        -Wno-macro-redefined
-        -Wno-mismatched-new-delete
-        -Wno-mismatched-tags
-        -Wno-missing-field-initializers
-        -Wno-missing-noreturn
-        -Wno-newline-eof
-        -Wno-non-virtual-dtor
-        -Wno-null-conversion
-        -Wno-null-dereference
-        -Wno-old-style-cast
-        -Wno-overloaded-virtual
-        -Wno-pedantic
-        -Wno-pessimizing-move
-        -Wno-pragma-once-outside-header
-        -Wno-reserved-identifier
-        -Wno-reserved-macro-identifier
-        -Wno-return-type
-        -Wno-shadow
-        -Wno-shadow-field
-        -Wno-shadow-field-in-constructor
-        -Wno-shadow-uncaptured-local
-        -Wno-shift-count-overflow
-        -Wno-sign-compare
-        -Wno-string-plus-int
-        -Wno-suggest-destructor-override
-        -Wno-suggest-override
-        -Wno-tautological-constant-out-of-range-compare
-        -Wno-tautological-unsigned-zero-compare
-        -Wno-undef
-        -Wno-uninitialized
-        -Wno-unknown-pragmas
-        -Wno-unknown-warning-option
-        -Wno-unreachable-code
-        -Wno-unreachable-code-break
-        -Wno-unreachable-code-return
-        -Wno-unused-but-set-variable
-        -Wno-unused-const-variable
-        -Wno-unused-exception-parameter
-        -Wno-unused-function
-        -Wno-unused-lambda-capture
-        -Wno-unused-local-typedef
-        -Wno-unused-macros
-        -Wno-unused-member-function
-        -Wno-unused-parameter
-        -Wno-unused-private-field
-        -Wno-unused-result
-        -Wno-unused-value
-        -Wno-unused-variable
-        -Wno-variadic-macros
-        -Wno-zero-as-null-pointer-constant
-    )
+    add_compile_options(-fcolor-diagnostics 
+                        -Wpedantic
+                        -Wunused-template
+                        -Wunused-private-field
+                        -Wunused-property-ivar
+                        -Wunused-member-function
+                        -Wunused-macros)
+    add_compile_options(-Wno-zero-length-array
+                        -Wno-variadic-macros
+                        -Wno-gnu-zero-variadic-macro-arguments
+                        -Wno-vla-extension
+                        -Wno-c++20-designator
+                        -Wno-embedded-directive)
+    if (USE_LIBCPP)
+        add_compile_options(-stdlib=libc++)
+        if (NOT OS_MACOSX)
+            add_compile_options(-lstdc++)
+        endif()
+        add_definitions(-DUSE_LIBCPP)
+    else()
+        add_compile_options(-Wno-c++20-attribute-extensions)
+    endif()
 endif ()
 
-# https://github.com/boostorg/uuid/issues/92
-# We need to avoid using SYS_getrandom system calls
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
+add_compile_options(-D__STDC_FORMAT_MACROS
+                    -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG
+                    -DBOOST_SYSTEM_NO_DEPRECATED
+                    -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1
+                    -DBRPC_ENABLE_CPU_PROFILER
+                    -DS2_USE_GFLAGS
+                    -DS2_USE_GLOG)
+
+# Thrift requires these two definitions for some types that we use
+add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
+
+if (RECORD_COMPILER_SWITCHES)
+    add_compile_options(-frecord-gcc-switches)
+endif()
+
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+    add_compile_options(-msse4.2)
     if (USE_AVX2)
-        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
+        add_compile_options(-mavx2)
     endif()
 endif()
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
 if (WITH_MYSQL)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
+    add_compile_options(-DDORIS_WITH_MYSQL)
 endif()
 
 if (WITH_LZO)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
+    add_compile_options(-DDORIS_WITH_LZO)
 endif()
 
-if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
+# Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
+# and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
+# Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
+# which will bring about a 2% performance improvement, which may be useful in performance POC.
+if (USE_MEM_TRACKER)
+    add_compile_options(-DUSE_MEM_TRACKER)
 endif()
 
-# For any gcc builds:
-#   -g: Enable symbols for profiler tools
-#   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
+# Compile with jemalloc.
+# Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
+if (USE_JEMALLOC)
+    add_compile_options(-DUSE_JEMALLOC)
+endif()
+
+# Use Bthread to separate computation and IO
+# Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
+if (USE_BTHREAD_SCANNER)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
+endif()
+
+# STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
+# when the cluster memory is limited.
+# TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
+# to control the main memory consumers, including HashTable, LRU Cache elimination strategy,
+# ChunkAllocator cache strategy, Disk IO buffer cache strategy, etc.
+if (STRICT_MEMORY_USE)
+    add_compile_options(-DSTRICT_MEMORY_USE)
+endif()
+if (ENABLE_STACKTRACE)
+    add_compile_options(-DENABLE_STACKTRACE)
+endif()
+
+if (USE_DWARF)
+    add_compile_options(-gdwarf-5)
+endif()
 
 # For CMAKE_BUILD_TYPE=Debug
-#   -ggdb: Enable gdb debugging
-# Debug information is stored as dwarf2 to be as compatible as possible
-#   -Werror: compile warnings should be errors when using the toolchain compiler.
-# Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
+if (OS_MACOSX AND ARCH_ARM)
+    # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
+    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
+else()
+    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
+endif()
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
-#   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
-
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
+set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
+set(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
+set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize=undefined")
-# Ignore a number of noisy errors with too many false positives:
-# TODO(zc):
-# SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
-# Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
+set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
+# If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/doris/issues/8868
+set(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
-    SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
+    set(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
+    set(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
-    SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
+    set(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
-    SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_LSAN}")
+    set(CMAKE_CXX_FLAGS "${CXX_FLAGS_LSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
-    SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_UBSAN}")
+    set(CMAKE_CXX_FLAGS "${CXX_FLAGS_UBSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
-    SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_TSAN}")
+    set(CMAKE_CXX_FLAGS "${CXX_FLAGS_TSAN}")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
 # Add flags that are common across build types
-SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
 
-message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
-
-if (CMAKE_GENERATOR STREQUAL "Ninja" AND NOT DISABLE_COLORED_BUILD)
-    # Turn on colored output. https://github.com/ninja-build/ninja/wiki/FAQ
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
-    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
-endif ()
-
-# Thrift requires these two definitions for some types that we use
-add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
+set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
@@ -555,15 +638,47 @@ include_directories(
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-    ${THIRDPARTY_DIR}/include/thrift/
-    ${THIRDPARTY_DIR}/include/event/
-    ${THIRDPARTY_DIR}/include/breakpad/
 )
+include_directories($ENV{JAVA_HOME}/include)
+if (NOT OS_MACOSX)
+    include_directories($ENV{JAVA_HOME}/include/linux)
+else()
+    include_directories($ENV{JAVA_HOME}/include/darwin)
+endif()
 
-set(WL_START_GROUP "-Wl,--start-group")
-set(WL_END_GROUP "-Wl,--end-group")
+if (NOT OS_MACOSX)
+    set(WL_START_GROUP "-Wl,--start-group")
+    set(WL_END_GROUP "-Wl,--end-group")
+endif()
 
-set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
+set(KRB5_LIBS
+    krb5support
+    krb5
+    com_err
+    gssapi_krb5
+    k5crypto)
+
+set(AWS_LIBS
+    aws-sdk-s3
+    aws-sdk-core
+    aws-sdk-transfer
+    aws-checksums
+    aws-c-io
+    aws-c-event-stream
+    aws-c-common
+    aws-c-cal
+    aws-s2n
+    aws-c-s3
+    aws-c-auth
+    aws-crt-cpp
+    aws-c-compression
+    aws-c-http
+    aws-c-mqtt
+    aws-sdk-s3-crt)
+
+if (OS_MACOSX)
+    list(REMOVE_ITEM AWS_LIBS aws-s2n)
+endif()
 
 # Set Doris libraries
 set(DORIS_LINK_LIBS
@@ -574,10 +689,9 @@ set(DORIS_LINK_LIBS
     Exec
     Exprs
     Gutil
-    Memory
+    IO
     Olap
     Rowset
-    OlapFs
     Runtime
     Service
     Udf
@@ -586,20 +700,22 @@ set(DORIS_LINK_LIBS
     Webserver
     Geo
     Vec
+    Pipeline
     ${WL_END_GROUP}
 )
-if (${MAKE_TEST} STREQUAL "ON")
-    set(DORIS_LINK_LIBS
-        ${DORIS_LINK_LIBS}
-        TestUtil
-    )
-endif()
 
+set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
+find_package(absl)
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
 set(COMMON_THIRDPARTY
+    ic
+    clucene-core
+    clucene-shared
+    clucene-contribs-lib
+    backtrace
     rocksdb
     cyrus-sasl
     libs2
@@ -609,6 +725,7 @@ set(COMMON_THIRDPARTY
     thriftnb
     glog
     re2
+    hyperscan
     pprof
     lz4
     libevent
@@ -616,8 +733,8 @@ set(COMMON_THIRDPARTY
     idn
     gsasl
     curl
-    ${LIBZ}
-    ${LIBBZ2}
+    libz
+    libbz2
     gflags
     brpc
     protobuf
@@ -628,6 +745,7 @@ set(COMMON_THIRDPARTY
     roaring
     fmt
     jemalloc
+    jemalloc_arrow
     brotlicommon
     brotlidec
     brotlienc
@@ -638,12 +756,44 @@ set(COMMON_THIRDPARTY
     odbc
     cctz
     minizip
-    breakpad
+    opentelemetry_common
+    opentelemetry_exporter_zipkin_trace
+    opentelemetry_resources
+    opentelemetry_version
+    opentelemetry_exporter_ostream_span
+    opentelemetry_trace
+    opentelemetry_http_client_curl
+    opentelemetry_exporter_otlp_http
+    opentelemetry_exporter_otlp_http_client
+    opentelemetry_otlp_recordable
+    opentelemetry_proto
     ${AWS_LIBS}
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
     librdkafka
+    hdfs3
+    xml2
+    lzma
+    simdjson
 )
+
+if (absl_FOUND)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        absl::flat_hash_set
+        absl::str_format
+    )
+endif()
+
+if (OS_MACOSX)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        Boost::container
+        bfd
+        iberty
+        intl
+    )
+endif()
 
 if (${MAKE_TEST} STREQUAL "ON")
     set(COMMON_THIRDPARTY
@@ -652,67 +802,61 @@ if (${MAKE_TEST} STREQUAL "ON")
     )
 endif()
 
-# thirdparties dependescies that can only run on X86 platform
-set(X86_DEPENDENCIES
+set(DORIS_DEPENDENCIES
+    ${DORIS_DEPENDENCIES}
+    ${WL_START_GROUP}
     ${COMMON_THIRDPARTY}
-    hdfs3
-    xml2
-    lzma
+    ${KRB5_LIBS}
 )
 
-if(ARCH_AARCH64)
-    # Set thirdparty libraries
-    set(DORIS_DEPENDENCIES
-        ${DORIS_DEPENDENCIES}
-        ${WL_START_GROUP}
-        ${COMMON_THIRDPARTY}
-        ${WL_END_GROUP}
-    )
-else()
-    set(DORIS_DEPENDENCIES
-        ${DORIS_DEPENDENCIES}
-        ${WL_START_GROUP}
-        ${X86_DEPENDENCIES}
-    )
-endif()
-
 if(WITH_LZO)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        lzo
-    )
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} lzo)
 endif()
 
 if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        mysql
-        )
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
-message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
-
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${DORIS_DEPENDENCIES}
-    -static-libstdc++
-    -static-libgcc
-    -lstdc++fs
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        ${DORIS_DEPENDENCIES}
+        -static-libstdc++
+        -static-libgcc
+        -lstdc++fs
+        -lresolv
+    )
+else()
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        ${DORIS_DEPENDENCIES}
+        -lapple_nghttp2
+        -lresolv
+        -liconv
+    )
+endif()
+
+if (USE_JEMALLOC)
+    set(MALLOCLIB jemalloc)
+else ()
+    set(MALLOCLIB tcmalloc)
+endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
     set(LSAN_LIBS -static-liblsan)
-    set(UBSAN_LIBS -static-libubsan tcmalloc)
+    set(UBSAN_LIBS -static-libubsan ${MALLOCLIB})
     set(TSAN_LIBS -static-libtsan)
 else ()
-    set(UBSAN_LIBS tcmalloc)
+    set(UBSAN_LIBS -rtlib=compiler-rt ${MALLOCLIB})
 endif ()
 
-# Add sanitize static link flags or tcmalloc
+# Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
@@ -732,14 +876,30 @@ if (GLIBC_COMPATIBILITY)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility-explicit glibc-compatibility)
 endif()
 
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+    )
+else()
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Foundation"
+        "-framework SystemConfiguration"
+        "-framework Security"
+    )
+    if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
+        set(DORIS_LINK_LIBS
+            ${DORIS_LINK_LIBS}
+            "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
+        )
+    endif()
+endif()
 
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
-    Test_util
     gmock
     gtest
     ${WL_END_GROUP}
@@ -749,11 +909,33 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
-    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+    add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+    if (NOT OS_MACOSX)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+    endif()
     add_definitions(-DBE_TEST)
-    add_subdirectory(${SRC_DIR}/testutil)
+    if (ARCH_ARM)
+        add_compile_options(-ffp-contract=off)
+    endif()
 endif ()
+
+get_directory_property(COMPILER_FLAGS COMPILE_OPTIONS)
+get_directory_property(COMPILER_DEFINES COMPILE_DEFINITIONS)
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "CXX Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "C Standard: ${CMAKE_C_STANDARD}")
+message(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
+message(STATUS "C Flags: ${CMAKE_C_FLAGS}")
+message(STATUS "CC Flags: ${CMAKE_CC_FLAGS}")
+message(STATUS "Compiler Options: ${COMPILER_FLAGS}")
+message(STATUS "Compiler Definitions: ${COMPILER_DEFINES}")
+message(STATUS "Doris Dependencies: ${DORIS_DEPENDENCIES}")
+if (NOT MAKE_TEST)
+    message(STATUS "Link Flags: ${DORIS_LINK_LIBS}")
+else()
+    message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
+endif()
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
@@ -764,6 +946,7 @@ add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
@@ -775,47 +958,10 @@ endif()
 
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
-
-# Utility CMake function to make specifying tests and benchmarks less verbose
-FUNCTION(ADD_BE_TEST TEST_NAME)
-    # use argn to add additional files
-    set(ADDITIONAL_FILES ${ARGN})
-    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
-    # This gets the directory where the test is from (e.g. 'exprs' or 'runtime')
-    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-    get_filename_component(TEST_DIR_NAME ${TEST_NAME} PATH)
-    get_filename_component(TEST_FILE_NAME ${TEST_NAME} NAME)
-
-    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp ${ADDITIONAL_FILES})
-    TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
-    if (NOT "${TEST_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
-    endif()
-    ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
-ENDFUNCTION()
+add_subdirectory(${SRC_DIR}/pipeline)
 
 if (${MAKE_TEST} STREQUAL "ON")
-    add_subdirectory(${TEST_DIR}/test_util)
-    add_subdirectory(${TEST_DIR}/agent)
-    add_subdirectory(${TEST_DIR}/common)
-    add_subdirectory(${TEST_DIR}/env)
-    add_subdirectory(${TEST_DIR}/exec)
-    add_subdirectory(${TEST_DIR}/exprs)
-    add_subdirectory(${TEST_DIR}/geo)
-    add_subdirectory(${TEST_DIR}/gutil)
-    add_subdirectory(${TEST_DIR}/http)
-    add_subdirectory(${TEST_DIR}/olap)
-    add_subdirectory(${TEST_DIR}/runtime)
-    add_subdirectory(${TEST_DIR}/udf)
-    add_subdirectory(${TEST_DIR}/util)
-    add_subdirectory(${TEST_DIR}/vec/core)
-    add_subdirectory(${TEST_DIR}/vec/exec)
-    add_subdirectory(${TEST_DIR}/vec/exprs)
-    add_subdirectory(${TEST_DIR}/vec/function)
-    add_subdirectory(${TEST_DIR}/vec/runtime)
-    add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
-    add_subdirectory(${TEST_DIR}/tools)
+    add_subdirectory(${TEST_DIR})
 endif ()
 
 # Install be
@@ -834,6 +980,8 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
+    ${BASE_DIR}/../conf/asan_suppr.conf
+    ${BASE_DIR}/../conf/hdfs-site.xml
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

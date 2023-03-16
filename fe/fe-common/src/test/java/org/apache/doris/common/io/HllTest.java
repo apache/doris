@@ -33,12 +33,12 @@ public class HllTest {
     public void testFindFirstNonZeroBitPosition() {
         Assert.assertTrue(Hll.getLongTailZeroNum(0) == 0);
         Assert.assertTrue(Hll.getLongTailZeroNum(1) == 0);
-        Assert.assertTrue(Hll.getLongTailZeroNum(1l << 30) == 30);
-        Assert.assertTrue(Hll.getLongTailZeroNum(1l << 62) == 62);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1L << 30) == 30);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1L << 62) == 62);
     }
 
     @Test
-    public void HllBasicTest() throws IOException {
+    public void hllBasicTest() throws IOException {
         // test empty
         Hll emptyHll = new Hll();
 
@@ -76,8 +76,8 @@ public class HllTest {
         }
         Assert.assertTrue(sparseHll.getType() == Hll.HLL_DATA_FULL);
         // 2% error rate
-        Assert.assertTrue(sparseHll.estimateCardinality() > Hll.HLL_SPARSE_THRESHOLD * (1 - 0.02) &&
-                sparseHll.estimateCardinality() < Hll.HLL_SPARSE_THRESHOLD * (1 + 0.02));
+        Assert.assertTrue(sparseHll.estimateCardinality() > Hll.HLL_SPARSE_THRESHOLD * (1 - 0.02)
+                && sparseHll.estimateCardinality() < Hll.HLL_SPARSE_THRESHOLD * (1 + 0.02));
 
         ByteArrayOutputStream sparseOutputStream = new ByteArrayOutputStream();
         DataOutput sparseOutput = new DataOutputStream(sparseOutputStream);
@@ -97,8 +97,8 @@ public class HllTest {
         Assert.assertTrue(fullHll.getType() == Hll.HLL_DATA_FULL);
         // the result 32748 is consistent with C++ 's implementation
         Assert.assertTrue(fullHll.estimateCardinality() == 32748);
-        Assert.assertTrue(fullHll.estimateCardinality() > Short.MAX_VALUE * (1 - 0.02) &&
-                fullHll.estimateCardinality() < Short.MAX_VALUE * (1 + 0.02));
+        Assert.assertTrue(fullHll.estimateCardinality() > Short.MAX_VALUE * (1 - 0.02)
+                && fullHll.estimateCardinality() < Short.MAX_VALUE * (1 + 0.02));
 
         ByteArrayOutputStream fullHllOutputStream = new ByteArrayOutputStream();
         DataOutput fullHllOutput = new DataOutputStream(fullHllOutputStream);
@@ -116,18 +116,18 @@ public class HllTest {
     @Test
     public void testCompareEstimateValueWithBe() throws IOException {
         //empty
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Hll hll = new Hll();
             long estimateValue = hll.estimateCardinality();
             byte[] serializedByte = serializeHll(hll);
             hll = deserializeHll(serializedByte);
 
             Assert.assertTrue(estimateValue == hll.estimateCardinality());
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // explicit [0. 100)
         Hll explicitHll = new Hll();
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             for (int i = 0; i < 100; i++) {
                 explicitHll.updateWithHash(i);
             }
@@ -144,11 +144,11 @@ public class HllTest {
             explicitHll.merge(otherHll);
             // compare with C++ version result
             Assert.assertTrue(explicitHll.estimateCardinality() == 100);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // sparse [1024, 2048)
         Hll sparseHll = new Hll();
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             for (int i = 0; i < 1024; i++) {
                 sparseHll.updateWithHash(i + 1024);
             }
@@ -174,11 +174,11 @@ public class HllTest {
             Assert.assertTrue(cardinality > 1000 && cardinality < 1045);
             // compare with C++ version result
             Assert.assertTrue(cardinality == 1023);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // full [64 * 1024, 128 * 1024)
         Hll fullHll = new Hll();
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             for (int i = 0; i < 64 * 1024; i++) {
                 fullHll.updateWithHash(64 * 1024 + i);
             }
@@ -195,16 +195,16 @@ public class HllTest {
 
             // compare with C++ version result
             Assert.assertTrue(preValue == 66112);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // merge explicit to empty_hll
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Hll newExplicit = new Hll();
             newExplicit.merge(explicitHll);
             Assert.assertTrue(newExplicit.estimateCardinality() == 100);
 
             // merge another explicit
-            {
+            { // CHECKSTYLE IGNORE THIS LINE
                 Hll otherHll = new Hll();
                 for (int i = 100; i < 200; i++) {
                     otherHll.updateWithHash(i);
@@ -214,18 +214,18 @@ public class HllTest {
                 Assert.assertTrue(otherHll.estimateCardinality() > 190);
                 // compare with C++ version result
                 Assert.assertTrue(otherHll.estimateCardinality() == 201);
-            }
+            } // CHECKSTYLE IGNORE THIS LINE
             // merge full
-            {
+            { // CHECKSTYLE IGNORE THIS LINE
                 newExplicit.merge(fullHll);
                 Assert.assertTrue(newExplicit.estimateCardinality() > fullHll.estimateCardinality());
                 // compare with C++ version result
                 Assert.assertTrue(newExplicit.estimateCardinality() == 66250);
-            }
-        }
+            } // CHECKSTYLE IGNORE THIS LINE
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // merge sparse into empty
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Hll newSparseHll = new Hll();
             newSparseHll.merge(sparseHll);
             Assert.assertTrue(sparseHll.estimateCardinality() == newSparseHll.estimateCardinality());
@@ -243,7 +243,7 @@ public class HllTest {
             Assert.assertTrue(newSparseHll.estimateCardinality() > fullHll.estimateCardinality());
             // compare with C++ version result
             Assert.assertTrue(newSparseHll.estimateCardinality() == 67316);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
     }
 

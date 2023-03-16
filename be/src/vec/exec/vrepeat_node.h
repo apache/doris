@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "exec/repeat_node.h"
+#include "exec/exec_node.h"
 
 namespace doris {
 
@@ -28,29 +28,49 @@ class RuntimeState;
 class Status;
 
 namespace vectorized {
-class VRepeatNode : public RepeatNode {
+class VExprContext;
+
+class VRepeatNode : public ExecNode {
 public:
     VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VRepeatNode() override = default;
 
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    virtual Status close(RuntimeState* state) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    Status close(RuntimeState* state) override;
 
-protected:
-    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    bool need_more_input_data() const;
+    Block* get_child_block() { return &_child_block; }
+
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
-    std::unique_ptr<Block> _child_block;
-    std::vector<SlotDescriptor*> _child_slots;
+    // Slot id set used to indicate those slots need to set to null.
+    std::vector<std::set<SlotId>> _slot_id_set_list;
+    // all slot id
+    std::set<SlotId> _all_slot_ids;
+    // An integer bitmap list, it indicates the bit position of the exprs not null.
+    std::vector<int64_t> _repeat_id_list;
+    std::vector<std::vector<int64_t>> _grouping_list;
+    TupleId _output_tuple_id;
+    const TupleDescriptor* _output_tuple_desc;
+
+    Block _child_block;
+    std::unique_ptr<Block> _intermediate_block {};
+
     std::vector<SlotDescriptor*> _output_slots;
 
-    // _virtual_tuple_id id used for GROUPING_ID().
-    TupleId _virtual_tuple_id;
-    const TupleDescriptor* _virtual_tuple_desc;
+    std::vector<VExprContext*> _expr_ctxs;
+    bool _child_eos;
+    int _repeat_id_idx;
 };
 } // namespace vectorized
 } // namespace doris

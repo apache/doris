@@ -32,18 +32,10 @@
 
 namespace doris::vectorized {
 
-/// This class implements a wrapper around an aggregate function. Despite its name,
-/// this is an adapter. It is used to handle aggregate functions that are called with
-/// at least one nullable argument. It implements the logic according to which any
-/// row that contains at least one NULL is skipped.
-
-/// If all rows had NULL, the behaviour is determined by "result_is_nullable" template parameter.
-///  true - return NULL; false - return value from empty aggregation state of nested function.
-
-template <bool result_is_nullable, typename Derived>
-class AggregateFunctionNullBase : public IAggregateFunctionHelper<Derived> {
+template <typename NestFunction, bool result_is_nullable, typename Derived>
+class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived> {
 protected:
-    AggregateFunctionPtr nested_function;
+    std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
 
     /** In addition to data for nested aggregate function, we keep a flag
@@ -62,26 +54,31 @@ protected:
     }
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) place[0] = 0;
+        if constexpr (result_is_nullable) {
+            place[0] = false;
+        }
     }
 
     static void set_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) place[0] = 1;
+        if constexpr (result_is_nullable) {
+            place[0] = true;
+        }
     }
 
     static bool get_flag(ConstAggregateDataPtr __restrict place) noexcept {
-        return result_is_nullable ? place[0] : 1;
+        return result_is_nullable ? place[0] : true;
     }
 
 public:
-    AggregateFunctionNullBase(AggregateFunctionPtr nested_function_, const DataTypes& arguments,
-                              const Array& params)
-            : IAggregateFunctionHelper<Derived>(arguments, params),
-              nested_function {nested_function_} {
-        if (result_is_nullable)
+    AggregateFunctionNullBaseInline(IAggregateFunction* nested_function_,
+                                    const DataTypes& arguments)
+            : IAggregateFunctionHelper<Derived>(arguments),
+              nested_function {assert_cast<NestFunction*>(nested_function_)} {
+        if (result_is_nullable) {
             prefix_size = nested_function->align_of_data();
-        else
+        } else {
             prefix_size = 0;
+        }
     }
 
     String get_name() const override {
@@ -117,14 +114,18 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena* arena) const override {
-        if (result_is_nullable && get_flag(rhs)) set_flag(place);
+        if (result_is_nullable && get_flag(rhs)) {
+            set_flag(place);
+        }
 
         nested_function->merge(nested_place(place), nested_place(rhs), arena);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         bool flag = get_flag(place);
-        if (result_is_nullable) write_binary(flag, buf);
+        if (result_is_nullable) {
+            write_binary(flag, buf);
+        }
         if (flag) {
             nested_function->serialize(nested_place(place), buf);
         }
@@ -133,10 +134,34 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
         bool flag = true;
-        if (result_is_nullable) read_binary(flag, buf);
+        if (result_is_nullable) {
+            read_binary(flag, buf);
+        }
         if (flag) {
             set_flag(place);
             nested_function->deserialize(nested_place(place), buf, arena);
+        }
+    }
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {
+        bool flag = true;
+        if (result_is_nullable) {
+            read_binary(flag, buf);
+        }
+        if (flag) {
+            set_flag(place);
+            nested_function->deserialize_and_merge(nested_place(place), buf, arena);
+        }
+    }
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {
+        size_t num_rows = column.size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            VectorBufferReader buffer_reader(
+                    (assert_cast<const ColumnString&>(column)).get_data_at(i));
+            deserialize_and_merge(place, buffer_reader, arena);
         }
     }
 
@@ -144,14 +169,9 @@ public:
         if constexpr (result_is_nullable) {
             ColumnNullable& to_concrete = assert_cast<ColumnNullable&>(to);
             if (get_flag(place)) {
-                if (nested_function->insert_to_null_default()) {
-                    nested_function->insert_result_into(nested_place(place),
-                                                        to_concrete.get_nested_column());
-                    to_concrete.get_null_map_data().push_back(0);
-                } else {
-                    nested_function->insert_result_into(
-                            nested_place(place), to); //want to insert into null value by self
-                }
+                nested_function->insert_result_into(nested_place(place),
+                                                    to_concrete.get_nested_column());
+                to_concrete.get_null_map_data().push_back(0);
             } else {
                 to_concrete.insert_default();
             }
@@ -170,16 +190,18 @@ public:
 /** There are two cases: for single argument and variadic.
   * Code for single argument is much more efficient.
   */
-template <bool result_is_nullable>
-class AggregateFunctionNullUnary final
-        : public AggregateFunctionNullBase<result_is_nullable,
-                                           AggregateFunctionNullUnary<result_is_nullable>> {
+template <typename NestFuction, bool result_is_nullable>
+class AggregateFunctionNullUnaryInline final
+        : public AggregateFunctionNullBaseInline<
+                  NestFuction, result_is_nullable,
+                  AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>> {
 public:
-    AggregateFunctionNullUnary(AggregateFunctionPtr nested_function_, const DataTypes& arguments,
-                               const Array& params)
-            : AggregateFunctionNullBase<result_is_nullable,
-                                        AggregateFunctionNullUnary<result_is_nullable>>(
-                      std::move(nested_function_), arguments, params) {}
+    AggregateFunctionNullUnaryInline(IAggregateFunction* nested_function_,
+                                     const DataTypes& arguments)
+            : AggregateFunctionNullBaseInline<
+                      NestFuction, result_is_nullable,
+                      AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>(
+                      nested_function_, arguments) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
@@ -191,6 +213,21 @@ public:
         }
     }
 
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+        const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
+        // The overhead introduced is negligible here, just an extra memory read from NullMap
+        const auto* __restrict null_map_data = column->get_null_map_data().data();
+        const IColumn* nested_column = &column->get_nested_column();
+        for (int i = 0; i < batch_size; ++i) {
+            if (!null_map_data[i]) {
+                AggregateDataPtr __restrict place = places[i] + place_offset;
+                this->set_flag(place);
+                this->nested_function->add(this->nested_place(place), &nested_column, i, arena);
+            }
+        }
+    }
+
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
         const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
@@ -198,10 +235,7 @@ public:
 
         if (has_null) {
             for (size_t i = 0; i < batch_size; ++i) {
-                if (!column->is_null_at(i)) {
-                    this->set_flag(place);
-                    this->add(place, columns, i, arena);
-                }
+                this->add(place, columns, i, arena);
             }
         } else {
             this->set_flag(place);
@@ -217,30 +251,30 @@ public:
 
         if (has_null) {
             for (size_t i = batch_begin; i <= batch_end; ++i) {
-                if (!column->is_null_at(i)) {
-                    this->set_flag(place);
-                    this->add(place, columns, i, arena);
-                }
+                this->add(place, columns, i, arena);
             }
         } else {
             this->set_flag(place);
             const IColumn* nested_column = &column->get_nested_column();
-            this->nested_function->add_batch_range(
-                    batch_begin, batch_end, this->nested_place(place), &nested_column, arena);
+            this->nested_function->add_batch_range(batch_begin, batch_end,
+                                                   this->nested_place(place), &nested_column, arena,
+                                                   false);
         }
     }
 };
 
-template <bool result_is_nullable>
-class AggregateFunctionNullVariadic final
-        : public AggregateFunctionNullBase<result_is_nullable,
-                                           AggregateFunctionNullVariadic<result_is_nullable>> {
+template <typename NestFuction, bool result_is_nullable>
+class AggregateFunctionNullVariadicInline final
+        : public AggregateFunctionNullBaseInline<
+                  NestFuction, result_is_nullable,
+                  AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>> {
 public:
-    AggregateFunctionNullVariadic(AggregateFunctionPtr nested_function_, const DataTypes& arguments,
-                                  const Array& params)
-            : AggregateFunctionNullBase<result_is_nullable,
-                                        AggregateFunctionNullVariadic<result_is_nullable>>(
-                      std::move(nested_function_), arguments, params),
+    AggregateFunctionNullVariadicInline(IAggregateFunction* nested_function_,
+                                        const DataTypes& arguments)
+            : AggregateFunctionNullBaseInline<
+                      NestFuction, result_is_nullable,
+                      AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>(
+                      nested_function_, arguments),
               number_of_arguments(arguments.size()) {
         if (number_of_arguments == 1) {
             LOG(FATAL)
@@ -253,8 +287,9 @@ public:
                     size_t(MAX_ARGS));
         }
 
-        for (size_t i = 0; i < number_of_arguments; ++i)
+        for (size_t i = 0; i < number_of_arguments; ++i) {
             is_nullable[i] = arguments[i]->is_nullable();
+        }
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
@@ -272,8 +307,9 @@ public:
                     return;
                 }
                 nested_columns[i] = &nullable_col.get_nested_column();
-            } else
+            } else {
                 nested_columns[i] = columns[i];
+            }
         }
 
         this->set_flag(place);
@@ -285,10 +321,11 @@ public:
     }
 
 private:
-    enum { MAX_ARGS = 8 };
+    // The array length is fixed in the implementation of some aggregate functions.
+    // Therefore we choose 256 as the appropriate maximum length limit.
+    static const size_t MAX_ARGS = 256;
     size_t number_of_arguments = 0;
     std::array<char, MAX_ARGS>
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
 };
-
 } // namespace doris::vectorized

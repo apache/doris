@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/CaseExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -29,6 +32,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * CASE and DECODE are represented using this class. The backend implementation is
@@ -96,6 +100,11 @@ public class CaseExpr extends Expr {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), hasCaseExpr, hasElseExpr);
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
             return false;
@@ -127,8 +136,21 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public boolean isVectorized() {
-        return false;
+    public String toDigestImpl() {
+        StringBuilder sb = new StringBuilder("CASE");
+        int childIdx = 0;
+        if (hasCaseExpr) {
+            sb.append(" ").append(children.get(childIdx++).toDigest());
+        }
+        while (childIdx + 2 <= children.size()) {
+            sb.append(" WHEN ").append(children.get(childIdx++).toDigest());
+            sb.append(" THEN ").append(children.get(childIdx++).toDigest());
+        }
+        if (hasElseExpr) {
+            sb.append(" ELSE ").append(children.get(children.size() - 1).toDigest());
+        }
+        sb.append(" END");
+        return sb.toString();
     }
 
     @Override
@@ -214,25 +236,25 @@ public class CaseExpr extends Expr {
         // Add casts to case expr to compatible type.
         if (hasCaseExpr) {
             // Cast case expr.
-            if (children.get(0).type != whenType) {
+            if (!children.get(0).getType().equals(whenType)) {
                 castChild(whenType, 0);
             }
             // Add casts to when exprs to compatible type.
             for (int i = loopStart; i < loopEnd; i += 2) {
-                if (children.get(i).type != whenType) {
+                if (!children.get(i).getType().equals(whenType)) {
                     castChild(whenType, i);
                 }
             }
         }
         // Cast then exprs to compatible type.
         for (int i = loopStart + 1; i < children.size(); i += 2) {
-            if (children.get(i).type != returnType) {
+            if (!children.get(i).getType().equals(returnType)) {
                 castChild(returnType, i);
             }
         }
         // Cast else expr to compatible type.
         if (hasElseExpr) {
-            if (children.get(children.size() - 1).type != returnType) {
+            if (!children.get(children.size() - 1).getType().equals(returnType)) {
                 castChild(returnType, children.size() - 1);
             }
         }
@@ -273,7 +295,8 @@ public class CaseExpr extends Expr {
 
     // this method just compare literal value and not completely consistent with be,for two cases
     // 1 not deal float
-    // 2 just compare literal value with same type. for a example sql 'select case when 123 then '1' else '2' end as col'
+    // 2 just compare literal value with same type.
+    //      for a example sql 'select case when 123 then '1' else '2' end as col'
     //      for be will return '1', because be only regard 0 as false
     //      but for current LiteralExpr.compareLiteral, `123`' won't be regard as true
     //  the case which two values has different type left to be
@@ -322,7 +345,8 @@ public class CaseExpr extends Expr {
         // early return when the `when expr` can't be converted to constants
         Expr startExpr = expr.getChild(startIndex);
         if ((!startExpr.isLiteral() || startExpr instanceof DecimalLiteral || startExpr instanceof FloatLiteral)
-                || (!(startExpr instanceof NullLiteral) && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
+                || (!(startExpr instanceof NullLiteral)
+                && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
             return expr;
         }
 
@@ -336,7 +360,9 @@ public class CaseExpr extends Expr {
             // 1 not literal
             // 2 float
             // 3 `case expr` and `when expr` don't have same type
-            if ((!currentWhenExpr.isLiteral() || currentWhenExpr instanceof DecimalLiteral || currentWhenExpr instanceof FloatLiteral)
+            if ((!currentWhenExpr.isLiteral()
+                    || currentWhenExpr instanceof DecimalLiteral
+                    || currentWhenExpr instanceof FloatLiteral)
                     || !currentWhenExpr.getClass().toString().equals(caseExpr.getClass().toString())) {
                 // remove the expr which has been evaluated
                 List<Expr> exprLeft = new ArrayList<>();
@@ -401,5 +427,12 @@ public class CaseExpr extends Expr {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        // nereids do not have CaseExpr, and nereids will unify the types,
+        // so just use the first then type
+        type = children.get(1).getType();
     }
 }

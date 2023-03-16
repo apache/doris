@@ -21,37 +21,40 @@
 
 #include "beta_rowset.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "olap/rowset/alpha_rowset.h"
-#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/vertical_beta_rowset_writer.h"
 
 namespace doris {
+using namespace ErrorCode;
 
-OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
-                                        RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
+Status RowsetFactory::create_rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+                                    const RowsetMetaSharedPtr& rowset_meta,
+                                    RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
-        rowset->reset(new AlphaRowset(schema, rowset_path_desc, rowset_meta));
-        return (*rowset)->init();
+        return Status::Error<ROWSET_INVALID>();
     }
     if (rowset_meta->rowset_type() == BETA_ROWSET) {
-        rowset->reset(new BetaRowset(schema, rowset_path_desc, rowset_meta));
+        rowset->reset(new BetaRowset(schema, tablet_path, rowset_meta));
         return (*rowset)->init();
     }
-    return OLAP_ERR_ROWSET_TYPE_NOT_FOUND; // should never happen
+    return Status::Error<ROWSET_TYPE_NOT_FOUND>(); // should never happen
 }
 
-OLAPStatus RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
-                                               std::unique_ptr<RowsetWriter>* output) {
+Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
+                                           std::unique_ptr<RowsetWriter>* output) {
     if (context.rowset_type == ALPHA_ROWSET) {
-        output->reset(new AlphaRowsetWriter);
-        return (*output)->init(context);
+        return Status::Error<ROWSET_INVALID>();
     }
     if (context.rowset_type == BETA_ROWSET) {
+        if (is_vertical) {
+            output->reset(new VerticalBetaRowsetWriter);
+            return (*output)->init(context);
+        }
         output->reset(new BetaRowsetWriter);
         return (*output)->init(context);
     }
-    return OLAP_ERR_ROWSET_TYPE_NOT_FOUND;
+    return Status::Error<ROWSET_TYPE_NOT_FOUND>();
 }
 
 } // namespace doris

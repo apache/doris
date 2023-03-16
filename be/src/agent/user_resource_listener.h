@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
-#define DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
+#pragma once
 
 #include <string>
 
@@ -24,7 +23,6 @@
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/MasterService_types.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -50,4 +48,3 @@ private:
     void update_users_resource(int64_t new_version);
 };
 } // namespace doris
-#endif

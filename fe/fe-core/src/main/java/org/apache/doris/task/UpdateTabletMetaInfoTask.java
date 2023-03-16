@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,8 +44,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     private MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch;
 
     private Set<Pair<Long, Integer>> tableIdWithSchemaHash;
-    private boolean isInMemory;
+    private int inMemory = -1; // < 0 means not to update inMemory property, > 0 means true, == 0 means false
     private TTabletMetaType metaType;
+    private long storagePolicyId = -1; // < 0 means not to update storage policy, == 0 means to reset storage policy
 
     // <tablet id, tablet schema hash, tablet in memory>
     private List<Triple<Long, Integer, Boolean>> tabletToInMemory;
@@ -61,10 +61,11 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
 
     public UpdateTabletMetaInfoTask(long backendId,
                                     Set<Pair<Long, Integer>> tableIdWithSchemaHash,
-                                    boolean isInMemory,
+                                    int inMemory, long storagePolicyId,
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch) {
         this(backendId, tableIdWithSchemaHash, TTabletMetaType.INMEMORY);
-        this.isInMemory = isInMemory;
+        this.storagePolicyId = storagePolicyId;
+        this.inMemory = inMemory;
         this.latch = latch;
     }
 
@@ -111,7 +112,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                     TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                     metaInfo.setTabletId(pair.first);
                     metaInfo.setSchemaHash(pair.second);
-                    TabletMeta tabletMeta = Catalog.getCurrentCatalog().getTabletInvertedIndex().getTabletMeta(pair.first);
+                    TabletMeta tabletMeta = Env.getCurrentEnv()
+                            .getTabletInvertedIndex().getTabletMeta(pair.first);
                     if (tabletMeta == null) {
                         LOG.warn("could not find tablet [{}] in meta ignore it", pair.second);
                         continue;
@@ -130,7 +132,12 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                         metaInfo.setTabletId(pair.first);
                         metaInfo.setSchemaHash(pair.second);
-                        metaInfo.setIsInMemory(isInMemory);
+                        if (inMemory >= 0) {
+                            metaInfo.setIsInMemory(inMemory > 0);
+                        }
+                        if (storagePolicyId >= 0) {
+                            metaInfo.setStoragePolicyId(storagePolicyId);
+                        }
                         metaInfo.setMetaType(metaType);
                         metaInfos.add(metaInfo);
                     }
@@ -147,6 +154,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 break;
             }
+            default:
+                break;
         }
         updateTabletMetaInfoReq.setTabletMetaInfos(metaInfos);
         return updateTabletMetaInfoReq;

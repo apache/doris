@@ -27,7 +27,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

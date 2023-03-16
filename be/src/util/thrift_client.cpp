@@ -21,7 +21,6 @@
 #include <string>
 
 #include "gutil/strings/substitute.h"
-#include "util/monotime.h"
 
 namespace doris {
 
@@ -43,7 +42,7 @@ Status ThriftClientImpl::open() {
         const std::string& err_msg = strings::Substitute("Couldn't open transport for $0:$1 ($2)",
                                                          ipaddress(), port(), e.what());
         VLOG_CRITICAL << err_msg;
-        return Status::ThriftRpcError(err_msg);
+        return Status::RpcError(err_msg);
     }
     return Status::OK();
 }
@@ -69,7 +68,7 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
             LOG(INFO) << "(Attempt " << try_count << " of " << num_tries << ")";
         }
 
-        SleepFor(MonoDelta::FromMilliseconds(wait_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
     }
 
     return status;

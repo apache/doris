@@ -122,7 +122,10 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return get_least_supertype({arguments[1], arguments[2]});
+        DataTypePtr type = nullptr;
+        get_least_supertype(DataTypes {arguments[1], arguments[2]}, &type);
+        DCHECK_NE(type, nullptr);
+        return type;
     }
 
     static ColumnPtr materialize_column_if_const(const ColumnPtr& column) {
@@ -139,6 +142,9 @@ public:
     static ColumnPtr get_nested_column(const ColumnPtr& column) {
         if (auto* nullable = check_and_get_column<ColumnNullable>(*column))
             return nullable->get_nested_column_ptr();
+        else if (const auto* column_const = check_and_get_column<ColumnConst>(*column))
+            return ColumnConst::create(get_nested_column(column_const->get_data_column_ptr()),
+                                       column->size());
 
         return column;
     }
@@ -203,7 +209,6 @@ public:
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using T0 = typename Types::LeftType;
-            using T1 = typename Types::RightType;
             using result_type = typename Types::LeftType;
 
             // for doris, args type and return type must be sanme beacause of type cast has already done before, so here just need one type;
@@ -290,9 +295,10 @@ public:
                             make_nullable_column_if_not(arg_else.column);
                 }
             } else {
-                status = Status::InternalError("Illegal column " + arg_cond.column->get_name() +
-                                               " of first argument of function " + get_name() +
-                                               ". Must be ColumnUInt8 or ColumnConstUInt8.");
+                status = Status::InternalError(
+                        "Illegal column {} of first argument of function {}. Must be ColumnUInt8 "
+                        "or ColumnConstUInt8.",
+                        arg_cond.column->get_name(), get_name());
             }
             return true;
         }
@@ -334,9 +340,10 @@ public:
                                     input_rows_count);
                 }
             } else {
-                status = Status::InternalError("Illegal column " + arg_cond.column->get_name() +
-                                               " of first argument of function " + get_name() +
-                                               ". Must be ColumnUInt8 or ColumnConstUInt8.");
+                status = Status::InternalError(
+                        "Illegal column {} of first argument of function {}. Must be ColumnUInt8 "
+                        "or ColumnConstUInt8.",
+                        arg_cond.column->get_name(), get_name());
             }
             return true;
         }
@@ -402,23 +409,33 @@ public:
         bool cond_is_null = arg_cond.column->only_null();
 
         if (cond_is_null) {
-            block.replace_by_position(result, arg_else.column->clone_resized(arg_cond.column->size()));
+            block.replace_by_position(result,
+                                      arg_else.column->clone_resized(arg_cond.column->size()));
             return true;
         }
 
-        if (auto * nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
-	        DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
-	        Block temporary_block
-            {
-                { nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type), arg_cond.name },
-                arg_then,
-                arg_else,
-                block.get_by_position(result)
-            };
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
+            DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            // update neseted column by nullmap
+            auto* __restrict null_map = nullable->get_null_map_data().data();
+            auto* __restrict nested_bool_data =
+                    ((ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
+            auto rows = nullable->size();
+            for (size_t i = 0; i < rows; i++) {
+                nested_bool_data[i] = null_map[i] ? false : nested_bool_data[i];
+            }
 
-            block.get_by_position(result).column = std::move(temporary_block.get_by_position(3).column);
+            Block temporary_block {{nullable->get_nested_column_ptr(),
+                                    remove_nullable(arg_cond.type), arg_cond.name},
+                                   arg_then,
+                                   arg_else,
+                                   block.get_by_position(result)};
+
+            execute_impl(context, temporary_block, {0, 1, 2}, 3, rows);
+
+            block.get_by_position(result).column =
+                    std::move(temporary_block.get_by_position(3).column);
             return true;
         }
         return false;
@@ -426,7 +443,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
         const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
         const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
 
@@ -435,6 +451,23 @@ public:
             /// Just point result to them.
             block.replace_by_position(result, arg_then.column);
             return Status::OK();
+        }
+
+        ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
+        cond_column.column = materialize_column_if_const(cond_column.column);
+        const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
+
+        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
+            if (check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
+                ColumnWithTypeAndName& then_column = block.get_by_position(arguments[1]);
+                then_column.column = materialize_column_if_const(then_column.column);
+            }
+        }
+        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
+            if (check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+                ColumnWithTypeAndName& else_column = block.get_by_position(arguments[2]);
+                else_column.column = materialize_column_if_const(else_column.column);
+            }
         }
 
         Status ret = Status::OK();
@@ -457,9 +490,10 @@ public:
         }
 
         if (!cond_col) {
-            return Status::InvalidArgument("Illegal column " + arg_cond.column->get_name() +
-                                           " of first argument of function " + get_name() +
-                                           ",Must be ColumnUInt8 or ColumnConstUInt8.");
+            return Status::InvalidArgument(
+                    "Illegal column {} of first argument of function {},Must be ColumnUInt8 or "
+                    "ColumnConstUInt8.",
+                    arg_cond.column->get_name(), get_name());
         }
 
         WhichDataType which_type(arg_then.type);

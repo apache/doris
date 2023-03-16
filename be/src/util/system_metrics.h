@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #include <map>
 #include <memory>
 
@@ -23,13 +24,14 @@
 
 namespace doris {
 
-class CpuMetrics;
-class MemoryMetrics;
-class DiskMetrics;
-class NetworkMetrics;
-class FileDescriptorMetrics;
-class SnmpMetrics;
-class LoadAverageMetrics;
+struct CpuMetrics;
+struct MemoryMetrics;
+struct DiskMetrics;
+struct NetworkMetrics;
+struct FileDescriptorMetrics;
+struct SnmpMetrics;
+struct LoadAverageMetrics;
+struct ProcMetrics;
 
 class SystemMetrics {
 public:
@@ -49,8 +51,14 @@ public:
                              const std::map<std::string, int64_t>& lst_rcv_map,
                              int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
 
+    void update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
+                                         int64_t interval_sec);
+    void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
+    void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
+    void update_allocator_metrics();
+
 private:
-    void _install_cpu_metrics(MetricEntity* entity);
+    void _install_cpu_metrics();
     // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;
     // read /proc/stat would cost about 170us
     void _update_cpu_metrics();
@@ -73,10 +81,16 @@ private:
     void _install_load_avg_metrics(MetricEntity* entity);
     void _update_load_avg_metrics();
 
+    void _install_proc_metrics(MetricEntity* entity);
+    void _update_proc_metrics();
+
+    void get_metrics_from_proc_vmstat();
+    void get_cpu_name();
+
 private:
     static const char* _s_hook_name;
 
-    std::unique_ptr<CpuMetrics> _cpu_metrics;
+    std::map<std::string, CpuMetrics*> _cpu_metrics;
     std::unique_ptr<MemoryMetrics> _memory_metrics;
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetworkMetrics*> _network_metrics;
@@ -84,11 +98,17 @@ private:
     std::unique_ptr<LoadAverageMetrics> _load_average_metrics;
     int _proc_net_dev_version = 0;
     std::unique_ptr<SnmpMetrics> _snmp_metrics;
+    std::unique_ptr<ProcMetrics> _proc_metrics;
 
+    std::vector<std::string> _cpu_names;
     char* _line_ptr = nullptr;
     size_t _line_buf_size = 0;
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity = nullptr;
+
+    IntGauge* max_disk_io_util_percent;
+    IntGauge* max_network_send_bytes_rate;
+    IntGauge* max_network_receive_bytes_rate;
 };
 
 } // namespace doris

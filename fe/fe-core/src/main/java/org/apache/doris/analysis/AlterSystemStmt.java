@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -41,7 +41,7 @@ public class AlterSystemStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                 "NODE");
         }
@@ -55,7 +55,10 @@ public class AlterSystemStmt extends DdlStmt {
                 || (alterClause instanceof DropFollowerClause)
                 || (alterClause instanceof ModifyBrokerClause)
                 || (alterClause instanceof AlterLoadErrorUrlClause)
-                || (alterClause instanceof ModifyBackendClause));
+                || (alterClause instanceof ModifyBackendClause)
+                || (alterClause instanceof ModifyBackendHostNameClause)
+                || (alterClause instanceof ModifyFrontendHostNameClause)
+        );
 
         alterClause.analyze(analyzer);
     }

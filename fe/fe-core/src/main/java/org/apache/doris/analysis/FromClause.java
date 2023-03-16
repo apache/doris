@@ -14,20 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FromClause.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
-
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -43,46 +39,41 @@ import java.util.List;
  */
 public class FromClause implements ParseNode, Iterable<TableRef> {
 
-    private final ArrayList<TableRef> tableRefs_;
+    private final ArrayList<TableRef> tablerefs;
 
-    private boolean analyzed_ = false;
+    private boolean analyzed = false;
     private boolean needToSql = false;
 
+    // the tables positions may be changed by 'join reorder' optimization
+    // after reset, the original order information is lost
+    // in the next re-analyze phase, the mis-ordered tables may lead to 'unable to find column xxx' error
+    // now we use originalTableRefOrders to keep track of table order information
+    // so that in reset method, we can recover the original table orders.
+    private final ArrayList<TableRef> originalTableRefOrders = new ArrayList<TableRef>();
+
     public FromClause(List<TableRef> tableRefs) {
-        tableRefs_ = Lists.newArrayList(tableRefs);
+        tablerefs = Lists.newArrayList(tableRefs);
         // Set left table refs to ensure correct toSql() before analysis.
-        for (int i = 1; i < tableRefs_.size(); ++i) {
-            tableRefs_.get(i).setLeftTblRef(tableRefs_.get(i - 1));
+        for (int i = 1; i < tablerefs.size(); ++i) {
+            tablerefs.get(i).setLeftTblRef(tablerefs.get(i - 1));
+        }
+        // save the tableRef's order, will use in reset method later
+        originalTableRefOrders.clear();
+        for (int i = 0; i < tablerefs.size(); ++i) {
+            originalTableRefOrders.add(tablerefs.get(i));
         }
     }
 
-    public FromClause() { tableRefs_ = Lists.newArrayList(); }
-    public List<TableRef> getTableRefs() { return tableRefs_; }
+    public FromClause() {
+        tablerefs = Lists.newArrayList();
+    }
+
+    public List<TableRef> getTableRefs() {
+        return tablerefs;
+    }
+
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
-    }
-
-    private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
-        for (TableRef tblRef : tableRefs_) {
-            if (!(tblRef instanceof BaseTableRef)) {
-                continue;
-            }
-
-            TableName tableName = tblRef.getName();
-            String dbName = tableName.getDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                dbName = analyzer.getDefaultDb();
-            } else {
-                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
-            }
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-            String tblName = tableName.getTbl();
-            Table table = db.getTableOrAnalysisException(tblName);
-        }
     }
 
     /**
@@ -96,7 +87,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
      * because the table t1 in the on clause cannot be recognized.
      */
     private void sortTableRefKeepSequenceOfOnClause() {
-        Collections.sort(this.tableRefs_, new Comparator<TableRef>() {
+        Collections.sort(this.tablerefs, new Comparator<TableRef>() {
             @Override
             public int compare(TableRef tableref1, TableRef tableref2) {
                 int i1 = 0;
@@ -114,10 +105,12 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (analyzed_) return;
+        if (analyzed) {
+            return;
+        }
 
-        if (tableRefs_.isEmpty()) {
-            analyzed_ = true;
+        if (tablerefs.isEmpty()) {
+            analyzed = true;
             return;
         }
 
@@ -132,11 +125,11 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
         // Start out with table refs to establish aliases.
         TableRef leftTblRef = null;  // the one to the left of tblRef
-        for (int i = 0; i < tableRefs_.size(); ++i) {
+        for (int i = 0; i < tablerefs.size(); ++i) {
             // Resolve and replace non-InlineViewRef table refs with a BaseTableRef or ViewRef.
-            TableRef tblRef = tableRefs_.get(i);
+            TableRef tblRef = tablerefs.get(i);
             tblRef = analyzer.resolveTableRef(tblRef);
-            tableRefs_.set(i, Preconditions.checkNotNull(tblRef));
+            tablerefs.set(i, Preconditions.checkNotNull(tblRef));
             tblRef.setLeftTblRef(leftTblRef);
             if (tblRef instanceof InlineViewRef) {
                 ((InlineViewRef) tblRef).setNeedToSql(needToSql);
@@ -144,60 +137,127 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
+        // Fix the problem of column nullable attribute error caused by inline view + outer join
+        changeTblRefToNullable(analyzer);
 
-        // TODO: remove when query from hive table is supported
-        checkFromHiveTable(analyzer);
+        analyzed = true;
 
-        analyzed_ = true;
+        // save the tableRef's order, will use in reset method later
+        originalTableRefOrders.clear();
+        for (int i = 0; i < tablerefs.size(); ++i) {
+            originalTableRefOrders.add(tablerefs.get(i));
+        }
+    }
+
+    // set null-side inlinve view column
+    // For example: select * from (select a as k1 from t) tmp right join b on tmp.k1=b.k1
+    // The columns from tmp should be nullable.
+    // The table ref tmp will be used by HashJoinNode.computeOutputTuple()
+    private void changeTblRefToNullable(Analyzer analyzer) {
+        for (TableRef tableRef : tablerefs) {
+            if (!(tableRef instanceof InlineViewRef)) {
+                continue;
+            }
+            InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+            if (analyzer.isOuterJoined(inlineViewRef.getId())) {
+                for (SlotDescriptor slotDescriptor : inlineViewRef.getDesc().getSlots()) {
+                    slotDescriptor.setIsNullable(true);
+                }
+            }
+        }
     }
 
     public FromClause clone() {
         ArrayList<TableRef> clone = Lists.newArrayList();
-        for (TableRef tblRef: tableRefs_) clone.add(tblRef.clone());
-        return new FromClause(clone);
+        for (TableRef tblRef : tablerefs) {
+            clone.add(tblRef.clone());
+        }
+        FromClause result = new FromClause(clone);
+        for (int i = 0; i < clone.size(); ++i) {
+            result.originalTableRefOrders.add(clone.get(i));
+        }
+        return result;
     }
 
     public void reset() {
         for (int i = 0; i < size(); ++i) {
-            TableRef origTblRef = get(i);
-            // TODO(zc):
-            // if (origTblRef.isResolved() && !(origTblRef instanceof InlineViewRef)) {
-            //     // Replace resolved table refs with unresolved ones.
-            //     TableRef newTblRef = new TableRef(origTblRef);
-            //     // Use the fully qualified raw path to preserve the original resolution.
-            //     // Otherwise, non-fully qualified paths might incorrectly match a local view.
-            //     // TODO for 2.3: This full qualification preserves analysis state which is
-            //     // contrary to the intended semantics of reset(). We could address this issue by
-            //     // changing the WITH-clause analysis to register local views that have
-            //     // fully-qualified table refs, and then remove the full qualification here.
-            //     newTblRef.rawPath_ = origTblRef.getResolvedPath().getFullyQualifiedRawPath();
-            //     set(i, newTblRef);
-            // }
             get(i).reset();
         }
-        this.analyzed_ = false;
+        // recover original table orders
+        for (int i = 0; i < size(); ++i) {
+            tablerefs.set(i, originalTableRefOrders.get(i));
+        }
+        this.analyzed = false;
     }
 
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        if (!tableRefs_.isEmpty()) {
+        if (!tablerefs.isEmpty()) {
             builder.append(" FROM");
-            for (int i = 0; i < tableRefs_.size(); ++i) {
-                builder.append(" " + tableRefs_.get(i).toSql());
+            for (int i = 0; i < tablerefs.size(); ++i) {
+                builder.append(" " + tablerefs.get(i).toSql());
             }
         }
         return builder.toString();
     }
 
-    public boolean isEmpty() { return tableRefs_.isEmpty(); }
+    public String toDigest() {
+        StringBuilder builder = new StringBuilder();
+        if (!tablerefs.isEmpty()) {
+            builder.append(" FROM");
+            for (int i = 0; i < tablerefs.size(); ++i) {
+                builder.append(" " + tablerefs.get(i).toDigest());
+            }
+        }
+        return builder.toString();
+    }
+
+    public boolean isEmpty() {
+        return tablerefs.isEmpty();
+    }
 
     @Override
-    public Iterator<TableRef> iterator() { return tableRefs_.iterator(); }
-    public int size() { return tableRefs_.size(); }
-    public TableRef get(int i) { return tableRefs_.get(i); }
-    public void set(int i, TableRef tableRef) { tableRefs_.set(i, tableRef); }
-    public void add(TableRef t) { tableRefs_.add(t); }
-    public void addAll(List<TableRef> t) { tableRefs_.addAll(t); }
-    public void clear() { tableRefs_.clear(); }
+    public Iterator<TableRef> iterator() {
+        return tablerefs.iterator();
+    }
+
+    public int size() {
+        return tablerefs.size();
+    }
+
+    public TableRef get(int i) {
+        return tablerefs.get(i);
+    }
+
+    public void set(int i, TableRef tableRef) {
+        tablerefs.set(i, tableRef);
+        originalTableRefOrders.set(i, tableRef);
+    }
+
+    public void add(TableRef t) {
+        tablerefs.add(t);
+        // join reorder will call add method after call clear method.
+        // we want to keep tableRefPositions unchanged in that case
+        // in other cases, tablerefs.size() would larger than tableRefPositions.size()
+        // then we can update tableRefPositions. same logic in addAll method.
+        if (tablerefs.size() > originalTableRefOrders.size()) {
+            originalTableRefOrders.add(t);
+        }
+    }
+
+    public void addAll(List<TableRef> t) {
+        tablerefs.addAll(t);
+        if (tablerefs.size() > originalTableRefOrders.size()) {
+            for (int i = originalTableRefOrders.size(); i < tablerefs.size(); ++i) {
+                originalTableRefOrders.add(tablerefs.get(i));
+            }
+        }
+    }
+
+    public void clear() {
+        // this method on be called in reorder table
+        // we want to keep tableRefPositions, only clear tablerefs
+        tablerefs.clear();
+    }
 }

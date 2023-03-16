@@ -20,29 +20,46 @@
 namespace doris::vectorized {
 
 // auto spread at nullable condition, null value do not participate aggregate
-void register_aggregate_function_reader(AggregateFunctionSimpleFactory& factory) {
+void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {
     // add a suffix to the function name here to distinguish special functions of agg reader
-    auto register_function_reader = [&](const std::string& name,
-                                        const AggregateFunctionCreator& creator) {
-        factory.register_function(name + agg_reader_suffix, creator, false);
+    auto register_function_both = [&](const std::string& name,
+                                      const AggregateFunctionCreator& creator) {
+        factory.register_function_both(name + AGG_READER_SUFFIX, creator);
+        factory.register_function_both(name + AGG_LOAD_SUFFIX, creator);
     };
 
-    register_function_reader("sum", create_aggregate_function_sum_reader);
-    register_function_reader("max", create_aggregate_function_max);
-    register_function_reader("min", create_aggregate_function_min);
-    register_function_reader("replace_if_not_null", create_aggregate_function_replace_if_not_null);
-    register_function_reader("bitmap_union", create_aggregate_function_bitmap_union);
-    register_function_reader("hll_union", create_aggregate_function_HLL_union);
+    register_function_both("sum", create_aggregate_function_sum_reader);
+    register_function_both("max", create_aggregate_function_max);
+    register_function_both("min", create_aggregate_function_min);
+    register_function_both("bitmap_union", create_aggregate_function_bitmap_union);
+    register_function_both("hll_union",
+                           create_aggregate_function_HLL<AggregateFunctionHLLUnionImpl>);
+    register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
 }
 
-void register_aggregate_function_reader_no_spread(AggregateFunctionSimpleFactory& factory) {
-    auto register_function_reader = [&](const std::string& name,
-                                        const AggregateFunctionCreator& creator, bool nullable) {
-        factory.register_function(name + agg_reader_suffix, creator, nullable);
+// only replace function in load/reader do different agg operation.
+// because Doris can ensure that the data is globally ordered in reader, but cannot in load
+// 1. reader, get the first value of input data.
+// 2. load, get the last value of input data.
+void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory) {
+    auto register_function = [&](const std::string& name, const std::string& suffix,
+                                 const AggregateFunctionCreator& creator, bool nullable) {
+        factory.register_function(name + suffix, creator, nullable);
     };
 
-    register_function_reader("replace", create_aggregate_function_replace, false);
-    register_function_reader("replace", create_aggregate_function_replace_nullable, true);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true>, false);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true>, true);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, false);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, true);
+
+    register_function("replace_if_not_null", AGG_READER_SUFFIX,
+                      create_aggregate_function_first_non_null_value<true>, false);
+    register_function("replace_if_not_null", AGG_READER_SUFFIX,
+                      create_aggregate_function_first_non_null_value<true>, true);
+    register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
+                      create_aggregate_function_last_non_null_value<false>, false);
+    register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
+                      create_aggregate_function_last_non_null_value<false>, true);
 }
 
 } // namespace doris::vectorized

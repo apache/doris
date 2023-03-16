@@ -194,4 +194,3 @@ public class LocalInputFile implements InputFile {
         int read(byte[] b, int off, int len) throws IOException;
     }
 }
-

@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -27,6 +28,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.BitUtil;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -34,7 +36,6 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,7 +72,14 @@ import java.util.Set;
  * to prune tuples of T2 that cannot be part of the join result.
  */
 public final class RuntimeFilterGenerator {
-    private final static Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
+
+    private static final List<TRuntimeFilterType> HASH_JOIN_RUNTIME_FILTER_TYPES =
+            Lists.newArrayList(TRuntimeFilterType.IN, TRuntimeFilterType.BLOOM, TRuntimeFilterType.MIN_MAX,
+                    TRuntimeFilterType.IN_OR_BLOOM);
+
+    private static final List<TRuntimeFilterType> NESTED_LOOP_JOIN_RUNTIME_FILTER_TYPES =
+            Lists.newArrayList(TRuntimeFilterType.BITMAP);
 
     // Map of base table tuple ids to a list of runtime filters that
     // can be applied at the corresponding scan nodes.
@@ -79,6 +87,8 @@ public final class RuntimeFilterGenerator {
 
     // Generator for filter ids
     private final IdGenerator<RuntimeFilterId> filterIdGenerator = RuntimeFilterId.createGenerator();
+
+    private HashSet<TupleId> tupleHasConjuncts = null;
 
     /**
      * Internal class that encapsulates the max, min and default sizes used for creating
@@ -122,6 +132,31 @@ public final class RuntimeFilterGenerator {
         bloomFilterSizeLimits = new FilterSizeLimits(sessionVariable);
     }
 
+    private void collectAllTupleIdsHavingConjunct(PlanNode node, HashSet<TupleId> tupleIds) {
+        // for simplicity, skip join node( which contains more than 1 tuple id )
+        // we only look for the node meets either of the 2 conditions:
+        // 1. The node itself has conjunct
+        // 2. Its descendant have conjuncts.
+        int tupleNumBeforeCheckingChildren = tupleIds.size();
+        for (PlanNode child : node.getChildren()) {
+            collectAllTupleIdsHavingConjunct(child, tupleIds);
+        }
+        if (node.getTupleIds().size() == 1
+                && (!node.conjuncts.isEmpty() || tupleIds.size() > tupleNumBeforeCheckingChildren)) {
+            // The node or its descendant has conjuncts
+            tupleIds.add(node.getTupleIds().get(0));
+        }
+    }
+
+    public void findAllTuplesHavingConjuncts(PlanNode node) {
+        if (tupleHasConjuncts == null) {
+            tupleHasConjuncts = new HashSet<>();
+        } else {
+            tupleHasConjuncts.clear();
+        }
+        collectAllTupleIdsHavingConjunct(node, tupleHasConjuncts);
+    }
+
     /**
      * Generates and assigns runtime filters to a query plan tree.
      */
@@ -132,9 +167,11 @@ public final class RuntimeFilterGenerator {
         Preconditions.checkState(maxNumBloomFilters >= 0);
         RuntimeFilterGenerator filterGenerator = new RuntimeFilterGenerator(analyzer);
         Preconditions.checkState(runtimeFilterType >= 0, "runtimeFilterType not expected");
-        Preconditions.checkState(runtimeFilterType
-                <= Arrays.stream(TRuntimeFilterType.values()).mapToInt(TRuntimeFilterType::getValue).sum()
-                , "runtimeFilterType not expected");
+        Preconditions.checkState(runtimeFilterType <= Arrays.stream(TRuntimeFilterType.values())
+                .mapToInt(TRuntimeFilterType::getValue).sum(), "runtimeFilterType not expected");
+        if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
+            filterGenerator.findAllTuplesHavingConjuncts(plan);
+        }
         filterGenerator.generateFilters(plan);
         List<RuntimeFilter> filters = filterGenerator.getRuntimeFilters();
         if (filters.size() > maxNumBloomFilters) {
@@ -151,10 +188,12 @@ public final class RuntimeFilterGenerator {
         // We only enforce a limit on the number of bloom filters as they are much more
         // heavy-weight than the other filter types.
         int numBloomFilters = 0;
-        for (RuntimeFilter filter: filters) {
+        for (RuntimeFilter filter : filters) {
             filter.extractTargetsPosition();
             if (filter.getType() == TRuntimeFilterType.BLOOM) {
-                if (numBloomFilters >= maxNumBloomFilters) continue;
+                if (numBloomFilters >= maxNumBloomFilters) {
+                    continue;
+                }
                 ++numBloomFilters;
             }
             filter.registerToPlan(analyzer);
@@ -166,7 +205,7 @@ public final class RuntimeFilterGenerator {
      */
     public List<RuntimeFilter> getRuntimeFilters() {
         Set<RuntimeFilter> resultSet = new HashSet<>();
-        for (List<RuntimeFilter> filters: runtimeFiltersByTid.values()) {
+        for (List<RuntimeFilter> filters : runtimeFiltersByTid.values()) {
             resultSet.addAll(filters);
         }
         List<RuntimeFilter> resultList = Lists.newArrayList(resultSet);
@@ -182,7 +221,7 @@ public final class RuntimeFilterGenerator {
      * (scan) nodes. Filters that cannot be assigned to a scan node are discarded.
      */
     private void generateFilters(PlanNode root) {
-        if (root instanceof HashJoinNode) {
+        if (root instanceof HashJoinNode && !((HashJoinNode) root).isMarkJoin()) {
             HashJoinNode joinNode = (HashJoinNode) root;
             List<Expr> joinConjuncts = new ArrayList<>();
             // It's not correct to push runtime filters to the left side of a left outer,
@@ -190,7 +229,8 @@ public final class RuntimeFilterGenerator {
             // from the ON clause.
             if (!joinNode.getJoinOp().isLeftOuterJoin()
                     && !joinNode.getJoinOp().isFullOuterJoin()
-                    && !joinNode.getJoinOp().isAntiJoin()) {
+                    && !joinNode.getJoinOp().equals(JoinOperator.LEFT_ANTI_JOIN)
+                    && !joinNode.getJoinOp().equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 joinConjuncts.addAll(joinNode.getEqJoinConjuncts());
             }
 
@@ -209,13 +249,17 @@ public final class RuntimeFilterGenerator {
             List<RuntimeFilter> filters = new ArrayList<>();
             // Actually all types of Runtime Filter objects generated by the same joinConjunct have the same
             // properties except ID. Maybe consider avoiding repeated generation
-            for (TRuntimeFilterType type : TRuntimeFilterType.values()) {
-                if ((sessionVariable.getRuntimeFilterType() & type.getValue()) == 0) continue;
+            for (TRuntimeFilterType type : HASH_JOIN_RUNTIME_FILTER_TYPES) {
+                if ((sessionVariable.getRuntimeFilterType() & type.getValue()) == 0) {
+                    continue;
+                }
                 for (int i = 0; i < joinConjuncts.size(); i++) {
                     Expr conjunct = joinConjuncts.get(i);
                     RuntimeFilter filter = RuntimeFilter.create(filterIdGenerator,
-                            analyzer, conjunct, i, joinNode, type, bloomFilterSizeLimits);
-                    if (filter == null) continue;
+                            analyzer, conjunct, i, joinNode, type, bloomFilterSizeLimits, tupleHasConjuncts);
+                    if (filter == null) {
+                        continue;
+                    }
                     registerRuntimeFilter(filter);
                     filters.add(filter);
                 }
@@ -224,12 +268,45 @@ public final class RuntimeFilterGenerator {
             // Finalize every runtime filter of that join. This is to ensure that we don't
             // assign a filter to a scan node from the right subtree of joinNode or ancestor
             // join nodes in case we don't find a destination node in the left subtree.
-            for (RuntimeFilter runtimeFilter: filters) finalizeRuntimeFilter(runtimeFilter);
+            for (RuntimeFilter runtimeFilter : filters) {
+                finalizeRuntimeFilter(runtimeFilter);
+            }
+            generateFilters(root.getChild(1));
+        } else if (root instanceof NestedLoopJoinNode) {
+            NestedLoopJoinNode nestedLoopJoinNode = (NestedLoopJoinNode) root;
+            List<Expr> runtimeFilterConjuncts = nestedLoopJoinNode.getRuntimeFilterExpr();
+            List<RuntimeFilter> filters = new ArrayList<>();
+            for (TRuntimeFilterType type : NESTED_LOOP_JOIN_RUNTIME_FILTER_TYPES) {
+                if ((sessionVariable.getRuntimeFilterType() & type.getValue()) == 0) {
+                    continue;
+                }
+                if (type == TRuntimeFilterType.BITMAP) {
+                    for (int i = 0; i < runtimeFilterConjuncts.size(); ++i) {
+                        Expr conjunct = runtimeFilterConjuncts.get(i);
+                        RuntimeFilter filter =
+                                RuntimeFilter.create(filterIdGenerator, analyzer, conjunct, i, nestedLoopJoinNode, type,
+                                        bloomFilterSizeLimits);
+                        if (filter == null) {
+                            continue;
+                        }
+                        nestedLoopJoinNode.setOutputLeftSideOnly(true);
+                        registerRuntimeFilter(filter);
+                        filters.add(filter);
+                    }
+                }
+            }
+            generateFilters(root.getChild(0));
+            // Finalize every runtime filter of that join. This is to ensure that we don't
+            // assign a filter to a scan node from the right subtree of joinNode or ancestor
+            // join nodes in case we don't find a destination node in the left subtree.
+            for (RuntimeFilter runtimeFilter : filters) {
+                finalizeRuntimeFilter(runtimeFilter);
+            }
             generateFilters(root.getChild(1));
         } else if (root instanceof ScanNode) {
             assignRuntimeFilters((ScanNode) root);
         } else {
-            for (PlanNode childNode: root.getChildren()) {
+            for (PlanNode childNode : root.getChildren()) {
                 generateFilters(childNode);
             }
         }
@@ -242,7 +319,7 @@ public final class RuntimeFilterGenerator {
     private void registerRuntimeFilter(RuntimeFilter filter) {
         Map<TupleId, List<SlotId>> targetSlotsByTid = filter.getTargetSlots();
         Preconditions.checkState(targetSlotsByTid != null && !targetSlotsByTid.isEmpty());
-        for (TupleId tupleId: targetSlotsByTid.keySet()) {
+        for (TupleId tupleId : targetSlotsByTid.keySet()) {
             registerRuntimeFilter(filter, tupleId);
         }
     }
@@ -264,10 +341,10 @@ public final class RuntimeFilterGenerator {
      */
     private void finalizeRuntimeFilter(RuntimeFilter runtimeFilter) {
         Set<TupleId> targetTupleIds = new HashSet<>();
-        for (RuntimeFilter.RuntimeFilterTarget target: runtimeFilter.getTargets()) {
+        for (RuntimeFilter.RuntimeFilterTarget target : runtimeFilter.getTargets()) {
             targetTupleIds.addAll(target.node.getTupleIds());
         }
-        for (TupleId tupleId: runtimeFilter.getTargetSlots().keySet()) {
+        for (TupleId tupleId : runtimeFilter.getTargetSlots().keySet()) {
             if (!targetTupleIds.contains(tupleId)) {
                 runtimeFiltersByTid.get(tupleId).remove(runtimeFilter);
             }
@@ -285,20 +362,32 @@ public final class RuntimeFilterGenerator {
      * 2. Only olap scan nodes are supported:
      */
     private void assignRuntimeFilters(ScanNode scanNode) {
-        if (!(scanNode instanceof OlapScanNode)) return;
+        if (!(scanNode instanceof OlapScanNode) && !(scanNode instanceof ExternalFileScanNode)) {
+            return;
+        }
         TupleId tid = scanNode.getTupleIds().get(0);
-        if (!runtimeFiltersByTid.containsKey(tid)) return;
+        if (!runtimeFiltersByTid.containsKey(tid)) {
+            return;
+        }
         String runtimeFilterMode = sessionVariable.getRuntimeFilterMode();
         Preconditions.checkState(Arrays.stream(TRuntimeFilterMode.values()).map(Enum::name).anyMatch(
                 p -> p.equals(runtimeFilterMode.toUpperCase())), "runtimeFilterMode not expected");
-        for (RuntimeFilter filter: runtimeFiltersByTid.get(tid)) {
-            if (filter.isFinalized()) continue;
+        for (RuntimeFilter filter : runtimeFiltersByTid.get(tid)) {
+            if (filter.isFinalized()) {
+                continue;
+            }
             Expr targetExpr = computeTargetExpr(filter, tid);
-            if (targetExpr == null) continue;
+            if (targetExpr == null) {
+                continue;
+            }
             boolean isBoundByKeyColumns = isBoundByKeyColumns(analyzer, targetExpr, scanNode);
             boolean isLocalTarget = isLocalTarget(filter, scanNode);
-            if (runtimeFilterMode.equals(TRuntimeFilterMode.LOCAL.name()) && !isLocalTarget) continue;
-            if (runtimeFilterMode.equals(TRuntimeFilterMode.REMOTE.name()) && isLocalTarget) continue;
+            if (runtimeFilterMode.equals(TRuntimeFilterMode.LOCAL.name()) && !isLocalTarget) {
+                continue;
+            }
+            if (runtimeFilterMode.equals(TRuntimeFilterMode.REMOTE.name()) && isLocalTarget) {
+                continue;
+            }
 
             RuntimeFilter.RuntimeFilterTarget target = new RuntimeFilter.RuntimeFilterTarget(
                     scanNode, targetExpr, isBoundByKeyColumns, isLocalTarget);
@@ -352,8 +441,8 @@ public final class RuntimeFilterGenerator {
             targetExpr.collect(SlotRef.class, exprSlots);
             // targetExpr specifies the id of the slotRef node in the `tupleID`
             List<SlotId> sids = filter.getTargetSlots().get(targetTid);
-            for (SlotRef slotRef: exprSlots) {
-                for (SlotId sid: sids) {
+            for (SlotRef slotRef : exprSlots) {
+                for (SlotId sid : sids) {
                     if (analyzer.hasValueTransfer(slotRef.getSlotId(), sid)) {
                         SlotRef newSlotRef = new SlotRef(analyzer.getSlotDesc(sid));
                         newSlotRef.analyzeNoThrow(analyzer);
@@ -368,6 +457,9 @@ public final class RuntimeFilterGenerator {
             } catch (Exception e) {
                 return null;
             }
+        }
+        if (filter.getType().equals(TRuntimeFilterType.BITMAP)) {
+            return targetExpr;
         }
         Type srcType = filter.getSrcExpr().getType();
         // Types of targetExpr and srcExpr must be exactly the same since runtime filters are

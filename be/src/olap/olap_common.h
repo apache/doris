@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_COMMON_H
-#define DORIS_BE_SRC_OLAP_OLAP_COMMON_H
+#pragma once
 
 #include <netinet/in.h>
 
+#include <cstdint>
 #include <functional>
 #include <list>
 #include <map>
@@ -37,28 +37,28 @@
 #include "util/hash_util.hpp"
 #include "util/uid_util.h"
 
-#define LOW_56_BITS 0x00ffffffffffffff
-
 namespace doris {
 
-static const int64_t MAX_ROWSET_ID = 1L << 56;
+static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
+static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
-typedef int32_t SchemaHash;
-typedef __int128 int128_t;
-typedef unsigned __int128 uint128_t;
+using SchemaHash = int32_t;
+using int128_t = __int128;
+using uint128_t = unsigned __int128;
 
-typedef UniqueId TabletUid;
+using TabletUid = UniqueId;
 
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
 struct DataDirInfo {
-    FilePathDesc path_desc;
+    std::string path;
     size_t path_hash = 0;
     int64_t disk_capacity = 1; // actual disk capacity
-    int64_t available = 0;     // 可用空间，单位字节
-    int64_t data_used_capacity = 0;
-    bool is_used = false;                                      // 是否可用标识
-    TStorageMedium::type storage_medium = TStorageMedium::HDD; // 存储介质类型：SSD|HDD
+    int64_t available = 0;     // available space, in bytes unit
+    int64_t local_used_capacity = 0;
+    int64_t remote_used_capacity = 0;
+    bool is_used = false;                                      // whether available mark
+    TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
 
 // Sort DataDirInfo by available space.
@@ -102,20 +102,9 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-enum RangeCondition {
-    GT = 0, // greater than
-    GE = 1, // greater or equal
-    LT = 2, // less than
-    LE = 3, // less or equal
-};
-
-enum DelCondSatisfied {
-    DEL_SATISFIED = 0,         //satisfy delete condition
-    DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
-    DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
-};
-
-// 定义Field支持的所有数据类型
+// Define all data types supported by Field.
+// If new filed_type is defined, not only new TypeInfo may need be defined,
+// but also some functions like get_type_info in types.cpp need to be changed.
 enum FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
@@ -143,7 +132,16 @@ enum FieldType {
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
     OLAP_FIELD_TYPE_OBJECT = 25,
-    OLAP_FIELD_TYPE_STRING = 26
+    OLAP_FIELD_TYPE_STRING = 26,
+    OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
+    OLAP_FIELD_TYPE_DATEV2 = 28,
+    OLAP_FIELD_TYPE_DATETIMEV2 = 29,
+    OLAP_FIELD_TYPE_TIMEV2 = 30,
+    OLAP_FIELD_TYPE_DECIMAL32 = 31,
+    OLAP_FIELD_TYPE_DECIMAL64 = 32,
+    OLAP_FIELD_TYPE_DECIMAL128I = 33,
+    OLAP_FIELD_TYPE_JSONB = 34,
+    OLAP_FIELD_TYPE_VARIANT = 35
 };
 
 // Define all aggregation methods supported by Field
@@ -161,22 +159,13 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
-};
-
-// Compression algorithm type
-enum OLAPCompressionType {
-    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
-    OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead 
-    OLAP_COMP_STORAGE = 2,  
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low 
-    OLAP_COMP_LZ4 = 3,       
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
 enum PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load
+    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
@@ -186,7 +175,28 @@ enum ReaderType {
     READER_BASE_COMPACTION = 2,
     READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
+    READER_COLD_DATA_COMPACTION = 5,
+    READER_SEGMENT_COMPACTION = 6,
 };
+
+constexpr bool field_is_slice_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+           field_type == OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool field_is_numeric_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
+}
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
@@ -198,6 +208,12 @@ struct Version {
     Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
     Version() : first(0), second(0) {}
 
+    static Version mock() {
+        // Every time SchemaChange is used for external rowing, some temporary versions (such as 999, 1000, 1001) will be written, in order to avoid Cache conflicts, temporary
+        // The version number takes a BIG NUMBER plus the version number of the current SchemaChange
+        return Version(1 << 28, 1 << 29);
+    }
+
     friend std::ostream& operator<<(std::ostream& os, const Version& version);
 
     bool operator!=(const Version& rhs) const { return first != rhs.first || second != rhs.second; }
@@ -207,12 +223,21 @@ struct Version {
     bool contains(const Version& other) const {
         return first <= other.first && second >= other.second;
     }
+
+    std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
-typedef std::vector<Version> Versions;
+using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
-    return os << "[" << version.first << "-" << version.second << "]";
+    return os << version.to_string();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Versions& versions) {
+    for (auto& version : versions) {
+        os << version;
+    }
+    return os;
 }
 
 // used for hash-struct of hash_map<Version, Rowset*>.
@@ -237,7 +262,18 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
-static const int GENERAL_DEBUG_COUNT = 4;
+static const int GENERAL_DEBUG_COUNT = 0;
+
+struct FileCacheStatistics {
+    int64_t num_io_total = 0;
+    int64_t num_io_hit_cache = 0;
+    int64_t num_io_bytes_read_total = 0;
+    int64_t num_io_bytes_read_from_file_cache = 0;
+    int64_t num_io_bytes_read_from_write_cache = 0;
+    int64_t num_io_written_in_file_cache = 0;
+    int64_t num_io_bytes_written_in_file_cache = 0;
+    int64_t num_io_bytes_skip_cache = 0;
+};
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -250,11 +286,33 @@ struct OlapReaderStatistics {
     // total read bytes in memory
     int64_t bytes_read = 0;
 
+    int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
-    int64_t block_fetch_ns = 0; // time of rowset reader's `next_batch()` call
+    // Not used any more, will be removed after non-vectorized code is removed
     int64_t block_seek_num = 0;
+    // Not used any more, will be removed after non-vectorized code is removed
     int64_t block_seek_ns = 0;
+
+    // block_load_ns
+    //      block_init_ns
+    //          block_init_seek_ns
+    //          block_conditions_filtered_ns
+    //      first_read_ns
+    //          block_first_read_seek_ns
+    //      lazy_read_ns
+    //          block_lazy_read_seek_ns
+    int64_t block_init_ns = 0;
+    int64_t block_init_seek_num = 0;
+    int64_t block_init_seek_ns = 0;
+    int64_t first_read_ns = 0;
+    int64_t second_read_ns = 0;
+    int64_t block_first_read_seek_num = 0;
+    int64_t block_first_read_seek_ns = 0;
+    int64_t lazy_read_ns = 0;
+    int64_t block_lazy_read_seek_num = 0;
+    int64_t block_lazy_read_seek_ns = 0;
+
     int64_t block_convert_ns = 0;
 
     int64_t raw_rows_read = 0;
@@ -262,6 +320,9 @@ struct OlapReaderStatistics {
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
+    int64_t short_cond_ns = 0;
+    int64_t expr_filter_ns = 0;
+    int64_t output_col_ns = 0;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
@@ -272,8 +333,10 @@ struct OlapReaderStatistics {
     // and it is also used to record the replaced rows in the Unique key model in the "Reader" class.
     // In segmentv2, if you want to get all filtered rows, you need the sum of "rows_del_filtered" and "rows_conditions_filtered".
     int64_t rows_del_filtered = 0;
+    int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
+    int64_t block_conditions_filtered_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -282,6 +345,18 @@ struct OlapReaderStatistics {
 
     int64_t rows_bitmap_index_filtered = 0;
     int64_t bitmap_index_filter_timer = 0;
+
+    int64_t rows_inverted_index_filtered = 0;
+    int64_t inverted_index_filter_timer = 0;
+    int64_t inverted_index_query_timer = 0;
+    int64_t inverted_index_query_cache_hit = 0;
+    int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_bitmap_copy_timer = 0;
+    int64_t inverted_index_query_bitmap_op_timer = 0;
+    int64_t inverted_index_searcher_open_timer = 0;
+    int64_t inverted_index_searcher_search_timer = 0;
+
+    int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
     // total number of segment
@@ -289,21 +364,24 @@ struct OlapReaderStatistics {
     // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
     // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
     // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
-    // so general_debug_ns' values will update to _general_debug_timer automaticly, 
+    // so general_debug_ns' values will update to _general_debug_timer automatically,
     // the timer result can be checked through QueryProfile web page easily.
-    // when search general_debug_ns, you can find that general_debug_ns has not been used, 
+    // when search general_debug_ns, you can find that general_debug_ns has not been used,
     // this is because such codes added for debug purpose should not commit, it's just for debuging.
     // so, please do not delete general_debug_ns defined here
-    // usage example: 
+    // usage example:
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
+
+    FileCacheStatistics file_cache_stats;
+    int64_t load_segments_timer = 0;
 };
 
-typedef uint32_t ColumnId;
+using ColumnId = uint32_t;
 // Column unique id set
-typedef std::set<uint32_t> UniqueIdSet;
+using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
-typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
+using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -381,6 +459,17 @@ struct RowsetId {
     }
 };
 
-} // namespace doris
+// used for hash-struct of hash_map<RowsetId, Rowset*>.
+struct HashOfRowsetId {
+    size_t operator()(const RowsetId& rowset_id) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&rowset_id.hi, sizeof(rowset_id.hi), seed);
+        seed = HashUtil::hash64(&rowset_id.mi, sizeof(rowset_id.mi), seed);
+        seed = HashUtil::hash64(&rowset_id.lo, sizeof(rowset_id.lo), seed);
+        return seed;
+    }
+};
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H
+using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
+
+} // namespace doris

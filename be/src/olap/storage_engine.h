@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
-#define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
+#pragma once
 
 #include <pthread.h>
 #include <rapidjson/document.h>
@@ -31,22 +30,18 @@
 #include <thread>
 #include <vector>
 
-#include "agent/status.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
-#include "olap/tablet_sync_service.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
@@ -63,6 +58,10 @@ class BlockManager;
 class MemTableFlushExecutor;
 class Tablet;
 class TaskWorkerPool;
+class BetaRowsetWriter;
+
+using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
+using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
@@ -77,7 +76,7 @@ public:
 
     static StorageEngine* instance() { return _s_instance; }
 
-    OLAPStatus create_tablet(const TCreateTabletReq& request);
+    Status create_tablet(const TCreateTabletReq& request);
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -87,27 +86,22 @@ public:
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_data_dirs(const std::vector<DataDir*>& stores);
 
-    Cache* index_stream_lru_cache() { return _index_stream_lru_cache; }
-
-    std::shared_ptr<Cache> file_cache() { return _file_cache; }
-
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
-    // @brief 设置root_path是否可用
-    void set_store_used_flag(const std::string& root_path, bool is_used);
-
     // @brief 获取所有root_path信息
-    OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
+    Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(std::filesystem::path file_path);
+    int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
 
-    uint32_t available_storage_medium_type_count() { return _available_storage_medium_type_count; }
+    uint32_t available_storage_medium_type_count() const {
+        return _available_storage_medium_type_count;
+    }
 
     Status set_cluster_id(int32_t cluster_id);
     int32_t effective_cluster_id() const { return _effective_cluster_id; }
@@ -119,23 +113,23 @@ public:
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    OLAPStatus obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
-                                 DataDir** store);
+    Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
+                             DataDir** store);
 
     // Load new tablet to make it effective.
     //
     // @param [in] root_path specify root path of new tablet
     // @param [in] request specify new tablet info
     // @param [in] restore whether we're restoring a tablet from trash
-    // @return OLAP_SUCCESS if load tablet success
-    OLAPStatus load_header(const std::string& shard_path, const TCloneReq& request,
-                           bool restore = false);
+    // @return OK if load tablet success
+    Status load_header(const std::string& shard_path, const TCloneReq& request,
+                       bool restore = false);
 
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
 
-    OLAPStatus execute_task(EngineTask* task);
+    Status execute_task(EngineTask* task);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
@@ -143,10 +137,7 @@ public:
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
-    // TODO(ygl)
-    TabletSyncService* tablet_sync_service() { return nullptr; }
-
-    RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); };
+    RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); }
 
     bool rowset_id_in_use(const RowsetId& rowset_id) {
         return _rowset_id_generator->id_in_use(rowset_id);
@@ -172,7 +163,7 @@ public:
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
-    OLAPStatus start_trash_sweep(double* usage, bool ignore_guard = false);
+    Status start_trash_sweep(double* usage, bool ignore_guard = false);
 
     void stop();
 
@@ -185,13 +176,21 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
-    std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
+    std::shared_ptr<MemTracker> segment_meta_mem_tracker() { return _segment_meta_mem_tracker; }
+    std::shared_ptr<MemTracker> segcompaction_mem_tracker() { return _segcompaction_mem_tracker; }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status submit_seg_compaction_task(BetaRowsetWriter* writer,
+                                      SegCompactionCandidatesSharedPtr segments);
+
+    std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
+        return _tablet_publish_txn_thread_pool;
+    }
+    bool stopped() { return _stopped; }
+    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
 private:
     // Instance should be inited from `static open()`
@@ -216,8 +215,8 @@ private:
 
     void _clean_unused_rowset_metas();
 
-    OLAPStatus _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
-                         const int32_t expire);
+    Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
+                     const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
     // unused rowset monitor thread
@@ -244,6 +243,8 @@ private:
 
     void _start_clean_cache();
 
+    void _start_clean_lookup_cache();
+
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
     // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
@@ -255,7 +256,6 @@ private:
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
-
     void _update_cumulative_compaction_policy();
 
     bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
@@ -266,6 +266,17 @@ private:
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    void _adjust_compaction_thread_num();
+
+    void _cooldown_tasks_producer_callback();
+    void _remove_unused_remote_files_callback();
+    void _cold_data_compaction_producer_callback();
+
+    void _cache_file_cleaner_tasks_producer_callback();
+
+    Status _handle_seg_compaction(BetaRowsetWriter* writer,
+                                  SegCompactionCandidatesSharedPtr segments);
 
 private:
     struct CompactionCandidate {
@@ -306,26 +317,18 @@ private:
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
 
-    Cache* _index_stream_lru_cache;
-
-    // _file_cache is a lru_cache for file descriptors of files opened by doris,
-    // which can be shared by others. Why we need to share cache with others?
-    // Because a unique memory space is easier for management. For example,
-    // we can deal with segment v1's cache and segment v2's cache at same time.
-    // Note that, we must create _file_cache before sharing it with other.
-    // (e.g. the storage engine's open function must be called earlier than
-    // FileBlockManager created.)
-    std::shared_ptr<Cache> _file_cache;
-
     static StorageEngine* _s_instance;
+    bool _stopped;
 
-    Mutex _gc_mutex;
+    std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
-    std::shared_ptr<MemTracker> _compaction_mem_tracker;
-    std::shared_ptr<MemTracker> _tablet_mem_tracker;
-    std::shared_ptr<MemTracker> _schema_change_mem_tracker;
+    // Count the memory consumption of segment compaction tasks.
+    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
+    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
+    // The memory consumed by querying is tracked in segment iterator.
+    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -342,12 +345,14 @@ private:
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    // thread to clean tablet lookup cache
+    scoped_refptr<Thread> _lookup_cache_clean_thread;
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
     std::set<TaskWorkerPool*> _report_listeners;
 
-    Mutex _engine_task_mutex;
+    std::mutex _engine_task_mutex;
 
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
@@ -362,9 +367,15 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
+
+    std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
+    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
@@ -373,7 +384,7 @@ private:
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
 
-    AtomicInt32 _wakeup_producer_flag;
+    std::atomic<int32_t> _wakeup_producer_flag {0};
 
     std::mutex _compaction_producer_sleep_mutex;
     std::condition_variable _compaction_producer_sleep_cv;
@@ -382,9 +393,18 @@ private:
 
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
 
+    scoped_refptr<Thread> _cooldown_tasks_producer_thread;
+    scoped_refptr<Thread> _remove_unused_remote_files_thread;
+    scoped_refptr<Thread> _cold_data_compaction_producer_thread;
+
+    scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
+
+    std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
+
+    std::mutex _running_cooldown_mutex;
+    std::unordered_set<int64_t> _running_cooldown_tablets;
+
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H

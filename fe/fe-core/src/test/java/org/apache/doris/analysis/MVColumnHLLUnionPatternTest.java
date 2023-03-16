@@ -22,26 +22,27 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Injectable;
-
 public class MVColumnHLLUnionPatternTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Test
     public void testCorrectExpr1(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -52,7 +53,7 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testCorrectExpr2(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         new Expectations() {
             {
@@ -63,6 +64,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(castExpr);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -73,11 +75,12 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testUpperCaseOfFunction(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH.toUpperCase(), child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION.toUpperCase(), params);
@@ -103,6 +106,7 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(intLiteral);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -113,12 +117,13 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testIncorrectDecimalSlotRef(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.DECIMALV2);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.HLL_HASH, child0Params);
+        child0.setType(Type.HLL);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
@@ -130,7 +135,7 @@ public class MVColumnHLLUnionPatternTest {
     @Test
     public void testAggTableHLLColumn(@Injectable SlotDescriptor desc,
             @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef1);

@@ -17,12 +17,15 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
+import org.apache.doris.system.Frontend;
 
+import com.google.common.collect.ImmutableList;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseException;
@@ -33,17 +36,16 @@ import com.sleepycat.je.Durability.SyncPolicy;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.EnvironmentFailureException;
 import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.NoConsistencyRequiredPolicy;
 import com.sleepycat.je.rep.NodeType;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationConfig;
+import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,32 +54,34 @@ import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
-/* this class contains the reference to bdb environment. 
- * including all the opened databases and the replicationGroupAdmin. 
+/* this class contains the reference to bdb environment.
+ * including all the opened databases and the replicationGroupAdmin.
  * we can get the information of this bdb group through the API of replicationGroupAdmin
  */
 public class BDBEnvironment {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
     private static final int RETRY_TIME = 3;
     private static final int MEMORY_CACHE_PERCENT = 20;
-    
+    private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
+            "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
+
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
+
 
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
     private ReplicationConfig replicationConfig;
     private DatabaseConfig dbConfig;
     private Database epochDB = null;  // used for fencing
-    private ReplicationGroupAdmin replicationGroupAdmin = null;
     private ReentrantReadWriteLock lock;
     private List<Database> openedDatabases;
-    
+
     public BDBEnvironment() {
         openedDatabases = new ArrayList<Database>();
         this.lock = new ReentrantReadWriteLock(true);
@@ -86,15 +90,15 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort, boolean isElectable) {
-        
+
         // Almost never used, just in case the master can not restart
         if (Config.metadata_failure_recovery.equals("true")) {
             if (!isElectable) {
                 LOG.error("Current node is not in the electable_nodes list. will exit");
                 System.exit(-1);
             }
-            DbResetRepGroup resetUtility = new DbResetRepGroup(envHome, PALO_JOURNAL_GROUP, selfNodeName,
-                                                               selfNodeHostPort);
+            DbResetRepGroup resetUtility = new DbResetRepGroup(
+                    envHome, PALO_JOURNAL_GROUP, selfNodeName, selfNodeHostPort);
             resetUtility.reset();
             LOG.info("group has been reset.");
         }
@@ -109,8 +113,10 @@ public class BDBEnvironment {
         replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
         replicationConfig.setConfigParam(ReplicationConfig.TXN_ROLLBACK_LIMIT,
                 String.valueOf(Config.txn_rollback_limit));
-        replicationConfig.setConfigParam(ReplicationConfig.REPLICA_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
-        replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
+        replicationConfig.setConfigParam(ReplicationConfig.REPLICA_TIMEOUT,
+                Config.bdbje_heartbeat_timeout_second + " s");
+        replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT,
+                Config.bdbje_heartbeat_timeout_second + " s");
 
         if (isElectable) {
             replicationConfig.setReplicaAckTimeout(Config.bdbje_replica_ack_timeout_second, TimeUnit.SECONDS);
@@ -127,12 +133,22 @@ public class BDBEnvironment {
         environmentConfig.setAllowCreate(true);
         environmentConfig.setCachePercent(MEMORY_CACHE_PERCENT);
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
+        environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
+                String.valueOf(Config.bdbje_reserved_disk_bytes));
+
+        if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
+            environmentConfig.setConfigParam(EnvironmentConfig.FILE_LOGGING_LEVEL, Config.bdbje_file_logging_level);
+        } else {
+            LOG.warn("bdbje_file_logging_level invalid value: {}, will not take effort, use default",
+                    Config.bdbje_file_logging_level);
+        }
+
         if (isElectable) {
-            Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy), 
+            Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy),
                     getSyncPolicy(Config.replica_sync_policy), getAckPolicy(Config.replica_ack_policy));
             environmentConfig.setDurability(durability);
         }
-        
+
         // set database config
         dbConfig = new DatabaseConfig();
         dbConfig.setTransactional(true);
@@ -149,32 +165,14 @@ public class BDBEnvironment {
             try {
                 // open the environment
                 replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
-                
-                // get replicationGroupAdmin object.
-                Set<InetSocketAddress> adminNodes = new HashSet<InetSocketAddress>();
-                // 1. add helper node
-                InetSocketAddress helper = new InetSocketAddress(helperHostPort.split(":")[0], 
-                                                                 Integer.parseInt(helperHostPort.split(":")[1]));
-                adminNodes.add(helper);
-                LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
-                // 2. add self if is electable
-                if (!selfNodeHostPort.equals(helperHostPort) && Catalog.getCurrentCatalog().isElectable()) {
-                    InetSocketAddress self = new InetSocketAddress(selfNodeHostPort.split(":")[0],
-                                                                   Integer.parseInt(selfNodeHostPort.split(":")[1]));
-                    adminNodes.add(self);
-                    LOG.info("add self[{}] as ReplicationGroupAdmin", selfNodeHostPort);
-                }
 
-                replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, adminNodes);
-                
                 // get a BDBHA object and pass the reference to Catalog
                 HAProtocol protocol = new BDBHA(this, selfNodeName);
-                Catalog.getCurrentCatalog().setHaProtocol(protocol);
-                
+                Env.getCurrentEnv().setHaProtocol(protocol);
+
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();
                 replicatedEnvironment.setStateChangeListener(listener);
-                
                 // open epochDB. the first parameter null means auto-commit
                 epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
@@ -192,7 +190,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
@@ -201,13 +199,15 @@ public class BDBEnvironment {
             }
         }
     }
-    
+
     public ReplicationGroupAdmin getReplicationGroupAdmin() {
-        return this.replicationGroupAdmin;
-    }
-    
-    public void setNewReplicationGroupAdmin(Set<InetSocketAddress> newHelperNodes) {
-        this.replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, newHelperNodes);
+        Set<InetSocketAddress> addresses = Env.getCurrentEnv()
+                .getFrontends(FrontendNodeType.FOLLOWER)
+                .stream()
+                .filter(Frontend::isAlive)
+                .map(fe -> new InetSocketAddress(fe.getIp(), fe.getEditLogPort()))
+                .collect(Collectors.toSet());
+        return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
 
     // Return a handle to the epochDB
@@ -219,7 +219,7 @@ public class BDBEnvironment {
     public ReplicatedEnvironment getReplicatedEnvironment() {
         return replicatedEnvironment;
     }
-    
+
     // return the database reference with the given name
     // also try to close previous opened database.
     public Database openDatabase(String dbName) {
@@ -240,17 +240,17 @@ public class BDBEnvironment {
                      * In the case when 3 FE (1 master and 2 followers) start at same time,
                      * We may catch com.sleepycat.je.rep.DatabasePreemptedException which said that
                      * "Database xx has been forcibly closed in order to apply a replicated remove operation."
-                     * 
+                     *
                      * Because when Master FE finished to save image, it try to remove old journals,
                      * and also remove the databases these old journals belongs to.
                      * So after Master removed the database from replicatedEnvironment,
                      * call db.getDatabaseName() will throw DatabasePreemptedException,
                      * because it has already been destroyed.
-                     * 
+                     *
                      * The reason why Master can safely remove a database is because it knows that all
                      * non-master FE have already load the journal ahead of this database. So remove the
                      * database is safe.
-                     * 
+                     *
                      * Here we just try to close the useless database(which may be removed by Master),
                      * so even we catch the exception, just ignore it is OK.
                      */
@@ -277,7 +277,7 @@ public class BDBEnvironment {
         }
         return db;
     }
-    
+
     // close and remove the database whose name is dbName
     public void removeDatabase(String dbName) {
         lock.writeLock().lock();
@@ -309,7 +309,7 @@ public class BDBEnvironment {
             lock.writeLock().unlock();
         }
     }
-    
+
     // get journal db names and sort the names
     public List<Long> getDatabaseNames() {
         List<Long> ret = new ArrayList<Long>();
@@ -333,14 +333,14 @@ public class BDBEnvironment {
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             } catch (DatabaseException e) {
                 LOG.warn("catch an exception when calling getDatabaseNames", e);
                 return null;
             }
         }
-        
+
         if (names != null) {
             for (String name : names) {
                 if (StringUtils.isNumeric(name)) {
@@ -350,7 +350,7 @@ public class BDBEnvironment {
                 }
             }
         }
-        
+
         Collections.sort(ret);
         return ret;
     }
@@ -366,7 +366,7 @@ public class BDBEnvironment {
             }
         }
         openedDatabases.clear();
-        
+
         if (epochDB != null) {
             try {
                 epochDB.close();
@@ -386,8 +386,8 @@ public class BDBEnvironment {
             }
         }
     }
-    
-        // Close environment
+
+    // Close environment
     public void closeReplicatedEnvironment() {
         if (replicatedEnvironment != null) {
             try {
@@ -399,7 +399,8 @@ public class BDBEnvironment {
             }
         }
     }
-        // open environment
+
+    // open environment
     public void openReplicatedEnvironment(File envHome) {
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
@@ -411,7 +412,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
@@ -431,7 +432,7 @@ public class BDBEnvironment {
         // default value is WRITE_NO_SYNC
         return Durability.SyncPolicy.WRITE_NO_SYNC;
     }
-    
+
     private ReplicaAckPolicy getAckPolicy(String policy) {
         if (policy.equalsIgnoreCase("ALL")) {
             return Durability.ReplicaAckPolicy.ALL;
@@ -442,5 +443,5 @@ public class BDBEnvironment {
         // default value is SIMPLE_MAJORITY
         return Durability.ReplicaAckPolicy.SIMPLE_MAJORITY;
     }
-    
+
 }

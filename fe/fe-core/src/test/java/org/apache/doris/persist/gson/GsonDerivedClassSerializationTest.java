@@ -26,7 +26,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -43,21 +42,21 @@ import java.util.Map;
 
 /*
  * This unit test shows how to serialize and deserialize inherited class.
- * 
+ *
  * ParentClass is the parent class of 2 derived classes:
  *      ChildClassA
  *      ChildClassB
- *      
+ *
  * User need to create a RuntimeTypeAdapterFactory for ParentClass and
  * register 2 derived classes to the factory. And then register the factory
  * to the GsonBuilder to create GSON instance.
- * 
- * 
- * 
+ *
+ *
+ *
  */
 public class GsonDerivedClassSerializationTest {
     private static String fileName = "./GsonDerivedClassSerializationTest";
-    
+
     @After
     public void tearDown() {
         File file = new File(fileName);

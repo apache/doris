@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlannerContext.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -32,36 +35,55 @@ import org.apache.logging.log4j.Logger;
  * parameters and state such as plan-node and plan-fragment id generators.
  */
 public class PlannerContext {
-    private final static Logger LOG = LogManager.getLogger(PlannerContext.class);
+    private static final Logger LOG = LogManager.getLogger(PlannerContext.class);
 
     // Estimate of the overhead imposed by storing data in a hash tbl;
     // used for determining whether a broadcast join is feasible.
-    public final static double HASH_TBL_SPACE_OVERHEAD = 1.1;
+    public static final double HASH_TBL_SPACE_OVERHEAD = 1.1;
 
-    private final IdGenerator<PlanNodeId> nodeIdGenerator_ = PlanNodeId.createGenerator();
-    private final IdGenerator<PlanFragmentId> fragmentIdGenerator_ =
+    private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
+    private final IdGenerator<PlanFragmentId> fragmentIdGenerator =
             PlanFragmentId.createGenerator();
 
     // TODO(zc) private final TQueryCtx queryCtx_;
     // TODO(zc) private final AnalysisContext.AnalysisResult analysisResult_;
-    private final Analyzer analyzer_;
-    private final TQueryOptions queryOptions_;
-    private final QueryStmt queryStmt_;
-    private final StatementBase statement_;
+    private final Analyzer analyzer;
+    private final TQueryOptions queryOptions;
+    private final QueryStmt queryStmt;
+    private final StatementBase statement;
 
     public PlannerContext(Analyzer analyzer, QueryStmt queryStmt, TQueryOptions queryOptions, StatementBase statement) {
-        this.analyzer_ = analyzer;
-        this.queryStmt_ = queryStmt;
-        this.queryOptions_ = queryOptions;
-        this.statement_ = statement;
+        this.analyzer = analyzer;
+        this.queryStmt = queryStmt;
+        this.queryOptions = queryOptions;
+        this.statement = statement;
     }
 
-    public QueryStmt getQueryStmt() { return queryStmt_; }
-    public TQueryOptions getQueryOptions() { return queryOptions_; } // getRootAnalyzer().getQueryOptions(); }
-    public Analyzer getRootAnalyzer() { return analyzer_; } // analysisResult_.getAnalyzer(); }
-    public boolean isSingleNodeExec() { return getQueryOptions().num_nodes == 1; }
-    public PlanNodeId getNextNodeId() { return nodeIdGenerator_.getNextId(); }
-    public PlanFragmentId getNextFragmentId() { return fragmentIdGenerator_.getNextId(); }
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
+    }
 
-    public boolean isInsert() { return statement_ instanceof InsertStmt; }
+    public TQueryOptions getQueryOptions() {
+        return queryOptions;
+    } // getRootAnalyzer().getQueryOptions(); }
+
+    public Analyzer getRootAnalyzer() {
+        return analyzer;
+    } // analysisResult_.getAnalyzer(); }
+
+    public boolean isSingleNodeExec() {
+        return getQueryOptions().num_nodes == 1;
+    }
+
+    public PlanNodeId getNextNodeId() {
+        return nodeIdGenerator.getNextId();
+    }
+
+    public PlanFragmentId getNextFragmentId() {
+        return fragmentIdGenerator.getNextId();
+    }
+
+    public boolean isInsert() {
+        return statement instanceof InsertStmt;
+    }
 }

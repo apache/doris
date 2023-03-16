@@ -52,13 +52,13 @@ public class BackendProcNode implements ProcNodeInterface {
         for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {
             List<String> info = Lists.newArrayList();
             info.add(entry.getKey());
-            
+
             // data used
             long dataUsedB = entry.getValue().getDataUsedCapacityB();
             Pair<Double, String> dataUsedUnitPair = DebugUtil.getByteUint(dataUsedB);
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(dataUsedUnitPair.first) + " "
                     + dataUsedUnitPair.second);
-            
+
             // avail
             long availB = entry.getValue().getAvailableCapacityB();
             Pair<Double, String> availUnitPair = DebugUtil.getByteUint(availB);

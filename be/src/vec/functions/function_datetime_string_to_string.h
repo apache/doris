@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_date.h"
@@ -30,12 +33,19 @@ template <typename Transform>
 class FunctionDateTimeStringToString : public IFunction {
 public:
     static constexpr auto name = Transform::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeStringToString>(); }
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -65,17 +75,17 @@ public:
                 if (const auto* delta_const_column =
                             typeid_cast<const ColumnConst*>(&source_col1)) {
                     TransformerToStringTwoArgument<Transform>::vector_constant(
-                            sources->get_data(), delta_const_column->get_field().get<String>(),
-                            col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
+                            context, sources->get_data(),
+                            delta_const_column->get_field().get<String>(), col_res->get_chars(),
+                            col_res->get_offsets(), vec_null_map_to);
                 } else {
                     return Status::InternalError(
-                            "Illegal column " +
-                            block.get_by_position(arguments[1]).column->get_name() +
-                            " is not const" + name);
+                            "Illegal column {} is not const {}",
+                            block.get_by_position(arguments[1]).column->get_name(), name);
                 }
             } else {
                 TransformerToStringTwoArgument<Transform>::vector_constant(
-                        sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
+                        context, sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
                         col_res->get_offsets(), vec_null_map_to);
             }
 
@@ -88,9 +98,9 @@ public:
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
         } else {
-            return Status::InternalError("Illegal column " +
-                                         block.get_by_position(arguments[0]).column->get_name() +
-                                         " of first argument of function " + name);
+            return Status::InternalError("Illegal column {} of first argument of function {}",
+                                         block.get_by_position(arguments[0]).column->get_name(),
+                                         name);
         }
         return Status::OK();
     }

@@ -16,29 +16,80 @@
 #
 
 github:
-  description: Apache Doris(Incubating) is an MPP-based interactive SQL data warehousing for reporting and analysis.
-  homepage: https://doris.apache.org/
+  description: Apache Doris is an easy-to-use, high performance and unified analytics database. 
+  homepage: https://doris.apache.org
   labels:
-    - data-warehousing
-    - mpp
+    - real-time
+    - query-engine
     - olap
-    - dbms
-    - apache
-    - doris
+    - lakehouse
+    - etl
+    - elt
+    - sql
+    - snowflake
+    - redshift
+    - bigquery
+    - hive
+    - iceberg
+    - hudi
+    - delta-lake
+    - spark
+    - hadoop
+    - dbt
+    - database
+
   enabled_merge_buttons:
     squash:  true
     merge:   false
     rebase:  false
   protected_branches:
     master:
+      required_status_checks:
+        # if strict is true, means "Require branches to be up to date before merging".
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - P0 Regression (Doris Regression)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Build Broker
+          - Build Documents
+          - BE UT (Clang)
+          - ShellCheck
+          - clickbench (benchmark)
+          - BE UT (macOS)
+          - Build Third Party Libraries (Linux)
+          - Build Third Party Libraries (macOS)
+          - COMPILE (DORIS_COMPILE)
+
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         required_approving_review_count: 1
-  notifications:
-    pullrequests_status:  commits@doris.apache.org
+    branch-1.1-lts:
+      required_status_checks:
+        # if strict is true, means "Require branches to be up to date before merging".
+        strict: false
+        contexts:
+          - License Check
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Build Broker
+
+      required_pull_request_reviews:
+        dismiss_stale_reviews: true
+        required_approving_review_count: 1
   collaborators:
-    - jackwener
-    - qidaye
     - tinkerrrr
-    - luzhijing
     - spaces-X
+    - zuochunwei
+    - thomascai126
+    - dataalive
+    - LemonLiTree
+    - zy-kkk
+    - Yukang-Lian
+
+notifications:
+    pullrequests_status:  commits@doris.apache.org
+

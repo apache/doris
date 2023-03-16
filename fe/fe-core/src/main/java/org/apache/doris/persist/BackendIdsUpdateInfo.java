@@ -17,17 +17,18 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-import org.apache.doris.common.io.Writable;
-import com.google.common.collect.Lists;
-
 public class BackendIdsUpdateInfo implements Writable {
     private List<Long> backendIds;
-    
+
     public BackendIdsUpdateInfo() {
         this.backendIds = Lists.newArrayList();
     }
@@ -57,6 +58,6 @@ public class BackendIdsUpdateInfo implements Writable {
 
     public void setBackendList(List<Long> backendList) {
         this.backendIds = backendList;
-    } 
+    }
 
 }

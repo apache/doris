@@ -17,25 +17,30 @@
 
 package org.apache.doris.mysql.privilege;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 
+import mockit.Expectations;
+
 public class MockedAuth {
 
-    public static void mockedAuth(PaloAuth auth) {
+    public static void mockedAccess(AccessControllerManager accessManager) {
         new Expectations() {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 

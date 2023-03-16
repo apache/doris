@@ -35,7 +35,7 @@ public class SourceTest {
         File file = new File("./sourceTest");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         Source source0 = new Source();
         source0.write(dos);
 
@@ -49,40 +49,40 @@ public class SourceTest {
         }
         Source source1 = new Source(files, columns, "\t", "\n", false);
         source1.write(dos);
-        
+
         Source source2 = new Source();
         source2.setFileUrls(null);
         source2.setColumnNames(null);
         source2.write(dos);
-        
+
         dos.flush();
         dos.close();
 
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Source rSource0 = new Source();
         rSource0.readFields(dis);
-        
+
         Source rSource1 = new Source();
         rSource1.readFields(dis);
-        
+
         Source rSource2 = new Source();
         rSource2.readFields(dis);
 
-        Assert.assertTrue(rSource0.equals(source0));
-        Assert.assertTrue(source0.equals(source0));
-        Assert.assertFalse(rSource0.equals(this));
-        Assert.assertTrue(rSource1.equals(source1));
-        Assert.assertFalse(rSource2.equals(source2));
-        Assert.assertFalse(rSource0.equals(source1));
-        
+        Assert.assertEquals(rSource0, source0);
+        Assert.assertEquals(source0, source0);
+        Assert.assertNotEquals(rSource0, this);
+        Assert.assertEquals(rSource1, source1);
+        Assert.assertNotEquals(rSource2, source2);
+        Assert.assertNotEquals(rSource0, source1);
+
         rSource2.setFileUrls(null);
-        Assert.assertFalse(rSource2.equals(source2));
+        Assert.assertNotEquals(rSource2, source2);
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(new ArrayList<String>());
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(null);
-        Assert.assertTrue(rSource2.equals(source2));
-        
+        Assert.assertEquals(rSource2, source2);
+
         dis.close();
         file.delete();
     }

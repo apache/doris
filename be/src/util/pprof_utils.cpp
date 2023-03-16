@@ -24,6 +24,9 @@
 #include "util/file_utils.h"
 
 namespace doris {
+namespace config {
+extern std::string pprof_profile_dir;
+}
 
 Status PprofUtils::get_pprof_cmd(std::string* cmd) {
     AgentUtils util;
@@ -66,12 +69,15 @@ Status PprofUtils::get_self_cmdline(std::string* cmd) {
         return Status::InternalError("Unable to open file: /proc/self/cmdline");
     }
     char buf[1024];
-    // Ignore unused return value
-    if (fscanf(fp, "%1023s ", buf))
-        ;
+
+    Status res = Status::OK();
+
+    if (fscanf(fp, "%1023s ", buf) != 1) {
+        res = Status::InternalError("get_self_cmdline read buffer failed");
+    }
     fclose(fp);
     *cmd = buf;
-    return Status::OK();
+    return res;
 }
 
 Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool is_file,
@@ -109,7 +115,7 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     FileUtils::remove(file_or_content);
 
     if (!rc) {
-        return Status::InternalError("Failed to execute command: " + cmd_output);
+        return Status::InternalError("Failed to execute command: {}", cmd_output);
     }
 
     (*output) << "Profile(Sample 30 seconds)" << std::endl;
@@ -147,7 +153,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
     bool rc = util.exec_cmd(cmd.str(), &cmd_output);
     if (!rc) {
         FileUtils::remove(tmp_file.str());
-        return Status::InternalError("Failed to execute perf command: " + cmd_output);
+        return Status::InternalError("Failed to execute perf command: {}", cmd_output);
     }
 
     // generate flamegraph
@@ -164,7 +170,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         if (!rc) {
             FileUtils::remove(tmp_file.str());
             FileUtils::remove(graph_file.str());
-            return Status::InternalError("Failed to execute perf script command: " + res_content);
+            return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = graph_file.str();
     } else {
@@ -174,7 +180,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         rc = util.exec_cmd(gen_cmd.str(), &res_content, false);
         if (!rc) {
             FileUtils::remove(tmp_file.str());
-            return Status::InternalError("Failed to execute perf script command: " + res_content);
+            return Status::InternalError("Failed to execute perf script command: {}", res_content);
         }
         *svg_file_or_content = res_content;
     }

@@ -17,36 +17,38 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.proc.IndexSchemaProcNode;
 import org.apache.doris.common.proc.ProcNodeInterface;
-import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang.StringUtils;
 
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -81,16 +83,24 @@ public class DescribeStmt extends ShowStmt {
 
     private TableName dbTableName;
     private ProcNodeInterface node;
-    
-    List<List<String>> totalRows;
+
+    List<List<String>> totalRows = new LinkedList<List<String>>();
 
     private boolean isAllTables;
-    private boolean isOlapTable;
+    private boolean isOlapTable = false;
+
+    TableValuedFunctionRef tableValuedFunctionRef;
+    boolean isTableValuedFunction;
 
     public DescribeStmt(TableName dbTableName, boolean isAllTables) {
         this.dbTableName = dbTableName;
-        this.totalRows = new LinkedList<List<String>>();
         this.isAllTables = isAllTables;
+    }
+
+    public DescribeStmt(TableValuedFunctionRef tableValuedFunctionRef) {
+        this.tableValuedFunctionRef = tableValuedFunctionRef;
+        this.isTableValuedFunction = true;
+        this.isAllTables = false;
     }
 
     public boolean isAllTables() {
@@ -98,26 +108,44 @@ public class DescribeStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        dbTableName.analyze(analyzer);
-        
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
-                                                                dbTableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
+    public void analyze(Analyzer analyzer) throws UserException {
+        if (!isAllTables && isTableValuedFunction) {
+            tableValuedFunctionRef.analyze(analyzer);
+            List<Column> columns = tableValuedFunctionRef.getTable().getBaseSchema();
+            for (Column column : columns) {
+                List<String> row = Arrays.asList(
+                        column.getDisplayName(),
+                        column.getOriginType().toString(),
+                        column.isAllowNull() ? "Yes" : "No",
+                        ((Boolean) column.isKey()).toString(),
+                        column.getDefaultValue() == null
+                                ? FeConstants.null_string : column.getDefaultValue(),
+                        "NONE"
+                );
+                totalRows.add(row);
+            }
+            return;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
-        Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
+        dbTableName.analyze(analyzer);
+
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    dbTableName.toString());
+        }
+
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
+        TableIf table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {
             if (!isAllTables) {
                 // show base table schema only
-                String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/";
+                String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId() + "/"
+                        + TableProcDir.INDEX_SCHEMA + "/";
                 if (table.getType() == TableType.OLAP) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
@@ -129,6 +157,7 @@ public class DescribeStmt extends ShowStmt {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
             } else {
+                Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
                 if (table.getType() == TableType.OLAP) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
@@ -170,7 +199,8 @@ public class DescribeStmt extends ShowStmt {
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
-                                    column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
+                                    column.getDefaultValue() == null
+                                            ? FeConstants.null_string : column.getDefaultValue(),
                                     extraStr,
                                     ((Boolean) column.isVisible()).toString()
                             );
@@ -199,6 +229,13 @@ public class DescribeStmt extends ShowStmt {
                             odbcTable.getOdbcDriver(),
                             odbcTable.getOdbcTableTypeName());
                     totalRows.add(row);
+                } else if (table.getType() == TableType.JDBC) {
+                    isOlapTable = false;
+                    JdbcTable jdbcTable = (JdbcTable) table;
+                    List<String> row = Arrays.asList(jdbcTable.getJdbcUrl(), jdbcTable.getJdbcUser(),
+                            jdbcTable.getJdbcPasswd(), jdbcTable.getDriverClass(), jdbcTable.getDriverUrl(),
+                            jdbcTable.getExternalTableName(), jdbcTable.getResourceName(), jdbcTable.getJdbcTypeName());
+                    totalRows.add(row);
                 } else if (table.getType() == TableType.MYSQL) {
                     isOlapTable = false;
                     MysqlTable mysqlTable = (MysqlTable) table;
@@ -207,7 +244,8 @@ public class DescribeStmt extends ShowStmt {
                                                      mysqlTable.getUserName(),
                                                      mysqlTable.getPasswd(),
                                                      mysqlTable.getMysqlDatabaseName(),
-                                                     mysqlTable.getMysqlTableName());
+                                                     mysqlTable.getMysqlTableName(),
+                                                     mysqlTable.getCharset());
                     totalRows.add(row);
                 } else {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, table.getType());
@@ -221,6 +259,7 @@ public class DescribeStmt extends ShowStmt {
     public String getTableName() {
         return dbTableName.getTbl();
     }
+
     public String getDb() {
         return dbTableName.getDb();
     }
@@ -229,6 +268,9 @@ public class DescribeStmt extends ShowStmt {
         if (isAllTables) {
             return totalRows;
         } else {
+            if (isTableValuedFunction) {
+                return totalRows;
+            }
             Preconditions.checkNotNull(node);
             return node.fetchResult().getRows();
         }
@@ -238,15 +280,7 @@ public class DescribeStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         if (!isAllTables) {
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-
-            ProcResult result = null;
-            try {
-                result = node.fetchResult();
-            } catch (AnalysisException e) {
-                return builder.build();
-            }
-
-            for (String col : result.getColumnNames()) {
+            for (String col : IndexSchemaProcNode.TITLE_NAMES) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
             return builder.build();

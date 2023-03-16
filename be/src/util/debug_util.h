@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
+#pragma once
 
 #include <ostream>
 #include <string>
@@ -53,5 +52,3 @@ std::string get_version_string(bool compact);
 std::string hexdump(const char* buf, int len);
 
 } // namespace doris
-
-#endif

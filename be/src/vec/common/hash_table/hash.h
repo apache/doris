@@ -22,6 +22,8 @@
 
 #include <type_traits>
 
+#include "parallel_hashmap/phmap_utils.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 
@@ -59,16 +61,13 @@ inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
 #include <nmmintrin.h>
 #endif
 
-#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
-#include <arm_acle.h>
-#include <arm_neon.h>
+#if defined(__aarch64__)
+#include <sse2neon.h>
 #endif
 
 inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))
     return _mm_crc32_u64(-1ULL, x);
-#elif defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
-    return __crc32cd(-1U, x);
 #else
     /// On other platforms we do not have CRC32. NOTE This can be confusing.
     return int_hash64(x);
@@ -94,6 +93,16 @@ struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
 };
 
+template <>
+struct DefaultHash<doris::vectorized::Int128I> {
+    size_t operator()(doris::vectorized::Int128I key) const {
+        return default_hash64<doris::vectorized::Int128I>(key);
+    }
+};
+
+template <>
+struct DefaultHash<doris::StringRef> : public doris::StringRefHash {};
+
 template <typename T>
 struct HashCRC32;
 
@@ -106,6 +115,17 @@ inline size_t hash_crc32(T key) {
     u.out = 0;
     u.in = key;
     return int_hash_crc32(u.out);
+}
+
+template <>
+inline size_t hash_crc32(doris::vectorized::UInt128 u) {
+    return doris::vectorized::UInt128HashCRC32()(u);
+}
+
+template <>
+inline size_t hash_crc32(doris::vectorized::Int128 u) {
+    return doris::vectorized::UInt128HashCRC32()(
+            doris::vectorized::UInt128((u >> 64) & int64_t(-1), u & int64_t(-1)));
 }
 
 #define DEFINE_HASH(T)                                                \
@@ -129,10 +149,15 @@ DEFINE_HASH(doris::vectorized::Float64)
 
 #undef DEFINE_HASH
 
+template <typename Key, typename Hash = HashCRC32<Key>>
+struct HashMixWrapper {
+    size_t operator()(Key key) const { return phmap::phmap_mix<sizeof(size_t)>()(Hash()(key)); }
+};
+
 template <>
 struct HashCRC32<doris::vectorized::UInt256> {
     size_t operator()(const doris::vectorized::UInt256& x) const {
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
         doris::vectorized::UInt64 crc = -1ULL;
         crc = _mm_crc32_u64(crc, x.a);
         crc = _mm_crc32_u64(crc, x.b);

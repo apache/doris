@@ -17,8 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,7 +45,7 @@ import java.util.UUID;
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+    private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
 
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
@@ -54,7 +53,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     // Last fetched and cached latest partition offsets.
     private List<Pair<Integer, Long>> cachedPartitionWithLatestOffsets = Lists.newArrayList();
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName,
+            long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
         super(id, jobId, clusterName, timeoutMs);
         this.partitionIdToOffset = partitionIdToOffset;
     }
@@ -79,12 +79,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setId(queryId);
         tRoutineLoadTask.setJobId(jobId);
         tRoutineLoadTask.setTxnId(txnId);
-        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        Database database =
+                Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
         Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
-        String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
+        String label = Joiner.on("-").join(routineLoadJob.getName(),
+                routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
@@ -125,5 +127,10 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         return tExecPlanFragmentParams;
+    }
+
+    // implement method for compatibility
+    public String getHeaderType() {
+        return "";
     }
 }

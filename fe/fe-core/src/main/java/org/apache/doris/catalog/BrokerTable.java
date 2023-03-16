@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -191,14 +190,14 @@ public class BrokerTable extends Table {
                 case "parquet":
                     break;
                 default:
-                    throw new DdlException("Invalid file type: " + copiedProps.toString() + ".Only support csv and parquet.");
+                    throw new DdlException("Invalid file type: " + copiedProps + ".Only support csv and parquet.");
             }
         }
 
         copiedProps.remove(FILE_FORMAT);
 
         if (!copiedProps.isEmpty()) {
-            throw new DdlException("Unknown table properties: " + copiedProps.toString());
+            throw new DdlException("Unknown table properties: " + copiedProps);
         }
     }
 

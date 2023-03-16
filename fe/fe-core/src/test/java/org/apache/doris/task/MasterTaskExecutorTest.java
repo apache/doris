@@ -36,7 +36,7 @@ public class MasterTaskExecutorTest {
         executor = new MasterTaskExecutor("master_task_executor_test", THREAD_NUM, false);
         executor.start();
     }
-    
+
     @After
     public void tearDown() {
         if (executor != null) {
@@ -53,12 +53,12 @@ public class MasterTaskExecutorTest {
         // submit same running task error
         Assert.assertFalse(executor.submit(task1));
         Assert.assertEquals(1, executor.getTaskNum());
-        
+
         // submit another task
         MasterTask task2 = new TestMasterTask(2L);
         Assert.assertTrue(executor.submit(task2));
         Assert.assertEquals(2, executor.getTaskNum());
-        
+
         // wait for tasks run to end
         try {
             // checker thread interval is 1s
@@ -69,9 +69,9 @@ public class MasterTaskExecutorTest {
             LOG.error("error", e);
         }
     }
-    
+
     private class TestMasterTask extends MasterTask {
-        
+
         public TestMasterTask(long signature) {
             this.signature = signature;
         }
@@ -85,6 +85,6 @@ public class MasterTaskExecutorTest {
                 LOG.error("error", e);
             }
         }
-        
+
     }
 }

@@ -25,7 +25,7 @@
 #include <type_traits>
 
 template <typename T>
-inline T unaligned_load(const void* address) {
+T unaligned_load(const void* address) {
     T res {};
     memcpy(&res, address, sizeof(res));
     return res;
@@ -36,7 +36,7 @@ inline T unaligned_load(const void* address) {
 /// To prevent this, make the caller specify the stored type explicitly.
 /// To disable deduction of T, wrap the argument type with std::enable_if.
 template <typename T>
-inline void unaligned_store(void* address, const typename std::enable_if<true, T>::type& src) {
+void unaligned_store(void* address, const typename std::enable_if<true, T>::type& src) {
     static_assert(std::is_trivially_copyable_v<T>);
     memcpy(address, &src, sizeof(src));
 }

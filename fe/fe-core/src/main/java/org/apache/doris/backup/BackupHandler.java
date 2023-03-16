@@ -32,12 +32,12 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -56,7 +56,6 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,7 +79,7 @@ import java.util.stream.Collectors;
 
 public class BackupHandler extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(BackupHandler.class);
-    
+
     public static final int SIGNATURE_VERSION = 1;
     public static final Path BACKUP_ROOT_DIR = Paths.get(Config.tmp_dir, "backup").normalize();
     public static final Path RESTORE_ROOT_DIR = Paths.get(Config.tmp_dir, "restore").normalize();
@@ -101,24 +100,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     private boolean isInit = false;
 
-    private Catalog catalog;
+    private Env env;
 
     public BackupHandler() {
         // for persist
     }
 
-    public BackupHandler(Catalog catalog) {
+    public BackupHandler(Env env) {
         super("backupHandler", 3000L);
-        this.catalog = catalog;
+        this.env = env;
     }
 
-    public void setCatalog(Catalog catalog) {
-        this.catalog = catalog;
+    public void setEnv(Env env) {
+        this.env = env;
     }
 
     @Override
     public synchronized void start() {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
         super.start();
         repoMgr.start();
     }
@@ -184,20 +183,21 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         for (AbstractJob job : getAllCurrentJobs()) {
-            job.setCatalog(catalog);
+            job.setEnv(env);
             job.run();
         }
     }
 
     // handle create repository stmt
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
-        if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())
-            && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "broker does not exist: " + stmt.getBrokerName());
+        if (!env.getBrokerMgr().containsBroker(stmt.getBrokerName())
+                && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "broker does not exist: " + stmt.getBrokerName());
         }
 
-        BlobStorage storage = BlobStorage.create(stmt.getBrokerName(),stmt.getStorageType(), stmt.getProperties());
-        long repoId = catalog.getNextId();
+        BlobStorage storage = BlobStorage.create(stmt.getBrokerName(), stmt.getStorageType(), stmt.getProperties());
+        long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), storage);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
@@ -223,7 +223,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                                                            + " Can not drop it");
                 }
             }
-            
+
             Status st = repoMgr.removeRepo(repo.getName(), false /* not replay */);
             if (!st.ok()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
@@ -245,7 +245,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // check if db exist
         String dbName = stmt.getDbName();
-        Database db = catalog.getDbOrDdlException(dbName);
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
         // We expect at most one operation on a repo at same time.
@@ -307,7 +307,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             tblRefs = abstractBackupTableRefClause.getTableRefList();
         } else {
             for (String tableName : tableNames) {
-                TableRef tableRef = new TableRef(new TableName(db.getFullName(), tableName), null);
+                TableRef tableRef = new TableRef(new TableName(null, db.getFullName(), tableName), null);
                 tblRefs.add(tableRef);
             }
         }
@@ -329,13 +329,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
             tbl.readLock();
             try {
                 if (olapTbl.existTempPartitions()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup table with temp partitions");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Do not support backup table with temp partitions");
                 }
 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
                     if (partitionNames.isTemp()) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup temp partitions");
+                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                "Do not support backup temp partitions");
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {
@@ -370,10 +372,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a backup job
         BackupJob backupJob = new BackupJob(stmt.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, stmt.getTimeoutMs(), stmt.getContent(),
-                catalog, repository.getId());
+                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repository.getId());
         // write log
-        catalog.getEditLog().logBackupJob(backupJob);
+        env.getEditLog().logBackupJob(backupJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), backupJob);
@@ -400,8 +401,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
-        catalog.getEditLog().logRestoreJob(restoreJob);
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
+                env, repository.getId());
+        env.getEditLog().logRestoreJob(restoreJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), restoreJob);
@@ -538,8 +540,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = catalog.getDbOrDdlException(dbName);
-        
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+
         AbstractJob job = getCurrentJob(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
                 || (job instanceof RestoreJob && !stmt.isRestore())) {
@@ -552,7 +554,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!status.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
         }
-        
+
         LOG.info("finished to cancel {} job: {}", (stmt.isRestore() ? "restore" : "backup"), job);
     }
 
@@ -627,7 +629,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         existingJob, job);
                 return;
             }
-            existingJob.setCatalog(catalog);
+            existingJob.setEnv(env);
             existingJob.replayCancel();
         } else if (!job.isPending()) {
             AbstractJob existingJob = getCurrentJob(job.getDbId());
@@ -649,12 +651,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (AbstractJob job : getAllCurrentJobs()) {
             if (job.getType() == JobType.BACKUP) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
-                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
                     return true;
                 }
             } else if (job.getType() == JobType.RESTORE) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.DOWNLOAD) {
-                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
                     return true;
                 }
             }
@@ -672,7 +674,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void write(DataOutput out) throws IOException {
         repoMgr.write(out);
 
-        List<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.values().stream().flatMap(Deque::stream).collect(Collectors.toList());
+        List<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.values()
+                .stream().flatMap(Deque::stream).collect(Collectors.toList());
         out.writeInt(jobs.size());
         for (AbstractJob job : jobs) {
             job.write(out);
@@ -689,5 +692,3 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 }
-
-

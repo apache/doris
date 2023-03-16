@@ -17,23 +17,21 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
-
-import java.io.File;
-import java.util.UUID;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.UUID;
 
 public class OutFileClauseFunctionTest {
 
@@ -52,12 +50,12 @@ public class OutFileClauseFunctionTest {
         ctx = UtFrameUtils.createDefaultCtx();
         UtFrameUtils.createDorisCluster(runningDir);
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database db1;", ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         String createTableSQL = "create table " + DB_NAME
                 + ".test  (k1 int, k2 varchar ) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableSQL, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
     }
 
     @AfterClass

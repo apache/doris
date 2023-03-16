@@ -18,15 +18,14 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.h
 // and modified by Doris
 
-#ifndef DORIS_FUNCTION_IFNULL_H
-#define DORIS_FUNCTION_IFNULL_H
+#pragma once
 
-#include "vec/functions/simple_function_factory.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/utils/util.hpp"
-#include "vec/functions/function_string.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/functions/function_string.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 class FunctionIfNull : public IFunction {
@@ -41,11 +40,21 @@ public:
 
     bool use_default_implementation_for_constants() const override { return false; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!arguments[0]->is_nullable() && arguments[1]->is_nullable()) {
-            return reinterpret_cast<const DataTypeNullable*>(arguments[1].get())->get_nested_type();
+    // be compatible with fe code
+    /* 
+        if (fn.functionName().equalsIgnoreCase("ifnull") || fn.functionName().equalsIgnoreCase("nvl")) {
+            Preconditions.checkState(children.size() == 2);
+            if (children.get(0).isNullable()) {
+                return children.get(1).isNullable();
+            }
+            return false;
         }
-        return arguments[1];
+    */
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments[0]->is_nullable()) {
+            return arguments[1];
+        }
+        return arguments[0];
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -53,49 +62,49 @@ public:
     // ifnull(col_left, col_right) == if(isnull(col_left), col_right, col_left)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
+        ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         if (col_left.column->only_null()) {
             block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
             return Status::OK();
         }
 
-        ColumnWithTypeAndName null_column_arg0 {
-            nullptr, std::make_shared<DataTypeUInt8>(),""
-        };
-        ColumnWithTypeAndName nested_column_arg0 {
-            nullptr, col_left.type, ""
-        };
+        ColumnWithTypeAndName null_column_arg0 {nullptr, std::make_shared<DataTypeUInt8>(), ""};
+        ColumnWithTypeAndName nested_column_arg0 {nullptr, col_left.type, ""};
+
+        col_left.column = col_left.column->convert_to_full_column_if_const();
 
         /// implement isnull(col_left) logic
         if (auto* nullable = check_and_get_column<ColumnNullable>(*col_left.column)) {
             null_column_arg0.column = nullable->get_null_map_column_ptr();
             nested_column_arg0.column = nullable->get_nested_column_ptr();
-            nested_column_arg0.type = reinterpret_cast<const DataTypeNullable*>(
-                    nested_column_arg0.type.get())->get_nested_type();
+            nested_column_arg0.type =
+                    reinterpret_cast<const DataTypeNullable*>(nested_column_arg0.type.get())
+                            ->get_nested_type();
         } else {
             block.get_by_position(result).column = col_left.column;
             return Status::OK();
         }
-        const ColumnsWithTypeAndName if_columns
-        {
-            null_column_arg0,
-            block.get_by_position(arguments[1]),
-            nested_column_arg0
-        };
+        const ColumnsWithTypeAndName if_columns {
+                null_column_arg0, block.get_by_position(arguments[1]), nested_column_arg0};
 
-        Block temporary_block(
-                {
-                        null_column_arg0,
-                        block.get_by_position(arguments[1]),
-                        nested_column_arg0,
-                        block.get_by_position(result),
-                });
+        // see get_return_type_impl
+        // if result is nullable, means both then and else column are nullable, we use original col_left to keep nullable info
+        // if result is not nullable, means both then and else column are not nullable, we use nested_column_arg0 to remove nullable info
+        bool result_nullable = block.get_by_position(result).type->is_nullable();
+        Block temporary_block({
+                null_column_arg0,
+                block.get_by_position(arguments[1]),
+                result_nullable
+                        ? col_left
+                        : nested_column_arg0, // if result is nullable, we need pass the original col_left else pass nested_column_arg0
+                block.get_by_position(result),
+        });
 
-        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns, block.get_by_position(result).type);
+        auto func_if = SimpleFunctionFactory::instance().get_function(
+                "if", if_columns, block.get_by_position(result).type);
         func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count);
         block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         return Status::OK();
     }
 };
-}
-#endif //DORIS_FUNCTION_IFNULL_H
+} // namespace doris::vectorized

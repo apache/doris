@@ -14,15 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/ArithmeticExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -31,14 +37,13 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 
 public class ArithmeticExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
 
     enum OperatorPosition {
         BINARY_INFIX,
@@ -75,15 +80,19 @@ public class ArithmeticExpr extends Expr {
         public String toString() {
             return description;
         }
+
         public String getName() {
             return name;
         }
+
         public OperatorPosition getPos() {
             return pos;
         }
+
         public TExprOpcode getOpcode() {
             return opcode;
         }
+
         public boolean isUnary() {
             return pos == OperatorPosition.UNARY_PREFIX
                     || pos == OperatorPosition.UNARY_POSTFIX;
@@ -96,12 +105,13 @@ public class ArithmeticExpr extends Expr {
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t : Type.getNumericTypes()) {
+            NullableMode mode = t.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t));
+                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t, mode));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.ADD.getName(), Lists.newArrayList(t, t), t));
+                    Operator.ADD.getName(), Lists.newArrayList(t, t), t, mode));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t));
+                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t, mode));
         }
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
@@ -109,8 +119,44 @@ public class ArithmeticExpr extends Expr {
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+                Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
+                Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL64),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL128),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL32),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL128),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
+                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL32),
+                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL64),
+                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
 
         // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
         // builtins, see palo_functions.py
@@ -126,15 +172,14 @@ public class ArithmeticExpr extends Expr {
             for (int j = 0; j < Type.getNumericTypes().size(); j++) {
                 Type t2 = Type.getNumericTypes().get(j);
 
+                Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false));
+                NullableMode mode = retType.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                        Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2), retType, mode));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.ADD.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                        Operator.ADD.getName(), Lists.newArrayList(t1, t2), retType, mode));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                        Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2), retType, mode));
             }
         }
 
@@ -144,8 +189,44 @@ public class ArithmeticExpr extends Expr {
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
                 Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+                Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
+                Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL64),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL128),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL128),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
+                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL32),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL64),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL32),
+                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
 
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
                 Operator.MOD.getName(),
@@ -157,8 +238,20 @@ public class ArithmeticExpr extends Expr {
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
                 Operator.MOD.getName(),
-                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+                Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
+                Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.MOD.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
+                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.MOD.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
+                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.MOD.getName(),
+                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
+                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
 
         for (int i = 0; i < Type.getIntegerTypes().size(); i++) {
             Type t1 = Type.getIntegerTypes().get(i);
@@ -192,6 +285,21 @@ public class ArithmeticExpr extends Expr {
     }
 
     /**
+     * constructor only used for Nereids.
+     */
+    public ArithmeticExpr(Operator op, Expr e1, Expr e2, Type returnType, NullableMode nullableMode) {
+        this(op, e1, e2);
+        List<Type> argTypes;
+        if (e2 == null) {
+            argTypes = Lists.newArrayList(e1.getType());
+        } else {
+            argTypes = Lists.newArrayList(e1.getType(), e2.getType());
+        }
+        fn = new Function(new FunctionName(op.getName()), argTypes, returnType, false, true, nullableMode);
+        type = returnType;
+    }
+
+    /**
      * Copy c'tor used in clone().
      */
     protected ArithmeticExpr(ArithmeticExpr other) {
@@ -219,9 +327,18 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
+    public String toDigestImpl() {
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toDigest();
+        } else {
+            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+        }
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
-        if (!type.isDecimalV2()) {
+        if (!(type.isDecimalV2() || type.isDecimalV3())) {
             msg.setOpcode(op.getOpcode());
             msg.setOutputColumn(outputColumn);
         }
@@ -256,7 +373,13 @@ public class ArithmeticExpr extends Expr {
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
-            return Type.DECIMALV2;
+            return Type.MAX_DECIMALV2_TYPE;
+        } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
+            return Type.DECIMAL32;
+        } else if (pt1 == PrimitiveType.DECIMAL64 || pt2 == PrimitiveType.DECIMAL64) {
+            return Type.DECIMAL64;
+        } else if (pt1 == PrimitiveType.DECIMAL128 || pt2 == PrimitiveType.DECIMAL128) {
+            return Type.DECIMAL128;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
             return Type.LARGEINT;
         } else {
@@ -294,9 +417,190 @@ public class ArithmeticExpr extends Expr {
         }
     }
 
+    private void analyzeNoneDecimalOp(Type t1, Type t2) throws AnalysisException {
+        Type commonType;
+        switch (op) {
+            case MULTIPLY:
+            case ADD:
+            case SUBTRACT:
+                if (t1.isDecimalV2() || t2.isDecimalV2()) {
+                    castBinaryOp(findCommonType(t1, t2));
+                }
+                if (isConstant()) {
+                    castUpperInteger(t1, t2);
+                }
+                break;
+            case MOD:
+                if (t1.isDecimalV2() || t2.isDecimalV2()) {
+                    castBinaryOp(findCommonType(t1, t2));
+                } else if ((t1.isFloatingPointType() || t2.isFloatingPointType()) && !t1.equals(t2)) {
+                    castBinaryOp(Type.DOUBLE);
+                }
+                break;
+            case INT_DIVIDE:
+                if (!t1.isFixedPointType() || !t2.isFixedPointType()) {
+                    castBinaryOp(Type.BIGINT);
+                }
+                break;
+            case DIVIDE:
+                t1 = getChild(0).getType().getNumResultType();
+                t2 = getChild(1).getType().getNumResultType();
+                commonType = findCommonType(t1, t2);
+                if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
+                        || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
+                    commonType = Type.DOUBLE;
+                }
+                castBinaryOp(commonType);
+                break;
+            case BITAND:
+            case BITOR:
+            case BITXOR:
+                if (t1 == Type.BOOLEAN && t2 == Type.BOOLEAN) {
+                    t1 = Type.TINYINT;
+                    t2 = Type.TINYINT;
+                }
+                commonType = Type.getAssignmentCompatibleType(t1, t2, false);
+                if (commonType.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
+                    commonType = Type.BIGINT;
+                }
+                type = castBinaryOp(commonType);
+                break;
+            default:
+                Preconditions.checkState(false,
+                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
+                break;
+        }
+    }
+
+    /**
+     * Convert integer type to decimal type.
+     */
+    public static Type convertIntToDecimalV3Type(Type type) throws AnalysisException {
+        if (type.isLargeIntType()) {
+            return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION, 0);
+        } else if (type.isBigIntType()) {
+            return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL64_PRECISION, 0);
+        } else if (type.isInteger32Type()) {
+            return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL32_PRECISION, 0);
+        } else {
+            Preconditions.checkState(false,
+                    "Implicit converting to decimal for arithmetic operations only support integer");
+            return Type.INVALID;
+        }
+    }
+
+    public static Type convertDecimalV2ToDecimalV3Type(ScalarType type) {
+        return ScalarType.createDecimalV3Type(type.decimalPrecision(), type.decimalScale());
+    }
+
+    private void analyzeDecimalV3Op(Type t1, Type t2) throws AnalysisException {
+        Type t1TargetType = t1;
+        Type t2TargetType = t2;
+        switch (op) {
+            case MULTIPLY:
+            case ADD:
+            case SUBTRACT:
+            case MOD:
+            case DIVIDE:
+                if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                    type = castBinaryOp(ScalarType.DOUBLE);
+                    break;
+                }
+                if (t1.isFixedPointType()) {
+                    t1TargetType = convertIntToDecimalV3Type(t1);
+                    castChild(t1TargetType, 0);
+                }
+                if (t2.isFixedPointType()) {
+                    t2TargetType = convertIntToDecimalV3Type(t2);
+                    castChild(t2TargetType, 1);
+                }
+                if (t1.isDecimalV2()) {
+                    t1TargetType = convertDecimalV2ToDecimalV3Type((ScalarType) t1);
+                    castChild(t1TargetType, 0);
+                }
+                if (t2.isDecimalV2()) {
+                    t2TargetType = convertDecimalV2ToDecimalV3Type((ScalarType) t2);
+                    castChild(t2TargetType, 1);
+                }
+                final int t1Precision = ((ScalarType) t1TargetType).getScalarPrecision();
+                final int t2Precision = ((ScalarType) t2TargetType).getScalarPrecision();
+                final int t1Scale = ((ScalarType) t1TargetType).getScalarScale();
+                final int t2Scale = ((ScalarType) t2TargetType).getScalarScale();
+                int precision = Math.max(t1Precision, t2Precision);
+                int scale = Math.max(t1Scale, t2Scale);
+
+                // operands: DECIMALV3(precision1, scale1) and DECIMALV3(precision2, scale2)
+                // we use widthOfIntPart to present width of integer part.
+                int widthOfIntPart1 = t1Precision - t1Scale;
+                int widthOfIntPart2 = t2Precision - t2Scale;
+                if (op == Operator.MULTIPLY) {
+                    // target type: DECIMALV3(precision1 + precision2, scale1 + scale2)
+                    scale = t1Scale + t2Scale;
+                    precision = t1Precision + t2Precision;
+                } else if (op == Operator.DIVIDE) {
+                    precision = t1TargetType.getPrecision() + t2Scale;
+                    scale = t1Scale;
+                } else if (op == Operator.ADD || op == Operator.SUBTRACT) {
+                    // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
+                    // max(scale1, scale2))
+                    scale = Math.max(t1Scale, t2Scale);
+                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                } else {
+                    scale = Math.max(t1Scale, t2Scale);
+                    precision = widthOfIntPart2 + scale;
+                }
+                if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                    // TODO(gabriel): if precision is bigger than 38?
+                    precision = ScalarType.MAX_DECIMAL128_PRECISION;
+                }
+                if (precision < scale) {
+                    type = castBinaryOp(Type.DOUBLE);
+                    break;
+                }
+                type = ScalarType.createDecimalV3Type(precision, scale);
+                if (op == Operator.ADD || op == Operator.SUBTRACT) {
+                    if (!Type.matchExactType(type, children.get(0).type)) {
+                        castChild(type, 0);
+                    }
+                    if (!Type.matchExactType(type, children.get(1).type)) {
+                        castChild(type, 1);
+                    }
+                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1.isDecimalV3()) {
+                    int targetScale = t1Scale + t2Scale;
+                    if (precision < targetScale) {
+                        type = castBinaryOp(Type.DOUBLE);
+                        break;
+                    }
+                    castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
+                } else if (op == Operator.MOD) {
+                    castChild(type, 0);
+                    castChild(type, 1);
+                }
+                break;
+            case INT_DIVIDE:
+            case BITAND:
+            case BITOR:
+            case BITXOR:
+                type = castBinaryOp(Type.BIGINT);
+                break;
+            case BITNOT:
+            case FACTORIAL:
+                break;
+            default:
+                Preconditions.checkState(false,
+                        "Unknown arithmetic operation " + op + " in: " + this.toSql());
+                break;
+        }
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (VectorizedUtil.isVectorized()) {
+            for (Expr child : children) {
+                if (child instanceof DecimalLiteral && child.getType().isDecimalV3()) {
+                    ((DecimalLiteral) child).tryToReduceType();
+                }
+            }
             // bitnot is the only unary op, deal with it here
             if (op == Operator.BITNOT) {
                 Type t = getChild(0).getType();
@@ -306,8 +610,7 @@ public class ArithmeticExpr extends Expr {
                 } else {
                     type = t;
                 }
-                fn = getBuiltinFunction(
-                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
                 if (fn == null) {
                     Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
                 }
@@ -321,7 +624,6 @@ public class ArithmeticExpr extends Expr {
 
             Type t1 = getChild(0).getType();
             Type t2 = getChild(1).getType();
-            Type commonType;
 
             // Support null operation
             if (t1.isNull() || t2.isNull()) {
@@ -340,63 +642,19 @@ public class ArithmeticExpr extends Expr {
                 t2 = t2.getNumResultType();
             }
 
-            switch (op) {
-                case MULTIPLY:
-                case ADD:
-                case SUBTRACT:
-                    if (t1.isDecimalV2() || t2.isDecimalV2()) {
-                        castBinaryOp(findCommonType(t1, t2));
-                    }
-                    if (isConstant()) {
-                        castUpperInteger(t1, t2);
-                    }
-                case MOD:
-                    if (t1.isDecimalV2() || t2.isDecimalV2()) {
-                        castBinaryOp(findCommonType(t1, t2));
-                    } else if ((t1.isFloatingPointType() || t2.isFloatingPointType()) && !t1.equals(t2)) {
-                        castBinaryOp(Type.DOUBLE);
-                    }
-                    break;
-                case INT_DIVIDE:
-                    if (!t1.isFixedPointType() || !t2.isFloatingPointType()) {
-                        castBinaryOp(Type.BIGINT);
-                    }
-                    break;
-                case DIVIDE:
-                    t1 = getChild(0).getType().getNumResultType();
-                    t2 = getChild(1).getType().getNumResultType();
-                    commonType = findCommonType(t1, t2);
-                    if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
-                        commonType = Type.DOUBLE;
-                    }
-                    castBinaryOp(commonType);
-                    break;
-                case BITAND:
-                case BITOR:
-                case BITXOR:
-                    if (t1 == Type.BOOLEAN && t2 == Type.BOOLEAN) {
-                        t1 = Type.TINYINT;
-                        t2 = Type.TINYINT;
-                    }
-                    commonType = Type.getAssignmentCompatibleType(t1, t2, false);
-                    if (commonType.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
-                        commonType = Type.BIGINT;
-                    }
-                    type = castBinaryOp(commonType);
-                    break;
-                default:
-                    Preconditions.checkState(false,
-                            "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
-                    break;
+            if (t1.isDecimalV3() || t2.isDecimalV3()) {
+                analyzeDecimalV3Op(t1, t2);
+            } else {
+                analyzeNoneDecimalOp(t1, t2);
             }
-            fn = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
-                    Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
                         "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
             }
-            type = fn.getReturnType();
+            if (!fn.getReturnType().isDecimalV3()) {
+                type = fn.getReturnType();
+            }
         } else {
             // bitnot is the only unary op, deal with it here
             if (op == Operator.BITNOT) {
@@ -404,8 +662,7 @@ public class ArithmeticExpr extends Expr {
                 if (getChild(0).getType().getPrimitiveType() != PrimitiveType.BIGINT) {
                     castChild(type, 0);
                 }
-                fn = getBuiltinFunction(
-                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
                 if (fn == null) {
                     Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
                 }
@@ -451,8 +708,7 @@ public class ArithmeticExpr extends Expr {
                     break;
             }
             type = castBinaryOp(commonType);
-            fn = getBuiltinFunction(analyzer, fnName, collectChildReturnTypes(),
-                    Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(fnName, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
                         "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
@@ -490,4 +746,42 @@ public class ArithmeticExpr extends Expr {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
 
+    @Override
+    protected void compactForLiteral(Type type) throws AnalysisException {
+        super.compactForLiteral(type);
+        Type t1 = getChild(0).getType();
+        Type t2 = getChild(1).getType();
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            analyzeDecimalV3Op(t1, t2);
+        }
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, op.name());
+        out.writeInt(children.size());
+        for (Expr expr : children) {
+            Expr.writeTo(expr, out);
+        }
+    }
+
+    public static ArithmeticExpr read(DataInput in) throws IOException {
+        Operator op = Operator.valueOf(Text.readString(in));
+        int childNum = in.readInt();
+        Preconditions.checkState(childNum <= 2, childNum);
+        Expr child1 = null;
+        Expr child2 = null;
+        if (childNum > 0) {
+            child1 = Expr.readIn(in);
+        }
+        if (childNum > 1) {
+            child2 = Expr.readIn(in);
+        }
+        return new ArithmeticExpr(op, child1, child2);
+    }
 }

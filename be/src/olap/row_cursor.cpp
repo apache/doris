@@ -28,6 +28,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 RowCursor::RowCursor()
         : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
 
@@ -42,12 +43,12 @@ RowCursor::~RowCursor() {
     }
 }
 
-OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
+Status RowCursor::_init(const std::vector<uint32_t>& columns) {
     _variable_len = 0;
     for (auto cid : columns) {
         if (_schema->column(cid) == nullptr) {
             LOG(WARNING) << "Fail to create field.";
-            return OLAP_ERR_INIT_FAILED;
+            return Status::Error<INIT_FAILED>();
         }
         _variable_len += column_schema(cid)->get_variable_len();
         if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING) {
@@ -59,32 +60,32 @@ OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     _fixed_buf = new (nothrow) char[_fixed_len]();
     if (_fixed_buf == nullptr) {
         LOG(WARNING) << "Fail to malloc _fixed_buf.";
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     _owned_fixed_buf = _fixed_buf;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
-                            const std::vector<uint32_t>& columns) {
+Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
+                        const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(*shared_schema.get()));
     return _init(columns);
 }
 
-OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
-                            const std::vector<uint32_t>& columns) {
+Status RowCursor::_init(const std::vector<TabletColumn>& schema,
+                        const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(schema, columns));
     return _init(columns);
 }
 
-OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema,
-                                     const std::vector<std::string>& scan_keys) {
+Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
+                                 const std::vector<std::string>& scan_keys) {
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
     for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema->column(cid);
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
@@ -101,7 +102,7 @@ OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema,
     char* variable_ptr = _variable_buf;
     char** long_text_ptr = _long_text_buf;
     for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
+        const TabletColumn& column = schema->column(cid);
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
@@ -123,40 +124,40 @@ OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema,
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::init(const TabletSchema& schema) {
-    return init(schema.columns(), schema.num_columns());
+Status RowCursor::init(TabletSchemaSPtr schema) {
+    return init(schema->columns(), schema->num_columns());
 }
 
-OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema) {
+Status RowCursor::init(const std::vector<TabletColumn>& schema) {
     return init(schema, schema.size());
 }
 
-OLAPStatus RowCursor::init(const TabletSchema& schema, size_t column_count) {
-    if (column_count > schema.num_columns()) {
+Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
+    if (column_count > schema->num_columns()) {
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << column_count
-                << ", schema.num_columns=" << schema.num_columns();
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                << ", schema.num_columns=" << schema->num_columns();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns;
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_NOT_OK(_init(schema.columns(), columns));
-    return OLAP_SUCCESS;
+    RETURN_NOT_OK(_init(schema->columns(), columns));
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_count) {
+Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_count) {
     if (column_count > schema.size()) {
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << column_count << ", schema.num_columns=" << schema.size();
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns;
@@ -164,36 +165,35 @@ OLAPStatus RowCursor::init(const std::vector<TabletColumn>& schema, size_t colum
         columns.push_back(i);
     }
     RETURN_NOT_OK(_init(schema, columns));
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::init(const TabletSchema& schema, const std::vector<uint32_t>& columns) {
-    RETURN_NOT_OK(_init(schema.columns(), columns));
-    return OLAP_SUCCESS;
+Status RowCursor::init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns) {
+    RETURN_NOT_OK(_init(schema->columns(), columns));
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
-                                    const std::vector<std::string>& scan_keys) {
+Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
+                                const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
-    if (scan_key_size > schema.num_columns()) {
+    if (scan_key_size > schema->num_columns()) {
         LOG(WARNING)
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
-                << ", schema.num_columns=" << schema.num_columns();
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                << ", schema.num_columns=" << schema->num_columns();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::vector<uint32_t> columns(scan_key_size);
     std::iota(columns.begin(), columns.end(), 0);
 
-    RETURN_NOT_OK(_init(schema.columns(), columns));
+    RETURN_NOT_OK(_init(schema->columns(), columns));
 
     return _init_scan_key(schema, scan_keys);
 }
 
-OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
-                                    const std::vector<std::string>& scan_keys,
-                                    const std::shared_ptr<Schema>& shared_schema) {
+Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys,
+                                const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();
 
     std::vector<uint32_t> columns;
@@ -206,12 +206,12 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
     return _init_scan_key(schema, scan_keys);
 }
 
-// TODO(yingchun): parameter 'const TabletSchema& schema' is not used
-OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema) {
+// TODO(yingchun): parameter 'TabletSchemaSPtr  schema' is not used
+Status RowCursor::allocate_memory_for_string_type(TabletSchemaSPtr schema) {
     // allocate memory for string type(char, varchar, hll, array)
     // The memory allocated in this function is used in aggregate and copy function
     if (_variable_len == 0 && _string_field_count == 0) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     DCHECK(_variable_buf == nullptr) << "allocate memory twice";
     RETURN_NOT_OK(_alloc_buf());
@@ -231,20 +231,20 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
             variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::build_max_key() {
+Status RowCursor::build_max_key() {
     for (auto cid : _schema->column_ids()) {
         const Field* field = column_schema(cid);
         char* dest = cell_ptr(cid);
         field->set_to_max(dest);
         set_not_null(cid);
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::build_min_key() {
+Status RowCursor::build_min_key() {
     for (auto cid : _schema->column_ids()) {
         const Field* field = column_schema(cid);
         char* dest = cell_ptr(cid);
@@ -252,14 +252,14 @@ OLAPStatus RowCursor::build_min_key() {
         set_null(cid);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RowCursor::from_tuple(const OlapTuple& tuple) {
+Status RowCursor::from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
         LOG(WARNING) << "column count does not match. tuple_size=" << tuple.size()
                      << ", field_count=" << _schema->num_column_ids();
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     for (size_t i = 0; i < tuple.size(); ++i) {
@@ -271,15 +271,16 @@ OLAPStatus RowCursor::from_tuple(const OlapTuple& tuple) {
         }
         set_not_null(cid);
         char* buf = cell_ptr(cid);
-        OLAPStatus res = field->from_string(buf, tuple.get_value(i));
-        if (res != OLAP_SUCCESS) {
+        Status res = field->from_string(buf, tuple.get_value(i), field->get_precision(),
+                                        field->get_scale());
+        if (!res.ok()) {
             LOG(WARNING) << "fail to convert field from string. string=" << tuple.get_value(i)
                          << ", res=" << res;
             return res;
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 OlapTuple RowCursor::to_tuple() const {
@@ -323,28 +324,28 @@ std::string RowCursor::to_string() const {
 
     return result;
 }
-OLAPStatus RowCursor::_alloc_buf() {
+Status RowCursor::_alloc_buf() {
     // variable_len for null bytes
     _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
-        OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
-        return OLAP_ERR_MALLOC_ERROR;
+        LOG(WARNING) << "Fail to malloc _variable_buf.";
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {
-            OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
-            return OLAP_ERR_MALLOC_ERROR;
+            LOG(WARNING) << "Fail to malloc _long_text_buf.";
+            return Status::Error<MEM_ALLOC_FAILED>();
         }
         for (int i = 0; i < _string_field_count; ++i) {
             _long_text_buf[i] = (char*)malloc(DEFAULT_TEXT_LENGTH * sizeof(char));
             if (_long_text_buf[i] == nullptr) {
-                OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
-                return OLAP_ERR_MALLOC_ERROR;
+                LOG(WARNING) << "Fail to malloc _long_text_buf.";
+                return Status::Error<MEM_ALLOC_FAILED>();
             }
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

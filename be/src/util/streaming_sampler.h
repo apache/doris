@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_STREAMING_SAMPLER_H
-#define DORIS_BE_SRC_UTIL_STREAMING_SAMPLER_H
+#pragma once
 
 #include <string.h>
 
@@ -149,5 +148,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

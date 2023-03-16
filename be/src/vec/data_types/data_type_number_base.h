@@ -20,8 +20,7 @@
 
 #pragma once
 
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -42,9 +41,10 @@ public:
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
     Field get_default() const override;
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -64,8 +64,9 @@ public:
     bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return true; }
 
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
+    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 };
 
 } // namespace doris::vectorized

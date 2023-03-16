@@ -21,7 +21,9 @@
 #include <openssl/evp.h>
 #include <openssl/ossl_typ.h>
 #include <sys/types.h>
+
 #include <cstring>
+#include <string>
 
 namespace doris {
 
@@ -29,63 +31,63 @@ static const int ENCRYPTION_MAX_KEY_LENGTH = 256;
 
 const EVP_CIPHER* get_evp_type(const EncryptionMode mode) {
     switch (mode) {
-    case AES_128_ECB:
+    case EncryptionMode::AES_128_ECB:
         return EVP_aes_128_ecb();
-    case AES_128_CBC:
+    case EncryptionMode::AES_128_CBC:
         return EVP_aes_128_cbc();
-    case AES_128_CFB:
+    case EncryptionMode::AES_128_CFB:
         return EVP_aes_128_cfb();
-    case AES_128_CFB1:
+    case EncryptionMode::AES_128_CFB1:
         return EVP_aes_128_cfb1();
-    case AES_128_CFB8:
+    case EncryptionMode::AES_128_CFB8:
         return EVP_aes_128_cfb8();
-    case AES_128_CFB128:
+    case EncryptionMode::AES_128_CFB128:
         return EVP_aes_128_cfb128();
-    case AES_128_CTR:
+    case EncryptionMode::AES_128_CTR:
         return EVP_aes_128_ctr();
-    case AES_128_OFB:
+    case EncryptionMode::AES_128_OFB:
         return EVP_aes_128_ofb();
-    case AES_192_ECB:
+    case EncryptionMode::AES_192_ECB:
         return EVP_aes_192_ecb();
-    case AES_192_CBC:
+    case EncryptionMode::AES_192_CBC:
         return EVP_aes_192_cbc();
-    case AES_192_CFB:
+    case EncryptionMode::AES_192_CFB:
         return EVP_aes_192_cfb();
-    case AES_192_CFB1:
+    case EncryptionMode::AES_192_CFB1:
         return EVP_aes_192_cfb1();
-    case AES_192_CFB8:
+    case EncryptionMode::AES_192_CFB8:
         return EVP_aes_192_cfb8();
-    case AES_192_CFB128:
+    case EncryptionMode::AES_192_CFB128:
         return EVP_aes_192_cfb128();
-    case AES_192_CTR:
+    case EncryptionMode::AES_192_CTR:
         return EVP_aes_192_ctr();
-    case AES_192_OFB:
+    case EncryptionMode::AES_192_OFB:
         return EVP_aes_192_ofb();
-    case AES_256_ECB:
+    case EncryptionMode::AES_256_ECB:
         return EVP_aes_256_ecb();
-    case AES_256_CBC:
+    case EncryptionMode::AES_256_CBC:
         return EVP_aes_256_cbc();
-    case AES_256_CFB:
+    case EncryptionMode::AES_256_CFB:
         return EVP_aes_256_cfb();
-    case AES_256_CFB1:
+    case EncryptionMode::AES_256_CFB1:
         return EVP_aes_256_cfb1();
-    case AES_256_CFB8:
+    case EncryptionMode::AES_256_CFB8:
         return EVP_aes_256_cfb8();
-    case AES_256_CFB128:
+    case EncryptionMode::AES_256_CFB128:
         return EVP_aes_256_cfb128();
-    case AES_256_CTR:
+    case EncryptionMode::AES_256_CTR:
         return EVP_aes_256_ctr();
-    case AES_256_OFB:
+    case EncryptionMode::AES_256_OFB:
         return EVP_aes_256_ofb();
-    case SM4_128_CBC:
+    case EncryptionMode::SM4_128_CBC:
         return EVP_sm4_cbc();
-    case SM4_128_ECB:
+    case EncryptionMode::SM4_128_ECB:
         return EVP_sm4_ecb();
-    case SM4_128_CFB128:
+    case EncryptionMode::SM4_128_CFB128:
         return EVP_sm4_cfb128();
-    case SM4_128_OFB:
+    case EncryptionMode::SM4_128_OFB:
         return EVP_sm4_ofb();
-    case SM4_128_CTR:
+    case EncryptionMode::SM4_128_CTR:
         return EVP_sm4_ctr();
     default:
         return nullptr;
@@ -126,7 +128,7 @@ static uint mode_key_sizes[] = {
 
 static void create_key(const unsigned char* origin_key, uint32_t key_length, uint8_t* encrypt_key,
                        EncryptionMode mode) {
-    const uint key_size = mode_key_sizes[mode] / 8;
+    const uint key_size = mode_key_sizes[int(mode)] / 8;
     uint8_t* origin_key_end = ((uint8_t*)origin_key) + key_length; /* origin key boundary*/
 
     uint8_t* encrypt_key_end; /* encrypt key boundary */
@@ -171,20 +173,30 @@ static int do_encrypt(EVP_CIPHER_CTX* cipher_ctx, const EVP_CIPHER* cipher,
 
 int EncryptionUtil::encrypt(EncryptionMode mode, const unsigned char* source,
                             uint32_t source_length, const unsigned char* key, uint32_t key_length,
-                            const unsigned char* iv, bool padding, unsigned char* encrypt) {
+                            const char* iv_str, int iv_input_length, bool padding,
+                            unsigned char* encrypt) {
     const EVP_CIPHER* cipher = get_evp_type(mode);
     /* The encrypt key to be used for encryption */
     unsigned char encrypt_key[ENCRYPTION_MAX_KEY_LENGTH / 8];
     create_key(key, key_length, encrypt_key, mode);
 
-    if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
+    int iv_length = EVP_CIPHER_iv_length(cipher);
+    if (cipher == nullptr || (iv_length > 0 && !iv_str)) {
         return AES_BAD_DATA;
+    }
+    char* init_vec = nullptr;
+    std::string iv_default("DORISDORISDORIS_");
+
+    if (iv_str) {
+        init_vec = &iv_default[0];
+        memcpy(init_vec, iv_str, std::min(iv_input_length, EVP_MAX_IV_LENGTH));
+        init_vec[iv_length] = '\0';
     }
     EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_reset(cipher_ctx);
     int length = 0;
-    int ret = do_encrypt(cipher_ctx, cipher, source, source_length, encrypt_key, iv, padding,
-                         encrypt, &length);
+    int ret = do_encrypt(cipher_ctx, cipher, source, source_length, encrypt_key,
+                         reinterpret_cast<unsigned char*>(init_vec), padding, encrypt, &length);
     EVP_CIPHER_CTX_free(cipher_ctx);
     if (ret == 0) {
         ERR_clear_error();
@@ -219,21 +231,32 @@ static int do_decrypt(EVP_CIPHER_CTX* cipher_ctx, const EVP_CIPHER* cipher,
 
 int EncryptionUtil::decrypt(EncryptionMode mode, const unsigned char* encrypt,
                             uint32_t encrypt_length, const unsigned char* key, uint32_t key_length,
-                            const unsigned char* iv, bool padding, unsigned char* decrypt_content) {
+                            const char* iv_str, int iv_input_length, bool padding,
+                            unsigned char* decrypt_content) {
     const EVP_CIPHER* cipher = get_evp_type(mode);
 
     /* The encrypt key to be used for decryption */
     unsigned char encrypt_key[ENCRYPTION_MAX_KEY_LENGTH / 8];
     create_key(key, key_length, encrypt_key, mode);
 
-    if (cipher == nullptr || (EVP_CIPHER_iv_length(cipher) > 0 && !iv)) {
+    int iv_length = EVP_CIPHER_iv_length(cipher);
+    if (cipher == nullptr || (iv_length > 0 && !iv_str)) {
         return AES_BAD_DATA;
+    }
+    char* init_vec = nullptr;
+    std::string iv_default("DORISDORISDORIS_");
+
+    if (iv_str) {
+        init_vec = &iv_default[0];
+        memcpy(init_vec, iv_str, std::min(iv_input_length, EVP_MAX_IV_LENGTH));
+        init_vec[iv_length] = '\0';
     }
     EVP_CIPHER_CTX* cipher_ctx = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_reset(cipher_ctx);
     int length = 0;
-    int ret = do_decrypt(cipher_ctx, cipher, encrypt, encrypt_length, encrypt_key, iv, padding,
-                         decrypt_content, &length);
+    int ret = do_decrypt(cipher_ctx, cipher, encrypt, encrypt_length, encrypt_key,
+                         reinterpret_cast<unsigned char*>(init_vec), padding, decrypt_content,
+                         &length);
     EVP_CIPHER_CTX_free(cipher_ctx);
     if (ret > 0) {
         return length;

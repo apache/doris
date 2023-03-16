@@ -24,4 +24,4 @@ import java.util.Collection;
 public interface PartitionPruner {
     // return partition after pruning
     Collection<Long> prune() throws AnalysisException;
-};
+}

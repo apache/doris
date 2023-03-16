@@ -41,6 +41,8 @@ struct UserFunctionCacheEntry;
 // with id, this function library is valid. And when user wants to
 // change its implementation(URL), Doris will generate a new function
 // id.
+enum class LibType { JAR, SO };
+
 class UserFunctionCache {
 public:
     // local_dir is the directory which contain cached library.
@@ -65,17 +67,25 @@ public:
                             UserFunctionCacheEntry** entry);
     void release_entry(UserFunctionCacheEntry* entry);
 
+    Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
+                       std::string* libpath);
+    Status check_jar(int64_t fid, const std::string& url, const std::string& checksum);
+
 private:
     Status _load_cached_lib();
     Status _load_entry_from_lib(const std::string& dir, const std::string& file);
     Status _get_cache_entry(int64_t fid, const std::string& url, const std::string& checksum,
-                            UserFunctionCacheEntry** output_entry);
+                            UserFunctionCacheEntry** output_entry, LibType type);
     Status _load_cache_entry(const std::string& url, UserFunctionCacheEntry* entry);
     Status _download_lib(const std::string& url, UserFunctionCacheEntry* entry);
     Status _load_cache_entry_internal(UserFunctionCacheEntry* entry);
 
-    std::string _make_lib_file(int64_t function_id, const std::string& checksum);
+    std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type,
+                               const std::string& file_name);
     void _destroy_cache_entry(UserFunctionCacheEntry* entry);
+
+    std::string _get_real_url(const std::string& url);
+    std::string _get_file_name_from_url(const std::string& url) const;
 
 private:
     std::string _lib_dir;

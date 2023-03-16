@@ -27,7 +27,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -36,8 +35,8 @@ class BlockCompressionCodec;
 class KeyCoder;
 class TypeInfo;
 
-namespace fs {
-class WritableBlock;
+namespace io {
+class FileWriter;
 }
 
 namespace segment_v2 {
@@ -71,7 +70,7 @@ struct IndexedColumnWriterOptions {
 class IndexedColumnWriter {
 public:
     explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* typeinfo, fs::WritableBlock* wblock);
+                                 const TypeInfo* type_info, io::FileWriter* file_writer);
 
     ~IndexedColumnWriter();
 
@@ -83,15 +82,14 @@ public:
     Status finish(IndexedColumnMetaPB* meta);
 
 private:
-    Status _finish_current_data_page();
+    Status _finish_current_data_page(size_t& num_val);
 
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
-    const TypeInfo* _typeinfo;
-    fs::WritableBlock* _wblock;
+    const TypeInfo* _type_info;
+    io::FileWriter* _file_writer;
     // only used for `_first_value`
-    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool _mem_pool;
 
     ordinal_t _num_values;
@@ -110,7 +108,7 @@ private:
     std::unique_ptr<IndexPageBuilder> _value_index_builder;
     // encoder for value index's key
     const KeyCoder* _value_key_coder;
-    const BlockCompressionCodec* _compress_codec;
+    BlockCompressionCodec* _compress_codec;
 
     DISALLOW_COPY_AND_ASSIGN(IndexedColumnWriter);
 };

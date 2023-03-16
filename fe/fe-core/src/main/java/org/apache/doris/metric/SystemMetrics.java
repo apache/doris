@@ -20,7 +20,6 @@ package org.apache.doris.metric;
 import org.apache.doris.common.FeConstants;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -93,7 +92,8 @@ public class SystemMetrics {
                 throw new Exception("failed to read metrics of TCP");
             }
 
-            // eg: Tcp: 1 200 120000 -1 38920626 10487279 105581903 300009 305 18079291213 15411998945 11808180 22905 4174570 0
+            // eg: Tcp: 1 200 120000 -1 38920626 10487279 105581903 300009 305
+            // 18079291213 15411998945 11808180 22905 4174570 0
             String[] parts = line.split(" ");
             if (parts.length != headerMap.size()) {
                 throw new Exception("invalid tcp metrics: " + line + ". header size: " + headerMap.size());
@@ -105,7 +105,7 @@ public class SystemMetrics {
             tcpOutSegs = Long.valueOf(parts[headerMap.get("OutSegs")]);
 
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/net/snmp", e);
+            LOG.warn("failed to get /proc/net/snmp: ", e.getMessage());
         }
     }
 
@@ -115,7 +115,7 @@ public class SystemMetrics {
         Map<String, Long> memInfoMap = Maps.newHashMap();
 
         try (FileReader fileReader = new FileReader(procFile);
-             BufferedReader br = new BufferedReader(fileReader)) {
+                BufferedReader br = new BufferedReader(fileReader)) {
             String[] parts;
             String line = null;
             while ((line = br.readLine()) != null) {
@@ -141,7 +141,7 @@ public class SystemMetrics {
             buffers = memInfoMap.getOrDefault("Buffers", -1L);
             cached = memInfoMap.getOrDefault("Cached", -1L);
         } catch (Exception e) {
-            LOG.warn("failed to get /proc/meminfo", e);
+            LOG.warn("failed to get /proc/meminfo: ", e.getMessage());
         }
     }
 

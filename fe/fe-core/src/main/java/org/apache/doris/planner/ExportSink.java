@@ -18,7 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TDataSink;
@@ -34,7 +34,8 @@ public class ExportSink extends DataSink {
     private final String exportPath;
     private final String columnSeparator;
     private final String lineDelimiter;
-    private BrokerDesc brokerDesc;
+    private final BrokerDesc brokerDesc;
+    private String header = "";
 
     public ExportSink(String exportPath, String columnSeparator,
                       String lineDelimiter, BrokerDesc brokerDesc) {
@@ -42,6 +43,12 @@ public class ExportSink extends DataSink {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.brokerDesc = brokerDesc;
+    }
+
+    public ExportSink(String exportPath, String columnSeparator,
+                      String lineDelimiter, BrokerDesc brokerDesc, String header) {
+        this(exportPath, columnSeparator, lineDelimiter, brokerDesc);
+        this.header = header;
     }
 
     @Override
@@ -70,13 +77,13 @@ public class ExportSink extends DataSink {
         TExportSink tExportSink = new TExportSink(brokerDesc.getFileType(), exportPath, columnSeparator, lineDelimiter);
 
         if (brokerDesc.getFileType() == TFileType.FILE_BROKER) {
-            FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyBroker(brokerDesc.getName());
             if (broker != null) {
                 tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
             }
         }
         tExportSink.setProperties(brokerDesc.getProperties());
-
+        tExportSink.setHeader(header);
         result.setExportSink(tExportSink);
         return result;
     }

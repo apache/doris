@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
@@ -28,13 +28,13 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TTabletStat;
 import org.apache.doris.thrift.TTabletStatResult;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.collect.ImmutableMap;
-
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ForkJoinPool;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -43,46 +43,48 @@ import java.util.Map;
 public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
+    private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
+
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
-
+        ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
-        for (Backend backend : backends.values()) {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean ok = false;
-            try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                TTabletStatResult result = client.getTabletStat();
-
-                LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
-                updateTabletStat(backend.getId(), result);
-
-                ok = true;
-            } catch (Exception e) {
-                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
+        taskPool.submit(() -> {
+            backends.values().parallelStream().forEach(backend -> {
+                BackendService.Client client = null;
+                TNetworkAddress address = null;
+                boolean ok = false;
+                try {
+                    address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+                    client = ClientPool.backendPool.borrowObject(address);
+                    TTabletStatResult result = client.getTabletStat();
+                    LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(),
+                            result.getTabletsStatsSize());
+                    updateTabletStat(backend.getId(), result);
+                    ok = true;
+                } catch (Exception e) {
+                    LOG.warn("task exec error. backend[{}]", backend.getId(), e);
+                } finally {
+                    if (ok) {
+                        ClientPool.backendPool.returnObject(address, client);
+                    } else {
+                        ClientPool.backendPool.invalidateObject(address, client);
+                    }
                 }
-            }
-        }
-        LOG.info("finished to get tablet stat of all backends. cost: {} ms",
+            });
+        }).join();
+        LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
                 (System.currentTimeMillis() - start));
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
-        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -98,13 +100,12 @@ public class TabletStatMgr extends MasterDaemon {
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
-                        long versionHash = partition.getVisibleVersionHash();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : index.getTablets()) {
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.checkVersionCatchUp(version, versionHash, false)
+                                    if (replica.checkVersionCatchUp(version, false)
                                             && replica.getRowCount() > tabletRowCount) {
                                         tabletRowCount = replica.getRowCount();
                                     }
@@ -126,20 +127,31 @@ public class TabletStatMgr extends MasterDaemon {
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-
-        for (Map.Entry<Long, TTabletStat> entry : result.getTabletsStats().entrySet()) {
-            if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
-                // the replica is obsolete, ignore it.
-                continue;
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        if (result.isSetTabletStatList()) {
+            for (TTabletStat stat : result.getTabletStatList()) {
+                if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
+                    Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    if (replica != null) {
+                        replica.updateStat(stat.getDataSize(), stat.getRemoteDataSize(), stat.getRowNum(),
+                                stat.getVersionCount());
+                    }
+                }
             }
-            Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
-            if (replica == null) {
-                // replica may be deleted from catalog, ignore it.
-                continue;
+        } else {
+            for (Map.Entry<Long, TTabletStat> entry : result.getTabletsStats().entrySet()) {
+                if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
+                    // the replica is obsolete, ignore it.
+                    continue;
+                }
+                Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
+                if (replica == null) {
+                    // replica may be deleted from catalog, ignore it.
+                    continue;
+                }
+                // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
+                replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
             }
-            // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
-            replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
         }
     }
 }

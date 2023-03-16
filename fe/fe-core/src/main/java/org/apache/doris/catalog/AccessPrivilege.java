@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Preconditions;
 
@@ -52,30 +52,30 @@ public enum AccessPrivilege {
         Preconditions.checkState(flag > 0 && flag < 13);
         switch (flag) {
             case 1:
-                return PrivBitSet.of(PaloPrivilege.SELECT_PRIV);
+                return PrivBitSet.of(Privilege.SELECT_PRIV);
             case 2:
             case 3:
-                return PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV,
-                                                 PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV,
-                                                 PaloPrivilege.DROP_PRIV);
+                return PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV,
+                        Privilege.ALTER_PRIV, Privilege.CREATE_PRIV,
+                        Privilege.DROP_PRIV);
             case 4:
-                return PrivBitSet.of(PaloPrivilege.NODE_PRIV);
+                return PrivBitSet.of(Privilege.NODE_PRIV);
             case 5:
-                return PrivBitSet.of(PaloPrivilege.GRANT_PRIV);
+                return PrivBitSet.of(Privilege.GRANT_PRIV);
             case 6:
-                return PrivBitSet.of(PaloPrivilege.SELECT_PRIV);
+                return PrivBitSet.of(Privilege.SELECT_PRIV);
             case 7:
-                return PrivBitSet.of(PaloPrivilege.LOAD_PRIV);
+                return PrivBitSet.of(Privilege.LOAD_PRIV);
             case 8:
-                return PrivBitSet.of(PaloPrivilege.ALTER_PRIV);
+                return PrivBitSet.of(Privilege.ALTER_PRIV);
             case 9:
-                return PrivBitSet.of(PaloPrivilege.CREATE_PRIV);
+                return PrivBitSet.of(Privilege.CREATE_PRIV);
             case 10:
-                return PrivBitSet.of(PaloPrivilege.DROP_PRIV);
+                return PrivBitSet.of(Privilege.DROP_PRIV);
             case 11:
-                return PrivBitSet.of(PaloPrivilege.ADMIN_PRIV);
+                return PrivBitSet.of(Privilege.ADMIN_PRIV);
             case 12:
-                return PrivBitSet.of(PaloPrivilege.USAGE_PRIV);
+                return PrivBitSet.of(Privilege.USAGE_PRIV);
             default:
                 return null;
         }

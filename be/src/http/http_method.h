@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_METHOD_H
-#define DORIS_BE_SRC_COMMON_UTIL_HTTP_METHOD_H
+#pragma once
 
 #include <event2/http.h>
 
@@ -53,4 +52,3 @@ inline HttpMethod to_http_method(evhttp_cmd_type type) {
 std::string to_method_desc(const HttpMethod& method);
 
 } // namespace doris
-#endif

@@ -18,16 +18,19 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.collect.Lists;
 
 // Show database statement.
 public class ShowDbStmt extends ShowStmt {
-    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "schemata");
+    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+            InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
@@ -35,6 +38,7 @@ public class ShowDbStmt extends ShowStmt {
                     .build();
 
     private String pattern;
+    private String catalogName;
     private Expr where;
     private SelectStmt selectStmt;
 
@@ -47,13 +51,24 @@ public class ShowDbStmt extends ShowStmt {
         this.where = where;
     }
 
+    public ShowDbStmt(String pattern, Expr where, String catalogName) {
+        this.pattern = pattern;
+        this.where = where;
+        this.catalogName = catalogName;
+    }
+
     public String getPattern() {
         return pattern;
+    }
+
+    public String getCatalogName() {
+        return catalogName;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        this.catalogName = this.catalogName == null ? analyzer.getDefaultCatalog() : this.catalogName;
     }
 
     @Override
@@ -74,7 +89,11 @@ public class ShowDbStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-
+        if (catalogName != null) {
+            analyzer.setSchemaInfo(null, null, null, catalogName);
+        } else {
+            analyzer.setSchemaInfo(null, null, null, analyzer.getDefaultCatalog());
+        }
         return selectStmt;
     }
 
@@ -83,6 +102,9 @@ public class ShowDbStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder("SHOW DATABASES");
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
+        }
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
+            sb.append(" FROM ").append(catalogName);
         }
         return sb.toString();
     }

@@ -22,7 +22,6 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.multipart.MultipartFile;
@@ -89,14 +88,15 @@ public class TmpFileMgr {
      */
     public synchronized TmpFile upload(UploadFile uploadFile) throws TmpFileException {
         if (uploadFile.file.getSize() > MAX_SINGLE_FILE_SIZE) {
-            throw new TmpFileException("File size " + uploadFile.file.getSize() + " exceed limit " + MAX_SINGLE_FILE_SIZE);
+            throw new TmpFileException("File size " + uploadFile.file.getSize()
+                    + " exceed limit " + MAX_SINGLE_FILE_SIZE);
         }
 
         if (totalFileSize + uploadFile.file.getSize() > MAX_TOTAL_FILE_SIZE_BYTES) {
             throw new TmpFileException("Total file size will exceed limit " + MAX_TOTAL_FILE_SIZE_BYTES);
         }
 
-        if(fileMap.size() > MAX_TOTAL_FILE_NUM) {
+        if (fileMap.size() > MAX_TOTAL_FILE_NUM) {
             throw new TmpFileException("Number of temp file " + fileMap.size() + " exceed limit " + MAX_TOTAL_FILE_NUM);
         }
 
@@ -187,7 +187,7 @@ public class TmpFileMgr {
             lines = Lists.newArrayList();
             String escapedColSep = Util.escapeSingleRegex(columnSeparator);
             try (FileReader fr = new FileReader(absPath);
-                 BufferedReader bf = new BufferedReader(fr)) {
+                    BufferedReader bf = new BufferedReader(fr)) {
                 String str;
                 while ((str = bf.readLine()) != null) {
                     String[] cols = str.split(escapedColSep, -1); // -1 to keep the last empty column
@@ -205,7 +205,8 @@ public class TmpFileMgr {
         // make a copy without lines and maxColNum.
         // so that can call `setPreview` and will not affect other instance
         public TmpFile copy() {
-            TmpFile copiedFile = new TmpFile(this.id, this.uuid, this.originFileName, this.fileSize, this.columnSeparator);
+            TmpFile copiedFile = new TmpFile(this.id, this.uuid, this.originFileName,
+                    this.fileSize, this.columnSeparator);
             copiedFile.absPath = this.absPath;
             return copiedFile;
         }
@@ -304,4 +305,3 @@ public class TmpFileMgr {
         }
     }
 }
-

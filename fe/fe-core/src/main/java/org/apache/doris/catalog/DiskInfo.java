@@ -18,14 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,7 +38,7 @@ public class DiskInfo implements Writable {
         ONLINE,
         OFFLINE
     }
-    
+
     private static final long DEFAULT_CAPACITY_B = 1024 * 1024 * 1024 * 1024L; // 1T
 
     @SerializedName("rootPath")
@@ -49,6 +47,8 @@ public class DiskInfo implements Writable {
     private long totalCapacityB;
     @SerializedName("dataUsedCapacityB")
     private long dataUsedCapacityB;
+    @SerializedName("remoteUsedCapacity")
+    private long remoteUsedCapacity = 0;
     @SerializedName("diskAvailableCapacityB")
     private long diskAvailableCapacityB;
     @SerializedName("state")
@@ -91,6 +91,18 @@ public class DiskInfo implements Writable {
         this.dataUsedCapacityB = dataUsedCapacityB;
     }
 
+    public long getRemoteUsedCapacity() {
+        return remoteUsedCapacity;
+    }
+
+    public void setRemoteUsedCapacity(long remoteUsedCapacity) {
+        this.remoteUsedCapacity = remoteUsedCapacity;
+    }
+
+    public long getDiskUsedCapacityB() {
+        return totalCapacityB - diskAvailableCapacityB;
+    }
+
     public long getAvailableCapacityB() {
         return diskAvailableCapacityB;
     }
@@ -100,7 +112,7 @@ public class DiskInfo implements Writable {
     }
 
     public double getUsedPct() {
-        return (totalCapacityB - diskAvailableCapacityB) / (double) (totalCapacityB <= 0 ? 1 : totalCapacityB);
+        return this.getDiskUsedCapacityB() / (double) (totalCapacityB <= 0 ? 1 : totalCapacityB);
     }
 
     public DiskState getState() {
@@ -149,11 +161,11 @@ public class DiskInfo implements Writable {
         LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
                 floodStage, diskAvailableCapacityB, totalCapacityB);
         if (floodStage) {
-            return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes &&
-                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_flood_stage_usage_percent / 100.0);
+            return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes
+                && this.getUsedPct() > (Config.storage_flood_stage_usage_percent / 100.0);
         } else {
-            return diskAvailableCapacityB < Config.storage_min_left_capacity_bytes ||
-                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_high_watermark_usage_percent / 100.0);
+            return diskAvailableCapacityB < Config.storage_min_left_capacity_bytes
+                || this.getUsedPct() > (Config.storage_high_watermark_usage_percent / 100.0);
         }
     }
 
@@ -170,28 +182,8 @@ public class DiskInfo implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        this.rootPath = Text.readString(in);
-        this.totalCapacityB = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_36) {
-            this.dataUsedCapacityB = in.readLong();
-            this.diskAvailableCapacityB = in.readLong();
-        } else {
-            long availableCapacityB = in.readLong();
-            this.dataUsedCapacityB = this.totalCapacityB - availableCapacityB;
-            this.diskAvailableCapacityB = availableCapacityB;
-        }
-        this.state = DiskState.valueOf(Text.readString(in));
-    }
-
     public static DiskInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
-            DiskInfo diskInfo = new DiskInfo();
-            diskInfo.readFields(in);
-            return diskInfo;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, DiskInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DiskInfo.class);
     }
 }

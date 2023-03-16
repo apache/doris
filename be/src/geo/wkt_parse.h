@@ -17,7 +17,6 @@
 
 #include <memory>
 
-#include "common/status.h"
 #include "geo/geo_common.h"
 
 namespace doris {

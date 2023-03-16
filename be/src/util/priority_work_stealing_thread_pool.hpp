@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/lock.h"
 #include "util/thread_group.h"
 
 namespace doris {
@@ -29,16 +30,15 @@ namespace doris {
 // blocking queues by Offer(). Each item is processed by a single user-supplied method.
 class PriorityWorkStealingThreadPool : public PriorityThreadPool {
 public:
-
     // Creates a new thread pool and start num_threads threads.
     //  -- num_threads: how many threads are part of this pool
     //  -- num_queues: how many queues are part of this pool
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    //  -- work_function: the function to run every time an item is consumed from the queue
-    PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size)
-            : PriorityThreadPool(0, 0) {
+    PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size,
+                                   const std::string& name)
+            : PriorityThreadPool(0, 0, name) {
         DCHECK_GT(num_queues, 0);
         DCHECK_GE(num_threads, num_queues);
         // init _work_queues first because the work thread needs it
@@ -46,9 +46,14 @@ public:
             _work_queues.emplace_back(std::make_shared<BlockingPriorityQueue<Task>>(queue_size));
         }
         for (int i = 0; i < num_threads; ++i) {
-            _threads.create_thread(
-                    std::bind<void>(std::mem_fn(&PriorityWorkStealingThreadPool::work_thread), this, i));
+            _threads.create_thread(std::bind<void>(
+                    std::mem_fn(&PriorityWorkStealingThreadPool::work_thread), this, i));
         }
+    }
+
+    virtual ~PriorityWorkStealingThreadPool() {
+        shutdown();
+        join();
     }
 
     // Blocking operation that puts a work item on the queue. If the queue is full, blocks
@@ -62,9 +67,7 @@ public:
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
-    bool offer(Task task) override {
-        return _work_queues[task.queue_id]->blocking_put(task);
-    }
+    bool offer(Task task) override { return _work_queues[task.queue_id]->blocking_put(task); }
 
     bool offer(WorkFunction func) override {
         PriorityThreadPool::Task task = {0, func, 0};
@@ -82,10 +85,6 @@ public:
         }
     }
 
-    // Blocks until all threads are finished. shutdown does not need to have been called,
-    // since it may be called on a separate thread.
-    void join() override { _threads.join_all(); }
-
     uint32_t get_queue_size() const override {
         uint32_t size = 0;
         for (auto work_queue : _work_queues) {
@@ -99,7 +98,7 @@ public:
     // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
     void drain_and_shutdown() override {
         {
-            std::unique_lock<std::mutex> l(_lock);
+            std::unique_lock l(_lock);
             while (get_queue_size() != 0) {
                 _empty_cv.wait(l);
             }
@@ -119,7 +118,8 @@ private:
             // avoid blocking get
             bool is_other_queues_empty = true;
             // steal work in round-robin if nothing to do
-            while (_work_queues[queue_id]->get_size() == 0 && queue_id != steal_queue_id && !is_shutdown()) {
+            while (_work_queues[queue_id]->get_size() == 0 && queue_id != steal_queue_id &&
+                   !is_shutdown()) {
                 if (_work_queues[steal_queue_id]->non_blocking_get(&task)) {
                     is_other_queues_empty = false;
                     task.work_function();
@@ -129,7 +129,9 @@ private:
             if (queue_id == steal_queue_id) {
                 steal_queue_id = (steal_queue_id + 1) % _work_queues.size();
             }
-            if (is_other_queues_empty && _work_queues[queue_id]->blocking_get(&task, config::doris_blocking_priority_queue_wait_timeout_ms)) {
+            if (is_other_queues_empty &&
+                _work_queues[queue_id]->blocking_get(
+                        &task, config::doris_blocking_priority_queue_wait_timeout_ms)) {
                 task.work_function();
             }
             if (_work_queues[queue_id]->get_size() == 0) {
@@ -141,15 +143,6 @@ private:
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.
     std::vector<std::shared_ptr<BlockingPriorityQueue<Task>>> _work_queues;
-
-    // Collection of worker threads that process work from the queues.
-    ThreadGroup _threads;
-
-    // Guards _empty_cv
-    std::mutex _lock;
-
-    // Signalled when the queue becomes empty
-    std::condition_variable _empty_cv;
 };
 
 } // namespace doris

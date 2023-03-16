@@ -28,12 +28,12 @@ import java.io.IOException;
 // Information schema used for MySQL compatible.
 public class InfoSchemaDb extends Database {
     public static final String DATABASE_NAME = "information_schema";
-    
+
     public InfoSchemaDb() {
         super(SystemIdGenerator.getNextId(), DATABASE_NAME);
         initTables();
     }
-    
+
     public InfoSchemaDb(String cluster) {
         super(SystemIdGenerator.getNextId(), ClusterNamespace.getFullName(cluster, DATABASE_NAME));
         initTables();
@@ -41,7 +41,7 @@ public class InfoSchemaDb extends Database {
 
     @Override
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
-        return Pair.create(false, false);
+        return Pair.of(false, false);
     }
 
     @Override

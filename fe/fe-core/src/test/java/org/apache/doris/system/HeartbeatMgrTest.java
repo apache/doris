@@ -17,17 +17,14 @@
 
 package org.apache.doris.system;
 
-import mockit.Expectations;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
@@ -38,35 +35,35 @@ import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 public class HeartbeatMgrTest {
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
 
     @Before
     public void setUp() {
         new Expectations() {
             {
-                catalog.getSelfNode();
+                env.getSelfNode();
                 minTimes = 0;
-                result = Pair.create("192.168.1.3", 9010); // not self
+                result = new HostInfo("192.168.1.3", null, 9010); // not self
 
-                catalog.isReady();
+                env.isReady();
                 minTimes = 0;
                 result = true;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
             }
         };
 
@@ -178,7 +175,6 @@ public class HeartbeatMgrTest {
 
         Assert.assertTrue(response instanceof BrokerHbResponse);
         BrokerHbResponse hbResponse = (BrokerHbResponse) response;
-        System.out.println(hbResponse.toString());
         Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
     }
 

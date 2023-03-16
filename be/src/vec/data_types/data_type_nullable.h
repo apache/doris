@@ -36,9 +36,10 @@ public:
     const char* get_family_name() const override { return "Nullable"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
 
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
@@ -47,6 +48,10 @@ public:
     Field get_default() const override;
 
     bool equals(const IDataType& rhs) const override;
+
+    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
+        return nested_data_type->is_value_unambiguously_represented_in_contiguous_memory_region();
+    }
 
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
@@ -80,7 +85,9 @@ public:
     bool can_be_inside_low_cardinality() const override {
         return nested_data_type->can_be_inside_low_cardinality();
     }
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
 
@@ -90,5 +97,7 @@ private:
 
 DataTypePtr make_nullable(const DataTypePtr& type);
 DataTypePtr remove_nullable(const DataTypePtr& type);
+DataTypes remove_nullable(const DataTypes& types);
+bool have_nullable(const DataTypes& types);
 
 } // namespace doris::vectorized

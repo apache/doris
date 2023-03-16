@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
+import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
+import org.apache.doris.common.Pair;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
-import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,11 +35,13 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/*
- * A two-dimensional greedy rebalancing algorithm. The two dims are cluster and partition. It'll generate multiple `PartitionMove`,
- * only decide which partition to move, fromBe, toBe. The next step is to select a tablet to move.
+/**
+ * A two-dimensional greedy rebalancing algorithm. The two dims are cluster and partition.
+ * It'll generate multiple `PartitionMove`, only decide which partition to move, fromBe, toBe.
+ * The next step is to select a tablet to move.
  *
- * From among moves that decrease the skew of a most skewed partition, it prefers ones that reduce the skew of the cluster.
+ * <p>From among moves that decrease the skew of a most skewed partition,
+ * it prefers ones that reduce the skew of the cluster.
  * A cluster is considered balanced when the skew of every partition is <= 1 and the skew of the cluster is <= 1.
  * The skew of the cluster is defined as the difference between the maximum total replica count over all bes and the
  * minimum total replica count over all bes.
@@ -66,13 +69,17 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             PartitionMove that = (PartitionMove) o;
-            return Objects.equal(partitionId, that.partitionId) &&
-                    Objects.equal(indexId, that.indexId) &&
-                    Objects.equal(fromBe, that.fromBe) &&
-                    Objects.equal(toBe, that.toBe);
+            return Objects.equal(partitionId, that.partitionId)
+                    && Objects.equal(indexId, that.indexId)
+                    && Objects.equal(fromBe, that.fromBe)
+                    && Objects.equal(toBe, that.toBe);
         }
 
         @Override
@@ -82,11 +89,11 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public String toString() {
-            return "ReplicaMove{" +
-                    "pid=" + partitionId + "-" + indexId +
-                    ", from=" + fromBe +
-                    ", to=" + toBe +
-                    '}';
+            return "ReplicaMove{"
+                    + "pid=" + partitionId + "-" + indexId
+                    + ", from=" + fromBe
+                    + ", to=" + toBe
+                    + '}';
         }
     }
 
@@ -135,7 +142,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // Nothing to balance: cluster is empty.
             return Lists.newArrayList();
         }
-		
+
         NavigableSet<Long> keySet = info.beByTotalReplicaCount.keySet();
         if (keySet.isEmpty() || keySet.last() == 0L) {
             // the number of replica on specified medium we get from getReplicaNumByBeIdAndStorageMedium() is
@@ -184,23 +191,29 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         // improves cluster skew.
         NavigableSet<PartitionBalanceInfo> maxSet = skewMap.get(maxPartitionSkew);
         for (PartitionBalanceInfo pbi : maxSet) {
-            Preconditions.checkArgument(!pbi.beByReplicaCount.isEmpty(), "no information on replicas of " +
-                    "partition " + pbi.partitionId + "-" + pbi.indexId);
+            Preconditions.checkArgument(!pbi.beByReplicaCount.isEmpty(), "no information on replicas of "
+                    + "partition " + pbi.partitionId + "-" + pbi.indexId);
 
             Long minReplicaCount = pbi.beByReplicaCount.keySet().first();
             Long maxReplicaCount = pbi.beByReplicaCount.keySet().last();
-            LOG.debug("balancing partition {}-{} with replica count skew {} (min_replica_count: {}, max_replica_count: {})",
+            LOG.debug("balancing partition {}-{} with replica count skew {}"
+                            + " (min_replica_count: {}, max_replica_count: {})",
                     pbi.partitionId, pbi.indexId, maxPartitionSkew,
                     minReplicaCount, maxReplicaCount);
 
             // Compute the intersection of the bes most loaded for the table
             // with the bes most loaded overall, and likewise for least loaded.
             // These are our ideal candidates for moving from and to, respectively.
-            IntersectionResult maxLoaded = getIntersection(ExtremumType.MAX, pbi.beByReplicaCount, beByTotalReplicaCount);
-            IntersectionResult minLoaded = getIntersection(ExtremumType.MIN, pbi.beByReplicaCount, beByTotalReplicaCount);
-            LOG.debug("partition-wise: min_count: {}, max_count: {}", minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
-            LOG.debug("cluster-wise: min_count: {}, max_count: {}", minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
-            LOG.debug("min_loaded_intersection: {}, max_loaded_intersection: {}", minLoaded.intersection.toString(), maxLoaded.intersection.toString());
+            IntersectionResult maxLoaded = getIntersection(ExtremumType.MAX,
+                    pbi.beByReplicaCount, beByTotalReplicaCount);
+            IntersectionResult minLoaded = getIntersection(ExtremumType.MIN,
+                    pbi.beByReplicaCount, beByTotalReplicaCount);
+            LOG.debug("partition-wise: min_count: {}, max_count: {}",
+                    minLoaded.replicaCountPartition, maxLoaded.replicaCountPartition);
+            LOG.debug("cluster-wise: min_count: {}, max_count: {}",
+                    minLoaded.replicaCountTotal, maxLoaded.replicaCountTotal);
+            LOG.debug("min_loaded_intersection: {}, max_loaded_intersection: {}",
+                    minLoaded.intersection.toString(), maxLoaded.intersection.toString());
 
             // Do not move replicas of a balanced table if the least (most) loaded
             // servers overall do not intersect the servers hosting the least (most)
@@ -211,11 +224,14 @@ public class TwoDimensionalGreedyRebalanceAlgo {
                 continue;
             }
 
-            Long minLoadedBe, maxLoadedBe;
+            Long minLoadedBe;
+            Long maxLoadedBe;
             if (equalSkewOption == EqualSkewOption.PICK_FIRST) {
                 // beWithExtremumCount lists & intersection lists are natural ordering
-                minLoadedBe = minLoaded.intersection.isEmpty() ? minLoaded.beWithExtremumCount.get(0) : minLoaded.intersection.get(0);
-                maxLoadedBe = maxLoaded.intersection.isEmpty() ? maxLoaded.beWithExtremumCount.get(0) : maxLoaded.intersection.get(0);
+                minLoadedBe = minLoaded.intersection.isEmpty()
+                        ? minLoaded.beWithExtremumCount.get(0) : minLoaded.intersection.get(0);
+                maxLoadedBe = maxLoaded.intersection.isEmpty()
+                        ? maxLoaded.beWithExtremumCount.get(0) : maxLoaded.intersection.get(0);
             } else {
                 minLoadedBe = minLoaded.intersection.isEmpty() ? getRandomListElement(minLoaded.beWithExtremumCount)
                         : getRandomListElement(minLoaded.intersection);
@@ -241,8 +257,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         return items.get(rand.nextInt(items.size()));
     }
 
-    public static IntersectionResult getIntersection(ExtremumType extremumType, TreeMultimap<Long, Long> beByReplicaCount,
-                                                     TreeMultimap<Long, Long> beByTotalReplicaCount) {
+    public static IntersectionResult getIntersection(ExtremumType extremumType,
+            TreeMultimap<Long, Long> beByReplicaCount, TreeMultimap<Long, Long> beByTotalReplicaCount) {
         Pair<Long, Set<Long>> beSelectedByPartition = getMinMaxLoadedServers(beByReplicaCount, extremumType);
         Pair<Long, Set<Long>> beSelectedByTotal = getMinMaxLoadedServers(beByTotalReplicaCount, extremumType);
         Preconditions.checkNotNull(beSelectedByPartition);
@@ -252,20 +268,24 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         res.replicaCountPartition = beSelectedByPartition.first;
         res.replicaCountTotal = beSelectedByTotal.first;
         res.beWithExtremumCount = Lists.newArrayList(beSelectedByPartition.second);
-        res.intersection = Lists.newArrayList(Sets.intersection(beSelectedByPartition.second, beSelectedByTotal.second));
+        res.intersection = Lists.newArrayList(
+                Sets.intersection(beSelectedByPartition.second, beSelectedByTotal.second));
         return res;
     }
 
-    private static Pair<Long, Set<Long>> getMinMaxLoadedServers(TreeMultimap<Long, Long> multimap, ExtremumType extremumType) {
+    private static Pair<Long, Set<Long>> getMinMaxLoadedServers(
+            TreeMultimap<Long, Long> multimap, ExtremumType extremumType) {
         if (multimap.isEmpty()) {
             return null;
         }
         Long count = (extremumType == ExtremumType.MIN) ? multimap.keySet().first() : multimap.keySet().last();
-        return new Pair<>(count, multimap.get(count));
+        return Pair.of(count, multimap.get(count));
     }
 
-    // Update the balance state in 'ClusterBalanceInfo'(the two maps) with the outcome of the move 'move'.
-    // To support apply in-progress moves to current cluster balance info, if apply failed, the maps should not be modified.
+    /** Update the balance state in 'ClusterBalanceInfo'(the two maps) with the outcome of the move 'move'.
+     * To support apply in-progress moves to current cluster balance info,
+     * if apply failed, the maps should not be modified.
+     */
     public static boolean applyMove(PartitionMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
                                     TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
         // Update the total counts
@@ -276,8 +296,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             Long skew = -1L;
             for (Long key : skewMap.keySet()) {
                 NavigableSet<PartitionBalanceInfo> pbiSet = skewMap.get(key);
-                List<PartitionBalanceInfo> pbis = pbiSet.stream().filter(info ->
-                        info.partitionId.equals(move.partitionId) && info.indexId.equals(move.indexId)).collect(Collectors.toList());
+                List<PartitionBalanceInfo> pbis = pbiSet.stream()
+                        .filter(info -> info.partitionId.equals(move.partitionId) && info.indexId.equals(move.indexId))
+                        .collect(Collectors.toList());
                 Preconditions.checkState(pbis.size() <= 1, "skew map has dup partition info");
                 if (pbis.size() == 1) {
                     partitionBalanceInfo = pbis.get(0);
@@ -291,11 +312,12 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             moveOneReplica(move.fromBe, move.toBe, newInfo.beByReplicaCount);
 
             skewMap.remove(skew, partitionBalanceInfo);
-            long min_count = newInfo.beByReplicaCount.keySet().first();
-            long max_count = newInfo.beByReplicaCount.keySet().last();
-            skewMap.put(max_count - min_count, newInfo);
+            long minCount = newInfo.beByReplicaCount.keySet().first();
+            long maxCount = newInfo.beByReplicaCount.keySet().last();
+            skewMap.put(maxCount - minCount, newInfo);
         } catch (IllegalStateException e) {
-            // If touch IllegalState, the skew map doesn't be modified, so we should rollback the move of beByTotalReplicaCount
+            // If touch IllegalState, the skew map doesn't be modified,
+            // so we should rollback the move of beByTotalReplicaCount
             moveOneReplica(move.toBe, move.fromBe, beByTotalReplicaCount);
             LOG.info("{} apply failed, {}", move, e.getMessage());
             return false;
@@ -310,7 +332,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
     // Applies to 'm' a move of a replica from the be with id 'src' to the be with id 'dst' by decrementing
     // the count of 'src' and incrementing the count of 'dst'.
     // If check failed, won't modify the map.
-    private static void moveOneReplica(Long fromBe, Long toBe, TreeMultimap<Long, Long> m) throws IllegalStateException {
+    private static void moveOneReplica(Long fromBe, Long toBe,
+            TreeMultimap<Long, Long> m) throws IllegalStateException {
         boolean foundSrc = false;
         boolean foundDst = false;
         Long countSrc = 0L;

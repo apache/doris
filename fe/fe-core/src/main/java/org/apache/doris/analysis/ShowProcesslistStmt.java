@@ -18,25 +18,33 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROCESSLIST statement.
 // Used to show connection belong to this user.
 public class ShowProcesslistStmt extends ShowStmt {
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Host", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Cluster", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Db", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Command", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
-                    .addColumn(new Column("State", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Info", ScalarType.createVarchar(16)))
-                    .build();
+    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("User", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Host", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Cluster", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Db", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Command", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
+            .addColumn(new Column("State", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Info", ScalarType.STRING)).build();
+
+    private boolean isFull;
+
+    public ShowProcesslistStmt(boolean isFull) {
+        this.isFull = isFull;
+    }
+
+    public boolean isFull() {
+        return isFull;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) {
@@ -44,7 +52,7 @@ public class ShowProcesslistStmt extends ShowStmt {
 
     @Override
     public String toSql() {
-        return "SHOW PROCESSLIST";
+        return "SHOW " + (isFull ? "FULL" : "") + "PROCESSLIST";
     }
 
     @Override

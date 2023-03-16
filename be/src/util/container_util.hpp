@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/container-util.hpp
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
-#define DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
+#pragma once
 
 #include <map>
 #include <unordered_map>
@@ -33,11 +35,11 @@ inline std::size_t hash_value(const TNetworkAddress& host_port) {
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 
-struct HashTNetworkAddressPtr : public std::unary_function<TNetworkAddress*, size_t> {
+struct HashTNetworkAddressPtr {
     size_t operator()(const TNetworkAddress* const& p) const { return hash_value(*p); }
 };
 
-struct TNetworkAddressPtrEquals : public std::unary_function<TNetworkAddress*, bool> {
+struct TNetworkAddressPtrEquals {
     bool operator()(const TNetworkAddress* const& p1, const TNetworkAddress* const& p2) const {
         return p1->hostname == p2->hostname && p1->port == p2->port;
     }
@@ -94,5 +96,3 @@ const V& find_with_default(const std::unordered_map<K, V>& m, const K& key, cons
 }
 
 } // namespace doris
-
-#endif

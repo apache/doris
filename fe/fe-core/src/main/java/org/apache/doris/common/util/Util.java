@@ -20,14 +20,18 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.DataInput;
@@ -52,9 +56,11 @@ public class Util {
 
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
-    private static final String[] ORDINAL_SUFFIX = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+    private static final String[] ORDINAL_SUFFIX
+            = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
 
-    private static final List<String> REGEX_ESCAPES = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
+    private static final List<String> REGEX_ESCAPES
+            = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
 
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
@@ -66,17 +72,25 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DOUBLE, "double");
         TYPE_STRING_MAP.put(PrimitiveType.DATE, "date");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
+        TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
+        TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "jsonb");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL64, "decimal(%d,%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL128, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
-        TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "Array<%s>");
+        TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE, "quantile_state");
+        TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "array<%s>");
+        TYPE_STRING_MAP.put(PrimitiveType.VARIANT, "variant");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
     }
-    
+
     private static class CmdWorker extends Thread {
         private final Process process;
         private Integer exitValue;
@@ -158,7 +172,7 @@ public class Util {
                 exitValue = cmdWorker.getExitValue();
                 if (exitValue == null) {
                     // if we get this far then we never got an exit value from the worker thread
-                    // as a result of a timeout 
+                    // as a result of a timeout
                     LOG.warn("exec command [{}] timed out.", cmd);
                     exitValue = -1;
                 }
@@ -181,14 +195,14 @@ public class Util {
 
         return result;
     }
-    
+
     public static List<String> shellSplit(CharSequence string) {
         List<String> tokens = new ArrayList<String>();
         boolean escaping = false;
         char quoteChar = ' ';
         boolean quoting = false;
-        StringBuilder current = new StringBuilder() ;
-        for (int i = 0; i<string.length(); i++) {
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < string.length(); i++) {
             char c = string.charAt(i);
             if (escaping) {
                 current.append(c);
@@ -224,15 +238,11 @@ public class Util {
         }
         return sb.toString();
     }
-    
-    public static long generateVersionHash() {
-        return Math.abs(new Random().nextLong());
-    }
-    
+
     public static int generateSchemaHash() {
         return Math.abs(new Random().nextInt());
     }
-    
+
     /**
      * Chooses k unique random elements from a population sequence
      */
@@ -244,7 +254,7 @@ public class Util {
         Collections.shuffle(population);
         return population.subList(0, kNum);
     }
-    
+
     /**
      * Delete directory and all contents in this directory
      */
@@ -329,7 +339,7 @@ public class Util {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
-        
+
         long result = defaultVal;
         try {
             result = Long.valueOf(valStr);
@@ -348,15 +358,15 @@ public class Util {
         return result;
     }
 
-    public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
+    public static double getDoublePropertyOrDefault(String valStr, double defaultVal, Predicate<Double> pred,
                                                 String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
 
-        float result = defaultVal;
+        double result = defaultVal;
         try {
-            result = Float.valueOf(valStr);
+            result = Double.parseDouble(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
@@ -392,10 +402,10 @@ public class Util {
     // not support encode negative value now
     public static void encodeVarint64(long source, DataOutput out) throws IOException {
         assert source >= 0;
-        short B = 128;
+        short B = 128; // CHECKSTYLE IGNORE THIS LINE
 
         while (source > B) {
-            out.write((int)(source & (B - 1) | B));
+            out.write((int) (source & (B - 1) | B));
             source = source >> 7;
         }
         out.write((int) (source & (B - 1)));
@@ -405,12 +415,12 @@ public class Util {
     public static long decodeVarint64(DataInput in) throws IOException {
         long result = 0;
         int shift = 0;
-        short B = 128;
+        short B = 128; // CHECKSTYLE IGNORE THIS LINE
 
         while (true) {
             int oneByte = in.readUnsignedByte();
             boolean isEnd = (oneByte & B) == 0;
-            result = result | ((long)(oneByte & B - 1) << (shift * 7));
+            result = result | ((long) (oneByte & B - 1) << (shift * 7));
             if (isEnd) {
                 break;
             }
@@ -419,7 +429,7 @@ public class Util {
 
         return result;
     }
-    
+
     // return the ordinal string of an Integer
     public static String ordinal(int i) {
         switch (i % 100) {
@@ -449,7 +459,9 @@ public class Util {
     }
 
     public static boolean showHiddenColumns() {
-        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
+        return ConnectContext.get() != null && (
+            ConnectContext.get().getSessionVariable().showHiddenColumns()
+            || ConnectContext.get().getSessionVariable().skipStorageEngineMerge());
     }
 
     public static String escapeSingleRegex(String s) {
@@ -459,5 +471,88 @@ public class Util {
         }
         return s;
     }
-}
 
+    /**
+     * Check all rules of catalog.
+     */
+    public static void checkCatalogAllRules(String catalog) throws AnalysisException {
+        if (Strings.isNullOrEmpty(catalog)) {
+            throw new AnalysisException("Catalog name is empty.");
+        }
+
+        if (!catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            FeNameFormat.checkCommonName("catalog", catalog);
+        }
+    }
+
+    public static void prohibitExternalCatalog(String catalog, String msg) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(catalog) && !catalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new AnalysisException(String.format("External catalog '%s' is not allowed in '%s'", catalog, msg));
+        }
+    }
+
+    public static boolean isS3CompatibleStorageSchema(String schema) {
+        for (String objectStorage : Config.s3_compatible_object_storages.split(",")) {
+            if (objectStorage.equalsIgnoreCase(schema)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
+
+    public static String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+
+
+    @NotNull
+    public static TFileFormatType getFileFormatType(String path) {
+        String lowerCasePath = path.toLowerCase();
+        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerCasePath.endsWith(".gz")) {
+            return TFileFormatType.FORMAT_CSV_GZ;
+        } else if (lowerCasePath.endsWith(".bz2")) {
+            return TFileFormatType.FORMAT_CSV_BZ2;
+        } else if (lowerCasePath.endsWith(".lz4")) {
+            return TFileFormatType.FORMAT_CSV_LZ4FRAME;
+        } else if (lowerCasePath.endsWith(".lzo")) {
+            return TFileFormatType.FORMAT_CSV_LZOP;
+        } else if (lowerCasePath.endsWith(".deflate")) {
+            return TFileFormatType.FORMAT_CSV_DEFLATE;
+        } else {
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        }
+    }
+
+    public static boolean isCsvFormat(TFileFormatType fileFormatType) {
+        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
+                || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {
+        logger.warn(msg, e);
+        throw new RuntimeException(msg, e);
+    }
+
+    public static String getRootCauseMessage(Throwable t) {
+        String rootCause = "unknown";
+        Throwable p = t;
+        while (p != null) {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+            p = p.getCause();
+        }
+        return rootCause;
+    }
+}

@@ -20,16 +20,18 @@
 #include "vec/aggregate_functions/aggregate_function_bitmap.h"
 #include "vec/aggregate_functions/aggregate_function_hll_union_agg.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
+#include "vec/aggregate_functions/aggregate_function_quantile_state.h"
+#include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sum.h"
-#include "vec/aggregate_functions/aggregate_function_window.h"
 
 namespace doris::vectorized {
 
-static const std::string agg_reader_suffix = "_reader";
+static auto constexpr AGG_READER_SUFFIX = "_reader";
+static auto constexpr AGG_LOAD_SUFFIX = "_load";
 
-void register_aggregate_function_reader(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory);
 
-void register_aggregate_function_reader_no_spread(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 } // namespace doris::vectorized

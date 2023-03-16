@@ -17,8 +17,8 @@
 
 package org.apache.doris.consistency;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -41,7 +41,6 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,14 +59,13 @@ public class CheckConsistencyJob {
 
     private JobState state;
     private long tabletId;
-    
+
     // backend id -> check sum
     // add backend id to this map only after sending task
     private Map<Long, Long> checksumMap;
 
     private int checkedSchemaHash;
     private long checkedVersion;
-    private long checkedVersionHash;
 
     private long createTime;
     private long timeoutMs;
@@ -80,7 +78,6 @@ public class CheckConsistencyJob {
 
         this.checkedSchemaHash = -1;
         this.checkedVersion = -1L;
-        this.checkedVersionHash = -1L;
 
         this.createTime = System.currentTimeMillis();
         this.timeoutMs = 0L;
@@ -108,14 +105,14 @@ public class CheckConsistencyJob {
      *  false: cancel
      */
     public boolean sendTasks() {
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.debug("tablet[{}] has been removed", tabletId);
             return false;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -126,7 +123,7 @@ public class CheckConsistencyJob {
         if (ConnectContext.get() != null) {
             resourceInfo = ConnectContext.get().toResourceCtx();
         }
-        
+
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -147,7 +144,8 @@ public class CheckConsistencyJob {
             }
 
             // check partition's replication num. if 1 replication. skip
-            short replicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+            short replicaNum = olapTable.getPartitionInfo()
+                    .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
             if (replicaNum == (short) 1) {
                 LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
@@ -166,7 +164,6 @@ public class CheckConsistencyJob {
             }
 
             checkedVersion = partition.getVisibleVersion();
-            checkedVersionHash = partition.getVisibleVersionHash();
             checkedSchemaHash = olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId());
 
             int sentTaskReplicaNum = 0;
@@ -188,7 +185,7 @@ public class CheckConsistencyJob {
                                                                      tabletMeta.getPartitionId(),
                                                                      tabletMeta.getIndexId(),
                                                                      tabletId, checkedSchemaHash,
-                                                                     checkedVersion, checkedVersionHash);
+                                                                     checkedVersion);
 
                 // add task to send
                 batchTask.addTask(task);
@@ -220,7 +217,7 @@ public class CheckConsistencyJob {
                 return false;
             }
             try {
-                tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
+                tablet.setCheckedVersion(checkedVersion);
             } finally {
                 table.writeUnlock();
             }
@@ -250,13 +247,13 @@ public class CheckConsistencyJob {
         }
 
         // check again. in case tablet has already been removed
-        TabletMeta tabletMeta = Catalog.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
         if (tabletMeta == null) {
             LOG.warn("tablet[{}] has been removed", tabletId);
             return -1;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;
@@ -361,13 +358,13 @@ public class CheckConsistencyJob {
             tablet.setIsConsistent(isConsistent);
 
             // set checked version
-            tablet.setCheckedVersion(checkedVersion, checkedVersionHash);
+            tablet.setCheckedVersion(checkedVersion);
 
             // log
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
                                                                  index.getId(), tabletId, lastCheckTime,
-                                                                 checkedVersion, checkedVersionHash, isConsistent);
-            Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
+                                                                 checkedVersion, isConsistent);
+            Env.getCurrentEnv().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 
         } finally {
@@ -386,7 +383,7 @@ public class CheckConsistencyJob {
         if (this.checksumMap.containsKey(backendId)) {
             checksumMap.put(backendId, checksum);
         } else {
-            // should not happened. add log to observe
+            // should not happen. add log to observe
             LOG.warn("can not find backend[{}] in tablet[{}]'s consistency check job", backendId, tabletId);
         }
     }
@@ -398,4 +395,3 @@ public class CheckConsistencyJob {
         }
     }
 }
-

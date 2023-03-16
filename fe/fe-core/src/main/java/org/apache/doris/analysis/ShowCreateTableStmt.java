@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -43,6 +43,12 @@ public class ShowCreateTableStmt extends ShowStmt {
                     .addColumn(new Column("collation_connection", ScalarType.createVarchar(30)))
                     .build();
 
+    private static final ShowResultSetMetaData MATERIALIZED_VIEW_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
+                    .build();
+
     private TableName tbl;
     private boolean isView;
 
@@ -53,6 +59,11 @@ public class ShowCreateTableStmt extends ShowStmt {
     public ShowCreateTableStmt(TableName tbl, boolean isView) {
         this.tbl = tbl;
         this.isView = isView;
+    }
+
+
+    public String getCtl() {
+        return tbl.getCtl();
     }
 
     public String getDb() {
@@ -71,6 +82,10 @@ public class ShowCreateTableStmt extends ShowStmt {
         return VIEW_META_DATA;
     }
 
+    public static ShowResultSetMetaData getMaterializedViewMetaData() {
+        return MATERIALIZED_VIEW_META_DATA;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (tbl == null) {
@@ -78,8 +93,8 @@ public class ShowCreateTableStmt extends ShowStmt {
         }
         tbl.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                                                                PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tbl.getCtl(), tbl.getDb(),
+                tbl.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),

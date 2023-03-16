@@ -95,7 +95,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
 
         boolean valid = true;
         CHECK:
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             // check predicate
             if (!(jobNameExpr instanceof BinaryPredicate)) {
                 valid = false;
@@ -125,10 +125,11 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
             }
             StringLiteral stringLiteral = (StringLiteral) binaryPredicate.getChild(1);
             jobName = stringLiteral.getValue().toLowerCase();
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         if (!valid) {
-            throw new AnalysisException("show routine load job only support one equal expr which is sames like JobName=\"ILoveDoris\"");
+            throw new AnalysisException("show routine load job only support one equal expr "
+                    + "which is sames like JobName=\"ILoveDoris\"");
         }
     }
 

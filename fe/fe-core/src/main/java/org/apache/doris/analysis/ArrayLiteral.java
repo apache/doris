@@ -17,35 +17,56 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
+
+import org.apache.commons.lang.StringUtils;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-
-import org.apache.commons.lang.StringUtils;
-import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 public class ArrayLiteral extends LiteralExpr {
 
     public ArrayLiteral() {
-        this.type = new ArrayType(Type.NULL);
+        type = new ArrayType(Type.NULL);
         children = new ArrayList<>();
     }
 
-    public ArrayLiteral(LiteralExpr... v) {
-        if (v.length < 1) {
-            this.type = new ArrayType(Type.NULL);
-            return;
+    public ArrayLiteral(LiteralExpr... exprs) throws AnalysisException {
+        Type itemType = Type.NULL;
+        boolean containsNull = true;
+        for (LiteralExpr expr : exprs) {
+            if (itemType == Type.NULL) {
+                itemType = expr.getType();
+            } else {
+                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false);
+            }
+
+            if (expr.isNullable()) {
+                containsNull = true;
+            }
         }
 
-        this.type = new ArrayType(v[0].type);
-        children = new ArrayList<>(v.length);
-        children.addAll(Arrays.asList(v));
+        if (itemType == Type.INVALID) {
+            throw new AnalysisException("Invalid element type in ARRAY");
+        }
+
+        type = new ArrayType(itemType, containsNull);
+
+        children = new ArrayList<>();
+        for (LiteralExpr expr : exprs) {
+            if (expr.getType().equals(itemType)) {
+                children.add(expr);
+            } else {
+                children.add(expr.castTo(itemType));
+            }
+        }
     }
 
     protected ArrayLiteral(ArrayLiteral other) {
@@ -71,11 +92,25 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toDigestImpl() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.toDigestImpl()));
+
+        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
+    }
+
+    @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(((LiteralExpr) v).getStringValue()));
-
+        children.forEach(v -> list.add(v.getStringValue()));
         return "ARRAY[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.getStringValueForArray()));
+        return "[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override
@@ -113,4 +148,26 @@ public class ArrayLiteral extends LiteralExpr {
     public Expr clone() {
         return new ArrayLiteral(this);
     }
+
+    @Override
+    public Expr uncheckedCastTo(Type targetType) throws AnalysisException {
+        if (!targetType.isArrayType()) {
+            return super.uncheckedCastTo(targetType);
+        }
+        ArrayLiteral literal = new ArrayLiteral(this);
+        for (int i = 0; i < children.size(); ++ i) {
+            Expr child = children.get(i);
+            literal.children.set(i, child.uncheckedCastTo(((ArrayType) targetType).getItemType()));
+        }
+        literal.setType(targetType);
+        return literal;
+    }
+
+    @Override
+    public void checkValueValid() throws AnalysisException {
+        for (Expr e : children) {
+            e.checkValueValid();
+        }
+    }
 }
+

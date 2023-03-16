@@ -17,7 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -34,7 +34,7 @@ import java.util.Map;
  * The design of JobI is as follows
  * 1. Here are only two methods: run() and cancel() that can modify the internal state of a Job.
  *    And each method is implemented as synchronized to avoid handling concurrent modify things.
- *    
+ *
  * 2. isDone() method is used to check whether we can submit the next job.
  */
 public abstract class AbstractJob implements Writable {
@@ -46,7 +46,7 @@ public abstract class AbstractJob implements Writable {
     protected JobType type;
 
     // must be set right before job's running
-    protected Catalog catalog;
+    protected Env env;
     // repo will be set at first run()
     protected Repository repo;
     protected long repoId;
@@ -82,14 +82,14 @@ public abstract class AbstractJob implements Writable {
     }
 
     protected AbstractJob(JobType type, String label, long dbId, String dbName,
-            long timeoutMs, Catalog catalog, long repoId) {
+            long timeoutMs, Env env, long repoId) {
         this.type = type;
         this.label = label;
         this.dbId = dbId;
         this.dbName = dbName;
         this.createTime = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
-        this.catalog = catalog;
+        this.env = env;
         this.repoId = repoId;
     }
 
@@ -129,8 +129,8 @@ public abstract class AbstractJob implements Writable {
         return timeoutMs;
     }
 
-    public void setCatalog(Catalog catalog) {
-        this.catalog = catalog;
+    public void setEnv(Env env) {
+        this.env = env;
     }
 
     public long getRepoId() {
@@ -241,4 +241,3 @@ public abstract class AbstractJob implements Writable {
         return sb.toString();
     }
 }
-

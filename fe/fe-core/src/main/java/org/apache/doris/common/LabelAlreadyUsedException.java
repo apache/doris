@@ -36,20 +36,20 @@ public class LabelAlreadyUsedException extends DdlException {
     public LabelAlreadyUsedException(TransactionState txn) {
         super("Label [" + txn.getLabel() + "] has already been used, relate to txn [" + txn.getTransactionId() + "]");
         switch (txn.getTransactionStatus()) {
-        case UNKNOWN:
-        case PREPARE:
-            jobStatus = "RUNNING";
-            break;
-        case PRECOMMITTED:
-            jobStatus = "PRECOMMITTED";
-            break;
-        case COMMITTED:
-        case VISIBLE:
-            jobStatus = "FINISHED";
-            break;
-        default:
-            Preconditions.checkState(false, txn.getTransactionStatus());
-            break;
+            case UNKNOWN:
+            case PREPARE:
+                jobStatus = "RUNNING";
+                break;
+            case PRECOMMITTED:
+                jobStatus = "PRECOMMITTED";
+                break;
+            case COMMITTED:
+            case VISIBLE:
+                jobStatus = "FINISHED";
+                break;
+            default:
+                Preconditions.checkState(false, txn.getTransactionStatus());
+                break;
         }
     }
 

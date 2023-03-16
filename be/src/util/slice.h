@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_STRING_SLICE_H
-#define DORIS_BE_SRC_OLAP_STRING_SLICE_H
+#pragma once
 
 #include <assert.h>
 #include <stddef.h>
@@ -140,6 +139,10 @@ public:
     /// Check whether the slice starts with the given prefix.
     bool starts_with(const Slice& x) const {
         return ((size >= x.size) && (mem_equal(data, x.data, x.size)));
+    }
+
+    bool ends_with(const Slice& x) const {
+        return ((size >= x.size) && mem_equal(data + (size - x.size), x.data, x.size));
     }
 
     /// @brief Comparator struct, useful for ordered collections (like STL maps).
@@ -286,5 +289,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_STRING_SLICE_H

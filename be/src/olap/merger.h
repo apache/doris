@@ -15,14 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_MERGER_H
-#define DORIS_BE_SRC_OLAP_MERGER_H
+#pragma once
 
 #include "olap/olap_define.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/tablet.h"
+#include "vec/olap/vertical_block_reader.h"
+#include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+
+namespace vectorized {
+class RowSourcesBuffer;
+};
 
 class Merger {
 public:
@@ -31,16 +38,44 @@ public:
         int64_t output_rows = 0;
         int64_t merged_rows = 0;
         int64_t filtered_rows = 0;
+        RowIdConversion* rowid_conversion = nullptr;
     };
 
     // merge rows from `src_rowset_readers` and write into `dst_rowset_writer`.
-    // return OLAP_SUCCESS and set statistics into `*stats_output`.
+    // return OK and set statistics into `*stats_output`.
     // return others on error
-    static OLAPStatus merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                    const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                    RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+
+    static Status vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+                                 TabletSchemaSPtr cur_tablet_schema,
+                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                 RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+    static Status vertical_merge_rowsets(
+            TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema,
+            const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
+            Statistics* stats_output);
+
+public:
+    // for vertical compaction
+    static void vertical_split_columns(TabletSchemaSPtr tablet_schema,
+                                       std::vector<std::vector<uint32_t>>* column_groups);
+    static Status vertical_compact_one_group(
+            TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema,
+            bool is_key, const std::vector<uint32_t>& column_group,
+            vectorized::RowSourcesBuffer* row_source_buf,
+            const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
+            Statistics* stats_output);
+
+    // for segcompaction
+    static Status vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
+                                             TabletSchemaSPtr tablet_schema, bool is_key,
+                                             const std::vector<uint32_t>& column_group,
+                                             vectorized::RowSourcesBuffer* row_source_buf,
+                                             vectorized::VerticalBlockReader& src_block_reader,
+                                             segment_v2::SegmentWriter& dst_segment_writer,
+                                             int64_t max_rows_per_segment, Statistics* stats_output,
+                                             uint64_t* index_size, KeyBoundsPB& key_bounds);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_MERGER_H

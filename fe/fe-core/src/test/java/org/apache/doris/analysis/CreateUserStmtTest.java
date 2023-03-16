@@ -19,23 +19,23 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 public class CreateUserStmtTest {
 
     @Before
     public void setUp() {
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
         UserIdentity currentUserIdentity = new UserIdentity("root", "192.168.1.1");
@@ -46,13 +46,13 @@ public class CreateUserStmtTest {
 
     @Test
     public void testToString(@Injectable Analyzer analyzer,
-                             @Mocked PaloAuth paloAuth) throws UserException, AnalysisException {
+            @Mocked AccessControllerManager accessManager) throws UserException, AnalysisException {
 
         new Expectations() {
             {
                 analyzer.getClusterName();
                 result = "testCluster";
-                paloAuth.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, PaloAuth.PrivLevel.GLOBAL, PaloAuth
+                accessManager.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, Auth.PrivLevel.GLOBAL, Auth
                         .PrivLevel.DATABASE);
                 result = true;
             }

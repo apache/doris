@@ -19,9 +19,9 @@ package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.analysis.BinlogDesc;
 import org.apache.doris.analysis.ChannelDescription;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
@@ -36,11 +36,9 @@ import org.apache.doris.load.sync.SyncJob;
 
 import com.alibaba.otter.canal.client.CanalConnector;
 import com.alibaba.otter.canal.client.CanalConnectors;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,13 +49,13 @@ import java.util.Map;
 public class CanalSyncJob extends SyncJob {
     private static final Logger LOG = LogManager.getLogger(CanalSyncJob.class);
 
-    protected final static String CANAL_SERVER_IP = "canal.server.ip";
-    protected final static String CANAL_SERVER_PORT = "canal.server.port";
-    protected final static String CANAL_DESTINATION = "canal.destination";
-    protected final static String CANAL_USERNAME = "canal.username";
-    protected final static String CANAL_PASSWORD = "canal.password";
-    protected final static String CANAL_BATCH_SIZE = "canal.batchSize";
-    protected final static String CANAL_DEBUG = "canal.debug";
+    protected static final String CANAL_SERVER_IP = "canal.server.ip";
+    protected static final String CANAL_SERVER_PORT = "canal.server.port";
+    protected static final String CANAL_DESTINATION = "canal.destination";
+    protected static final String CANAL_USERNAME = "canal.username";
+    protected static final String CANAL_PASSWORD = "canal.password";
+    protected static final String CANAL_BATCH_SIZE = "canal.batchSize";
+    protected static final String CANAL_DEBUG = "canal.debug";
 
     @SerializedName(value = "remote")
     private final CanalDestination remote;
@@ -93,7 +91,7 @@ public class CanalSyncJob extends SyncJob {
         if (channels == null) {
             channels = Lists.newArrayList();
         }
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         db.writeLock();
         try {
             for (ChannelDescription channelDescription : channelDescriptions) {
@@ -275,6 +273,8 @@ public class CanalSyncJob extends SyncJob {
                 case CANCELLED:
                     updateState(JobState.CANCELLED, true);
                     break;
+                default:
+                    throw new UserException("job state is invalid: " + jobState);
             }
         } catch (UserException e) {
             LOG.error(new LogBuilder(LogKey.SYNC_JOB, id)
@@ -313,7 +313,7 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public String toString() {
         return "SyncJob [jobId=" + id
-                + ", jobName=" +jobName
+                + ", jobName=" + jobName
                 + ", dbId=" + dbId
                 + ", state=" + jobState
                 + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)

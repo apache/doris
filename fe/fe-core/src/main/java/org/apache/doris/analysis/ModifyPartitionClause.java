@@ -18,13 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -40,6 +38,7 @@ public class ModifyPartitionClause extends AlterTableClause {
 
     private List<String> partitionNames;
     private Map<String, String> properties;
+    private boolean isTempPartition;
     private boolean needExpand = false;
 
     public List<String> getPartitionNames() {
@@ -47,7 +46,8 @@ public class ModifyPartitionClause extends AlterTableClause {
     }
 
     // c'tor for non-star clause
-    public ModifyPartitionClause(List<String> partitionNames, Map<String, String> properties) {
+    public ModifyPartitionClause(List<String> partitionNames, Map<String, String> properties,
+                                 boolean isTempPartition) {
         super(AlterOpType.MODIFY_PARTITION);
         this.partitionNames = partitionNames;
         this.properties = properties;
@@ -59,19 +59,22 @@ public class ModifyPartitionClause extends AlterTableClause {
         // And these 3 operations does not require table to be stable.
         // If other kinds of operations be added later, "needTableStable" may be changed.
         this.needTableStable = false;
+        this.isTempPartition = isTempPartition;
     }
 
     // c'tor for 'Modify Partition(*)' clause
-    private ModifyPartitionClause(Map<String, String> properties) {
+    private ModifyPartitionClause(Map<String, String> properties, boolean isTempPartition) {
         super(AlterOpType.MODIFY_PARTITION);
         this.partitionNames = Lists.newArrayList();
         this.properties = properties;
         this.needExpand = true;
         this.needTableStable = false;
+        this.isTempPartition = isTempPartition;
     }
 
-    public static ModifyPartitionClause createStarClause(Map<String, String> properties) {
-        return new ModifyPartitionClause(properties);
+    public static ModifyPartitionClause createStarClause(Map<String, String> properties,
+                                                         boolean isTempPartition) {
+        return new ModifyPartitionClause(properties, isTempPartition);
     }
 
     @Override
@@ -98,24 +101,26 @@ public class ModifyPartitionClause extends AlterTableClause {
     // 3. in_memory
     // 4. tablet type
     private void checkProperties(Map<String, String> properties) throws AnalysisException {
-        // 1. data property
-        DataProperty newDataProperty = null;
-        newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, DataProperty.DEFAULT_DATA_PROPERTY);
-        Preconditions.checkNotNull(newDataProperty);
-
-        // 2. replica allocation
+        // 1. replica allocation
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
 
-        // 3. in memory
+        // 2. in memory
         PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
 
-        // 4. tablet type
+        // 3. tablet type
         PropertyAnalyzer.analyzeTabletType(properties);
+
+        // 4. mutable
+        PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
     }
 
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 
     public boolean isNeedExpand() {
@@ -126,6 +131,9 @@ public class ModifyPartitionClause extends AlterTableClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY PARTITION ");
+        if (isTempPartition) {
+            sb.append("TEMPORARY ");
+        }
         sb.append("(");
         if (needExpand) {
             sb.append("*");
@@ -136,7 +144,7 @@ public class ModifyPartitionClause extends AlterTableClause {
         sb.append(" SET (");
         sb.append(new PrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
-        
+
         return sb.toString();
     }
 

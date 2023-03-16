@@ -17,13 +17,15 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -39,25 +41,27 @@ import java.util.List;
  */
 public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName").add("TableNum").add("Quota")
-            .add("LastConsistencyCheckTime").add("ReplicaQuota")
+            .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
+            .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
+            .add("TransactionQuota")
             .build();
 
-    private Catalog catalog;
+    private Env env;
+    private CatalogIf catalog;
 
-    public DbsProcDir(Catalog catalog) {
+    public DbsProcDir(Env env, CatalogIf catalog) {
+        this.env = env;
         this.catalog = catalog;
     }
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
-        // 不支持静态注册，全部都是动态的查看
         return false;
     }
 
     @Override
     public ProcNodeInterface lookup(String dbIdStr) throws AnalysisException {
-        if (catalog == null || Strings.isNullOrEmpty(dbIdStr)) {
+        if (env == null || Strings.isNullOrEmpty(dbIdStr)) {
             throw new AnalysisException("Db id is null");
         }
 
@@ -68,14 +72,17 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = catalog.getDbOrAnalysisException(dbId);
+        DatabaseIf db = catalog.getDbNullable(dbId);
+        if (db == null) {
+            throw new AnalysisException("Database " + dbId + " does not exist");
+        }
 
         return new TablesProcDir(db);
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(catalog);
+        Preconditions.checkNotNull(env);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
@@ -86,13 +93,13 @@ public class DbsProcDir implements ProcDirInterface {
         }
 
         // get info
-        List<List<Comparable>> dbInfos = new ArrayList<List<Comparable>>();
+        List<List<Comparable>> dbInfos = new ArrayList<>();
         for (String dbName : dbNames) {
-            Database db = catalog.getDbNullable(dbName);
+            DatabaseIf db = catalog.getDbNullable(dbName);
             if (db == null) {
                 continue;
             }
-            List<Comparable> dbInfo = new ArrayList<Comparable>();
+            List<Comparable> dbInfo = new ArrayList<>();
             db.readLock();
             try {
                 int tableNum = db.getTables().size();
@@ -100,16 +107,21 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);
 
-                long dataQuota = db.getDataQuota();
-                Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuota);
-                String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
-                        + quotaUnitPair.second;
+                long usedDataQuota = (db instanceof Database) ? ((Database) db).getUsedDataQuotaWithLock() : 0;
+                long dataQuota = (db instanceof Database) ? ((Database) db).getDataQuota() : 0;
+                String readableUsedQuota = DebugUtil.printByteWithUnit(usedDataQuota);
+                String readableQuota = DebugUtil.printByteWithUnit(dataQuota);
+                String lastCheckTime = (db instanceof Database) ? TimeUtils.longToTimeString(
+                        ((Database) db).getLastCheckTime()) : FeConstants.null_string;
+                long replicaCount = (db instanceof Database) ? ((Database) db).getReplicaCountWithLock() : 0;
+                long replicaQuota = (db instanceof Database) ? ((Database) db).getReplicaQuota() : 0;
+                long transactionQuota = (db instanceof Database) ? ((Database) db).getTransactionQuotaSize() : 0;
+                dbInfo.add(readableUsedQuota);
                 dbInfo.add(readableQuota);
-
-                dbInfo.add(TimeUtils.longToTimeString(db.getLastCheckTime()));
-
-                long replicaQuota = db.getReplicaQuota();
+                dbInfo.add(lastCheckTime);
+                dbInfo.add(replicaCount);
                 dbInfo.add(replicaQuota);
+                dbInfo.add(transactionQuota);
 
             } finally {
                 db.readUnlock();

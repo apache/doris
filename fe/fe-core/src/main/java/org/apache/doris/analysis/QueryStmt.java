@@ -14,20 +14,25 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/QueryStmt.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,13 +53,13 @@ import java.util.stream.Collectors;
  * Used for sharing members/methods and some of the analysis code, in particular the
  * analysis of the ORDER BY and LIMIT clauses.
  */
-public abstract class QueryStmt extends StatementBase {
-    private final static Logger LOG = LogManager.getLogger(QueryStmt.class);
+public abstract class QueryStmt extends StatementBase implements Queriable {
+    private static final Logger LOG = LogManager.getLogger(QueryStmt.class);
 
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
 
-    protected WithClause withClause_;
+    protected WithClause withClause;
 
     protected ArrayList<OrderByElement> orderByElements;
     // Limit element could not be null, the default limit element is NO_LIMIT
@@ -94,6 +99,8 @@ public abstract class QueryStmt extends StatementBase {
      * in "order by" or "group by" clauses with their corresponding result expr.
      */
     protected final ExprSubstitutionMap aliasSMap;
+
+    protected final ExprSubstitutionMap mvSMap;
 
     /**
      * Select list item alias does not have to be unique.
@@ -161,27 +168,35 @@ public abstract class QueryStmt extends StatementBase {
      */
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
+    protected boolean toSQLWithSelectList;
+    protected boolean isPointQuery;
+    protected boolean toSQLWithHint;
+
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
         this.aliasSMap = new ExprSubstitutionMap();
+        this.mvSMap = new ExprSubstitutionMap();
         this.ambiguousAliasList = Lists.newArrayList();
         this.sortInfo = null;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         super.analyze(analyzer);
         analyzeLimit(analyzer);
-        if (hasWithClause()) withClause_.analyze(analyzer);
+        if (hasWithClause()) {
+            withClause.analyze(analyzer);
+        }
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
-        // TODO chenhao
-        if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
-            throw new AnalysisException("OFFSET requires an ORDER BY clause: " +
-                    limitElement.toSql().trim());
+        if (!VectorizedUtil.isVectorized() && limitElement.getOffset() > 0 && !hasOrderByClause()) {
+            throw new AnalysisException("OFFSET requires an ORDER BY clause: "
+                    + limitElement.toSql().trim());
         }
         limitElement.analyze(analyzer);
     }
@@ -203,8 +218,7 @@ public abstract class QueryStmt extends StatementBase {
      * (3) a mix of correlated table refs and table refs rooted at those refs
      *     (the statement is 'self-contained' with respect to correlation)
      */
-    public List<TupleId> getCorrelatedTupleIds(Analyzer analyzer)
-            throws AnalysisException {
+    public List<TupleId> getCorrelatedTupleIds(Analyzer analyzer) throws AnalysisException {
         // Correlated tuple ids of this stmt.
         List<TupleId> correlatedTupleIds = Lists.newArrayList();
         // First correlated and absolute table refs. Used for error detection/reporting.
@@ -217,9 +231,11 @@ public abstract class QueryStmt extends StatementBase {
         List<TableRef> tblRefs = Lists.newArrayList();
         collectTableRefs(tblRefs);
         for (TableRef tblRef : tblRefs) {
-            if (absoluteRef == null && !tblRef.isRelative()) absoluteRef = tblRef;
+            if (absoluteRef == null && !tblRef.isRelative()) {
+                absoluteRef = tblRef;
+            }
             /*if (tblRef.isCorrelated()) {
-             *   
+             *
              *   // Check if the correlated table ref is rooted at a tuple descriptor from within
              *   // this query stmt. If so, the correlation is contained within this stmt
              *   // and the table ref does not conflict with absolute refs.
@@ -230,12 +246,12 @@ public abstract class QueryStmt extends StatementBase {
              *       if (correlatedRef == null) correlatedRef = tblRef;
              *       correlatedTupleIds.add(t.getResolvedPath().getRootDesc().getId());
              *   }
-             *   
+             *
             }*/
             if (correlatedRef != null && absoluteRef != null) {
                 throw new AnalysisException(String.format(
-                        "Nested query is illegal because it contains a table reference '%s' " +
-                                "correlated with an outer block as well as an uncorrelated one '%s':\n%s",
+                        "Nested query is illegal because it contains a table reference '%s' "
+                                + "correlated with an outer block as well as an uncorrelated one '%s':\n%s",
                         correlatedRef.tableRefToSql(), absoluteRef.tableRefToSql(), toSql()));
             }
             tblRefIds.add(tblRef.getId());
@@ -255,16 +271,25 @@ public abstract class QueryStmt extends StatementBase {
         this.needToSql = needToSql;
     }
 
+    public boolean isDisableTuplesMVRewriter(Expr expr) {
+        return expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+    }
+
     protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (forbiddenMVRewrite) {
-            return expr;
-        }
-        if (expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()))) {
+        if (analyzer == null || analyzer.getMVExprRewriter() == null || forbiddenMVRewrite) {
             return expr;
         }
         ExprRewriter rewriter = analyzer.getMVExprRewriter();
         rewriter.reset();
-        return rewriter.rewrite(expr, analyzer);
+        rewriter.setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+        rewriter.setUpBottom();
+
+        Expr result = rewriter.rewrite(expr, analyzer);
+        if (result != expr) {
+            expr.analyze(analyzer);
+            mvSMap.put(result, expr);
+        }
+        return result;
     }
 
     /**
@@ -294,7 +319,7 @@ public abstract class QueryStmt extends StatementBase {
             isAscOrder.add(Boolean.valueOf(orderByElement.getIsAsc()));
             nullsFirstParams.add(orderByElement.getNullsFirstParam());
         }
-        substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer);
+        substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer, true);
 
         // save the order by element after analyzed
         orderByElementsAfterAnalyzed = Lists.newArrayList();
@@ -307,8 +332,14 @@ public abstract class QueryStmt extends StatementBase {
         }
 
         if (!analyzer.isRootAnalyzer() && hasOffset() && !hasLimit()) {
-            throw new AnalysisException("Order-by with offset without limit not supported" +
-                    " in nested queries.");
+            throw new AnalysisException("Order-by with offset without limit not supported"
+                    + " in nested queries.");
+        }
+
+        for (Expr expr : orderingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         }
 
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
@@ -384,7 +415,9 @@ public abstract class QueryStmt extends StatementBase {
      */
     protected Expr getFirstAmbiguousAlias(List<Expr> exprs) {
         for (Expr exp : exprs) {
-            if (ambiguousAliasList.contains(exp)) return exp;
+            if (ambiguousAliasList.contains(exp)) {
+                return exp;
+            }
         }
         return null;
     }
@@ -399,7 +432,7 @@ public abstract class QueryStmt extends StatementBase {
      * Modifies exprs list in-place.
      */
     protected void substituteOrdinalsAliases(List<Expr> exprs, String errorPrefix,
-                                             Analyzer analyzer) throws AnalysisException {
+                                             Analyzer analyzer, boolean aliasFirst) throws AnalysisException {
         Expr ambiguousAlias = getFirstAmbiguousAlias(exprs);
         if (ambiguousAlias != null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NON_UNIQ_ERROR, ambiguousAlias.toColumnLabel());
@@ -414,7 +447,18 @@ public abstract class QueryStmt extends StatementBase {
             // alias substitution is not performed in the same way.
             Expr substituteExpr = trySubstituteOrdinal(expr, errorPrefix, analyzer);
             if (substituteExpr == null) {
-                substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                if (aliasFirst) {
+                    substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                } else {
+                    try {
+                        // use col name from tableRefs first
+                        substituteExpr = expr.clone();
+                        substituteExpr.analyze(analyzer);
+                    } catch (AnalysisException ex) {
+                        // then consider alias name
+                        substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                    }
+                }
             }
             i.set(substituteExpr);
         }
@@ -424,9 +468,13 @@ public abstract class QueryStmt extends StatementBase {
     // select list items.  Return null if not an ordinal expression.
     private Expr trySubstituteOrdinal(Expr expr, String errorPrefix,
                                       Analyzer analyzer) throws AnalysisException {
-        if (!(expr instanceof IntLiteral)) return null;
+        if (!(expr instanceof IntLiteral)) {
+            return null;
+        }
         expr.analyze(analyzer);
-        if (!expr.getType().isIntegerType()) return null;
+        if (!expr.getType().isIntegerType()) {
+            return null;
+        }
         long pos = ((IntLiteral) expr).getLongValue();
         if (pos < 1) {
             throw new AnalysisException(
@@ -434,23 +482,23 @@ public abstract class QueryStmt extends StatementBase {
         }
         if (pos > resultExprs.size()) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal exceeds number of items in select list: "
-                            + expr.toSql());
+                    errorPrefix + ": ordinal exceeds number of items in select list: " + expr.toSql());
         }
 
         // Create copy to protect against accidentally shared state.
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
-        if (withClause_ != null) {
-            withClause_.getTables(analyzer, tableMap, parentViewNameSet);
+    public void getWithClauseTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tableMap,
+            Set<String> parentViewNameSet) throws AnalysisException {
+        if (withClause != null) {
+            withClause.getTables(analyzer, expandView, tableMap, parentViewNameSet);
         }
     }
 
     public void getWithClauseTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
-        if (withClause_ != null) {
-            withClause_.getTableRefs(analyzer, tblRefs, parentViewNameSet);
+        if (withClause != null) {
+            withClause.getTableRefs(analyzer, tblRefs, parentViewNameSet);
         }
     }
 
@@ -470,11 +518,11 @@ public abstract class QueryStmt extends StatementBase {
 
 
     @Override
-    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+    public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
         Map<String, Expr> exprMap = new HashMap<>();
         collectExprs(exprMap);
-        rewriter.rewriteConstant(exprMap, analyzer);
+        rewriter.rewriteConstant(exprMap, analyzer, tQueryOptions);
         if (rewriter.changed()) {
             putBackExprs(exprMap);
         }
@@ -513,14 +561,23 @@ public abstract class QueryStmt extends StatementBase {
         return false;
     }
 
+    public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
+        if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
+            return expr;
+        }
+        return expr.trySubstitute(aliasSMap, analyzer, false);
+    }
+
     // get tables used by this query.
     // Set<String> parentViewNameSet contain parent stmt view name
     // to make sure query like "with tmp as (select * from db1.table1) " +
     //                "select a.siteid, b.citycode, a.siteid from (select siteid, citycode from tmp) a " +
     //                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
-    // so need to check is view name by parentViewNameSet. issue link: https://github.com/apache/incubator-doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet) throws AnalysisException;
+    // so need to check is view name by parentViewNameSet.
+    // issue link: https://github.com/apache/doris/issues/4598
+    public abstract void getTables(Analyzer analyzer, boolean expandView, Map<Long, TableIf> tables,
+            Set<String> parentViewNameSet) throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.
@@ -559,15 +616,15 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     public void setWithClause(WithClause withClause) {
-        this.withClause_ = withClause;
+        this.withClause = withClause;
     }
 
     public boolean hasWithClause() {
-        return withClause_ != null;
+        return withClause != null;
     }
 
     public WithClause getWithClause() {
-        return withClause_;
+        return withClause;
     }
 
     public boolean hasOrderByClause() {
@@ -586,10 +643,11 @@ public abstract class QueryStmt extends StatementBase {
         return limitElement.getLimit();
     }
 
-    public void setLimit(long limit) throws AnalysisException {
+    public void setLimit(long limit) {
         Preconditions.checkState(limit >= 0);
         long newLimit = hasLimitClause() ? Math.min(limit, getLimit()) : limit;
-        limitElement = new LimitElement(newLimit);
+        long offset = hasLimitClause() ? getOffset() : 0;
+        limitElement = new LimitElement(offset, newLimit);
     }
 
     public void removeLimitElement() {
@@ -688,19 +746,27 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     public ArrayList<OrderByElement> cloneOrderByElements() {
-        if (orderByElements == null) return null;
+        if (orderByElements == null) {
+            return null;
+        }
         ArrayList<OrderByElement> result =
                 Lists.newArrayListWithCapacity(orderByElements.size());
-        for (OrderByElement o : orderByElements) result.add(o.clone());
+        for (OrderByElement o : orderByElements) {
+            result.add(o.clone());
+        }
         return result;
     }
 
     public WithClause cloneWithClause() {
-        return withClause_ != null ? withClause_.clone() : null;
+        return withClause != null ? withClause.clone() : null;
     }
 
     public OutFileClause cloneOutfileCluse() {
         return outFileClause != null ? outFileClause.clone() : null;
+    }
+
+    public String toDigest() {
+        return "";
     }
 
     /**
@@ -708,13 +774,14 @@ public abstract class QueryStmt extends StatementBase {
      */
     protected QueryStmt(QueryStmt other) {
         super(other);
-        withClause_ = other.cloneWithClause();
+        withClause = other.cloneWithClause();
         outFileClause = other.cloneOutfileCluse();
         orderByElements = other.cloneOrderByElements();
         limitElement = other.limitElement.clone();
         resultExprs = Expr.cloneList(other.resultExprs);
         baseTblResultExprs = Expr.cloneList(other.baseTblResultExprs);
         aliasSMap = other.aliasSMap.clone();
+        mvSMap = other.mvSMap.clone();
         ambiguousAliasList = Expr.cloneList(other.ambiguousAliasList);
         sortInfo = (other.sortInfo != null) ? other.sortInfo.clone() : null;
         analyzer = other.analyzer;
@@ -725,8 +792,9 @@ public abstract class QueryStmt extends StatementBase {
     public void reset() {
         super.reset();
         if (orderByElements != null) {
-            for (OrderByElement o : orderByElements)
+            for (OrderByElement o : orderByElements) {
                 o.getExpr().reset();
+            }
         }
         limitElement.reset();
         resultExprs.clear();
@@ -762,5 +830,19 @@ public abstract class QueryStmt extends StatementBase {
 
     public boolean hasOutFileClause() {
         return outFileClause != null;
+    }
+
+    public String toSqlWithSelectList() {
+        toSQLWithSelectList = true;
+        return toSql();
+    }
+
+    public boolean isPointQuery() {
+        return isPointQuery;
+    }
+
+    public String toSqlWithHint() {
+        toSQLWithHint = true;
+        return toSql();
     }
 }

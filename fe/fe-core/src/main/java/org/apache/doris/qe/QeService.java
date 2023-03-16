@@ -18,11 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlServer;
-import org.apache.doris.mysql.nio.NMysqlServer;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.IOException;
 
 /**
  * This is the encapsulation of the entire front-end service,
@@ -40,36 +38,24 @@ public class QeService {
         this.port = port;
     }
 
-    public QeService(int port, boolean nioEnabled, ConnectScheduler scheduler) {
-        // Set up help module
-        try {
-            HelpModule.getInstance().setUpModule();
-        } catch (Exception e) {
-            LOG.error("Help module failed, because:", e);
-        }
+    public QeService(int port, ConnectScheduler scheduler) {
         this.port = port;
-        if (nioEnabled) {
-            mysqlServer = new NMysqlServer(port, scheduler);
-        } else {
-            mysqlServer = new MysqlServer(port, scheduler);
-        }
+        this.mysqlServer = new MysqlServer(port, scheduler);
     }
 
-    public void start() throws IOException {
+    public void start() throws Exception {
+        // Set up help module
+        try {
+            HelpModule.getInstance().setUpModule(HelpModule.HELP_ZIP_FILE_NAME);
+        } catch (Exception e) {
+            LOG.warn("Help module failed, because:", e);
+            throw e;
+        }
+
         if (!mysqlServer.start()) {
             LOG.error("mysql server start failed");
             System.exit(-1);
         }
         LOG.info("QE service start.");
     }
-
-    public MysqlServer getMysqlServer() {
-        return mysqlServer;
-    }
-
-    public void setMysqlServer(MysqlServer mysqlServer) {
-        this.mysqlServer = mysqlServer;
-    }
-
 }
-

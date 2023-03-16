@@ -22,6 +22,8 @@ import com.alibaba.fastjson.JSONArray;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.demo.spark.util.DorisStreamLoad;
 import org.apache.doris.demo.spark.vo.TestVo;
+
+import scala.Function1;
 import scala.runtime.AbstractFunction1;
 import scala.collection.AbstractIterator;
 

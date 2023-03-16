@@ -21,13 +21,15 @@
 #pragma once
 
 #include <cmath>
+#include <type_traits>
 
+#include "olap/uint24.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
-#include "olap/uint24.h"
 
 namespace doris::vectorized {
 
@@ -120,26 +122,24 @@ private:
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
-    void insert_res_column(const uint16_t* sel, size_t sel_size, vectorized::ColumnVector<T>* res_ptr) {
-        auto& res_data = res_ptr->data; 
+    void insert_res_column(const uint16_t* sel, size_t sel_size,
+                           vectorized::ColumnVector<T>* res_ptr) {
+        auto& res_data = res_ptr->data;
         DCHECK(res_data.empty());
-        res_data.reserve(sel_size);
-        T* t = (T*)res_data.get_end_ptr();
+        res_data.resize(sel_size);
         for (size_t i = 0; i < sel_size; i++) {
-            t[i] = T(data[sel[i]]);
+            res_data[i] = T(data[sel[i]]);
         }
-        res_data.set_end_ptr(t + sel_size);
     }
 
     void insert_many_default_type(const char* data_ptr, size_t num) {
+        auto old_size = data.size();
+        data.resize(old_size + num);
         T* input_val_ptr = (T*)data_ptr;
-        T* res_val_ptr = (T*)data.get_end_ptr();
         for (int i = 0; i < num; i++) {
-            res_val_ptr[i] = input_val_ptr[i];
+            data[old_size + i] = input_val_ptr[i];
         }
-        res_val_ptr += num;
-        data.set_end_ptr(res_val_ptr);
-    }    
+    }
 
 public:
     bool is_numeric() const override { return IsNumber<T>; }
@@ -151,7 +151,7 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(static_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
@@ -160,50 +160,58 @@ public:
 
     // note(wb) type of data_ptr element should be same with current column_vector's T
     void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        char* res_ptr = (char*)data.get_end_ptr();
-        memcpy(res_ptr, data_ptr, num * sizeof(T));
-        res_ptr += num * sizeof(T);
-        data.set_end_ptr(res_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
- 
+
     void insert_date_column(const char* data_ptr, size_t num) {
-        size_t value_size = sizeof(uint24_t);
+        data.reserve(data.size() + num);
+        size_t input_value_size = sizeof(uint24_t);
+
         for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + value_size * i;
-            uint64_t value = 0;
-            value = *(unsigned char*)(cur_ptr + 2);
-            value <<= 8;
-            value |= *(unsigned char*)(cur_ptr + 1);
-            value <<= 8;
-            value |= *(unsigned char*)(cur_ptr);
-            vectorized::VecDateTimeValue date;
-            date.from_olap_date(value);
-            data.push_back_without_reserve(date);
+            uint64_t val = 0;
+            memcpy((char*)(&val), data_ptr, input_value_size);
+            data_ptr += input_value_size;
+
+            VecDateTimeValue date;
+            date.set_olap_date(val);
+            data.push_back_without_reserve(unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
         }
     }
- 
+
     void insert_datetime_column(const char* data_ptr, size_t num) {
+        data.reserve(data.size() + num);
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + value_size * i;
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
-            vectorized::VecDateTimeValue date(value);
-            data.push_back_without_reserve(date);
+            vectorized::VecDateTimeValue datetime =
+                    VecDateTimeValue::create_from_olap_datetime(value);
+            this->insert_data(reinterpret_cast<char*>(&datetime), 0);
         }
     }
- 
+
     /*
         use by date, datetime, basic type
     */
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        if constexpr (std::is_same_v<T, vectorized::Int128>) {
+        if constexpr (!std::is_same_v<T, vectorized::Int64>) {
             insert_many_in_copy_way(data_ptr, num);
         } else if (IColumn::is_date) {
             insert_date_column(data_ptr, num);
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else {
-            insert_many_default_type(data_ptr, num);
+            insert_many_in_copy_way(data_ptr, num);
+        }
+    }
+
+    void insert_many_raw_data(const char* pos, size_t num) override {
+        if constexpr (std::is_same_v<T, vectorized::Int128>) {
+            insert_many_in_copy_way(pos, num);
+        } else {
+            insert_many_default_type(pos, num);
         }
     }
 
@@ -221,7 +229,30 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
+
+    size_t get_max_row_byte_size() const override;
+
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override;
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map,
+                                     size_t max_row_byte_size) const override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
 
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
@@ -233,7 +264,7 @@ public:
 
     /// This method implemented in header because it could be possibly devirtualized.
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
-        return CompareHelper<T>::compare(data[n], static_cast<const Self&>(rhs_).data[m],
+        return CompareHelper<T>::compare(data[n], assert_cast<const Self&>(rhs_).data[m],
                                          nan_direction_hint);
     }
 
@@ -270,7 +301,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override;
 
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
@@ -293,6 +325,7 @@ public:
     }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const IColumn::Filter& filter) override;
 
     // note(wb) this method is only used in storage layer now
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
@@ -309,13 +342,19 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
         return this->template scatter_impl<Self>(num_columns, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
@@ -343,13 +382,27 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = static_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
+    TypeIndex get_data_type() const override { return TypeId<T>::value; }
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 protected:
     Container data;

@@ -20,32 +20,25 @@
 
 #pragma once
 
-#include <boost/smart_ptr/intrusive_ptr.hpp>
-#include <boost/smart_ptr/intrusive_ref_counter.hpp>
+#include <atomic>
 #include <initializer_list>
-
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
   *
   * Usage:
-
     class Column : public COW<Column>
     {
     private:
         friend class COW<Column>;
-
-        /// Leave all constructors in private section. They will be avaliable through 'create' method.
+        /// Leave all constructors in private section. They will be available through 'create' method.
         Column();
-
         /// Provide 'clone' method. It can be virtual if you want polymorphic behaviour.
         virtual Column * clone() const;
     public:
         /// Correctly use const qualifiers in your interface.
-
         virtual ~Column() {}
     };
-
   * It will provide 'create' and 'mutate' methods.
   * And 'Ptr' and 'MutablePtr' types.
   * Ptr is refcounted pointer to immutable object.
@@ -64,9 +57,7 @@
     Column::Ptr x = Column::create(1);
     /// Sharing single immutable object in two ptrs.
     Column::Ptr y = x;
-
     /// Now x and y are shared.
-
     /// Change value of x.
     {
         /// Creating mutable ptr. It can clone an object under the hood if it was shared.
@@ -76,9 +67,7 @@
         /// Assigning pointer 'x' to mutated object.
         x = std::move(mutate_x);
     }
-
     /// Now x and y are unshared and have different values.
-
   * Note. You may have heard that COW is bad practice.
   * Actually it is, if your values are small or if copying is done implicitly.
   * This is the case for string implementations.
@@ -101,13 +90,9 @@ protected:
 
     COW(COW const&) : ref_counter(0) {}
 
-    COW& operator=(COW const&) {
-        return *this;
-    }
+    COW& operator=(COW const&) { return *this; }
 
-    void add_ref() {
-        ++ref_counter;
-    }
+    void add_ref() { ++ref_counter; }
 
     void release_ref() {
         if (--ref_counter == 0) {
@@ -124,21 +109,29 @@ protected:
     public:
         intrusive_ptr() : t(nullptr) {}
 
-        intrusive_ptr(T* t, bool add_ref=true) : t(t) {
-            if (t && add_ref) ((std::remove_const_t<T>*)t)->add_ref();
+        intrusive_ptr(T* t, bool add_ref = true) : t(t) {
+            if (t && add_ref) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         template <typename U>
         intrusive_ptr(intrusive_ptr<U> const& rhs) : t(rhs.get()) {
-            if (t) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         intrusive_ptr(intrusive_ptr const& rhs) : t(rhs.get()) {
-            if (t) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         ~intrusive_ptr() {
-            if (t) ((std::remove_const_t<T>*)t)->release_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->release_ref();
+            }
         }
 
         template <typename U>
@@ -146,27 +139,33 @@ protected:
             intrusive_ptr(rhs).swap(*this);
             return *this;
         }
-
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wuninitialized"
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-        intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) {
-            rhs.t = nullptr;
-        }
+#endif
+        intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) { rhs.t = nullptr; }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic pop
-
+#endif
         intrusive_ptr& operator=(intrusive_ptr&& rhs) {
             intrusive_ptr(static_cast<intrusive_ptr&&>(rhs)).swap(*this);
             return *this;
         }
 
-        template<class U> friend class intrusive_ptr;
+        template <class U>
+        friend class intrusive_ptr;
 
-        template<class U>
+        template <class U>
         intrusive_ptr(intrusive_ptr<U>&& rhs) : t(rhs.t) {
             rhs.t = nullptr;
         }
 
-        template<class U>
+        template <class U>
         intrusive_ptr& operator=(intrusive_ptr<U>&& rhs) {
             intrusive_ptr(static_cast<intrusive_ptr<U>&&>(rhs)).swap(*this);
             return *this;
@@ -182,21 +181,13 @@ protected:
             return *this;
         }
 
-        void reset() {
-            intrusive_ptr().swap(*this);
-        }
+        void reset() { intrusive_ptr().swap(*this); }
 
-        void reset(T* rhs) {
-            intrusive_ptr(rhs).swap(*this);
-        }
+        void reset(T* rhs) { intrusive_ptr(rhs).swap(*this); }
 
-        void reset(T* rhs, bool add_ref) {
-            intrusive_ptr(rhs, add_ref).swap(*this);
-        }
+        void reset(T* rhs, bool add_ref) { intrusive_ptr(rhs, add_ref).swap(*this); }
 
-        T* get() const {
-            return t;
-        }
+        T* get() const { return t; }
 
         T* detach() {
             T* ret = t;
@@ -210,25 +201,15 @@ protected:
             rhs.t = tmp;
         }
 
-        T& operator*() const& {
-            return *t;
-        }
+        T& operator*() const& { return *t; }
 
-        T&& operator*() const&& {
-            return const_cast<std::remove_const_t<T>&&>(*t);
-        }
+        T&& operator*() const&& { return const_cast<std::remove_const_t<T>&&>(*t); }
 
-        T* operator->() const {
-            return t;
-        }
+        T* operator->() const { return t; }
 
-        operator bool() const {
-            return t != nullptr;
-        }
+        operator bool() const { return t != nullptr; }
 
-        operator T*() const {
-            return t;
-        }
+        operator T*() const { return t; }
 
     private:
         T* t;
@@ -240,10 +221,13 @@ protected:
     private:
         using Base = intrusive_ptr<T>;
 
-        template <typename> friend class COW;
-        template <typename, typename> friend class COWHelper;
+        template <typename>
+        friend class COW;
+        template <typename, typename>
+        friend class COWHelper;
 
         explicit mutable_ptr(T* ptr) : Base(ptr) {}
+
     public:
         /// Copy: not possible.
         mutable_ptr(const mutable_ptr&) = delete;
@@ -264,9 +248,7 @@ protected:
 public:
     using MutablePtr = mutable_ptr<Derived>;
 
-    unsigned int use_count() const {
-        return ref_counter.load();
-    }
+    unsigned int use_count() const { return ref_counter.load(); }
 
 protected:
     template <typename T>
@@ -274,10 +256,13 @@ protected:
     private:
         using Base = intrusive_ptr<const T>;
 
-        template <typename> friend class COW;
-        template <typename, typename> friend class COWHelper;
+        template <typename>
+        friend class COW;
+        template <typename, typename>
+        friend class COWHelper;
 
         explicit immutable_ptr(const T* ptr) : Base(ptr) {}
+
     public:
         /// Copy from immutable ptr: ok.
         immutable_ptr(const immutable_ptr&) = default;
@@ -326,10 +311,11 @@ public:
 
 protected:
     MutablePtr shallow_mutate() const {
-        if (this->use_count() > 1)
+        if (this->use_count() > 1) {
             return derived()->clone();
-        else
+        } else {
             return assume_mutable();
+        }
     }
 
 public:
@@ -363,8 +349,8 @@ protected:
         const T& operator*() const { return *value; }
         T& operator*() { return value->assume_mutable_ref(); }
 
-        operator const immutable_ptr<T> &() const { return value; }
-        operator immutable_ptr<T> &() { return value; }
+        operator const immutable_ptr<T>&() const { return value; }
+        operator immutable_ptr<T>&() { return value; }
 
         operator bool() const { return value != nullptr; }
         bool operator!() const { return value == nullptr; }
@@ -424,11 +410,6 @@ public:
     template <typename... Args>
     static MutablePtr create(Args&&... args) {
         return MutablePtr(new Derived(std::forward<Args>(args)...));
-    }
-
-    template <typename T>
-    static MutablePtr create(std::initializer_list<T>&& arg) {
-        return create(std::forward<std::initializer_list<T>>(arg));
     }
 
     typename Base::MutablePtr clone() const override {

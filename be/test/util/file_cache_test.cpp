@@ -32,15 +32,15 @@ public:
         _file_exist = "file_exist";
         std::unique_ptr<WritableFile> file;
         auto st = Env::Default()->new_writable_file(_file_exist, &file);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         st = file->close();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     void TearDown() override {
         _file_cache.reset(nullptr);
         auto st = Env::Default()->delete_file(_file_exist);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
 private:
@@ -51,21 +51,16 @@ private:
 TEST_F(FileCacheTest, normal) {
     OpenedFileHandle<RandomAccessFile> file_handle;
     auto found = _file_cache->lookup(_file_exist, &file_handle);
-    ASSERT_FALSE(found);
+    EXPECT_FALSE(found);
     std::unique_ptr<RandomAccessFile> file;
     auto st = Env::Default()->new_random_access_file(_file_exist, &file);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     RandomAccessFile* tmp_file = file.release();
     _file_cache->insert(_file_exist, tmp_file, &file_handle);
-    ASSERT_EQ(tmp_file, file_handle.file());
+    EXPECT_EQ(tmp_file, file_handle.file());
     OpenedFileHandle<RandomAccessFile> file_handle2;
     found = _file_cache->lookup(_file_exist, &file_handle2);
-    ASSERT_EQ(file_handle.file(), file_handle2.file());
+    EXPECT_EQ(file_handle.file(), file_handle2.file());
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

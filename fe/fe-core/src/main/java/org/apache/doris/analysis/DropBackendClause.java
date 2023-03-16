@@ -17,6 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import com.google.common.base.Preconditions;
+
 import java.util.List;
 
 public class DropBackendClause extends BackendClause {
@@ -34,6 +41,20 @@ public class DropBackendClause extends BackendClause {
 
     public boolean isForce() {
         return force;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (Config.enable_fqdn_mode) {
+            for (String hostPort : hostPorts) {
+                HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort,
+                        !Config.enable_fqdn_mode);
+                hostInfos.add(hostInfo);
+            }
+            Preconditions.checkState(!hostInfos.isEmpty());
+        } else {
+            super.analyze(analyzer);
+        }
     }
 
     @Override

@@ -35,7 +35,7 @@ public:
     /// check and get "pprof" command, return the cmd abs path via "cmd".
     static Status get_pprof_cmd(std::string* cmd);
 
-    /// get readable profile by `pprof --text palo_be perf.data`
+    /// get readable profile by `pprof --text doris_be perf.data`
     /// if is_file is true, the file_or_content is an abs path of perf file.
     /// if is_file is false, the file_or_content is the perf file content.
     /// the readable content is returned via "output"

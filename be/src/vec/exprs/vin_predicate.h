@@ -17,36 +17,38 @@
 
 #pragma once
 
-#include "exprs/hybrid_set.h"
-
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
-class VInPredicate final: public VExpr {
+class VInPredicate final : public VExpr {
 public:
     VInPredicate(const TExprNode& node);
-    ~VInPredicate() = default;
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id);
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context);
-    virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope);
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
+    ~VInPredicate() override = default;
+    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
+                          int* result_column_id) override;
+    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
+                          VExprContext* context) override;
+    doris::Status open(doris::RuntimeState* state, VExprContext* context,
+                       FunctionContext::FunctionStateScope scope) override;
+    void close(doris::RuntimeState* state, VExprContext* context,
+               FunctionContext::FunctionStateScope scope) override;
+    VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VInPredicate(*this));
     }
-    virtual const std::string& expr_name() const override;
+    const std::string& expr_name() const override;
+
+    std::string debug_string() const override;
+
+    const FunctionBasePtr function() { return _function; }
+
+    bool is_not_in() const { return _is_not_in; };
 
 private:
     FunctionBasePtr _function;
     std::string _expr_name;
 
     const bool _is_not_in;
-    bool _is_prepare;
-private:
     static const constexpr char* function_name = "in";
 };
 } // namespace doris::vectorized

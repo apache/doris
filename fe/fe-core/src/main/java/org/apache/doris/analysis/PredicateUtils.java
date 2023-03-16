@@ -17,10 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.List;
-
-import com.google.common.collect.Lists;
 
 public class PredicateUtils {
     /**
@@ -30,7 +30,7 @@ public class PredicateUtils {
      * Some examples:
      * a or b -> a, b
      * a or b or c -> a, b, c
-     * (a and b) or (c or d) -> (a and b), (c and d)
+     * (a and b) or (c or d) -> (a and b), c, d
      * (a or b) and c -> (a or b) and c
      * a -> a
      */

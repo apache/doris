@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,10 +29,21 @@ import org.apache.doris.qe.ConnectContext;
 // drop user cmy  <==> drop user cmy@'%'
 // drop user cmy@'192.168.1.%'
 public class DropUserStmt extends DdlStmt {
+
+    private boolean ifExists;
     private UserIdentity userIdent;
 
     public DropUserStmt(UserIdentity userIdent) {
         this.userIdent = userIdent;
+    }
+
+    public DropUserStmt(boolean ifExists, UserIdentity userIdent) {
+        this.ifExists = ifExists;
+        this.userIdent = userIdent;
+    }
+
+    public boolean isSetIfExists() {
+        return ifExists;
     }
 
     public UserIdentity getUserIdentity() {
@@ -49,7 +60,7 @@ public class DropUserStmt extends DdlStmt {
         }
 
         // only user with GLOBAL level's GRANT_PRIV can drop user.
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP USER");
         }
     }

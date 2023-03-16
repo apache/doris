@@ -18,7 +18,7 @@
 // alternative.  You should assume only properties explicitly guaranteed by the
 // specifications in this file.  You are almost certainly _not_ writing code
 // just for the x86; if you assume x86 semantics, x86 hardware bugs and
-// implementations on other archtectures will cause your code to break.  If you
+// implementations on other architectures will cause your code to break.  If you
 // do not know what you are doing, avoid these routines, and use a Mutex.
 //
 // These following lower-level operations are typically useful only to people
@@ -48,8 +48,7 @@
 // The intent is eventually to put all of these routines in namespace
 // base::subtle
 
-#ifndef THREAD_ATOMICOPS_H_
-#define THREAD_ATOMICOPS_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -266,5 +265,3 @@ inline base::subtle::Atomic64 Acquire_Load(volatile const base::subtle::Atomic64
 inline base::subtle::Atomic64 Release_Load(volatile const base::subtle::Atomic64* ptr) {
     return base::subtle::Release_Load(ptr);
 }
-
-#endif // THREAD_ATOMICOPS_H_

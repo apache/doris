@@ -35,11 +35,12 @@ struct PlusImpl {
         return static_cast<Result>(a) + b;
     }
 
+    template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
-        return a + b;
+        return DecimalV2Value(a.value() + b.value());
     }
 
-    /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
+    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
         return common::add_overflow(static_cast<Result>(a), b, c);
@@ -49,7 +50,7 @@ struct PlusImpl {
 struct NamePlus {
     static constexpr auto name = "add";
 };
-using FunctionPlus = FunctionBinaryArithmetic<PlusImpl, NamePlus>;
+using FunctionPlus = FunctionBinaryArithmetic<PlusImpl, NamePlus, false>;
 
 void register_function_plus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPlus>();

@@ -4,18 +4,11 @@
 // #category: operations on strings
 // #summary: Functions for joining strings and numbers using a delimiter.
 //
-#ifndef STRINGS_JOIN_H_
-#define STRINGS_JOIN_H_
+#pragma once
 
 #include <stdio.h>
 #include <string.h>
 
-#include <ext/hash_map>
-using __gnu_cxx::hash;
-using __gnu_cxx::hash_map; // Not used in this file.
-#include <ext/hash_set>
-using __gnu_cxx::hash;
-using __gnu_cxx::hash_set; // Not used in this file.
 #include <iterator>
 using std::back_insert_iterator;
 using std::iterator_traits;
@@ -159,12 +152,12 @@ string JoinStringsInArray(string const* components, int num_components, const ch
 // Definitions of above JoinStrings* methods
 // ----------------------------------------------------------------------
 template <class CONTAINER>
-inline void JoinStrings(const CONTAINER& components, const StringPiece& delim, string* result) {
+void JoinStrings(const CONTAINER& components, const StringPiece& delim, string* result) {
     JoinStringsIterator(components.begin(), components.end(), delim, result);
 }
 
 template <class CONTAINER>
-inline string JoinStrings(const CONTAINER& components, const StringPiece& delim) {
+string JoinStrings(const CONTAINER& components, const StringPiece& delim) {
     string result;
     JoinStrings(components, delim, &result);
     return result;
@@ -209,8 +202,7 @@ void JoinStringsIterator(const ITERATOR& start, const ITERATOR& end, const Strin
 }
 
 template <class ITERATOR>
-inline string JoinStringsIterator(const ITERATOR& start, const ITERATOR& end,
-                                  const StringPiece& delim) {
+string JoinStringsIterator(const ITERATOR& start, const ITERATOR& end, const StringPiece& delim) {
     string result;
     JoinStringsIterator(start, end, delim, &result);
     return result;
@@ -307,12 +299,12 @@ string JoinElementsIterator(ITERATOR first, ITERATOR last, StringPiece delim) {
 }
 
 template <class CONTAINER>
-inline void JoinElements(const CONTAINER& components, StringPiece delim, string* result) {
+void JoinElements(const CONTAINER& components, StringPiece delim, string* result) {
     JoinElementsIterator(components.begin(), components.end(), delim, result);
 }
 
 template <class CONTAINER>
-inline string JoinElements(const CONTAINER& components, StringPiece delim) {
+string JoinElements(const CONTAINER& components, StringPiece delim) {
     string result;
     JoinElements(components, delim, &result);
     return result;
@@ -324,8 +316,6 @@ void JoinInts(const CONTAINER& components, const char* delim, string* result) {
 }
 
 template <class CONTAINER>
-inline string JoinInts(const CONTAINER& components, const char* delim) {
+string JoinInts(const CONTAINER& components, const char* delim) {
     return JoinElements(components, delim);
 }
-
-#endif // STRINGS_JOIN_H_

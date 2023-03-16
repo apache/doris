@@ -17,13 +17,13 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-import java.util.Optional;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * There are two kinds of predicates for a column: `is null` predicate and other predicates that
@@ -103,4 +103,3 @@ public class ColumnRange {
             .toString();
     }
 }
-

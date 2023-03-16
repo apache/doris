@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
-#define DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
+#pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <list>
@@ -61,13 +61,11 @@ struct GetResultBatchCtx {
 class BufferControlBlock {
 public:
     BufferControlBlock(const TUniqueId& id, int buffer_size);
-    ~BufferControlBlock();
+    virtual ~BufferControlBlock();
 
     Status init();
+    virtual bool can_sink(); // 只有一个fragment写入，因此can_sink返回true，则一定可以执行sink
     Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-
-    // get result from batch, use timeout?
-    Status get_batch(TFetchDataResult* result);
 
     void get_batch(GetResultBatchCtx* ctx);
 
@@ -87,28 +85,33 @@ public:
         // _query_statistics may be null when the result sink init failed
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
-        if (_query_statistics.get() != nullptr) {
+        if (_query_statistics != nullptr) {
             _query_statistics->set_returned_rows(num_rows);
         }
     }
 
+    // TODO: The value of query peak mem usage in fe.audit.log comes from a random BE,
+    // not the BE with the largest peak mem usage
     void update_max_peak_memory_bytes() {
-        if (_query_statistics.get() != nullptr) {
+        if (_query_statistics != nullptr) {
             int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();
             _query_statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
         }
     }
 
-private:
-    typedef std::list<std::unique_ptr<TFetchDataResult>> ResultQueue;
+protected:
+    virtual bool _get_batch_queue_empty() { return _batch_queue.empty(); }
+    virtual void _update_batch_queue_empty() {}
+
+    using ResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
 
     // result's query id
     TUniqueId _fragment_id;
     bool _is_close;
-    bool _is_cancelled;
+    std::atomic_bool _is_cancelled;
     Status _status;
-    int _buffer_rows;
-    int _buffer_limit;
+    std::atomic_int _buffer_rows;
+    const int _buffer_limit;
     int64_t _packet_num;
 
     // blocking queue for batch
@@ -128,6 +131,20 @@ private:
     std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
-} // namespace doris
+class PipBufferControlBlock : public BufferControlBlock {
+public:
+    PipBufferControlBlock(const TUniqueId& id, int buffer_size)
+            : BufferControlBlock(id, buffer_size) {}
 
-#endif
+    bool can_sink() override {
+        return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
+    }
+
+private:
+    bool _get_batch_queue_empty() override { return _batch_queue_empty; }
+    void _update_batch_queue_empty() override { _batch_queue_empty = _batch_queue.empty(); }
+
+    std::atomic_bool _batch_queue_empty = false;
+};
+
+} // namespace doris

@@ -19,12 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class TabletMeta {
     private static final Logger LOG = LogManager.getLogger(TabletMeta.class);
@@ -39,8 +35,6 @@ public class TabletMeta {
 
     private TStorageMedium storageMedium;
 
-    private ReentrantReadWriteLock lock;
-
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
             TStorageMedium storageMedium) {
         this.dbId = dbId;
@@ -52,8 +46,6 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
-
-        lock = new ReentrantReadWriteLock();
     }
 
     public long getDbId() {
@@ -80,73 +72,20 @@ public class TabletMeta {
         this.storageMedium = storageMedium;
     }
 
-    public void setNewSchemaHash(int newSchemaHash) {
-        lock.writeLock().lock();
-        try {
-            Preconditions.checkState(this.newSchemaHash == -1);
-            this.newSchemaHash = newSchemaHash;
-            LOG.debug("setNewSchemaHash: {}", toString());
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public void updateToNewSchemaHash() {
-        lock.writeLock().lock();
-        try {
-            Preconditions.checkState(this.newSchemaHash != -1);
-            int tmp = this.oldSchemaHash;
-            this.oldSchemaHash = this.newSchemaHash;
-            this.newSchemaHash = tmp;
-            LOG.debug("updateToNewSchemaHash: " + toString());
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public void deleteNewSchemaHash() {
-        lock.writeLock().lock();
-        try {
-            LOG.debug("deleteNewSchemaHash: " + toString());
-            this.newSchemaHash = -1;
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
     public int getOldSchemaHash() {
-        lock.readLock().lock();
-        try {
-            return this.oldSchemaHash;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public boolean containsSchemaHash(int schemaHash) {
-        lock.readLock().lock();
-        try {
-            return this.oldSchemaHash == schemaHash || this.newSchemaHash == schemaHash;
-        } finally {
-            lock.readLock().unlock();
-        }
+        return this.oldSchemaHash;
     }
 
     @Override
     public String toString() {
-        lock.readLock().lock();
-        try {
-            StringBuilder sb = new StringBuilder();
-            sb.append("dbId=").append(dbId);
-            sb.append(" tableId=").append(tableId);
-            sb.append(" partitionId=").append(partitionId);
-            sb.append(" indexId=").append(indexId);
-            sb.append(" oldSchemaHash=").append(oldSchemaHash);
-            sb.append(" newSchemaHash=").append(newSchemaHash);
+        StringBuilder sb = new StringBuilder();
+        sb.append("dbId=").append(dbId);
+        sb.append(" tableId=").append(tableId);
+        sb.append(" partitionId=").append(partitionId);
+        sb.append(" indexId=").append(indexId);
+        sb.append(" oldSchemaHash=").append(oldSchemaHash);
+        sb.append(" newSchemaHash=").append(newSchemaHash);
 
-            return sb.toString();
-        } finally {
-            lock.readLock().unlock();
-        }
+        return sb.toString();
     }
 }

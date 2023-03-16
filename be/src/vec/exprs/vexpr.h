@@ -21,9 +21,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/bitmapfilter_predicate.h"
+#include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function.h"
@@ -31,10 +33,30 @@
 namespace doris {
 namespace vectorized {
 
+#define RETURN_IF_ERROR_OR_PREPARED(stmt) \
+    if (_prepared) {                      \
+        return Status::OK();              \
+    } else {                              \
+        _prepared = true;                 \
+        RETURN_IF_ERROR(stmt);            \
+    }
+
 class VExpr {
 public:
+    // resize inserted param column to make sure column size equal to block.rows()
+    // and return param column index
+    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
+        // usually elem.column always is const column, so we just clone it.
+        elem.column = elem.column->clone_resized(size);
+        block->insert(std::move(elem));
+        return block->columns() - 1;
+    }
+
     VExpr(const TExprNode& node);
+    VExpr(const VExpr& vexpr);
     VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable);
+    // only used for test
+    VExpr() = default;
     virtual ~VExpr() = default;
 
     virtual VExpr* clone(ObjectPool* pool) const = 0;
@@ -54,7 +76,7 @@ public:
     /// thread-local state should be initialized. Otherwise, if scope is THREAD_LOCAL, only
     /// thread-local state should be initialized.
     //
-    /// Subclasses overriding this function should call Expr::Open() to recursively call
+    /// Subclasses overriding this function should call VExpr::Open() to recursively call
     /// Open() on the expr tree
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
@@ -78,7 +100,11 @@ public:
 
     TExprNodeType::type node_type() const { return _node_type; }
 
+    TExprOpcode::type op() const { return _opcode; }
+
     void add_child(VExpr* expr) { _children.push_back(expr); }
+    VExpr* get_child(int i) const { return _children[i]; }
+    int get_num_children() const { return _children.size(); }
 
     static Status create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx);
 
@@ -86,8 +112,7 @@ public:
                                     std::vector<VExprContext*>* ctxs);
 
     static Status prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                          const RowDescriptor& row_desc,
-                          const std::shared_ptr<MemTracker>& tracker);
+                          const RowDescriptor& row_desc);
 
     static Status open(const std::vector<VExprContext*>& ctxs, RuntimeState* state);
 
@@ -111,7 +136,11 @@ public:
     static std::string debug_string(const std::vector<VExpr*>& exprs);
     static std::string debug_string(const std::vector<VExprContext*>& ctxs);
 
-    bool is_and_expr() { return _fn.name.function_name == "and"; }
+    bool is_and_expr() const { return _fn.name.function_name == "and"; }
+
+    virtual bool is_compound_predicate() const { return false; }
+
+    const TFunction& fn() const { return _fn; }
 
     /// Returns true if expr doesn't contain slotrefs, i.e., can be evaluated
     /// with get_value(NULL). The default implementation returns true if all of
@@ -122,7 +151,35 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    virtual ColumnPtrWrapper* get_const_col(VExprContext* context);
+    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
+
+    int fn_context_index() const { return _fn_context_index; }
+
+    static const VExpr* expr_without_cast(const VExpr* expr) {
+        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+            return expr_without_cast(expr->_children[0]);
+        }
+        return expr;
+    }
+
+    // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
+    virtual const VExpr* get_impl() const { return nullptr; }
+
+    // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
+    virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
+        LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
+                   << this->debug_string();
+        return nullptr;
+    }
+
+    virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
+
+    // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
+    virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
+        LOG(FATAL) << "Method 'get_bitmap_filter_func()' is not supported in expression: "
+                   << this->debug_string();
+        return nullptr;
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -141,14 +198,16 @@ protected:
     /// 2. Call function's prepare() to initialize function state, fragment-local or
     /// thread-local according the input `FunctionStateScope` argument.
     Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                 const FunctionBasePtr& function);
+                                 const FunctionBasePtr& function) const;
 
     /// Helper function to close function context, fragment-local or thread-local according
     /// the input `FunctionStateScope` argument. Called in `close` phase of VExpr.
     void close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                const FunctionBasePtr& function);
+                                const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
+    // Used to check what opcode
+    TExprOpcode::type _opcode;
     TypeDescriptor _type;
     DataTypePtr _data_type;
     std::vector<VExpr*> _children;
@@ -162,6 +221,7 @@ protected:
     // If this expr is constant, this will store and cache the value generated by
     // get_const_col()
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
+    bool _prepared;
 };
 
 } // namespace vectorized

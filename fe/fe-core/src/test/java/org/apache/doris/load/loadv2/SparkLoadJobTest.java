@@ -23,9 +23,10 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -44,13 +45,14 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -61,7 +63,9 @@ import org.apache.doris.transaction.TabletCommitInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -76,10 +80,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
+/**
+ * Test for SparkLoadJobTest.
+ **/
 public class SparkLoadJobTest {
     private long dbId;
     private String dbName;
@@ -100,6 +103,9 @@ public class SparkLoadJobTest {
     private long backendId;
     private int schemaHash;
 
+    /**
+     * Init.
+     **/
     @Before
     public void setUp() {
         dbId = 1L;
@@ -123,10 +129,9 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testCreateFromLoadStmt(@Mocked Catalog catalog, @Injectable LoadStmt loadStmt,
-                                       @Injectable DataDescription dataDescription, @Injectable LabelName labelName,
-                                       @Injectable Database db, @Injectable OlapTable olapTable,
-                                       @Injectable ResourceMgr resourceMgr) throws Exception {
+    public void testCreateFromLoadStmt(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable LoadStmt loadStmt,
+            @Injectable DataDescription dataDescription, @Injectable LabelName labelName, @Injectable Database db,
+            @Injectable OlapTable olapTable, @Injectable ResourceMgr resourceMgr) throws Exception {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
         Map<String, String> resourceProperties = Maps.newHashMap();
@@ -140,9 +145,13 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
                 catalog.getDbOrDdlException(dbName);
+                minTimes = 0;
                 result = db;
-                catalog.getResourceMgr();
+                env.getResourceMgr();
                 result = resourceMgr;
                 db.getId();
                 result = dbId;
@@ -191,15 +200,14 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testExecute(@Mocked Catalog catalog, @Mocked SparkLoadPendingTask pendingTask,
-                            @Injectable String originStmt, @Injectable GlobalTransactionMgr transactionMgr,
-                            @Injectable MasterTaskExecutor executor) throws Exception {
+    public void testExecute(@Mocked Env env, @Mocked SparkLoadPendingTask pendingTask, @Injectable String originStmt,
+            @Injectable GlobalTransactionMgr transactionMgr, @Injectable MasterTaskExecutor executor) throws Exception {
         new Expectations() {
             {
                 pendingTask.init();
                 pendingTask.getSignature();
                 result = pendingTaskId;
-                catalog.getPendingLoadTaskScheduler();
+                env.getPendingLoadTaskScheduler();
                 result = executor;
                 executor.submit((SparkLoadPendingTask) any);
                 result = true;
@@ -207,16 +215,18 @@ public class SparkLoadJobTest {
         };
 
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, Maps.newHashMap());
-        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc,
+                new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.execute();
 
         Assert.assertEquals(JobState.PENDING, job.getState());
     }
 
     @Test
-    public void testOnPendingTaskFinished(@Mocked Catalog catalog, @Injectable String originStmt) throws MetaNotFoundException {
+    public void testOnPendingTaskFinished(@Mocked Env env, @Injectable String originStmt) throws MetaNotFoundException {
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, Maps.newHashMap());
-        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0),
+                new UserIdentity("root", "0.0.0.0"));
         SparkPendingTaskAttachment attachment = new SparkPendingTaskAttachment(pendingTaskId);
         attachment.setAppId(appId);
         attachment.setOutputPath(etlOutputPath);
@@ -235,7 +245,8 @@ public class SparkLoadJobTest {
         sparkConfigs.put("spark.master", "yarn");
         sparkConfigs.put("spark.submit.deployMode", "cluster");
         sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
-        SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, null,
+                new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.state = JobState.ETL;
         job.setMaxFilterRatio(0.15);
         job.transactionId = transactionId;
@@ -248,8 +259,8 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testUpdateEtlStatusRunning(@Mocked Catalog catalog, @Injectable String originStmt,
-                                           @Mocked SparkEtlJobHandler handler) throws Exception {
+    public void testUpdateEtlStatusRunning(@Mocked Env env, @Injectable String originStmt,
+            @Mocked SparkEtlJobHandler handler) throws Exception {
         String trackingUrl = "http://127.0.0.1:8080/proxy/application_1586619723848_0088/";
         int progress = 66;
         EtlStatus status = new EtlStatus();
@@ -275,15 +286,15 @@ public class SparkLoadJobTest {
     }
 
     @Test(expected = LoadException.class)
-    public void testUpdateEtlStatusCancelled(@Mocked Catalog catalog, @Injectable String originStmt,
-                                             @Mocked SparkEtlJobHandler handler) throws Exception {
+    public void testUpdateEtlStatusCancelled(@Mocked Env env, @Injectable String originStmt,
+            @Mocked SparkEtlJobHandler handler) throws Exception {
         EtlStatus status = new EtlStatus();
         status.setState(TEtlState.CANCELLED);
 
         new Expectations() {
             {
-                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
-                        (SparkResource) any, (BrokerDesc) any);
+                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath, (SparkResource) any,
+                        (BrokerDesc) any);
                 result = status;
             }
         };
@@ -293,8 +304,8 @@ public class SparkLoadJobTest {
     }
 
     @Test(expected = DataQualityException.class)
-    public void testUpdateEtlStatusFinishedQualityFailed(@Mocked Catalog catalog, @Injectable String originStmt,
-                                                         @Mocked SparkEtlJobHandler handler) throws Exception {
+    public void testUpdateEtlStatusFinishedQualityFailed(@Mocked Env env, @Injectable String originStmt,
+            @Mocked SparkEtlJobHandler handler) throws Exception {
         EtlStatus status = new EtlStatus();
         status.setState(TEtlState.FINISHED);
         status.getCounters().put("dpp.norm.ALL", "8");
@@ -302,8 +313,8 @@ public class SparkLoadJobTest {
 
         new Expectations() {
             {
-                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath,
-                        (SparkResource) any, (BrokerDesc) any);
+                handler.getEtlJobStatus((SparkLoadAppHandle) any, appId, anyLong, etlOutputPath, (SparkResource) any,
+                        (BrokerDesc) any);
                 result = status;
             }
         };
@@ -313,12 +324,10 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testUpdateEtlStatusFinishedAndCommitTransaction(
-            @Mocked Catalog catalog, @Injectable String originStmt,
-            @Mocked SparkEtlJobHandler handler, @Mocked AgentTaskExecutor executor,
-            @Injectable Database db, @Injectable OlapTable table, @Injectable Partition partition,
-            @Injectable MaterializedIndex index, @Injectable Tablet tablet, @Injectable Replica replica,
-            @Injectable GlobalTransactionMgr transactionMgr) throws Exception {
+    public void testUpdateEtlStatusFinishedAndCommitTransaction(@Mocked Env env, @Injectable String originStmt,
+            @Mocked SparkEtlJobHandler handler, @Mocked AgentTaskExecutor executor, @Injectable Database db,
+            @Injectable OlapTable table, @Injectable Partition partition, @Injectable MaterializedIndex index,
+            @Injectable Tablet tablet, @Injectable Replica replica, @Injectable GlobalTransactionMgr transactionMgr) throws Exception {
         EtlStatus status = new EtlStatus();
         status.setState(TEtlState.FINISHED);
         status.getCounters().put("dpp.norm.ALL", "9");
@@ -329,7 +338,8 @@ public class SparkLoadJobTest {
         long fileSize = 6L;
         filePathToSize.put(filePath, fileSize);
         PartitionInfo partitionInfo = new RangePartitionInfo();
-        partitionInfo.addPartition(partitionId, null, new ReplicaAllocation((short) 1), false);
+        partitionInfo.addPartition(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM),
+                new ReplicaAllocation((short) 1), false, true);
 
         new Expectations() {
             {
@@ -365,7 +375,7 @@ public class SparkLoadJobTest {
                 replica.getLastFailedVersion();
                 result = -1;
                 AgentTaskExecutor.submit((AgentBatchTask) any);
-                Catalog.getCurrentGlobalTransactionMgr();
+                Env.getCurrentGlobalTransactionMgr();
                 result = transactionMgr;
                 transactionMgr.commitTransaction(dbId, (List<Table>) any, transactionId, (List<TabletCommitInfo>) any,
                         (LoadJobFinalOperation) any);
@@ -405,8 +415,8 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testSubmitTasksWhenStateFinished(@Mocked Catalog catalog, @Injectable String originStmt,
-                                                 @Injectable Database db) throws Exception {
+    public void testSubmitTasksWhenStateFinished(@Mocked Env env, @Injectable String originStmt,
+            @Injectable Database db) throws Exception {
         SparkLoadJob job = getEtlStateJob(originStmt);
         job.state = JobState.FINISHED;
         Set<Long> totalTablets = Deencapsulation.invoke(job, "submitPushTasks");
@@ -456,7 +466,7 @@ public class SparkLoadJobTest {
         String filePath = String.format("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9/V1.label6.%d.%d.%d.0.%d.parquet",
                 tableId, partitionId, indexId, schemaHash);
         long fileSize = 6L;
-        tabletMetaToFileInfo.put(tabletMeta, Pair.create(filePath, fileSize));
+        tabletMetaToFileInfo.put(tabletMeta, Pair.of(filePath, fileSize));
 
         if (file.exists()) {
             file.delete();
@@ -488,32 +498,31 @@ public class SparkLoadJobTest {
     }
 
     @Test
-    public void testSparkLoadJobPersist(@Mocked Catalog catalog, @Mocked Database db,
-                                        @Mocked Table table,
-                                        @Mocked ResourceMgr resourceMgr) throws Exception {
+    public void testSparkLoadJobPersist(@Mocked Env env, @Mocked Database db, @Mocked Table table,
+            @Mocked ResourceMgr resourceMgr) throws Exception {
         long dbId = 1000L;
         SparkResource sparkResource = new SparkResource("my_spark", Maps.newHashMap(), "/path/to/", "bos",
-                Maps.newHashMap());
+                Maps.newHashMap(), Maps.newHashMap());
         new Expectations() {
             {
-                catalog.getResourceMgr();
+                env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(anyString);
                 result = sparkResource;
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 result = FeMetaVersion.VERSION_CURRENT;
             }
         };
 
         String label = "label1";
         ResourceDesc resourceDesc = new ResourceDesc("my_spark", Maps.newHashMap());
-        String oriStmt = "LOAD LABEL db1.label1\n" +
-                "(\n" +
-                "DATA INFILE(\"hdfs://127.0.0.1:8000/user/palo/data/input/file\")\n" +
-                "INTO TABLE `my_table`\n" +
-                "WHERE k1 > 10\n" +
-                ")\n" +
-                "WITH RESOURCE 'my_spark';";
+        String oriStmt = "LOAD LABEL db1.label1\n"
+                + "(\n"
+                + "DATA INFILE(\"hdfs://127.0.0.1:8000/user/palo/data/input/file\")\n"
+                + "INTO TABLE `my_table`\n"
+                + "WHERE k1 > 10\n"
+                + ")\n"
+                + "WITH RESOURCE 'my_spark';";
         OriginStatement originStmt = new OriginStatement(oriStmt, 0);
         UserIdentity userInfo = UserIdentity.ADMIN;
         SparkLoadJob sparkLoadJob = new SparkLoadJob(dbId, label, resourceDesc, originStmt, userInfo);
@@ -528,13 +537,10 @@ public class SparkLoadJobTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         sparkLoadJob.write(dos);
-
         dos.flush();
         dos.close();
-
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-
         SparkLoadJob sparkLoadJob2 = (SparkLoadJob) SparkLoadJob.read(dis);
         Assert.assertEquals("my_spark", sparkLoadJob2.getResourceName());
         Assert.assertEquals(label, sparkLoadJob2.getLabel());

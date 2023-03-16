@@ -19,9 +19,9 @@
 
 #include <vector>
 
+#include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -29,7 +29,7 @@ const std::string S3URI::_SCHEME_DELIM = "://";
 const std::string S3URI::_PATH_DELIM = "/";
 const std::string S3URI::_QUERY_DELIM = "?";
 const std::string S3URI::_FRAGMENT_DELIM = "#";
-const StringCaseSet S3URI::_VALID_SCHEMES = {"http", "https", "s3", "s3a", "s3n", "bos"};
+const StringCaseSet S3URI::_VALID_SCHEMES = {"http", "https", "s3", "s3a", "s3n", "bos", "oss"};
 bool S3URI::parse() {
     if (_location.empty()) {
         return false;
@@ -54,7 +54,7 @@ bool S3URI::parse() {
     StripWhiteSpace(&_key);
     if (_key.empty()) {
         LOG(WARNING) << "Invalid S3 key: " << _location;
-        return false;  
+        return false;
     }
     _bucket = authority_split[0];
     // Strip query and fragment if they exist
@@ -62,6 +62,13 @@ bool S3URI::parse() {
     std::vector<std::string> _fragment_split = strings::Split(_query_split[0], _FRAGMENT_DELIM);
     _key = _fragment_split[0];
     return true;
+}
+
+std::string S3URI::to_string() const {
+    std::stringstream ss;
+    ss << "location: " << _location << ", bucket: " << _bucket << ", key: " << _key
+       << ", schema: " << _scheme;
+    return ss.str();
 }
 
 } // end namespace doris

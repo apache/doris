@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -26,7 +24,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class ReplicaPersistInfo implements Writable {
-    
+
     public enum ReplicaOperationType {
         ADD(0),
         CROND_DELETE(1),
@@ -38,19 +36,20 @@ public class ReplicaPersistInfo implements Writable {
         CLEAR_ROLLUPINFO(7),
         // this default op is used for upgrate to femeta_45, add default op to solve this scenario
         // the old image and old persist log does not have op field, so the op field is null when upgrate to fe meta 45
-        // then fe will dump image and want to write op type to image, op type is null and then throw null pointer exception
+        // then fe will dump image and want to write op type to image,
+        // op type is null and then throw null pointer exception
         // add the default op, when read from image and op type == null ,set op type to default op to skip the exception
         DEFAULT_OP(8),
         TABLET_INFO(9);
 
         private final int value;
 
-        private ReplicaOperationType(int value) {
-          this.value = value;
+        ReplicaOperationType(int value) {
+            this.value = value;
         }
-        
+
         public int getValue() {
-          return value;
+            return value;
         }
 
         public static ReplicaOperationType findByValue(int value) {
@@ -79,8 +78,8 @@ public class ReplicaPersistInfo implements Writable {
                     return null;
             }
         }
-      }
-    
+    }
+
     // required
     private ReplicaOperationType opType;
     private long dbId;
@@ -91,44 +90,45 @@ public class ReplicaPersistInfo implements Writable {
 
     private long replicaId;
     private long backendId;
-    
+
     private long version;
-    private long versionHash;
+    @Deprecated
+    private long versionHash = 0L;
     private int schemaHash = -1;
     private long dataSize;
+    private long remoteDataSize;
     private long rowCount;
-    
+
     private long lastFailedVersion = -1L;
+    @Deprecated
     private long lastFailedVersionHash = 0L;
     private long lastSuccessVersion = -1L;
+    @Deprecated
     private long lastSuccessVersionHash = 0L;
 
     public static ReplicaPersistInfo createForAdd(long dbId, long tableId, long partitionId, long indexId,
             long tabletId, long backendId, long replicaId, long version,
-            long versionHash, int schemaHash, long dataSize, long rowCount,
-            long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
+            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
+            long lastFailedVersion,
+            long lastSuccessVersion) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.ADD, 
+        return new ReplicaPersistInfo(ReplicaOperationType.ADD,
                 dbId, tableId, partitionId, indexId, tabletId, backendId,
-                replicaId, version, versionHash, schemaHash, dataSize, rowCount,
-                lastFailedVersion, lastFailedVersionHash,
-                lastSuccessVersion, lastSuccessVersionHash);
+                replicaId, version, schemaHash, dataSize, remoteDataSize, rowCount,
+                lastFailedVersion, lastSuccessVersion);
     }
 
     /*
      * this for delete stmt operation
      */
     public static ReplicaPersistInfo createForCondDelete(long indexId, long tabletId, long replicaId, long version,
-            long versionHash, int schemaHash, long dataSize, long rowCount,
-            long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
+            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
+            long lastFailedVersion, long lastSuccessVersion) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.CROND_DELETE, 
+        return new ReplicaPersistInfo(ReplicaOperationType.CROND_DELETE,
                 -1L, -1L, -1L, indexId, tabletId, -1L,
-                replicaId, version, versionHash, schemaHash, dataSize, rowCount,
-                lastFailedVersion, lastFailedVersionHash,
-                lastSuccessVersion, lastSuccessVersionHash);
+                replicaId, version, schemaHash, dataSize, remoteDataSize, rowCount,
+                lastFailedVersion, lastSuccessVersion);
     }
 
     /*
@@ -138,68 +138,62 @@ public class ReplicaPersistInfo implements Writable {
             long tabletId, long backendId) {
         return new ReplicaPersistInfo(ReplicaOperationType.DELETE,
                 dbId, tableId, partitionId, indexId, tabletId, backendId,
-                -1L, -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
+                -1L, -1L, -1, -1L, -1L, -1L, -1L, -1L);
     }
 
     public static ReplicaPersistInfo createForClone(long dbId, long tableId, long partitionId, long indexId,
             long tabletId, long backendId, long replicaId, long version,
-            long versionHash, int schemaHash, long dataSize, long rowCount,
-            long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
+            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
+            long lastFailedVersion, long lastSuccessVersion) {
 
         return new ReplicaPersistInfo(ReplicaOperationType.CLONE,
                 dbId, tableId, partitionId, indexId, tabletId, backendId, replicaId,
-                version, versionHash, schemaHash, dataSize, rowCount,
-                lastFailedVersion,
-                lastFailedVersionHash,
-                lastSuccessVersion,
-                lastSuccessVersionHash);
+                version, schemaHash, dataSize, remoteDataSize, rowCount,
+                lastFailedVersion, lastSuccessVersion);
     }
 
     // for original batch load, the last success version = version, last success version hash = version hash
     // last failed version = -1
     public static ReplicaPersistInfo createForLoad(long tableId, long partitionId, long indexId, long tabletId,
-            long replicaId, long version, long versionHash, int schemaHash, long dataSize, long rowCount) {
+            long replicaId, long version, int schemaHash, long dataSize, long remoteDataSize, long rowCount) {
 
         return new ReplicaPersistInfo(ReplicaOperationType.LOAD,
                 -1L, tableId, partitionId, indexId, tabletId, -1L,
-                replicaId, version, versionHash, schemaHash, dataSize,
-                rowCount, -1L, 0L, version, versionHash);
+                replicaId, version, schemaHash, dataSize, remoteDataSize,
+                rowCount, -1L, version);
     }
 
     public static ReplicaPersistInfo createForRollup(long indexId, long tabletId, long backendId, long version,
-            long versionHash, int schemaHash, long dataSize, long rowCount,
-            long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
+            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
+            long lastFailedVersion, long lastSuccessVersion) {
 
         return new ReplicaPersistInfo(ReplicaOperationType.ROLLUP,
                 -1L, -1L, -1L, indexId, tabletId, backendId, -1L,
-                version, versionHash, schemaHash, dataSize, rowCount,
-                lastFailedVersion, lastFailedVersionHash,
-                lastSuccessVersion, lastSuccessVersionHash);
+                version, schemaHash, dataSize, remoteDataSize, rowCount,
+                lastFailedVersion, lastSuccessVersion);
     }
 
     public static ReplicaPersistInfo createForSchemaChange(long partitionId, long indexId, long tabletId,
-            long backendId, long version, long versionHash,
-            int schemaHash, long dataSize, long rowCount,
-            long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
+            long backendId, long version,
+            int schemaHash, long dataSize, long remoteDataSize, long rowCount,
+            long lastFailedVersion,
+            long lastSuccessVersion) {
 
-        return new ReplicaPersistInfo(ReplicaOperationType.SCHEMA_CHANGE, 
+        return new ReplicaPersistInfo(ReplicaOperationType.SCHEMA_CHANGE,
                 -1L, -1L, partitionId, indexId, tabletId, backendId, -1L, version,
-                versionHash, schemaHash, dataSize, rowCount, lastFailedVersion, lastFailedVersionHash,
-                lastSuccessVersion, lastSuccessVersionHash);
+                schemaHash, dataSize, remoteDataSize, rowCount, lastFailedVersion,
+                lastSuccessVersion);
     }
-    
+
     public static ReplicaPersistInfo createForClearRollupInfo(long dbId, long tableId, long partitionId, long indexId) {
         return new ReplicaPersistInfo(ReplicaOperationType.CLEAR_ROLLUPINFO,
-                dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
+                dbId, tableId, partitionId, indexId, -1L, -1L, -1L, -1L, -1, -1L, -1L, -1L, -1L, -1L);
     }
 
-    public static ReplicaPersistInfo createForReport(long dbId, long tblId, long partitionId, long indexId, long tabletId,
-                                                     long backendId, long replicaId) {
-        return new ReplicaPersistInfo(ReplicaOperationType.TABLET_INFO, dbId, tblId, partitionId, indexId, tabletId, backendId, replicaId,
-                -1L, -1L, -1, -1L, -1L, -1L, 0L, -1L, 0L);
+    public static ReplicaPersistInfo createForReport(long dbId, long tblId, long partitionId, long indexId,
+            long tabletId, long backendId, long replicaId) {
+        return new ReplicaPersistInfo(ReplicaOperationType.TABLET_INFO, dbId, tblId, partitionId,
+                indexId, tabletId, backendId, replicaId, -1L, -1, -1L, -1L, -1L, -1L, -1L);
     }
 
 
@@ -207,9 +201,9 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     private ReplicaPersistInfo(ReplicaOperationType opType, long dbId, long tableId, long partitionId,
-            long indexId, long tabletId, long backendId, long replicaId, long version, long versionHash,
-            int schemaHash, long dataSize, long rowCount, long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
+            long indexId, long tabletId, long backendId, long replicaId, long version,
+            int schemaHash, long dataSize, long remoteDataSize, long rowCount, long lastFailedVersion,
+            long lastSuccessVersion) {
         this.opType = opType;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -219,21 +213,19 @@ public class ReplicaPersistInfo implements Writable {
         this.backendId = backendId;
         this.replicaId = replicaId;
         this.version = version;
-        this.versionHash = versionHash;
         this.schemaHash = schemaHash;
         this.dataSize = dataSize;
+        this.remoteDataSize = remoteDataSize;
         this.rowCount = rowCount;
-        
+
         this.lastFailedVersion = lastFailedVersion;
-        this.lastFailedVersionHash = lastFailedVersionHash;
         this.lastSuccessVersion = lastSuccessVersion;
-        this.lastSuccessVersionHash = lastSuccessVersionHash;
     }
 
     public ReplicaOperationType getOpType() {
         return opType;
     }
-    
+
     public long getDbId() {
         return dbId;
     }
@@ -266,10 +258,6 @@ public class ReplicaPersistInfo implements Writable {
         return version;
     }
 
-    public long getVersionHash() {
-        return versionHash;
-    }
-
     public int getSchemaHash() {
         return schemaHash;
     }
@@ -278,24 +266,20 @@ public class ReplicaPersistInfo implements Writable {
         return dataSize;
     }
 
+    public long getRemoteDataSize() {
+        return remoteDataSize;
+    }
+
     public long getRowCount() {
         return rowCount;
     }
-    
+
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
-    
-    public long getLastFailedVersionHash() {
-        return lastFailedVersionHash;
-    }
-    
+
     public long getLastSuccessVersion() {
         return lastSuccessVersion;
-    }
-    
-    public long getLastSuccessVersionHash() {
-        return lastSuccessVersionHash;
     }
 
     public static ReplicaPersistInfo read(DataInput in) throws IOException {
@@ -317,7 +301,7 @@ public class ReplicaPersistInfo implements Writable {
         out.writeLong(versionHash);
         out.writeLong(dataSize);
         out.writeLong(rowCount);
-        
+
         out.writeInt(opType.value);
         out.writeLong(lastFailedVersion);
         out.writeLong(lastFailedVersionHash);
@@ -328,7 +312,7 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        
+
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
@@ -341,20 +325,15 @@ public class ReplicaPersistInfo implements Writable {
         dataSize = in.readLong();
         rowCount = in.readLong();
         opType = ReplicaOperationType.DEFAULT_OP;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-            opType = ReplicaOperationType.findByValue(in.readInt());
-            if (opType == null) {
-                throw new IOException("could not parse operation type from replica info");
-            }
-            lastFailedVersion = in.readLong();
-            lastFailedVersionHash = in.readLong();
-            lastSuccessVersion = in.readLong();
-            lastSuccessVersionHash = in.readLong();
+        opType = ReplicaOperationType.findByValue(in.readInt());
+        if (opType == null) {
+            throw new IOException("could not parse operation type from replica info");
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_48) {
-            schemaHash = in.readInt();
-        }
+        lastFailedVersion = in.readLong();
+        lastFailedVersionHash = in.readLong();
+        lastSuccessVersion = in.readLong();
+        lastSuccessVersionHash = in.readLong();
+        schemaHash = in.readInt();
     }
 
     @Override
@@ -362,13 +341,13 @@ public class ReplicaPersistInfo implements Writable {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof ReplicaPersistInfo)) {
             return false;
         }
-        
+
         ReplicaPersistInfo info = (ReplicaPersistInfo) obj;
-        
+
         return backendId == info.backendId
                 && replicaId == info.replicaId
                 && tabletId == info.tabletId
@@ -377,13 +356,10 @@ public class ReplicaPersistInfo implements Writable {
                 && tableId == info.tableId
                 && dbId == info.dbId
                 && version == info.version
-                && versionHash == info.versionHash
                 && dataSize == info.dataSize
                 && rowCount == info.rowCount
                 && lastFailedVersion == info.lastFailedVersion
-                && lastFailedVersionHash == info.lastFailedVersionHash
-                && lastSuccessVersion == info.lastSuccessVersion
-                && lastSuccessVersionHash == info.lastSuccessVersionHash;
+                && lastSuccessVersion == info.lastSuccessVersion;
     }
 
     @Override
@@ -396,14 +372,11 @@ public class ReplicaPersistInfo implements Writable {
         sb.append(" backend id: ").append(backendId);
         sb.append(" replica id: ").append(replicaId);
         sb.append(" version: ").append(version);
-        sb.append(" version hash: ").append(versionHash);
         sb.append(" schema hash: ").append(schemaHash);
         sb.append(" data size: ").append(dataSize);
         sb.append(" row count: ").append(rowCount);
         sb.append(" last failed version: ").append(lastFailedVersion);
-        sb.append(" last failed version hash: ").append(lastFailedVersionHash);
         sb.append(" last success version: ").append(lastSuccessVersion);
-        sb.append(" last success version hash: ").append(lastSuccessVersionHash);
 
         return sb.toString();
     }

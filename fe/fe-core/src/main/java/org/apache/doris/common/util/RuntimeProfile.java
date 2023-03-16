@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TUnit;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,7 +137,6 @@ public class RuntimeProfile {
     // preorder traversal, idx should be modified in the traversal process
     private void update(List<TRuntimeProfileNode> nodes, Reference<Integer> idx) {
         TRuntimeProfileNode node = nodes.get(idx.getRef());
-
         // update this level's counters
         if (node.counters != null) {
             for (TCounter tcounter : node.counters) {
@@ -209,7 +207,7 @@ public class RuntimeProfile {
                 if (childProfile == null) {
                     childMap.put(childName, new RuntimeProfile(childName));
                     childProfile = this.childMap.get(childName);
-                    Pair<RuntimeProfile, Boolean> pair = Pair.create(childProfile, tchild.indent);
+                    Pair<RuntimeProfile, Boolean> pair = Pair.of(childProfile, tchild.indent);
                     this.childList.add(pair);
                 }
             } finally {
@@ -372,7 +370,7 @@ public class RuntimeProfile {
                 childList.removeIf(e -> e.first.name.equals(child.name));
             }
             this.childMap.put(child.name, child);
-            Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+            Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);
             this.childList.add(pair);
         } finally {
             childLock.writeLock().unlock();
@@ -389,7 +387,7 @@ public class RuntimeProfile {
                 childList.removeIf(e -> e.first.name.equals(child.name));
             }
             this.childMap.put(child.name, child);
-            Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
+            Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);
             this.childList.addFirst(pair);
         } finally {
             childLock.writeLock().unlock();
@@ -399,8 +397,7 @@ public class RuntimeProfile {
     // Because the profile of summary and child fragment is not a real parent-child relationship
     // Each child profile needs to calculate the time proportion consumed by itself
     public void computeTimeInChildProfile() {
-        childMap.values().
-                forEach(RuntimeProfile::computeTimeInProfile);
+        childMap.values().forEach(RuntimeProfile::computeTimeInProfile);
     }
 
     public void computeTimeInProfile() {
@@ -441,6 +438,13 @@ public class RuntimeProfile {
         try {
             this.childList.sort((profile1, profile2) -> Long.compare(profile2.first.getCounterTotalTime().getValue(),
                     profile1.first.getCounterTotalTime().getValue()));
+        } catch (IllegalArgumentException e) {
+            // This exception may be thrown if the counter total time of the child is updated in the update method
+            // during the sorting process. This sorting only affects the profile instance display order, so this
+            // exception is temporarily ignored here.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sort child list error: ", e);
+            }
         } finally {
             childLock.writeLock().unlock();
         }
@@ -468,7 +472,10 @@ public class RuntimeProfile {
     // Returns the value to which the specified key is mapped;
     // or null if this map contains no mapping for the key.
     public String getInfoString(String key) {
-        return infoStrings.get(key);
+        return infoStrings.getOrDefault(key, "");
+    }
+
+    public Map<String, String> getInfoStrings() {
+        return infoStrings;
     }
 }
-

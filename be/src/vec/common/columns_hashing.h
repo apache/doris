@@ -28,6 +28,7 @@
 #include "vec/common/columns_hashing_impl.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
@@ -63,6 +64,7 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
 
     /// Find key into HashTable or HashMap. If Data is HashMap and key was found, returns ptr to value, otherwise nullptr.
     using Base::find_key; /// (Data & data, size_t row, Arena & pool) -> FindResult
+    using Base::find_key_with_hash;
 
     /// Get hash value of row.
     using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
@@ -93,7 +95,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
     }
 
     auto get_key_holder(ssize_t row, [[maybe_unused]] Arena& pool) const {
-        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1] - 1);
+        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
 
         if constexpr (place_string_to_arena) {
             return ArenaKeyHolder {key, pool};
@@ -111,27 +113,46 @@ protected:
   * That is, for example, for strings, it contains first the serialized length of the string, and then the bytes.
   * Therefore, when aggregating by several strings, there is no ambiguity.
   */
-template <typename Value, typename Mapped>
+template <typename Value, typename Mapped, bool keys_pre_serialized = false>
 struct HashMethodSerialized
-        : public columns_hashing_impl::HashMethodBase<HashMethodSerialized<Value, Mapped>, Value,
-                                                      Mapped, false> {
-    using Self = HashMethodSerialized<Value, Mapped>;
+        : public columns_hashing_impl::HashMethodBase<
+                  HashMethodSerialized<Value, Mapped, keys_pre_serialized>, Value, Mapped, false> {
+    using Self = HashMethodSerialized<Value, Mapped, keys_pre_serialized>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
+    using KeyHolderType =
+            std::conditional_t<keys_pre_serialized, ArenaKeyHolder, SerializedKeyHolder>;
 
     ColumnRawPtrs key_columns;
     size_t keys_size;
+    const StringRef* keys;
 
     HashMethodSerialized(const ColumnRawPtrs& key_columns_, const Sizes& /*key_sizes*/,
                          const HashMethodContextPtr&)
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
+    void set_serialized_keys(const StringRef* keys_) { keys = keys_; }
+
+    ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
+        if constexpr (keys_pre_serialized) {
+            return KeyHolderType {keys[row], pool};
+        } else {
+            return KeyHolderType {
+                    serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
+        }
+    }
+
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
+};
 
-    ALWAYS_INLINE SerializedKeyHolder get_key_holder(size_t row, Arena& pool) const {
-        return SerializedKeyHolder {
-                serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
-    }
+template <typename HashMethod>
+struct IsPreSerializedKeysHashMethodTraits {
+    constexpr static bool value = false;
+};
+
+template <typename Value, typename Mapped>
+struct IsPreSerializedKeysHashMethodTraits<HashMethodSerialized<Value, Mapped, true>> {
+    constexpr static bool value = true;
 };
 
 /// For the case when there is one string key.
@@ -190,11 +211,11 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     using EmplaceResult = columns_hashing_impl::EmplaceResultImpl<Mapped>;
     using FindResult = columns_hashing_impl::FindResultImpl<Mapped>;
 
-    static HashMethodContextPtr createContext(const HashMethodContext::Settings & settings) {
+    static HashMethodContextPtr createContext(const HashMethodContext::Settings& settings) {
         return nullptr;
     }
 
-    ColumnRawPtrs key_columns;
+    const ColumnNullable* key_column;
 
     static const ColumnRawPtrs get_nested_column(const IColumn* col) {
         auto* nullable = check_and_get_column<ColumnNullable>(*col);
@@ -203,19 +224,20 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         return {nested_col};
     }
 
-    HashMethodSingleLowNullableColumn(
-            const ColumnRawPtrs & key_columns_nullable, const Sizes & key_sizes, const HashMethodContextPtr & context)
-        : Base(get_nested_column(key_columns_nullable[0]), key_sizes, context), key_columns(key_columns_nullable) {
-    }
+    HashMethodSingleLowNullableColumn(const ColumnRawPtrs& key_columns_nullable,
+                                      const Sizes& key_sizes, const HashMethodContextPtr& context)
+            : Base(get_nested_column(key_columns_nullable[0]), key_sizes, context),
+              key_column(assert_cast<const ColumnNullable*>(key_columns_nullable[0])) {}
 
     template <typename Data>
-    ALWAYS_INLINE EmplaceResult emplace_key(Data & data, size_t row, Arena & pool) {
-        if (key_columns[0]->is_null_at(row)) {
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t row, Arena& pool) {
+        if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;
 
             if constexpr (has_mapped)
-                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(), !has_null_key);
+                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
+                                     !has_null_key);
             else
                 return EmplaceResult(!has_null_key);
         }
@@ -227,15 +249,74 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         data.emplace(key_holder, it, inserted);
 
         if constexpr (has_mapped) {
-            auto & mapped = *lookup_result_get_mapped(it);
+            auto& mapped = *lookup_result_get_mapped(it);
             if (inserted) {
                 new (&mapped) Mapped();
             }
             return EmplaceResult(mapped, mapped, inserted);
-        }
-        else
+        } else
             return EmplaceResult(inserted);
     }
+
+    template <typename Data, typename Func, typename CreatorForNull>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t row, Arena& pool, Func&& f, CreatorForNull&& null_creator) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+            if (!has_null_key) std::forward<CreatorForNull>(null_creator)(data.get_null_key_data());
+            return data.get_null_key_data();
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
+    template <typename Data, typename Func, typename CreatorForNull>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t row, Arena& pool, size_t hash_value, Func&& f,
+            CreatorForNull&& null_creator) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+            if (!has_null_key) std::forward<CreatorForNull>(null_creator)(data.get_null_key_data());
+            return data.get_null_key_data();
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
+    template <typename Data>
+    ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            if constexpr (has_mapped)
+                return FindResult(&data.get_null_key_data(), has_null_key);
+            else
+                return FindResult(has_null_key);
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        auto key = key_holder_get_key(key_holder);
+        auto it = data.find(key);
+        if constexpr (has_mapped)
+            return FindResult(it ? lookup_result_get_mapped(it) : nullptr, it != nullptr);
+        else
+            return FindResult(it != nullptr);
+    }
+};
+
+template <typename HashMethod>
+struct IsSingleNullableColumnMethod {
+    static constexpr bool value = false;
+};
+
+template <typename SingleColumnMethod, typename Mapped, bool use_cache>
+struct IsSingleNullableColumnMethod<
+        HashMethodSingleLowNullableColumn<SingleColumnMethod, Mapped, use_cache>> {
+    static constexpr bool value = true;
 };
 
 } // namespace ColumnsHashing

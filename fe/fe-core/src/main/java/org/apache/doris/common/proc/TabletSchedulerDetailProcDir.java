@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler;
@@ -34,27 +34,26 @@ import java.util.List;
  * show proc "/tablet_scheduler/history_tablets";
  */
 public class TabletSchedulerDetailProcDir implements ProcDirInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("Type").add("Medium").add("Status").add("State").add("OrigPrio").add("DynmPrio")
-            .add("SrcBe").add("SrcPath").add("DestBe").add("DestPath").add("Timeout")
-            .add("Create").add("LstSched").add("LstVisit").add("Finished").add("Rate").add("FailedSched")
-            .add("FailedRunning").add("LstAdjPrio").add("VisibleVer").add("VisibleVerHash")
-            .add("CmtVer").add("CmtVerHash").add("ErrMsg")
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("TabletId")
+            .add("Type").add("Medium").add("Status").add("State").add("OrigPrio").add("DynmPrio").add("SrcBe")
+            .add("SrcPath").add("DestBe").add("DestPath").add("Timeout").add("Create").add("LstSched").add("LstVisit")
+            .add("Finished").add("Rate").add("FailedSched").add("FailedRunning").add("LstAdjPrio").add("VisibleVer")
+            .add("CmtVer").add("ErrMsg")
             .build();
-    
+
     private String type;
     private TabletScheduler tabletScheduler;
 
     public TabletSchedulerDetailProcDir(String type) {
         this.type = type;
-        tabletScheduler = Catalog.getCurrentCatalog().getTabletScheduler();
+        tabletScheduler = Env.getCurrentEnv().getTabletScheduler();
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        
+
         // get at most 1000 tablet infos
         List<List<String>> tabletInfos = Lists.newArrayList();
         if (type.equals(ClusterBalanceProcDir.PENDING_TABLETS)) {
@@ -84,7 +83,7 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
         }
 
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
         return new ReplicasProcNode(tabletId, replicas);
     }

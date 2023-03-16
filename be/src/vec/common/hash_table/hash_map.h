@@ -59,6 +59,7 @@ struct HashMapCell {
 
     HashMapCell() {}
     HashMapCell(const Key& key_, const State&) : value(key_, NoInitTag()) {}
+    HashMapCell(const Key& key_, const Mapped& mapped_) : value(key_, mapped_) {}
     HashMapCell(const value_type& value_, const State&) : value(value_) {}
 
     const Key& get_first() const { return value.first; }
@@ -68,6 +69,8 @@ struct HashMapCell {
     const value_type& get_value() const { return value; }
 
     static const Key& get_key(const value_type& value) { return value.first; }
+    Mapped& get_mapped() { return value.second; }
+    const Mapped& get_mapped() const { return value.second; }
 
     bool key_equals(const Key& key_) const { return value.first == key_; }
     bool key_equals(const Key& key_, size_t /*hash_*/) const { return value.first == key_; }
@@ -238,3 +241,10 @@ template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMapWithSavedHash =
         HashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash, Grower, Allocator>;
+
+template <typename Key, typename Mapped, typename Hash, size_t initial_size_degree>
+using HashMapWithStackMemory = HashMapTable<
+        Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash,
+        HashTableGrower<initial_size_degree>,
+        HashTableAllocatorWithStackMemory<(1ULL << initial_size_degree) *
+                                          sizeof(HashMapCellWithSavedHash<Key, Mapped, Hash>)>>;

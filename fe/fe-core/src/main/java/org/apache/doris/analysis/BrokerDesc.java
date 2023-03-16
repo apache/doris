@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -24,7 +25,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,16 +42,23 @@ import java.util.Map;
 //   "password" = "password0"
 // )
 public class BrokerDesc extends StorageDesc implements Writable {
-    private final static Logger LOG = LogManager.getLogger(BrokerDesc.class);
+    private static final Logger LOG = LogManager.getLogger(BrokerDesc.class);
 
     // just for multi load
-    public final static String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
-    public final static String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
+    public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
+    public static final String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
 
     // Only used for recovery
     private BrokerDesc() {
         this.properties = Maps.newHashMap();
         this.storageType = StorageBackend.StorageType.BROKER;
+    }
+
+    // for empty broker desc
+    public BrokerDesc(String name) {
+        this.name = name;
+        this.properties = Maps.newHashMap();
+        this.storageType = StorageType.LOCAL;
     }
 
     public BrokerDesc(String name, Map<String, String> properties) {
@@ -78,6 +85,11 @@ public class BrokerDesc extends StorageDesc implements Writable {
         tryConvertToS3();
     }
 
+    public static BrokerDesc createForStreamLoad() {
+        BrokerDesc brokerDesc = new BrokerDesc("", StorageType.STREAM, null);
+        return brokerDesc;
+    }
+
     public String getName() {
         return name;
     }
@@ -95,20 +107,23 @@ public class BrokerDesc extends StorageDesc implements Writable {
     }
 
     public TFileType getFileType() {
-        if (storageType == StorageBackend.StorageType.LOCAL) {
-            return TFileType.FILE_LOCAL;
+        switch (storageType) {
+            case LOCAL:
+                return TFileType.FILE_LOCAL;
+            case S3:
+                return TFileType.FILE_S3;
+            case HDFS:
+                return TFileType.FILE_HDFS;
+            case STREAM:
+                return TFileType.FILE_STREAM;
+            case BROKER:
+            case OFS:
+            case JFS:
+            default:
+                return TFileType.FILE_BROKER;
         }
-        if (storageType == StorageBackend.StorageType.BROKER) {
-            return TFileType.FILE_BROKER;
-        }
-        if (storageType == StorageBackend.StorageType.S3) {
-            return TFileType.FILE_S3;
-        }
-        if (storageType == StorageBackend.StorageType.HDFS) {
-            return TFileType.FILE_HDFS;
-        }
-        return TFileType.FILE_BROKER;
     }
+
     public StorageBackend.StorageType storageType() {
         return storageType;
     }

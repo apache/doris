@@ -28,8 +28,8 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -40,6 +40,8 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -51,6 +53,15 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -66,22 +77,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
 public class BackupHandlerTest {
 
     private BackupHandler handler;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
+    @Mocked
+    private InternalCatalog catalog;
     @Mocked
     private BrokerMgr brokerMgr;
     @Mocked
@@ -105,36 +108,41 @@ public class BackupHandlerTest {
 
         new Expectations() {
             {
-                catalog.getBrokerMgr();
+                env.getBrokerMgr();
                 minTimes = 0;
                 result = brokerMgr;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = idGen++;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalogJournalVersion();
+                Env.getCurrentEnvJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
             }
         };
 
         db = CatalogMocker.mockDb();
+        catalog = Deencapsulation.newInstance(InternalCatalog.class);
 
         new Expectations() {
             {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+
                 catalog.getDbOrDdlException(anyString);
                 minTimes = 0;
                 result = db;
@@ -157,7 +165,7 @@ public class BackupHandlerTest {
 
     @Test
     public void testInit() {
-        handler = new BackupHandler(catalog);
+        handler = new BackupHandler(env);
         handler.runAfterCatalogReady();
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
@@ -235,7 +243,7 @@ public class BackupHandlerTest {
         };
 
         // add repo
-        handler = new BackupHandler(catalog);
+        handler = new BackupHandler(env);
         StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
                 StorageBackend.StorageType.BROKER, Maps.newHashMap());
         CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", storageBackend);
@@ -243,7 +251,8 @@ public class BackupHandlerTest {
 
         // process backup
         List<TableRef> tblRefs = Lists.newArrayList();
-        tblRefs.add(new TableRef(new TableName(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        tblRefs.add(new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                CatalogMocker.TEST_TBL_NAME), null));
         AbstractBackupTableRefClause tableRefClause = new AbstractBackupTableRefClause(false, tblRefs);
         BackupStmt backupStmt = new BackupStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "label1"), "repo",
                 tableRefClause, null);
@@ -251,8 +260,8 @@ public class BackupHandlerTest {
 
         // handleFinishedSnapshotTask
         BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
-        SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 0, 1, false);
+        SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID, 0, 0,
+                0, 0, 0, 0, 1, false);
         TFinishTaskRequest request = new TFinishTaskRequest();
         List<String> snapshotFiles = Lists.newArrayList();
         request.setSnapshotFiles(snapshotFiles);
@@ -289,7 +298,8 @@ public class BackupHandlerTest {
 
         // process restore
         List<TableRef> tblRefs2 = Lists.newArrayList();
-        tblRefs2.add(new TableRef(new TableName(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME), null));
+        tblRefs2.add(new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                CatalogMocker.TEST_TBL_NAME), null));
         Map<String, String> properties = Maps.newHashMap();
         properties.put("backup_timestamp", "2018-08-08-08-08-08");
         AbstractBackupTableRefClause abstractBackupTableRefClause = new AbstractBackupTableRefClause(false, tblRefs2);
@@ -302,7 +312,7 @@ public class BackupHandlerTest {
         // handleFinishedSnapshotTask
         RestoreJob restoreJob = (RestoreJob) handler.getJob(CatalogMocker.TEST_DB_ID);
         snapshotTask = new SnapshotTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 0, 1, true);
+                0, 0, 0, 0, 0, 0, 1, true);
         request = new TFinishTaskRequest();
         request.setSnapshotPath("./snapshot/path");
         request.setTaskStatus(new TStatus(TStatusCode.OK));

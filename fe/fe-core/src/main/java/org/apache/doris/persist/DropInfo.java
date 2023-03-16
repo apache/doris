@@ -17,35 +17,45 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class DropInfo implements Writable {
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
-    
+    @SerializedName(value = "indexId")
     private long indexId;
+    @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
+    @SerializedName(value = "recycleTime")
+    private long recycleTime = 0;
 
     public DropInfo() {
     }
-    
-    public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop) {
+
+    public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexId = indexId;
         this.forceDrop = forceDrop;
+        this.recycleTime = recycleTime;
     }
-    
+
     public long getDbId() {
         return this.dbId;
     }
-    
+
     public long getTableId() {
         return this.tableId;
     }
@@ -57,26 +67,21 @@ public class DropInfo implements Writable {
     public boolean isForceDrop() {
         return forceDrop;
     }
-    
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeBoolean(forceDrop);
-        if (indexId == -1L) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            out.writeLong(indexId);
-        }
+
+    public Long getRecycleTime() {
+        return recycleTime;
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_89) {
-            forceDrop = in.readBoolean();
-        }
+        forceDrop = in.readBoolean();
         boolean hasIndexId = in.readBoolean();
         if (hasIndexId) {
             indexId = in.readLong();
@@ -86,23 +91,27 @@ public class DropInfo implements Writable {
     }
 
     public static DropInfo read(DataInput in) throws IOException {
-        DropInfo dropInfo = new DropInfo();
-        dropInfo.readFields(in);
-        return dropInfo;
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), DropInfo.class);
+        } else {
+            DropInfo dropInfo = new DropInfo();
+            dropInfo.readFields(in);
+            return dropInfo;
+        }
     }
-    
-    public boolean equals (Object obj) {
+
+    public boolean equals(Object obj) {
         if (this == obj) {
             return true;
         }
-        
+
         if (!(obj instanceof DropInfo)) {
             return false;
         }
-        
+
         DropInfo info = (DropInfo) obj;
-        
+
         return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
-                && (forceDrop == info.forceDrop);
+                && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime);
     }
 }

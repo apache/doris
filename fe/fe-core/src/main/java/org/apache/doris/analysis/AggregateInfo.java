@@ -14,18 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AggregateInfo.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +51,7 @@ import java.util.List;
  *   SELECT COUNT(*) FROM (SELECT DISTINCT a, b, ..., x, y, ...) GROUP BY x, y, ...
  *
  * The tree structure looks as follows:
+ * <pre>
  * - for non-distinct aggregation:
  *   - aggInfo: contains the original aggregation functions and grouping exprs
  *   - aggInfo.mergeAggInfo: contains the merging aggregation functions (grouping
@@ -59,7 +65,7 @@ import java.util.List;
  *     computation (grouping exprs are identical)
  *   - aggInfo.2ndPhaseDistinctAggInfo.mergeAggInfo: contains the merging aggregate
  *     functions for the phase 2 computation (grouping exprs are identical)
- *
+ * </pre>
  * In general, merging aggregate computations are idempotent; in other words,
  * aggInfo.mergeAggInfo == aggInfo.mergeAggInfo.mergeAggInfo.
  *
@@ -67,7 +73,7 @@ import java.util.List;
  * TODO: Add query tests for aggregation with intermediate tuples with num_nodes=1.
  */
 public final class AggregateInfo extends AggregateInfoBase {
-    private final static Logger LOG = LogManager.getLogger(AggregateInfo.class);
+    private static final Logger LOG = LogManager.getLogger(AggregateInfo.class);
 
     public enum AggPhase {
         FIRST,
@@ -75,45 +81,41 @@ public final class AggregateInfo extends AggregateInfoBase {
         SECOND,
         SECOND_MERGE;
 
-        public boolean isMerge() { return this == FIRST_MERGE || this == SECOND_MERGE; }
-    };
+        public boolean isMerge() {
+            return this == FIRST_MERGE || this == SECOND_MERGE;
+        }
+    }
 
     // created by createMergeAggInfo()
-    private AggregateInfo mergeAggInfo_;
+    private AggregateInfo mergeAggInfo;
 
     // created by createDistinctAggInfo()
-    private AggregateInfo secondPhaseDistinctAggInfo_;
+    private AggregateInfo secondPhaseDistinctAggInfo;
 
-    private final AggPhase aggPhase_;
+    private final AggPhase aggPhase;
 
     // Map from all grouping and aggregate exprs to a SlotRef referencing the corresp. slot
     // in the intermediate tuple. Identical to outputTupleSmap_ if no aggregateExpr has an
     // output type that is different from its intermediate type.
-    protected ExprSubstitutionMap intermediateTupleSmap_ = new ExprSubstitutionMap();
+    protected ExprSubstitutionMap intermediateTupleSmap = new ExprSubstitutionMap();
 
     // Map from all grouping and aggregate exprs to a SlotRef referencing the corresp. slot
     // in the output tuple.
-    protected ExprSubstitutionMap outputTupleSmap_ = new ExprSubstitutionMap();
+    protected ExprSubstitutionMap outputTupleSmap = new ExprSubstitutionMap();
 
     // Map from slots of outputTupleSmap_ to the corresponding slot in
     // intermediateTupleSmap_.
-    protected ExprSubstitutionMap outputToIntermediateTupleSmap_ =
+    protected ExprSubstitutionMap outputToIntermediateTupleSmap =
             new ExprSubstitutionMap();
 
     // if set, a subset of groupingExprs_; set and used during planning
-    private List<Expr> partitionExprs_;
+    private List<Expr> partitionExprs;
 
-    // indices into aggregateExprs for those that need to be materialized;
-    // shared between this, mergeAggInfo and secondPhaseDistinctAggInfo
-    private ArrayList<Integer> materializedAggregateSlots_ = Lists.newArrayList();
-    // if true, this AggregateInfo is the first phase of a 2-phase DISTINCT computation
-    private boolean isDistinctAgg = false;
-    // If true, the sql has MultiDistinct
-    private boolean isMultiDistinct_;
+    private boolean isUsingSetForDistinct;
 
     // the multi distinct's begin pos  and end pos in groupby exprs
-    private ArrayList<Integer> firstIdx_ = Lists.newArrayList();
-    private ArrayList<Integer> lastIdx_ = Lists.newArrayList();
+    private ArrayList<Integer> firstIdx = Lists.newArrayList();
+    private ArrayList<Integer> lastIdx = Lists.newArrayList();
 
     // C'tor creates copies of groupingExprs and aggExprs.
     private AggregateInfo(ArrayList<Expr> groupingExprs,
@@ -122,10 +124,10 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     private AggregateInfo(ArrayList<Expr> groupingExprs,
-                          ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase, boolean isMultiDistinct)  {
+                          ArrayList<FunctionCallExpr> aggExprs, AggPhase aggPhase, boolean isUsingSetForDistinct)  {
         super(groupingExprs, aggExprs);
-        aggPhase_ = aggPhase;
-        isMultiDistinct_ = isMultiDistinct;
+        this.aggPhase = aggPhase;
+        this.isUsingSetForDistinct = isUsingSetForDistinct;
     }
 
     /**
@@ -133,27 +135,40 @@ public final class AggregateInfo extends AggregateInfoBase {
      */
     private AggregateInfo(AggregateInfo other) {
         super(other);
-        if (other.mergeAggInfo_ != null) {
-            mergeAggInfo_ = other.mergeAggInfo_.clone();
+        if (other.mergeAggInfo != null) {
+            mergeAggInfo = other.mergeAggInfo.clone();
         }
-        if (other.secondPhaseDistinctAggInfo_ != null) {
-            secondPhaseDistinctAggInfo_ = other.secondPhaseDistinctAggInfo_.clone();
+        if (other.secondPhaseDistinctAggInfo != null) {
+            secondPhaseDistinctAggInfo = other.secondPhaseDistinctAggInfo.clone();
         }
-        aggPhase_ = other.aggPhase_;
-        outputTupleSmap_ = other.outputTupleSmap_.clone();
+        aggPhase = other.aggPhase;
+        outputTupleSmap = other.outputTupleSmap.clone();
         if (other.requiresIntermediateTuple()) {
-            intermediateTupleSmap_ = other.intermediateTupleSmap_.clone();
+            intermediateTupleSmap = other.intermediateTupleSmap.clone();
         } else {
-            Preconditions.checkState(other.intermediateTupleDesc_ == other.outputTupleDesc_);
-            intermediateTupleSmap_ = outputTupleSmap_;
+            Preconditions.checkState(other.intermediateTupleDesc == other.outputTupleDesc);
+            intermediateTupleSmap = outputTupleSmap;
         }
-        partitionExprs_ =
-                (other.partitionExprs_ != null) ? Expr.cloneList(other.partitionExprs_) : null;
+        partitionExprs =
+                (other.partitionExprs != null) ? Expr.cloneList(other.partitionExprs) : null;
     }
 
-    public List<Expr> getPartitionExprs() { return partitionExprs_; }
-    public void setPartitionExprs(List<Expr> exprs) { partitionExprs_ = exprs; }
-    
+    public List<Expr> getPartitionExprs() {
+        return partitionExprs;
+    }
+
+    public void setPartitionExprs(List<Expr> exprs) {
+        partitionExprs = exprs;
+    }
+
+    private static void validateGroupingExprs(List<Expr> groupingExprs) throws AnalysisException {
+        for (Expr expr : groupingExprs) {
+            if (expr.getType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
+        }
+    }
+
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -163,13 +178,14 @@ public final class AggregateInfo extends AggregateInfoBase {
      * If an aggTupleDesc is created, also registers eq predicates between the
      * grouping exprs and their respective slots with 'analyzer'.
      */
-    static public AggregateInfo create(
+    public static AggregateInfo create(
             ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
             TupleDescriptor tupleDesc, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkState(
                 (groupingExprs != null && !groupingExprs.isEmpty())
                         || (aggExprs != null && !aggExprs.isEmpty()));
+        validateGroupingExprs(groupingExprs);
         AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, AggPhase.FIRST);
 
         // collect agg exprs with DISTINCT clause
@@ -185,22 +201,21 @@ public final class AggregateInfo extends AggregateInfoBase {
         // aggregation algorithm includes two kinds:one stage aggregation, tow stage aggregation.
         // for case:
         // 1: if aggExprs don't have distinct or have multi distinct , create aggregate info for
-        // one stage aggregation. 
+        // one stage aggregation.
         // 2: if aggExprs have one distinct , create aggregate info for two stage aggregation
-        boolean isMultiDistinct = result.estimateIfContainsMultiDistinct(distinctAggExprs);
-        if (distinctAggExprs.isEmpty() 
-               || isMultiDistinct) {
-            // It is used to map new aggr expr to old expr to help create an external 
+        boolean isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
+        if (distinctAggExprs.isEmpty() || isUsingSetForDistinct) {
+            // It is used to map new aggr expr to old expr to help create an external
             // reference to the aggregation node tuple
-            result.setIsMultiDistinct(isMultiDistinct);
+            result.setIsUsingSetForDistinct(isUsingSetForDistinct);
             if (tupleDesc == null) {
                 result.createTupleDescs(analyzer);
                 result.createSmaps(analyzer);
             } else {
                 // A tupleDesc should only be given for UNION DISTINCT.
                 Preconditions.checkState(aggExprs == null);
-                result.outputTupleDesc_ = tupleDesc;
-                result.intermediateTupleDesc_ = tupleDesc;
+                result.outputTupleDesc = tupleDesc;
+                result.intermediateTupleDesc = tupleDesc;
             }
             result.createMergeAggInfo(analyzer);
         } else {
@@ -210,19 +225,59 @@ public final class AggregateInfo extends AggregateInfoBase {
             Preconditions.checkState(tupleDesc == null);
             result.createDistinctAggInfo(groupingExprs, distinctAggExprs, analyzer);
         }
-        if (LOG.isDebugEnabled())  LOG.debug("agg info:\n{}", result.debugString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("agg info:\n{}", result.debugString());
+        }
         return result;
     }
 
+    /**
+     * Used by new optimizer.
+     */
+    public static AggregateInfo create(
+            ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs, List<Integer> aggExprIds,
+            boolean isPartialAgg, TupleDescriptor tupleDesc, TupleDescriptor intermediateTupleDesc, AggPhase phase) {
+        AggregateInfo result = new AggregateInfo(groupingExprs, aggExprs, phase);
+        result.outputTupleDesc = tupleDesc;
+        result.intermediateTupleDesc = intermediateTupleDesc;
+        int aggExprSize = result.getAggregateExprs().size();
+        for (int i = 0; i < aggExprSize; i++) {
+            result.materializedSlots.add(i);
+            String label = (isPartialAgg ? "partial_" : "")
+                    + aggExprs.get(i).toSql() + "[#" + aggExprIds.get(i) + "]";
+            result.materializedSlotLabels.add(label);
+        }
+        return result;
+    }
+
+
+    // note(wb): in some cases, using hashset for distinct is better
+    public static boolean isSetUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs) {
+        boolean isSetUsingSetForDistinct = false;
+        // for vectorized execution, we force it to using hash set to execution
+        if (distinctAggExprs.size() == 1
+                && distinctAggExprs.get(0).getFnParams().isDistinct()
+                && VectorizedUtil.isVectorized()
+                && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
+            isSetUsingSetForDistinct = true;
+        }
+        return isSetUsingSetForDistinct;
+    }
+
+    public static boolean estimateIfUsingSetForDistinct(List<FunctionCallExpr> distinctAggExprs)
+            throws AnalysisException {
+        return estimateIfContainsMultiDistinct(distinctAggExprs)
+                || isSetUsingSetForDistinct(distinctAggExprs);
+    }
 
     /**
      * estimate if functions contains multi distinct
      * @param distinctAggExprs
      * @return
      */
-    public static boolean estimateIfContainsMultiDistinct(List<FunctionCallExpr> distinctAggExprs) 
-      throws AnalysisException {
-        
+    public static boolean estimateIfContainsMultiDistinct(List<FunctionCallExpr> distinctAggExprs)
+            throws AnalysisException {
+
         if (distinctAggExprs == null || distinctAggExprs.size() <= 0) {
             return false;
         }
@@ -252,11 +307,12 @@ public final class AggregateInfo extends AggregateInfoBase {
             if (!Expr.equalLists(expr0Children, exprIChildren)) {
                 if (exprIChildren.size() > 1 || expr0Children.size() > 1) {
                     throw new AnalysisException("The query contains multi count distinct or "
-                            + "sum distinct, each can't have multi columns.");   
+                            + "sum distinct, each can't have multi columns.");
                 }
                 hasMultiDistinct = true;
             }
         }
+
         return hasMultiDistinct;
     }
 
@@ -301,22 +357,28 @@ public final class AggregateInfo extends AggregateInfoBase {
             // TODO: Deal with constant exprs more generally, instead of special-casing
             // group_concat().
             expr0Children.add(distinctAggExprs.get(0).getChild(0).ignoreImplicitCast());
+            FunctionCallExpr distinctExpr = distinctAggExprs.get(0);
+            if (!distinctExpr.getOrderByElements().isEmpty()) {
+                for (int i = distinctExpr.getChildren().size() - distinctExpr.getOrderByElements().size();
+                        i < distinctExpr.getChildren().size(); i++) {
+                    expr0Children.add(distinctAggExprs.get(0).getChild(i));
+                }
+            }
         } else {
             for (Expr expr : distinctAggExprs.get(0).getChildren()) {
                 expr0Children.add(expr.ignoreImplicitCast());
             }
         }
 
-        this.isMultiDistinct_= estimateIfContainsMultiDistinct(distinctAggExprs);
-        isDistinctAgg = true;
+        this.isUsingSetForDistinct = estimateIfUsingSetForDistinct(distinctAggExprs);
 
         // add DISTINCT parameters to grouping exprs
-        if (!isMultiDistinct_) {
-            groupingExprs_.addAll(expr0Children);
-        } 
+        if (!isUsingSetForDistinct) {
+            groupingExprs.addAll(expr0Children);
+        }
 
         // remove DISTINCT aggregate functions from aggExprs
-        aggregateExprs_.removeAll(distinctAggExprs);
+        aggregateExprs.removeAll(distinctAggExprs);
 
         createTupleDescs(analyzer);
         createSmaps(analyzer);
@@ -326,47 +388,65 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public ArrayList<FunctionCallExpr> getMaterializedAggregateExprs() {
         ArrayList<FunctionCallExpr> result = Lists.newArrayList();
-        for (Integer i: materializedSlots_) {
-          result.add(aggregateExprs_.get(i));
+        for (Integer i : materializedSlots) {
+            result.add(aggregateExprs.get(i));
         }
         return result;
     }
 
     public AggregateInfo getMergeAggInfo() {
-        return mergeAggInfo_;
+        return mergeAggInfo;
     }
 
-    public boolean isMerge() { return aggPhase_.isMerge(); }
-    public boolean isDistinctAgg() { return secondPhaseDistinctAggInfo_ != null; }
-    public ExprSubstitutionMap getIntermediateSmap() { return intermediateTupleSmap_; }
-    public ExprSubstitutionMap getOutputSmap() { return outputTupleSmap_; }
+    public boolean isMerge() {
+        return aggPhase.isMerge();
+    }
+
+    public boolean isFirstPhase() {
+        return aggPhase == AggPhase.FIRST;
+    }
+
+    public boolean isDistinctAgg() {
+        return secondPhaseDistinctAggInfo != null;
+    }
+
+    public ExprSubstitutionMap getIntermediateSmap() {
+        return intermediateTupleSmap;
+    }
+
+    public ExprSubstitutionMap getOutputSmap() {
+        return outputTupleSmap;
+    }
+
     public ExprSubstitutionMap getOutputToIntermediateSmap() {
-        return outputToIntermediateTupleSmap_;
+        return outputToIntermediateTupleSmap;
     }
 
     public boolean hasAggregateExprs() {
-        return !aggregateExprs_.isEmpty() ||
-                (secondPhaseDistinctAggInfo_ != null &&
-                        !secondPhaseDistinctAggInfo_.getAggregateExprs().isEmpty());
+        return !aggregateExprs.isEmpty()
+                || (secondPhaseDistinctAggInfo != null
+                && !secondPhaseDistinctAggInfo.getAggregateExprs().isEmpty());
     }
 
-    public void setIsMultiDistinct(boolean value) {
-        this.isMultiDistinct_ = value;
+    public void setIsUsingSetForDistinct(boolean value) {
+        this.isUsingSetForDistinct = value;
     }
 
-    public boolean isMultiDistinct() {
-        return isMultiDistinct_;
+    public boolean isUsingSetForDistinct() {
+        return isUsingSetForDistinct;
     }
 
     public AggregateInfo getSecondPhaseDistinctAggInfo() {
-        return secondPhaseDistinctAggInfo_;
+        return secondPhaseDistinctAggInfo;
     }
 
     /**
      * Return the tuple id produced in the final aggregation step.
      */
     public TupleId getResultTupleId() {
-        if (isDistinctAgg()) return secondPhaseDistinctAggInfo_.getOutputTupleId();
+        if (isDistinctAgg()) {
+            return secondPhaseDistinctAggInfo.getOutputTupleId();
+        }
         return getOutputTupleId();
     }
 
@@ -375,14 +455,14 @@ public final class AggregateInfo extends AggregateInfoBase {
      * of performing the aggregate computation described by this AggregateInfo.
      */
     public void getRefdSlots(List<SlotId> ids) {
-        Preconditions.checkState(outputTupleDesc_ != null);
-        if (groupingExprs_ != null) {
-            Expr.getIds(groupingExprs_, null, ids);
+        Preconditions.checkState(outputTupleDesc != null);
+        if (groupingExprs != null) {
+            Expr.getIds(groupingExprs, null, ids);
         }
-        Expr.getIds(aggregateExprs_, null, ids);
+        Expr.getIds(aggregateExprs, null, ids);
         // The backend assumes that the entire aggTupleDesc is materialized
-        for (int i = 0; i < outputTupleDesc_.getSlots().size(); ++i) {
-            ids.add(outputTupleDesc_.getSlots().get(i).getId());
+        for (int i = 0; i < outputTupleDesc.getSlots().size(); ++i) {
+            ids.add(outputTupleDesc.getSlots().get(i).getId());
         }
     }
 
@@ -406,24 +486,48 @@ public final class AggregateInfo extends AggregateInfoBase {
      *     aggTupleDesc
      */
     public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) {
-        groupingExprs_ = Expr.substituteList(groupingExprs_, smap, analyzer, true);
+        groupingExprs = Expr.substituteList(groupingExprs, smap, analyzer, true);
         if (LOG.isTraceEnabled()) {
-            LOG.trace("AggInfo: grouping_exprs=" + Expr.debugString(groupingExprs_));
+            LOG.trace("AggInfo: grouping_exprs=" + Expr.debugString(groupingExprs));
         }
 
         // The smap in this case should not substitute the aggs themselves, only
         // their subexpressions.
-        List<Expr> substitutedAggs =
-            Expr.substituteList(aggregateExprs_, smap, analyzer, false);
-        aggregateExprs_.clear();
-        for (Expr substitutedAgg: substitutedAggs) {
-            aggregateExprs_.add((FunctionCallExpr) substitutedAgg);
+        List<Expr> substitutedAggs = Expr.substituteList(aggregateExprs, smap, analyzer, false);
+        aggregateExprs.clear();
+        for (Expr substitutedAgg : substitutedAggs) {
+            aggregateExprs.add((FunctionCallExpr) substitutedAgg);
         }
 
-        outputTupleSmap_.substituteLhs(smap, analyzer);
-        intermediateTupleSmap_.substituteLhs(smap, analyzer);
-        if (secondPhaseDistinctAggInfo_ != null) {
-            secondPhaseDistinctAggInfo_.substitute(smap, analyzer);
+        outputTupleSmap.substituteLhs(smap, analyzer);
+        intermediateTupleSmap.substituteLhs(smap, analyzer);
+        if (secondPhaseDistinctAggInfo != null) {
+            secondPhaseDistinctAggInfo.substitute(smap, analyzer);
+        }
+
+
+        // About why:
+        // The outputTuple of the first phase aggregate info is generated at analysis phase of SelectStmt,
+        // and the SlotDescriptor of output tuple of this agg info will refer to the origin column of the
+        // table in the same query block.
+        //
+        // However, if the child node is a HashJoinNode with outerJoin type, the nullability of the SlotDescriptor
+        // might be changed, those changed SlotDescriptor is referred by a SlotRef, and this SlotRef will be added
+        // to the outputSmap of the HashJoinNode.
+        //
+        // In BE execution, the SlotDescriptor which referred by output and groupBy should have the same nullability,
+        // So we need the update SlotDescriptor of output tuple.
+        //
+        // About how:
+        // Since the outputTuple of agg info is simply create a SlotRef and SlotDescriptor for each expr in aggregate
+        // expr and groupBy expr, so we could handle this as this way.
+        for (SlotDescriptor slotDesc : getOutputTupleDesc().getSlots()) {
+            List<Expr> exprList = slotDesc.getSourceExprs();
+            if (exprList.size() > 1) {
+                continue;
+            }
+            Expr srcExpr = exprList.get(0).substitute(smap);
+            slotDesc.setIsNullable(srcExpr.isNullable() || slotDesc.getIsNullable());
         }
     }
 
@@ -439,8 +543,8 @@ public final class AggregateInfo extends AggregateInfoBase {
      * createAggTupleDesc() must not be called on it.
      */
     private void createMergeAggInfo(Analyzer analyzer)  {
-        Preconditions.checkState(mergeAggInfo_ == null);
-        TupleDescriptor inputDesc = intermediateTupleDesc_;
+        Preconditions.checkState(mergeAggInfo == null);
+        TupleDescriptor inputDesc = intermediateTupleDesc;
         // construct grouping exprs
         ArrayList<Expr> groupingExprs = Lists.newArrayList();
         for (int i = 0; i < getGroupingExprs().size(); ++i) {
@@ -454,20 +558,24 @@ public final class AggregateInfo extends AggregateInfoBase {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             Expr aggExprParam =
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
-            FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam));
+            FunctionParams fnParams = inputExpr.getAggFnParams();
+            FunctionCallExpr aggExpr =
+                    FunctionCallExpr.createMergeAggCall(inputExpr, Lists.newArrayList(aggExprParam),
+                            fnParams != null ? fnParams.exprs() : inputExpr.getFnParams().exprs());
             aggExpr.analyzeNoThrow(analyzer);
+            // do not need analyze in merge stage, just do mark for BE get right function
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             aggExprs.add(aggExpr);
         }
 
         AggPhase aggPhase =
-                (aggPhase_ == AggPhase.FIRST) ? AggPhase.FIRST_MERGE : AggPhase.SECOND_MERGE;
-        mergeAggInfo_ = new AggregateInfo(groupingExprs, aggExprs, aggPhase, isMultiDistinct_);
-        mergeAggInfo_.intermediateTupleDesc_ = intermediateTupleDesc_;
-        mergeAggInfo_.outputTupleDesc_ = outputTupleDesc_;
-        mergeAggInfo_.intermediateTupleSmap_ = intermediateTupleSmap_;
-        mergeAggInfo_.outputTupleSmap_ = outputTupleSmap_;
-        mergeAggInfo_.materializedSlots_ = materializedSlots_;
+                (this.aggPhase == AggPhase.FIRST) ? AggPhase.FIRST_MERGE : AggPhase.SECOND_MERGE;
+        mergeAggInfo = new AggregateInfo(groupingExprs, aggExprs, aggPhase, isUsingSetForDistinct);
+        mergeAggInfo.intermediateTupleDesc = intermediateTupleDesc;
+        mergeAggInfo.outputTupleDesc = outputTupleDesc;
+        mergeAggInfo.intermediateTupleSmap = intermediateTupleSmap;
+        mergeAggInfo.outputTupleSmap = outputTupleSmap;
+        mergeAggInfo.materializedSlots = materializedSlots;
     }
 
     /**
@@ -519,20 +627,19 @@ public final class AggregateInfo extends AggregateInfoBase {
     private void createSecondPhaseAggInfo(
             ArrayList<Expr> origGroupingExprs,
             ArrayList<FunctionCallExpr> distinctAggExprs, Analyzer analyzer) throws AnalysisException {
-        Preconditions.checkState(secondPhaseDistinctAggInfo_ == null);
+        Preconditions.checkState(secondPhaseDistinctAggInfo == null);
         Preconditions.checkState(!distinctAggExprs.isEmpty());
 
         // The output of the 1st phase agg is the 1st phase intermediate.
-        TupleDescriptor inputDesc = intermediateTupleDesc_;
+        TupleDescriptor inputDesc = intermediateTupleDesc;
 
         // construct agg exprs for original DISTINCT aggregate functions
         // (these aren't part of this.aggExprs)
         ArrayList<FunctionCallExpr> secondPhaseAggExprs = Lists.newArrayList();
-        int distinctExprPos = 0;
         for (FunctionCallExpr inputExpr : distinctAggExprs) {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             FunctionCallExpr aggExpr = null;
-            if (!isMultiDistinct_) {
+            if (!isUsingSetForDistinct) {
                 if (inputExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
                     // COUNT(DISTINCT ...) ->
                     // COUNT(IF(IsNull(<agg slot 1>), NULL, IF(IsNull(<agg slot 2>), NULL, ...)))
@@ -552,8 +659,17 @@ public final class AggregateInfo extends AggregateInfoBase {
                     // tuple reference is correct.
                     exprList.add(new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size())));
                     // Check if user provided a custom separator
-                    if (inputExpr.getChildren().size() == 2) exprList.add(inputExpr.getChild(1));
-                    aggExpr = new FunctionCallExpr(inputExpr.getFnName(), exprList);
+                    if (inputExpr.getChildren().size() - inputExpr.getOrderByElements().size() == 2) {
+                        exprList.add(inputExpr.getChild(1));
+                    }
+
+                    if (!inputExpr.getOrderByElements().isEmpty()) {
+                        for (int i = 0; i < inputExpr.getOrderByElements().size(); i++) {
+                            inputExpr.getOrderByElements().get(i).setExpr(
+                                new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size() + i + 1)));
+                        }
+                    }
+                    aggExpr = new FunctionCallExpr(inputExpr.getFnName(), exprList, inputExpr.getOrderByElements());
                 } else {
                     // SUM(DISTINCT <expr>) -> SUM(<last grouping slot>);
                     // (MIN(DISTINCT ...) and MAX(DISTINCT ...) have their DISTINCT turned
@@ -562,38 +678,38 @@ public final class AggregateInfo extends AggregateInfoBase {
                     aggExpr = new FunctionCallExpr(inputExpr.getFnName(), Lists.newArrayList(aggExprParam));
                 }
             } else {
-                // multi distinct can't run here    
+                // multi distinct can't run here
                 Preconditions.checkState(false);
             }
             secondPhaseAggExprs.add(aggExpr);
         }
 
         // map all the remaining agg fns
-        for (int i = 0; i < aggregateExprs_.size(); ++i) {
-            FunctionCallExpr inputExpr = aggregateExprs_.get(i);
+        for (int i = 0; i < aggregateExprs.size(); ++i) {
+            FunctionCallExpr inputExpr = aggregateExprs.get(i);
             Preconditions.checkState(inputExpr.isAggregateFunction());
             // we're aggregating an output slot of the 1st agg phase
             Expr aggExprParam =
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam));
+                    inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             secondPhaseAggExprs.add(aggExpr);
         }
         Preconditions.checkState(
-                secondPhaseAggExprs.size() == aggregateExprs_.size() + distinctAggExprs.size());
-
+                secondPhaseAggExprs.size() == aggregateExprs.size() + distinctAggExprs.size());
         for (FunctionCallExpr aggExpr : secondPhaseAggExprs) {
             aggExpr.analyzeNoThrow(analyzer);
             Preconditions.checkState(aggExpr.isAggregateFunction());
         }
 
         ArrayList<Expr> substGroupingExprs =
-                Expr.substituteList(origGroupingExprs, intermediateTupleSmap_, analyzer, false);
-        secondPhaseDistinctAggInfo_ =
-                new AggregateInfo(substGroupingExprs, secondPhaseAggExprs, AggPhase.SECOND, isMultiDistinct_);
-        secondPhaseDistinctAggInfo_.createTupleDescs(analyzer);
-        secondPhaseDistinctAggInfo_.createSecondPhaseAggSMap(this, distinctAggExprs);
-        secondPhaseDistinctAggInfo_.createMergeAggInfo(analyzer);
+                Expr.substituteList(origGroupingExprs, intermediateTupleSmap, analyzer, false);
+        secondPhaseDistinctAggInfo =
+                new AggregateInfo(substGroupingExprs, secondPhaseAggExprs, AggPhase.SECOND, isUsingSetForDistinct);
+        secondPhaseDistinctAggInfo.createTupleDescs(analyzer);
+        secondPhaseDistinctAggInfo.createSecondPhaseAggSMap(this, distinctAggExprs);
+        secondPhaseDistinctAggInfo.createMergeAggInfo(analyzer);
     }
 
     /**
@@ -602,47 +718,45 @@ public final class AggregateInfo extends AggregateInfoBase {
      */
     private void createSecondPhaseAggSMap(
             AggregateInfo inputAggInfo, ArrayList<FunctionCallExpr> distinctAggExprs) {
-        outputTupleSmap_.clear();
+        outputTupleSmap.clear();
         int slotIdx = 0;
-        ArrayList<SlotDescriptor> slotDescs = outputTupleDesc_.getSlots();
+        ArrayList<SlotDescriptor> slotDescs = outputTupleDesc.getSlots();
 
         int numDistinctParams = 0;
-        if (!isMultiDistinct_) {
+        if (!isUsingSetForDistinct) {
             numDistinctParams = distinctAggExprs.get(0).getChildren().size();
-            // If we are counting distinct params of group_concat, we cannot include the custom
-            // separator since it is not a distinct param.
-            if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")
-                    && numDistinctParams == 2) {
-                --numDistinctParams;
-            }
         } else {
             for (int i = 0; i < distinctAggExprs.size(); i++) {
                 numDistinctParams += distinctAggExprs.get(i).getChildren().size();
             }
         }
-
+        // If we are counting distinct params of group_concat, we cannot include the custom
+        // separator since it is not a distinct param.
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            numDistinctParams = 1 + distinctAggExprs.get(0).getOrderByElements().size();
+        }
         int numOrigGroupingExprs = inputAggInfo.getGroupingExprs().size() - numDistinctParams;
         Preconditions.checkState(
-                slotDescs.size() == numOrigGroupingExprs + distinctAggExprs.size() +
-                        inputAggInfo.getAggregateExprs().size());
+                slotDescs.size() == numOrigGroupingExprs + distinctAggExprs.size()
+                        + inputAggInfo.getAggregateExprs().size());
 
         // original grouping exprs -> first m slots
         for (int i = 0; i < numOrigGroupingExprs; ++i, ++slotIdx) {
             Expr groupingExpr = inputAggInfo.getGroupingExprs().get(i);
-            outputTupleSmap_.put(
+            outputTupleSmap.put(
                     groupingExpr.clone(), new SlotRef(slotDescs.get(slotIdx)));
         }
 
         // distinct agg exprs -> next n slots
         for (int i = 0; i < distinctAggExprs.size(); ++i, ++slotIdx) {
             Expr aggExpr = distinctAggExprs.get(i);
-            outputTupleSmap_.put(aggExpr.clone(), (new SlotRef(slotDescs.get(slotIdx))));
+            outputTupleSmap.put(aggExpr.clone(), (new SlotRef(slotDescs.get(slotIdx))));
         }
 
         // remaining agg exprs -> remaining slots
         for (int i = 0; i < inputAggInfo.getAggregateExprs().size(); ++i, ++slotIdx) {
             Expr aggExpr = inputAggInfo.getAggregateExprs().get(i);
-            outputTupleSmap_.put(aggExpr.clone(), new SlotRef(slotDescs.get(slotIdx)));
+            outputTupleSmap.put(aggExpr.clone(), new SlotRef(slotDescs.get(slotIdx)));
         }
     }
 
@@ -653,40 +767,44 @@ public final class AggregateInfo extends AggregateInfoBase {
      * predicates between the grouping slots of the two tuples.
      */
     public void createSmaps(Analyzer analyzer) {
-        Preconditions.checkNotNull(outputTupleDesc_);
-        Preconditions.checkNotNull(intermediateTupleDesc_);
+        Preconditions.checkNotNull(outputTupleDesc);
+        Preconditions.checkNotNull(intermediateTupleDesc);
 
         List<Expr> exprs = Lists.newArrayListWithCapacity(
-                groupingExprs_.size() + aggregateExprs_.size());
-        exprs.addAll(groupingExprs_);
-        exprs.addAll(aggregateExprs_);
+                groupingExprs.size() + aggregateExprs.size());
+        exprs.addAll(groupingExprs);
+        exprs.addAll(aggregateExprs);
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
             if (expr.isImplicitCast()) {
-                outputTupleSmap_.put(expr.getChild(0).clone(),
-                        new SlotRef(outputTupleDesc_.getSlots().get(i)));
+                outputTupleSmap.put(expr.getChild(0).clone(),
+                        new SlotRef(outputTupleDesc.getSlots().get(i)));
             } else {
-                outputTupleSmap_.put(expr.clone(),
-                        new SlotRef(outputTupleDesc_.getSlots().get(i)));
+                outputTupleSmap.put(expr.clone(),
+                        new SlotRef(outputTupleDesc.getSlots().get(i)));
             }
-            if (!requiresIntermediateTuple()) continue;
+            if (!requiresIntermediateTuple()) {
+                continue;
+            }
 
-            intermediateTupleSmap_.put(expr.clone(),
-                    new SlotRef(intermediateTupleDesc_.getSlots().get(i)));
-            outputToIntermediateTupleSmap_.put(
-                    new SlotRef(outputTupleDesc_.getSlots().get(i)),
-                    new SlotRef(intermediateTupleDesc_.getSlots().get(i)));
-            if (i < groupingExprs_.size()) {
+            intermediateTupleSmap.put(expr.clone(),
+                    new SlotRef(intermediateTupleDesc.getSlots().get(i)));
+            outputToIntermediateTupleSmap.put(
+                    new SlotRef(outputTupleDesc.getSlots().get(i)),
+                    new SlotRef(intermediateTupleDesc.getSlots().get(i)));
+            if (i < groupingExprs.size()) {
                 analyzer.createAuxEquivPredicate(
-                        new SlotRef(outputTupleDesc_.getSlots().get(i)),
-                        new SlotRef(intermediateTupleDesc_.getSlots().get(i)));
+                        new SlotRef(outputTupleDesc.getSlots().get(i)),
+                        new SlotRef(intermediateTupleDesc.getSlots().get(i)));
             }
         }
-        if (!requiresIntermediateTuple()) intermediateTupleSmap_ = outputTupleSmap_;
+        if (!requiresIntermediateTuple()) {
+            intermediateTupleSmap = outputTupleSmap;
+        }
 
         if (LOG.isTraceEnabled()) {
-            LOG.trace("output smap=" + outputTupleSmap_.debugString());
-            LOG.trace("intermediate smap=" + intermediateTupleSmap_.debugString());
+            LOG.trace("output smap=" + outputTupleSmap.debugString());
+            LOG.trace("intermediate smap=" + intermediateTupleSmap.debugString());
         }
     }
 
@@ -703,7 +821,7 @@ public final class AggregateInfo extends AggregateInfoBase {
      * - Currently only the sum function will involve this problem.
      */
     public void updateTypeOfAggregateExprs() {
-        for (FunctionCallExpr functionCallExpr : aggregateExprs_) {
+        for (FunctionCallExpr functionCallExpr : aggregateExprs) {
             if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase("sum")) {
                 continue;
             }
@@ -722,6 +840,30 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
     }
 
+    public void updateMaterializedSlots() {
+        // why output and intermediate may have different materialized slots?
+        // because some slot is materialized by materializeSrcExpr method directly
+        // in that case, only output slots is materialized
+        // assume output tuple has correct marterialized infomation
+        // we update intermediate tuple and materializedSlots based on output tuple
+        materializedSlots.clear();
+        ArrayList<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+        int groupingExprNum = groupingExprs != null ? groupingExprs.size() : 0;
+        Preconditions.checkState(groupingExprNum <= outputSlots.size());
+        for (int i = groupingExprNum; i < outputSlots.size(); ++i) {
+            if (outputSlots.get(i).isMaterialized()) {
+                materializedSlots.add(i - groupingExprNum);
+            }
+        }
+
+        ArrayList<SlotDescriptor> intermediateSlots = intermediateTupleDesc.getSlots();
+        Preconditions.checkState(intermediateSlots.size() == outputSlots.size());
+        for (int i = 0; i < outputSlots.size(); ++i) {
+            intermediateSlots.get(i).setIsMaterialized(outputSlots.get(i).isMaterialized());
+        }
+        intermediateTupleDesc.computeStatAndMemLayout();
+    }
+
     /**
      * Mark slots required for this aggregation as materialized:
      * - all grouping output slots as well as grouping exprs
@@ -735,43 +877,45 @@ public final class AggregateInfo extends AggregateInfoBase {
      */
     @Override
     public void materializeRequiredSlots(Analyzer analyzer, ExprSubstitutionMap smap) {
-        for (int i = 0; i < groupingExprs_.size(); ++i) {
-            outputTupleDesc_.getSlots().get(i).setIsMaterialized(true);
-            intermediateTupleDesc_.getSlots().get(i).setIsMaterialized(true);
+        for (int i = 0; i < groupingExprs.size(); ++i) {
+            outputTupleDesc.getSlots().get(i).setIsMaterialized(true);
+            intermediateTupleDesc.getSlots().get(i).setIsMaterialized(true);
         }
 
         // collect input exprs: grouping exprs plus aggregate exprs that need to be
         // materialized
-        materializedSlots_.clear();
+        materializedSlots.clear();
         List<Expr> exprs = Lists.newArrayList();
-        exprs.addAll(groupingExprs_);
-        
-        int aggregateExprsSize = aggregateExprs_.size();
-        int groupExprsSize = groupingExprs_.size();
+        exprs.addAll(groupingExprs);
+
+        int aggregateExprsSize = aggregateExprs.size();
+        int groupExprsSize = groupingExprs.size();
         boolean isDistinctAgg = isDistinctAgg();
         for (int i = 0; i < aggregateExprsSize; ++i) {
-            FunctionCallExpr functionCallExpr = aggregateExprs_.get(i);
+            FunctionCallExpr functionCallExpr = aggregateExprs.get(i);
             SlotDescriptor slotDesc =
-                    outputTupleDesc_.getSlots().get(groupExprsSize + i);
+                    outputTupleDesc.getSlots().get(groupExprsSize + i);
             SlotDescriptor intermediateSlotDesc =
-                    intermediateTupleDesc_.getSlots().get(groupExprsSize + i);
-            if (isDistinctAgg || isMultiDistinct_) {
+                    intermediateTupleDesc.getSlots().get(groupExprsSize + i);
+            if (isDistinctAgg || isUsingSetForDistinct) {
                 slotDesc.setIsMaterialized(true);
                 intermediateSlotDesc.setIsMaterialized(true);
             }
-            
-            if (!slotDesc.isMaterialized()) continue;
-            
+
+            if (!slotDesc.isMaterialized()) {
+                continue;
+            }
+
             intermediateSlotDesc.setIsMaterialized(true);
             exprs.add(functionCallExpr);
-            materializedSlots_.add(i);
+            materializedSlots.add(i);
         }
-        
+
         List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
         analyzer.materializeSlots(resolvedExprs);
 
         if (isDistinctAgg()) {
-            secondPhaseDistinctAggInfo_.materializeRequiredSlots(analyzer, null);
+            secondPhaseDistinctAggInfo.materializeRequiredSlots(analyzer, null);
         }
     }
 
@@ -782,26 +926,26 @@ public final class AggregateInfo extends AggregateInfoBase {
      * because we could derive both hash and order-based partitions
      */
     public DataPartition getPartition() {
-        if (groupingExprs_.isEmpty()) {
+        if (groupingExprs.isEmpty()) {
             return DataPartition.UNPARTITIONED;
         } else {
-            return new DataPartition(TPartitionType.HASH_PARTITIONED, groupingExprs_);
+            return new DataPartition(TPartitionType.HASH_PARTITIONED, groupingExprs);
         }
     }
 
     public String debugString() {
         StringBuilder out = new StringBuilder(super.debugString());
         out.append(MoreObjects.toStringHelper(this)
-                .add("phase", aggPhase_)
-                .add("intermediate_smap", intermediateTupleSmap_.debugString())
-                .add("output_smap", outputTupleSmap_.debugString())
+                .add("phase", aggPhase)
+                .add("intermediate_smap", intermediateTupleSmap.debugString())
+                .add("output_smap", outputTupleSmap.debugString())
                 .toString());
-        if (mergeAggInfo_ != this && mergeAggInfo_ != null) {
-            out.append("\nmergeAggInfo:\n" + mergeAggInfo_.debugString());
+        if (mergeAggInfo != this && mergeAggInfo != null) {
+            out.append("\nmergeAggInfo:\n" + mergeAggInfo.debugString());
         }
-        if (secondPhaseDistinctAggInfo_ != null) {
+        if (secondPhaseDistinctAggInfo != null) {
             out.append("\nsecondPhaseDistinctAggInfo:\n"
-                    + secondPhaseDistinctAggInfo_.debugString());
+                    + secondPhaseDistinctAggInfo.debugString());
         }
         return out.toString();
     }
@@ -817,6 +961,7 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     public List<Expr> getInputPartitionExprs() {
-        return partitionExprs_ != null ? partitionExprs_ : groupingExprs_;
+        return partitionExprs != null ? partitionExprs : groupingExprs;
     }
+
 }

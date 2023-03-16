@@ -17,13 +17,12 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Version;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -35,19 +34,19 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * Api for checking the whether the FE has been started successfully.
  * Response
- *     {
- *     	"msg": "OK",
- *     	"code": 0,
- *     	"data": {
- *     		"queryPort": 9030,
- *     		"rpcPort": 9020,
- *     		"maxReplayedJournal": 17287
- *       },
- *     	"count": 0
- *     }
+ * {
+ *   "msg": "OK",
+ *   "code": 0,
+ *   "data": {
+ *     "queryPort": 9030,
+ *     "rpcPort": 9020,
+ *     "maxReplayedJournal": 17287
+ *    },
+ *   "count": 0
+ * }
  */
 @RestController
-public class BootstrapFinishAction {
+public class BootstrapFinishAction extends RestBaseController {
 
     private static final String CLUSTER_ID = "cluster_id";
     private static final String TOKEN = "token";
@@ -59,7 +58,11 @@ public class BootstrapFinishAction {
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
-        boolean isReady = Catalog.getCurrentCatalog().isReady();
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
+        boolean isReady = Env.getCurrentEnv().isReady();
 
         // to json response
         BootstrapResult result = new BootstrapResult();
@@ -75,16 +78,16 @@ public class BootstrapFinishAction {
                     return ResponseEntityBuilder.badRequest("invalid cluster id format: " + clusterIdStr);
                 }
 
-                if (clusterId != Catalog.getCurrentCatalog().getClusterId()) {
+                if (clusterId != Env.getCurrentEnv().getClusterId()) {
                     return ResponseEntityBuilder.okWithCommonError("invalid cluster id: " + clusterId);
                 }
 
-                if (!token.equals(Catalog.getCurrentCatalog().getToken())) {
+                if (!token.equals(Env.getCurrentEnv().getToken())) {
                     return ResponseEntityBuilder.okWithCommonError("invalid token: " + token);
                 }
 
                 // cluster id and token are valid, return replayed journal id
-                long replayedJournalId = Catalog.getCurrentCatalog().getReplayedJournalId();
+                long replayedJournalId = Env.getCurrentEnv().getReplayedJournalId();
                 result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);

@@ -18,26 +18,26 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.Map;
 
 public class FrontendClause extends AlterClause {
     protected String hostPort;
-    protected String host;
+    protected String ip;
+    protected String hostName;
     protected int port;
     protected FrontendNodeType role;
 
@@ -47,8 +47,12 @@ public class FrontendClause extends AlterClause {
         this.role = role;
     }
 
-    public String getHost() {
-        return host;
+    public String getIp() {
+        return ip;
+    }
+
+    public String getHostName() {
+        return hostName;
     }
 
     public int getPort() {
@@ -57,15 +61,16 @@ public class FrontendClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                 analyzer.getQualifiedUser());
         }
 
-        Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
-        this.host = pair.first;
-        this.port = pair.second;
-        Preconditions.checkState(!Strings.isNullOrEmpty(host));
+        HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+        this.ip = hostInfo.getIp();
+        this.hostName = hostInfo.getHostName();
+        this.port = hostInfo.getPort();
+        Preconditions.checkState(!Strings.isNullOrEmpty(ip));
     }
 
     @Override

@@ -47,7 +47,7 @@ public class PauseRoutineLoadStmt extends DdlStmt {
         return labelName.getLabelName();
     }
 
-    public String getDbFullName(){
+    public String getDbFullName() {
         return db;
     }
 

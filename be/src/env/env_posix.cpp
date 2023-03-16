@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "env/env_posix.h"
+
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -23,22 +25,20 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include <memory>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 
-#include "common/logging.h"
 #include "env/env.h"
-#include "env/env_posix.h"
 #include "gutil/gscoped_ptr.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
-#include "util/file_cache.h"
 #include "util/slice.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using std::string;
 using strings::Substitute;
@@ -67,22 +67,31 @@ static Status io_error(const std::string& context, int err_number) {
     case ENAMETOOLONG:
     case ENOENT:
     case ENOTDIR:
-        return Status::NotFound(context, err_number, errno_to_string(err_number));
+        return Status::NotFound("{} (error {}) {}", context, err_number,
+                                errno_to_string(err_number));
     case EEXIST:
-        return Status::AlreadyExist(context, err_number, errno_to_string(err_number));
+        return Status::AlreadyExist("{} (error {}) {}", context, err_number,
+                                    errno_to_string(err_number));
     case EOPNOTSUPP:
     case EXDEV: // No cross FS links allowed
-        return Status::NotSupported(context, err_number, errno_to_string(err_number));
+        return Status::NotSupported("{} (error {}) {}", context, err_number,
+                                    errno_to_string(err_number));
     case EIO:
         LOG(ERROR) << "I/O error, context=" << context;
     }
-    return Status::IOError(context, err_number, errno_to_string(err_number));
+    return Status::IOError("{} (error {}) {}", context, err_number, errno_to_string(err_number));
 }
 
 static Status do_sync(int fd, const string& filename) {
+#ifdef __APPLE__
+    if (fcntl(fd, F_FULLFSYNC) < 0) {
+        return io_error(filename, errno);
+    }
+#else
     if (fdatasync(fd) < 0) {
         return io_error(filename, errno);
     }
+#endif
     return Status::OK();
 }
 
@@ -101,7 +110,7 @@ static Status do_open(const string& filename, Env::OpenMode mode, int* fd) {
     case Env::MUST_EXIST:
         break;
     default:
-        return Status::NotSupported(strings::Substitute("Unknown create mode $0", mode));
+        return Status::NotSupported("Unknown create mode {}", mode);
     }
     int f;
     RETRY_ON_EINTR(f, open(filename.c_str(), flags, 0666));
@@ -138,8 +147,7 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset, 
         }
 
         if (PREDICT_FALSE(r == 0)) {
-            return Status::EndOfFile(strings::Substitute("EOF trying to read $0 bytes at offset $1",
-                                                         bytes_req, offset));
+            return Status::EndOfFile("EOF trying to read {} bytes at offset {}", bytes_req, offset);
         }
 
         if (PREDICT_TRUE(r == rem)) {
@@ -222,49 +230,6 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset, cons
     return Status::OK();
 }
 
-class PosixSequentialFile : public SequentialFile {
-public:
-    PosixSequentialFile(string fname, FILE* f) : _filename(std::move(fname)), _file(f) {}
-
-    ~PosixSequentialFile() override {
-        int err;
-        RETRY_ON_EINTR(err, fclose(_file));
-        if (PREDICT_FALSE(err != 0)) {
-            LOG(WARNING) << "Failed to close " << _filename
-                         << ", msg=" << errno_to_string(ferror(_file));
-        }
-    }
-
-    Status read(Slice* result) override {
-        size_t r;
-        STREAM_RETRY_ON_EINTR(r, _file, fread_unlocked(result->data, 1, result->size, _file));
-        if (r < result->size) {
-            if (feof(_file)) {
-                // We leave status as ok if we hit the end of the file.
-                // We need to adjust the slice size.
-                result->truncate(r);
-            } else {
-                // A partial read with an error: return a non-ok status.
-                return io_error(_filename, ferror(_file));
-            }
-        }
-        return Status::OK();
-    }
-
-    Status skip(uint64_t n) override {
-        if (fseek(_file, n, SEEK_CUR)) {
-            return io_error(_filename, errno);
-        }
-        return Status::OK();
-    }
-
-    const string& filename() const override { return _filename; }
-
-private:
-    const std::string _filename;
-    FILE* const _file;
-};
-
 class PosixRandomAccessFile : public RandomAccessFile {
 public:
     PosixRandomAccessFile(std::string filename, int fd) : _filename(std::move(filename)), _fd(fd) {}
@@ -289,8 +254,7 @@ public:
         std::fstream fs(_filename.c_str(), std::fstream::in);
         if (!fs.is_open()) {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::IOError(
-                            strings::Substitute("failed to open cluster id file $0", _filename)),
+                    Status::IOError("failed to open cluster id file {}", _filename),
                     "open file failed");
         }
         std::string data;
@@ -300,10 +264,11 @@ public:
             *content = data;
         } else {
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    Status::Corruption(strings::Substitute(
-                            "read_all from file $0 is corrupt. [eofbit=$1 failbit=$2 badbit=$3]",
+                    Status::Corruption(
+                            "read_all from file {} is corrupt. [eofbit={} failbit={} badbit={}]",
                             _filename, fs.rdstate() & std::fstream::eofbit,
-                            fs.rdstate() & std::fstream::failbit, fs.rdstate() & std::fstream::badbit)),
+                            fs.rdstate() & std::fstream::failbit,
+                            fs.rdstate() & std::fstream::badbit),
                     "read_all is error");
         }
         return Status::OK();
@@ -348,6 +313,9 @@ public:
     }
 
     Status pre_allocate(uint64_t size) override {
+#ifdef __APPLE__
+        return io_error(_filename, ENOSYS);
+#else
         uint64_t offset = std::max(_filesize, _pre_allocated_size);
         int ret;
         RETRY_ON_EINTR(ret, fallocate(_fd, 0, offset, size));
@@ -362,6 +330,7 @@ public:
         }
         _pre_allocated_size = offset + size;
         return Status::OK();
+#endif
     }
 
     Status close() override {
@@ -384,7 +353,7 @@ public:
         if (_sync_on_close) {
             Status sync_status = sync();
             if (!sync_status.ok()) {
-                LOG(ERROR) << "Unable to Sync " << _filename << ": " << sync_status.to_string();
+                LOG(ERROR) << "Unable to Sync " << _filename << ": " << sync_status;
                 if (s.ok()) {
                     s = sync_status;
                 }
@@ -449,8 +418,8 @@ public:
 
     ~PosixRandomRWFile() { WARN_IF_ERROR(close(), "Failed to close " + _filename); }
 
-    Status read_at(uint64_t offset, const Slice* result) const override {
-        return readv_at(offset, result, 1);
+    Status read_at(uint64_t offset, const Slice& result) const override {
+        return readv_at(offset, &result, 1);
     }
 
     Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
@@ -493,7 +462,7 @@ public:
         if (_sync_on_close) {
             s = sync();
             if (!s.ok()) {
-                LOG(ERROR) << "Unable to Sync " << _filename << ": " << s.to_string();
+                LOG(ERROR) << "Unable to Sync " << _filename << ": " << s;
             }
         }
 
@@ -527,29 +496,15 @@ private:
     bool _closed = false;
 };
 
-Status PosixEnv::init_conf() {
-    return Status::OK();
-}
-
-Status PosixEnv::new_sequential_file(const string& fname,
-                                     std::unique_ptr<SequentialFile>* result) {
-    FILE* f;
-    POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
-    if (f == nullptr) {
-        return io_error(fname, errno);
-    }
-    result->reset(new PosixSequentialFile(fname, f));
-    return Status::OK();
-}
-
 // get a RandomAccessFile pointer without file cache
 Status PosixEnv::new_random_access_file(const std::string& fname,
-                              std::unique_ptr<RandomAccessFile>* result) {
+                                        std::unique_ptr<RandomAccessFile>* result) {
     return new_random_access_file(RandomAccessFileOptions(), fname, result);
 }
 
-Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
-                              std::unique_ptr<RandomAccessFile>* result) {
+Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts,
+                                        const std::string& fname,
+                                        std::unique_ptr<RandomAccessFile>* result) {
     int fd;
     RETRY_ON_EINTR(fd, open(fname.c_str(), O_RDONLY));
     if (fd < 0) {
@@ -564,7 +519,7 @@ Status PosixEnv::new_writable_file(const string& fname, std::unique_ptr<Writable
 }
 
 Status PosixEnv::new_writable_file(const WritableFileOptions& opts, const string& fname,
-                         std::unique_ptr<WritableFile>* result) {
+                                   std::unique_ptr<WritableFile>* result) {
     int fd;
     RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
 
@@ -581,7 +536,7 @@ Status PosixEnv::new_random_rw_file(const string& fname, std::unique_ptr<RandomR
 }
 
 Status PosixEnv::new_random_rw_file(const RandomRWFileOptions& opts, const string& fname,
-                          std::unique_ptr<RandomRWFile>* result) {
+                                    std::unique_ptr<RandomRWFile>* result) {
     int fd;
     RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
     result->reset(new PosixRandomRWFile(fname, fd, opts.sync_on_close));
@@ -609,8 +564,7 @@ Status PosixEnv::get_children(const std::string& dir, std::vector<std::string>* 
     return Status::OK();
 }
 
-Status PosixEnv::iterate_dir(const std::string& dir,
-                   const std::function<bool(const char*)>& cb) {
+Status PosixEnv::iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) {
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
         return io_error(dir, errno);
@@ -647,13 +601,13 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
     }
 
     // Check that dirname is actually a directory.
-    if (s.is_already_exist()) {
+    if (s.is<ALREADY_EXIST>()) {
         bool is_dir = false;
         RETURN_IF_ERROR(is_directory(dirname, &is_dir));
         if (is_dir) {
             return Status::OK();
         } else {
-            return s.clone_and_append("path already exists but not a dir");
+            return std::move(s.append("path already exists but not a dir"));
         }
     }
     return s;
@@ -661,7 +615,7 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
 
 Status PosixEnv::create_dirs(const string& dirname) {
     if (dirname.empty()) {
-        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", dirname));
+        return Status::InvalidArgument("Unknown primitive type({})", dirname);
     }
 
     std::filesystem::path p(dirname);
@@ -688,7 +642,7 @@ Status PosixEnv::create_dirs(const string& dirname) {
                 // It's a symlink to a directory.
                 continue;
             } else {
-                return Status::IOError(partial_path + " exists but is not a directory");
+                return Status::IOError("{} exists but is not a directory", partial_path);
             }
         }
 
@@ -736,7 +690,7 @@ Status PosixEnv::is_directory(const std::string& path, bool* is_dir) {
 }
 
 Status PosixEnv::canonicalize(const std::string& path, std::string* result) {
-    // NOTE: we must use free() to release the buffer retruned by realpath(),
+    // NOTE: we must use free() to release the buffer returned by realpath(),
     // because the buffer is allocated by malloc(), see `man 3 realpath`.
     std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
     if (r == nullptr) {
@@ -799,14 +753,11 @@ Status PosixEnv::get_space_info(const std::string& path, int64_t* capacity, int6
     try {
         std::filesystem::path path_name(path);
         std::filesystem::space_info path_info = std::filesystem::space(path_name);
-        if (*capacity <= 0) {
-            *capacity = path_info.capacity;
-        }
+        *capacity = path_info.capacity;
         *available = path_info.available;
     } catch (std::filesystem::filesystem_error& e) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute(
-                        "get path $0 available capacity failed, error=$1", path, e.what())),
+                Status::IOError("get path {} available capacity failed, error={}", path, e.what()),
                 "std::filesystem::space failed");
     }
     return Status::OK();

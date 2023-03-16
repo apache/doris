@@ -19,13 +19,9 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include "olap/collect_iterator.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/tablet.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_reader.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris {
@@ -37,41 +33,36 @@ public:
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
-    OLAPStatus init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params) override;
 
-    OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                         ObjectPool* agg_pool, bool* eof) override {
-        return OLAP_ERR_READER_INITIALIZE_ERROR;
+    Status next_block_with_aggregation(Block* block, bool* eof) override {
+        return (this->*_next_block_func)(block, eof);
     }
 
-    OLAPStatus next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) override {
-        return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
+
+    bool update_profile(RuntimeProfile* profile) override {
+        return _vcollect_iter.update_profile(profile);
     }
+
+    ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter) override;
 
 private:
-    friend class VCollectIterator;
-    friend class DeleteHandler;
-
-    // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
+    // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
-    OLAPStatus _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _direct_next_block(Block* block, bool* eof);
     // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
     // And this is an optimization for AGGR tables.
     // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    OLAPStatus _direct_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                          bool* eof);
+    Status _direct_agg_key_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
-    OLAPStatus _agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                   bool* eof);
+    Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
-    OLAPStatus _unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                      bool* eof);
+    Status _unique_key_next_block(Block* block, bool* eof);
 
-    OLAPStatus _init_collect_iter(const ReaderParams& read_params,
-                                  std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _init_collect_iter(const ReaderParams& read_params);
 
     void _init_agg_state(const ReaderParams& read_params);
 
@@ -84,6 +75,10 @@ private:
     size_t _copy_agg_data();
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
+
+    bool _get_next_row_same();
+
+    bool _rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
@@ -104,12 +99,17 @@ private:
     std::vector<bool> _stored_has_null_tag;
     std::vector<bool> _stored_has_string_tag;
 
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int16_t, int16_t>>> _temp_ref_map;
+    phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     bool _eof = false;
 
-    OLAPStatus (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool,
-                                                ObjectPool* agg_pool, bool* eof) = nullptr;
+    Status (BlockReader::*_next_block_func)(Block* block, bool* eof) = nullptr;
+
+    std::vector<RowLocation> _block_row_locations;
+
+    ColumnPtr _delete_filter_column;
+
+    bool _is_rowsets_overlapping = true;
 };
 
 } // namespace vectorized

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
@@ -30,39 +31,103 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 public interface LoadTaskInfo {
-    public boolean getNegative();
-    public long getTxnId();
-    public int getTimeout();
-    public long getMemLimit();
-    public String getTimezone();
-    public PartitionNames getPartitions();
-    public LoadTask.MergeType getMergeType();
-    public Expr getDeleteCondition();
-    public boolean hasSequenceCol();
-    public String getSequenceCol();
-    public TFileType getFileType();
-    public TFileFormatType getFormatType();
-    public String getJsonPaths();
-    public String getJsonRoot();
-    public boolean isStripOuterArray();
-    public boolean isFuzzyParse();
-    public boolean isNumAsString();
-    public boolean isReadJsonByLine();
-    public String getPath();
+    boolean getNegative();
 
-    public double getMaxFilterRatio();
+    long getTxnId();
 
-    public ImportColumnDescs getColumnExprDescs();
-    public boolean isStrictMode();
+    int getTimeout();
 
-    public Expr getPrecedingFilter();
-    public Expr getWhereExpr();
-    public Separator getColumnSeparator();
-    public Separator getLineDelimiter();
-    public int getSendBatchParallelism();
+    long getMemLimit();
 
-    public static class ImportColumnDescs {
+    String getTimezone();
+
+    PartitionNames getPartitions();
+
+    LoadTask.MergeType getMergeType();
+
+    Expr getDeleteCondition();
+
+    boolean hasSequenceCol();
+
+    String getSequenceCol();
+
+    TFileType getFileType();
+
+    TFileFormatType getFormatType();
+
+    TFileCompressType getCompressType();
+
+    String getJsonPaths();
+
+    String getJsonRoot();
+
+    boolean isStripOuterArray();
+
+    boolean isFuzzyParse();
+
+    boolean isNumAsString();
+
+    boolean isReadJsonByLine();
+
+    String getPath();
+
+    default long getFileSize() {
+        return 0;
+    }
+
+    double getMaxFilterRatio();
+
+    ImportColumnDescs getColumnExprDescs();
+
+    boolean isStrictMode();
+
+    Expr getPrecedingFilter();
+
+    Expr getWhereExpr();
+
+    Separator getColumnSeparator();
+
+    Separator getLineDelimiter();
+
+    int getSendBatchParallelism();
+
+    boolean isLoadToSingleTablet();
+
+    String getHeaderType();
+
+    List<String> getHiddenColumns();
+
+    default boolean getTrimDoubleQuotes() {
+        return false;
+    }
+
+    default int getSkipLines() {
+        return 0;
+    }
+
+    class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;
+
+        public List<String> getFileColNames() {
+            List<String> colNames = Lists.newArrayList();
+            for (ImportColumnDesc desc : descs) {
+                if (desc.isColumn()) {
+                    colNames.add(desc.getColumnName());
+                }
+            }
+            return colNames;
+        }
+
+        public List<Expr> getColumnMappingList() {
+            List<Expr> exprs = Lists.newArrayList();
+            for (ImportColumnDesc desc : descs) {
+                if (!desc.isColumn()) {
+                    exprs.add(desc.toBinaryPredicate());
+                }
+            }
+            return exprs;
+        }
     }
 }
+

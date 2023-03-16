@@ -20,8 +20,12 @@ package org.apache.doris.persist;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
+/**
+ * Operation name and code mapping.
+ **/
 public class OperationType {
-    public static final short OP_INVALID = -1;
+    // OP_LOCAL_EOF is only for local edit log, to indicate the end of a edit log run.
+    public static final short OP_LOCAL_EOF = -1;
     public static final short OP_SAVE_NEXTID = 0;
     public static final short OP_CREATE_DB = 1;
     public static final short OP_DROP_DB = 2;
@@ -42,6 +46,7 @@ public class OperationType {
     public static final short OP_RECOVER_PARTITION = 18;
     public static final short OP_RENAME_TABLE = 19;
     public static final short OP_RENAME_PARTITION = 110;
+    public static final short OP_RENAME_COLUMN = 115;
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
     public static final short OP_TRUNCATE_TABLE = 118;
@@ -69,6 +74,12 @@ public class OperationType {
     public static final short OP_MODIFY_COMMENT = 126;
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
+    //schema change for add and drop columns
+    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+
+    //schema change for add and drop inverted indices
+    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
     public static final short OP_LOAD_START = 30;
@@ -79,6 +90,7 @@ public class OperationType {
     public static final short OP_LOAD_CANCEL = 35;
     public static final short OP_EXPORT_CREATE = 36;
     public static final short OP_EXPORT_UPDATE_STATE = 37;
+    public static final short OP_CLEAN_LABEL = 38;
 
     @Deprecated
     public static final short OP_FINISH_SYNC_DELETE = 40;
@@ -88,8 +100,10 @@ public class OperationType {
     @Deprecated
     public static final short OP_FINISH_ASYNC_DELETE = 44;
     public static final short OP_UPDATE_REPLICA = 45;
+    @Deprecated
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
+    public static final short OP_BACKEND_REPLICAS_INFO = 48;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -136,6 +150,8 @@ public class OperationType {
     public static final short OP_DROP_REPOSITORY = 90;
     public static final short OP_MODIFY_BACKEND = 91;
 
+    public static final short OP_MODIFY_FRONTEND = 92;
+
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
@@ -147,12 +163,15 @@ public class OperationType {
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
     @Deprecated
-    // use OP_BATCH_REMOVE_TXNS instead
+    // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
     public static final short OP_FINISHING_ROLLUP = 102;
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
+    @Deprecated
+    // use OP_BATCH_REMOVE_TXNS_V2 instead
     public static final short OP_BATCH_REMOVE_TXNS = 105;
+    public static final short OP_BATCH_REMOVE_TXNS_V2 = 106;
 
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;
@@ -205,6 +224,7 @@ public class OperationType {
     // resource 276~290
     public static final short OP_CREATE_RESOURCE = 276;
     public static final short OP_DROP_RESOURCE = 277;
+    public static final short OP_ALTER_RESOURCE = 278;
 
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
@@ -216,7 +236,51 @@ public class OperationType {
     public static final short OP_ALTER_SQL_BLOCK_RULE = 301;
     public static final short OP_DROP_SQL_BLOCK_RULE = 302;
 
-    // get opcode name by op codeStri
+    // policy 310-320
+    public static final short OP_CREATE_POLICY = 310;
+    public static final short OP_DROP_POLICY = 311;
+    public static final short OP_ALTER_STORAGE_POLICY = 312;
+
+    // catalog 320-330
+    public static final short OP_CREATE_CATALOG = 320;
+    public static final short OP_DROP_CATALOG = 321;
+    public static final short OP_ALTER_CATALOG_NAME = 322;
+    public static final short OP_ALTER_CATALOG_PROPS = 323;
+    public static final short OP_REFRESH_CATALOG = 324;
+    public static final short OP_INIT_CATALOG = 325;
+    public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    public static final short OP_INIT_EXTERNAL_DB = 327;
+    public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
+    @Deprecated
+    public static final short OP_INIT_EXTERNAL_TABLE = 329;
+
+    // scheduler job and task 330-350
+    public static final short OP_CREATE_MTMV_JOB = 330;
+    public static final short OP_DROP_MTMV_JOB = 331;
+    public static final short OP_CHANGE_MTMV_JOB = 332;
+
+    public static final short OP_CREATE_MTMV_TASK = 340;
+    public static final short OP_DROP_MTMV_TASK = 341;
+    public static final short OP_CHANGE_MTMV_TASK = 342;
+
+    public static final short OP_ALTER_MTMV_STMT = 345;
+
+    public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    public static final short OP_DROP_EXTERNAL_DB = 351;
+    public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    public static final short OP_CREATE_EXTERNAL_DB = 353;
+    public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
+
+    public static final short OP_ALTER_USER = 400;
+    // cooldown related
+    public static final short OP_UPDATE_COOLDOWN_CONF = 401;
+    public static final short OP_COOLDOWN_DELETE = 402;
+
+    /**
+     * Get opcode name by op code.
+     **/
     public static String getOpName(short opCode) {
         try {
             Field[] fields = OperationType.class.getDeclaredFields();

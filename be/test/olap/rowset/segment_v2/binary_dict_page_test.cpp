@@ -25,13 +25,13 @@
 #include "common/logging.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "testutil/test_util.h"
 #include "util/debug_util.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -48,54 +48,55 @@ public:
 
         const Slice* ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        EXPECT_TRUE(ret.ok());
 
         OwnedSlice s = page_builder.finish();
-        ASSERT_EQ(slices.size(), page_builder.count());
-        ASSERT_FALSE(page_builder.is_page_full());
+        EXPECT_EQ(slices.size(), page_builder.count());
+        EXPECT_FALSE(page_builder.is_page_full());
 
         //check first value and last value
         Slice first_value;
         page_builder.get_first_value(&first_value);
-        ASSERT_EQ(slices[0], first_value);
+        EXPECT_EQ(slices[0], first_value);
         Slice last_value;
         page_builder.get_last_value(&last_value);
-        ASSERT_EQ(slices[count - 1], last_value);
+        EXPECT_EQ(slices[count - 1], last_value);
 
         // construct dict page
         OwnedSlice dict_slice;
         Status status = page_builder.get_dictionary_page(&dict_slice);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         PageDecoderOptions dict_decoder_options;
-        std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+        std::unique_ptr<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>> dict_page_decoder(
+                new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>(dict_slice.slice(),
+                                                                    dict_decoder_options));
         status = dict_page_decoder->init();
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // because every slice is unique
-        ASSERT_EQ(slices.size(), dict_page_decoder->count());
+        EXPECT_EQ(slices.size(), dict_page_decoder->count());
 
-        uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-        uint32_t dict_len_array[dict_page_decoder->_num_elems];
-        for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-            const uint32_t start_offset = dict_page_decoder->offset(i);
-            uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-            dict_start_offset_array[i] = start_offset;
-            dict_len_array[i] = len;
-        }
+        StringRef dict_word_info[dict_page_decoder->_num_elems];
+        dict_page_decoder->get_dict_word_info(dict_word_info);
 
         // decode
         PageDecoderOptions decoder_options;
-        BinaryDictPageDecoder page_decoder(s.slice(), decoder_options);
+        BinaryDictPageDecoder page_decoder_(s.slice(), decoder_options);
+        status = page_decoder_.init();
+        EXPECT_FALSE(status.ok());
 
-        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
-
+        segment_v2::BitShufflePagePreDecoder<true> pre_decoder;
+        Slice page_slice = s.slice();
+        std::unique_ptr<char[]> auto_release;
+        pre_decoder.decode(&auto_release, &page_slice, 0);
+        BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(slices.size(), page_decoder.count());
+        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(slices.size(), page_decoder.count());
 
         //check values
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
-        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        MemPool pool;
+        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
@@ -104,25 +105,25 @@ public:
 
         status = page_decoder.next_batch(&size, &block_view);
         Slice* values = reinterpret_cast<Slice*>(column_block.data());
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(slices.size(), size);
-        ASSERT_EQ("Individual", values[0].to_string());
-        ASSERT_EQ("Lifetime", values[1].to_string());
-        ASSERT_EQ("Objective", values[2].to_string());
-        ASSERT_EQ("Value", values[3].to_string());
-        ASSERT_EQ("Evolution", values[4].to_string());
-        ASSERT_EQ("Nature", values[5].to_string());
-        ASSERT_EQ("Captain", values[6].to_string());
-        ASSERT_EQ("Xmas", values[7].to_string());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(slices.size(), size);
+        EXPECT_EQ("Individual", values[0].to_string());
+        EXPECT_EQ("Lifetime", values[1].to_string());
+        EXPECT_EQ("Objective", values[2].to_string());
+        EXPECT_EQ("Value", values[3].to_string());
+        EXPECT_EQ("Evolution", values[4].to_string());
+        EXPECT_EQ("Nature", values[5].to_string());
+        EXPECT_EQ("Captain", values[6].to_string());
+        EXPECT_EQ("Xmas", values[7].to_string());
 
         status = page_decoder.seek_to_position_in_page(5);
         status = page_decoder.next_batch(&size, &block_view);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // read 3 items
-        ASSERT_EQ(3, size);
-        ASSERT_EQ("Nature", values[0].to_string());
-        ASSERT_EQ("Captain", values[1].to_string());
-        ASSERT_EQ("Xmas", values[2].to_string());
+        EXPECT_EQ(3, size);
+        EXPECT_EQ("Nature", values[0].to_string());
+        EXPECT_EQ("Captain", values[1].to_string());
+        EXPECT_EQ("Xmas", values[2].to_string());
     }
 
     void test_with_large_data_size(const std::vector<Slice>& contents) {
@@ -141,6 +142,7 @@ public:
             size_t add_num = 1;
             const Slice* ptr = &contents[i];
             Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &add_num);
+            EXPECT_TRUE(ret.ok());
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 total_size += s.slice().size;
@@ -160,7 +162,7 @@ public:
         Status status = page_builder.get_dictionary_page(&dict_slice);
         size_t data_size = total_size;
         total_size += dict_slice.slice().size;
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         LOG(INFO) << "total size:" << total_size << ", data size:" << data_size
                   << ", dict size:" << dict_slice.slice().size
                   << " result page size:" << results.size();
@@ -172,32 +174,33 @@ public:
             int slice_index = random() % results.size();
             //int slice_index = 1;
             PageDecoderOptions dict_decoder_options;
-            std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+            std::unique_ptr<BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>> dict_page_decoder(
+                    new BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>(dict_slice.slice(),
+                                                                        dict_decoder_options));
             status = dict_page_decoder->init();
-            ASSERT_TRUE(status.ok());
+            EXPECT_TRUE(status.ok());
 
-            uint32_t dict_start_offset_array[dict_page_decoder->_num_elems];
-            uint32_t dict_len_array[dict_page_decoder->_num_elems];
-            for (int i = 0; i < dict_page_decoder->_num_elems; i++) {
-                const uint32_t start_offset = dict_page_decoder->offset(i);
-                uint32_t len = dict_page_decoder->offset(i + 1) - start_offset;
-                dict_start_offset_array[i] = start_offset;
-                dict_len_array[i] = len;
-            }
+            StringRef dict_word_info[dict_page_decoder->_num_elems];
+            dict_page_decoder->get_dict_word_info(dict_word_info);
 
             // decode
             PageDecoderOptions decoder_options;
-            BinaryDictPageDecoder page_decoder(results[slice_index].slice(), decoder_options);
-            status = page_decoder.init();
+            Slice page_slice = results[slice_index].slice();
+            BinaryDictPageDecoder page_decoder_(page_slice, decoder_options);
+            status = page_decoder_.init();
+            EXPECT_FALSE(status.ok());
 
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_start_offset_array, dict_len_array);
-            ASSERT_TRUE(status.ok());
+            segment_v2::BitShufflePagePreDecoder<true> pre_decoder;
+            std::unique_ptr<char[]> auto_release;
+            pre_decoder.decode(&auto_release, &page_slice, 0);
+            BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
+            status = page_decoder.init();
+            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+            EXPECT_TRUE(status.ok());
 
             //check values
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
-            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            MemPool pool;
+            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);
@@ -209,10 +212,10 @@ public:
             //size_t pos = 613631;
             status = page_decoder.seek_to_position_in_page(pos);
             status = page_decoder.next_batch(&num, &block_view);
-            ASSERT_TRUE(status.ok());
+            EXPECT_TRUE(status.ok());
             std::string expect = contents[page_start_ids[slice_index] + pos].to_string();
             std::string actual = values[0].to_string();
-            ASSERT_EQ(expect, actual) << "slice index:" << slice_index << ", pos:" << pos
+            EXPECT_EQ(expect, actual) << "slice index:" << slice_index << ", pos:" << pos
                                       << ", expect:" << hexdump((char*)expect.data(), expect.size())
                                       << ", actual:" << hexdump((char*)actual.data(), actual.size())
                                       << ", line number:" << page_start_ids[slice_index] + pos + 1;
@@ -254,8 +257,3 @@ TEST_F(BinaryDictPageTest, TestEncodingRatio) {
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

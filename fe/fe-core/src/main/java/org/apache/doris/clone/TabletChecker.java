@@ -19,8 +19,8 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -46,7 +46,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,18 +64,20 @@ import java.util.stream.Collectors;
 public class TabletChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
-    private Catalog catalog;
+    private Env env;
     private SystemInfoService infoService;
     private TabletScheduler tabletScheduler;
     private TabletSchedulerStat stat;
 
-    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>() {{
-        put("total", new AtomicLong(0L));
-        put("unhealthy", new AtomicLong(0L));
-        put("added", new AtomicLong(0L));
-        put("in_sched", new AtomicLong(0L));
-        put("not_ready", new AtomicLong(0L));
-    }};
+    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>() {
+        {
+            put("total", new AtomicLong(0L));
+            put("unhealthy", new AtomicLong(0L));
+            put("added", new AtomicLong(0L));
+            put("in_sched", new AtomicLong(0L));
+            put("not_ready", new AtomicLong(0L));
+        }
+    };
 
     // db id -> (tbl id -> PrioPart)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
@@ -124,10 +125,10 @@ public class TabletChecker extends MasterDaemon {
         }
     }
 
-    public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
+    public TabletChecker(Env env, SystemInfoService infoService, TabletScheduler tabletScheduler,
                          TabletSchedulerStat stat) {
         super("tablet checker", FeConstants.tablet_checker_interval_ms);
-        this.catalog = catalog;
+        this.env = env;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
         this.stat = stat;
@@ -145,7 +146,7 @@ public class TabletChecker extends MasterDaemon {
                 }
             };
             gauge.addLabel(new MetricLabel("type", status));
-            MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
+            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
         }
     }
 
@@ -166,7 +167,8 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // we also need to change the priority of tablets which are already in
-        tabletScheduler.changeTabletsPriorityToVeryHigh(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        tabletScheduler.changeTabletsPriorityToVeryHigh(
+                repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     private void removePrios(RepairTabletInfo repairTabletInfo) {
@@ -209,7 +211,7 @@ public class TabletChecker extends MasterDaemon {
         removePriosIfNecessary();
 
         stat.counterTabletCheckRound.incrementAndGet();
-        LOG.info(stat.incrementalBrief());
+        LOG.debug(stat.incrementalBrief());
     }
 
     private static class CheckerCounter {
@@ -239,7 +241,7 @@ public class TabletChecker extends MasterDaemon {
 
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
-            Database db = catalog.getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -271,10 +273,10 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // 2. Traverse other partitions not in "prios"
-        List<Long> dbIds = catalog.getDbIds();
+        List<Long> dbIds = env.getInternalCatalog().getDbIds();
         OUT:
         for (Long dbId : dbIds) {
-            Database db = catalog.getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -332,7 +334,7 @@ public class TabletChecker extends MasterDaemon {
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
-                                                    List<Long> aliveBeIdsInCluster, long startTime, CheckerCounter counter) {
+            List<Long> aliveBeIdsInCluster, long startTime, CheckerCounter counter) {
         if (partition.getState() != PartitionState.NORMAL) {
             // when alter job is in FINISHING state, partition state will be set to NORMAL,
             // and we can schedule the tablets in it.
@@ -355,7 +357,6 @@ public class TabletChecker extends MasterDaemon {
                         infoService,
                         db.getClusterName(),
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
 
@@ -434,7 +435,7 @@ public class TabletChecker extends MasterDaemon {
         while (iter.hasNext()) {
             Map.Entry<Long, Map<Long, Set<PrioPart>>> dbEntry = iter.next();
             long dbId = dbEntry.getKey();
-            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 iter.remove();
                 continue;
@@ -446,7 +447,7 @@ public class TabletChecker extends MasterDaemon {
                 long tblId = tblEntry.getKey();
                 OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
-                    deletedPrios.add(Pair.create(dbId, tblId));
+                    deletedPrios.add(Pair.of(dbId, tblId));
                     continue;
                 }
                 tbl.readLock();
@@ -455,7 +456,7 @@ public class TabletChecker extends MasterDaemon {
                     parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
                             Collectors.toSet());
                     if (parts.isEmpty()) {
-                        deletedPrios.add(Pair.create(dbId, tblId));
+                        deletedPrios.add(Pair.of(dbId, tblId));
                     }
                 } finally {
                     tbl.readUnlock();
@@ -478,9 +479,11 @@ public class TabletChecker extends MasterDaemon {
      * when being scheduled.
      */
     public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(
+                stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
         addPrios(repairTabletInfo, stmt.getTimeoutS() * 1000);
-        LOG.info("repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        LOG.info("repair database: {}, table: {}, partition: {}",
+                repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     /*
@@ -488,9 +491,11 @@ public class TabletChecker extends MasterDaemon {
      * This operation will remove the specified partitions from 'prios'
      */
     public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        RepairTabletInfo repairTabletInfo
+                = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
         removePrios(repairTabletInfo);
-        LOG.info("cancel repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        LOG.info("cancel repair database: {}, table: {}, partition: {}",
+                repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     public int getPrioPartitionNum() {
@@ -520,9 +525,10 @@ public class TabletChecker extends MasterDaemon {
         return infos;
     }
 
-    public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions) throws DdlException {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDbOrDdlException(dbName);
+    public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName,
+            List<String> partitions) throws DdlException {
+        Env env = Env.getCurrentEnv();
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
 
         long dbId = db.getId();
         long tblId = -1;

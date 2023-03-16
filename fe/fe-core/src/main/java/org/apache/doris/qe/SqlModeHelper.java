@@ -18,16 +18,16 @@
 package org.apache.doris.qe;
 
 
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang.StringUtils;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +40,8 @@ public class SqlModeHelper {
     //  of how they works and to be compatible with MySQL, so for now they are not
     //  really meaningful.
     /* Bits for different SQL MODE modes, you can add custom SQL MODE here */
-    public static final long MODE_REAL_AS_FLOAT = 1L;
+    /* When a new session is created, its sql mode is set to MODE_DEFAULT */
+    public static final long MODE_DEFAULT = 1L;
     public static final long MODE_PIPES_AS_CONCAT = 2L;
     public static final long MODE_ANSI_QUOTES = 4L;
     public static final long MODE_IGNORE_SPACE = 8L;
@@ -60,7 +61,7 @@ public class SqlModeHelper {
     public static final long MODE_NO_ZERO_DATE = 1L << 24;
     public static final long MODE_INVALID_DATES = 1L << 25;
     public static final long MODE_ERROR_FOR_DIVISION_BY_ZERO = 1L << 26;
-    public static final long MODE_HIGH_NOT_PRECEDENCE = 1L <<29;
+    public static final long MODE_HIGH_NOT_PRECEDENCE = 1L << 29;
     public static final long MODE_NO_ENGINE_SUBSTITUTION = 1L << 30;
     public static final long MODE_PAD_CHAR_TO_FULL_LENGTH = 1L << 31;
     public static final long MODE_TIME_TRUNCATE_FRACTIONAL = 1L << 32;
@@ -69,29 +70,27 @@ public class SqlModeHelper {
     public static final long MODE_ANSI = 1L << 18;
     public static final long MODE_TRADITIONAL = 1L << 27;
 
-    public final static long MODE_LAST = 1L << 33;
+    public static final long MODE_LAST = 1L << 33;
+    public static final long MODE_REAL_AS_FLOAT = 1L << 34;
 
-    /* When a new session is create, its sql mode is set to MODE_DEFAULT */
-    public final static long MODE_DEFAULT = 0L;
 
-    public final static long MODE_ALLOWED_MASK =
-            (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
-                    MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |
-                    MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE |
-                    MODE_NO_AUTO_VALUE_ON_ZERO | MODE_NO_BACKSLASH_ESCAPES |
-                    MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE |
-                    MODE_NO_ZERO_DATE | MODE_INVALID_DATES | MODE_ERROR_FOR_DIVISION_BY_ZERO |
-                    MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION |
-                    MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI |
-                    MODE_TIME_TRUNCATE_FRACTIONAL);
+    public static final long MODE_ALLOWED_MASK =
+            (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_NOT_USED
+                    | MODE_ONLY_FULL_GROUP_BY | MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE
+                    | MODE_NO_AUTO_VALUE_ON_ZERO | MODE_NO_BACKSLASH_ESCAPES | MODE_STRICT_TRANS_TABLES
+                    | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_INVALID_DATES
+                    | MODE_ERROR_FOR_DIVISION_BY_ZERO | MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION
+                    | MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI | MODE_TIME_TRUNCATE_FRACTIONAL
+                    | MODE_DEFAULT);
 
-    public final static long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
+    public static final long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
 
-    private final static Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
-    private final static Map<String, Long> combineModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, Long> combineModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     static {
+        sqlModeSet.put("DEFAULT", MODE_DEFAULT);
         sqlModeSet.put("REAL_AS_FLOAT", MODE_REAL_AS_FLOAT);
         sqlModeSet.put("PIPES_AS_CONCAT", MODE_PIPES_AS_CONCAT);
         sqlModeSet.put("ANSI_QUOTES", MODE_ANSI_QUOTES);
@@ -115,17 +114,17 @@ public class SqlModeHelper {
         sqlModeSet.put("PAD_CHAR_TO_FULL_LENGTH", MODE_PAD_CHAR_TO_FULL_LENGTH);
         sqlModeSet.put("TIME_TRUNCATE_FRACTIONAL", MODE_TIME_TRUNCATE_FRACTIONAL);
 
-        combineModeSet.put("ANSI", (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT |
-                MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_ONLY_FULL_GROUP_BY));
-        combineModeSet.put("TRADITIONAL", (MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES |
-                MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_ERROR_FOR_DIVISION_BY_ZERO |
-                MODE_NO_ENGINE_SUBSTITUTION));
+        combineModeSet.put("ANSI", (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT
+                | MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_ONLY_FULL_GROUP_BY));
+        combineModeSet.put("TRADITIONAL", (MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES
+                | MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_ERROR_FOR_DIVISION_BY_ZERO
+                | MODE_NO_ENGINE_SUBSTITUTION));
     }
 
     // convert long type SQL MODE to string type that user can read
     public static String decode(Long sqlMode) throws DdlException {
-        // 0 parse to empty string
-        if (sqlMode == 0) {
+        if (sqlMode == MODE_DEFAULT) {
+            //For compatibility with older versions， return empty string
             return "";
         }
         if ((sqlMode & ~MODE_ALLOWED_MASK) != 0) {

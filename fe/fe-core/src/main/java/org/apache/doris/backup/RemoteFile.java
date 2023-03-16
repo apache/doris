@@ -26,7 +26,7 @@ public class RemoteFile {
     private String name;
     private boolean isFile;
     private long size;
-    
+
     public RemoteFile(String name, boolean isFile, long size) {
         Preconditions.checkState(!Strings.isNullOrEmpty(name));
         this.name = name;

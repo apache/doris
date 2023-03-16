@@ -20,32 +20,34 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -67,10 +69,11 @@ public class LoadingTaskPlanner {
     private final long timeoutS;    // timeout of load job, in second
     private final int loadParallelism;
     private final int sendBatchParallelism;
+    private final boolean useNewLoadScanNode;
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
-    private Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), new ConnectContext());
+    private Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), new ConnectContext());
     private DescriptorTable descTable = analyzer.getDescTbl();
 
     // Output params
@@ -80,9 +83,9 @@ public class LoadingTaskPlanner {
     private int nextNodeId = 0;
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
-                              BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode, String timezone, long timeoutS, int loadParallelism,
-                              int sendBatchParallelism, UserIdentity userInfo) {
+            BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
+            boolean strictMode, String timezone, long timeoutS, int loadParallelism,
+            int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -94,9 +97,11 @@ public class LoadingTaskPlanner {
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
+        this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
-        if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
-                Catalog.getCurrentCatalog().getDbNullable(dbId).getFullName(), PrivPredicate.SELECT)) {
+        if (Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
             this.analyzer.setUDFAllowed(false);
@@ -107,32 +112,75 @@ public class LoadingTaskPlanner {
             throws UserException {
         // Generate tuple descriptor
         TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+        TupleDescriptor scanTupleDesc = destTupleDesc;
+        if (Config.enable_vectorized_load) {
+            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        }
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            if (col.isAllowNull()) {
-                slotDesc.setIsNullable(true);
-            } else {
-                slotDesc.setIsNullable(false);
+            slotDesc.setIsNullable(col.isAllowNull());
+            if (Config.enable_vectorized_load) {
+                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+                scanSlotDesc.setIsMaterialized(true);
+                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setIsNullable(col.isAllowNull());
+                if (fileGroups.size() > 0) {
+                    for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
+                        try {
+                            if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                    && importColumnDesc.getColumnName().equals(col.getName())) {
+                                scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                                break;
+                            }
+                        } catch (Exception e) {
+                            // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed
+                            // now. We just skip this case here.
+                        }
+                    }
+                }
             }
+        }
+
+        if (table.isDynamicSchema()) {
+            // Dynamic table for s3load ...
+            descTable.addReferencedTable(table);
+            // For reference table
+            scanTupleDesc.setTableId((int) table.getId());
+            // Add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(false);
+            LOG.debug("plan scanTupleDesc{}", scanTupleDesc.toString());
         }
 
         // Generate plan trees
         // 1. Broker scan node
-        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), destTupleDesc, "BrokerScanNode",
-                fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode, loadParallelism);
+        ScanNode scanNode;
+        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, false);
+        ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
+                fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
+        if (Config.enable_vectorized_load) {
+            scanNode.convertToVectorized();
+        }
         scanNodes.add(scanNode);
         descTable.computeStatAndMemLayout();
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds);
-        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism);
+        OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
+                Config.enable_single_replica_load);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, false);
         olapTableSink.complete();
 
         // 3. Plan fragment
@@ -169,6 +217,12 @@ public class LoadingTaskPlanner {
         Set<Long> specifiedPartitionIds = Sets.newHashSet();
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
             if (brokerFileGroup.getPartitionIds() != null) {
+                for (long partitionId : brokerFileGroup.getPartitionIds()) {
+                    if (!table.getPartitionInfo().getIsMutable(partitionId)) {
+                        throw new LoadException("Can't load data to immutable partition, table: "
+                            + table.getName() + ", partition: " + table.getPartition(partitionId));
+                    }
+                }
                 specifiedPartitionIds.addAll(brokerFileGroup.getPartitionIds());
             }
             // all file group in fileGroups should have same partitions, so only need to get partition ids

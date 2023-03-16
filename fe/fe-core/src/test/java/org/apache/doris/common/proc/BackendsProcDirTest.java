@@ -17,20 +17,19 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class BackendsProcDirTest {
     private Backend b1;
@@ -41,7 +40,7 @@ public class BackendsProcDirTest {
     @Mocked
     private TabletInvertedIndex tabletInvertedIndex;
     @Mocked
-    private Catalog catalog;
+    private Env env;
     @Mocked
     private EditLog editLog;
 
@@ -63,15 +62,15 @@ public class BackendsProcDirTest {
                 editLog.logBackendStateChange((Backend) any);
                 minTimes = 0;
 
-                catalog.getNextId();
+                env.getNextId();
                 minTimes = 0;
                 result = 10000L;
 
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
 
-                catalog.clear();
+                env.clear();
                 minTimes = 0;
 
                 systemInfoService.getBackend(1000);
@@ -92,21 +91,21 @@ public class BackendsProcDirTest {
             }
         };
 
-        new Expectations(catalog) {
+        new Expectations(env) {
             {
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentCatalog();
+                Env.getCurrentEnv();
                 minTimes = 0;
-                result = catalog;
+                result = env;
 
-                Catalog.getCurrentInvertedIndex();
+                Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = tabletInvertedIndex;
 
-                Catalog.getCurrentSystemInfo();
+                Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
@@ -159,17 +158,16 @@ public class BackendsProcDirTest {
     @Test
     public void testLookupInvalid() {
         BackendsProcDir dir;
-        ProcNodeInterface node;
 
         dir = new BackendsProcDir(systemInfoService);
         try {
-            node = dir.lookup(null);
+            dir.lookup(null);
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
 
         try {
-            node = dir.lookup("");
+            dir.lookup("");
         } catch (AnalysisException e) {
             e.printStackTrace();
         }

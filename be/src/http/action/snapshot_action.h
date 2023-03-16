@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
-#define DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -31,18 +30,14 @@ class ExecEnv;
 // be_host:be_http_port/api/snapshot?tablet_id=123&schema_hash=456
 class SnapshotAction : public HttpHandler {
 public:
-    explicit SnapshotAction(ExecEnv* exec_env);
+    explicit SnapshotAction();
 
     virtual ~SnapshotAction() {}
 
     void handle(HttpRequest* req) override;
 
 private:
-    int64_t make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
-
-    ExecEnv* _exec_env;
-
+    int64_t _make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
 }; // end class SnapshotAction
 
 } // end namespace doris
-#endif // DORIS_BE_SRC_HTTP_SNAPSHOT_ACTION_H

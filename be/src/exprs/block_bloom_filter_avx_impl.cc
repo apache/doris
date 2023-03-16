@@ -14,12 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter_avx2.cc
+// and modified by Doris
 
 #ifdef __AVX2__
 
 #include <immintrin.h>
 
 #include "exprs/block_bloom_filter.hpp"
+#include "gutil/macros.h"
 
 namespace doris {
 static inline ATTRIBUTE_ALWAYS_INLINE __attribute__((__target__("avx2"))) __m256i make_mark(
@@ -45,8 +49,8 @@ void BlockBloomFilter::bucket_insert_avx2(const uint32_t bucket_idx, const uint3
     _mm256_zeroupper();
 }
 
-bool BlockBloomFilter::bucket_find_avx2(const uint32_t bucket_idx, const uint32_t hash) const
-        noexcept {
+bool BlockBloomFilter::bucket_find_avx2(const uint32_t bucket_idx,
+                                        const uint32_t hash) const noexcept {
     const __m256i mask = make_mark(hash);
     const __m256i bucket = reinterpret_cast<__m256i*>(_directory)[bucket_idx];
     // We should return true if 'bucket' has a one wherever 'mask' does. _mm256_testc_si256

@@ -20,12 +20,14 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 
 import java.util.List;
@@ -40,8 +42,9 @@ import java.util.Map;
  * 3. getToDeleteReplicaId: if the rebalance strategy wants to delete the specified replica,
  * override this func to let TabletScheduler know in handling redundant replica.
  * NOTICE:
- * 1. Adding the selected tablets by TabletScheduler may not succeed at all. And the move may be failed in some other places.
- * So the thing you need to know is, Rebalancer cannot know when the move is failed.
+ * 1. Adding the selected tablets by TabletScheduler may not succeed at all.
+ *  And the move may be failed in some other places. So the thing you need to know is,
+ *  Rebalancer cannot know when the move is failed.
  * 2. If you want to make sure the move is succeed, you can assume that it's succeed when getToDeleteReplicaId called.
  */
 public abstract class Rebalancer {
@@ -50,6 +53,8 @@ public abstract class Rebalancer {
     protected Table<String, Tag, ClusterLoadStatistic> statisticMap = HashBasedTable.create();
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
+    // be id -> end time of prio
+    protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
 
     public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
         this.infoService = infoService;
@@ -71,10 +76,14 @@ public abstract class Rebalancer {
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             ClusterLoadStatistic clusterStat, TStorageMedium medium);
 
-    public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
-                                  AgentBatchTask batchTask) throws SchedException {
+    public AgentTask createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
+            throws SchedException {
         completeSchedCtx(tabletCtx, backendsWorkingSlots);
-        batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
+        if (tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
+            return tabletCtx.createCloneReplicaAndTask();
+        } else {
+            return tabletCtx.createStorageMediaMigrationTask();
+        }
     }
 
     // Before createCloneReplicaAndTask, we need to complete the TabletSchedCtx.
@@ -92,5 +101,22 @@ public abstract class Rebalancer {
 
     public void updateLoadStatistic(Table<String, Tag, ClusterLoadStatistic> statisticMap) {
         this.statisticMap = statisticMap;
+    }
+
+    public void addPrioBackends(List<Backend> backends, long timeoutS) {
+        long currentTimeMillis = System.currentTimeMillis();
+        for (Backend backend : backends) {
+            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS);
+        }
+    }
+
+    public void removePrioBackends(List<Backend> backends) {
+        for (Backend backend : backends) {
+            prioBackends.remove(backend.getId());
+        }
+    }
+
+    public boolean hasPrioBackends() {
+        return !prioBackends.isEmpty();
     }
 }

@@ -22,155 +22,106 @@
 
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/utils/template_helpers.hpp"
+
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_dense_rank(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
-
-    return std::make_shared<WindowFunctionDenseRank>(argument_types);
+    return AggregateFunctionPtr(creator_without_type::create<WindowFunctionDenseRank>(
+            result_is_nullable, argument_types));
 }
 
 AggregateFunctionPtr create_aggregate_function_rank(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const Array& parameters,
                                                     const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
-
-    return std::make_shared<WindowFunctionRank>(argument_types);
+    return AggregateFunctionPtr(
+            creator_without_type::create<WindowFunctionRank>(result_is_nullable, argument_types));
 }
 
 AggregateFunctionPtr create_aggregate_function_row_number(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
-
-    return std::make_shared<WindowFunctionRowNumber>(argument_types);
+    return AggregateFunctionPtr(creator_without_type::create<WindowFunctionRowNumber>(
+            result_is_nullable, argument_types));
 }
 
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          bool is_nullable, bool is_copy = false>
-static IAggregateFunction* create_function_single_value(const String& name,
-                                                        const DataTypes& argument_types,
-                                                        const Array& parameters) {
-    using StoreType = std::conditional_t<is_copy, CopiedValue, Value>;
+AggregateFunctionPtr create_aggregate_function_ntile(const std::string& name,
+                                                     const DataTypes& argument_types,
+                                                     const bool result_is_nullable) {
+    assert_unary(name, argument_types);
+    return AggregateFunctionPtr(
+            creator_without_type::create<WindowFunctionNTile>(result_is_nullable, argument_types));
+}
 
-    assert_arity_at_most<3>(name, argument_types);
-
-    auto type = argument_types[0].get();
-    if (type->is_nullable()) {
-        type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
-    }
+template <template <typename> class AggregateFunctionTemplate,
+          template <typename ColVecType, bool, bool> class Data, template <typename> class Impl,
+          bool result_is_nullable, bool arg_is_nullable>
+IAggregateFunction* create_function_lead_lag_first_last(const String& name,
+                                                        const DataTypes& argument_types) {
+    auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE)                        \
+#define DISPATCH(TYPE, COLUMN_TYPE)           \
     if (which.idx == TypeIndex::TYPE)         \
         return new AggregateFunctionTemplate< \
-                Data<LeadAndLagData<TYPE, is_nullable, false, StoreType>>>(argument_types);
-    FOR_NUMERIC_TYPES(DISPATCH)
+                Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>(argument_types);
+    TYPE_TO_BASIC_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
-    if (which.is_decimal()) {
-        return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int128, is_nullable, false, StoreType>>>(argument_types);
-    }
-    if (which.is_date_or_datetime()) {
-        return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int64, is_nullable, false, StoreType>>>(argument_types);
-    }
-    if (which.is_string_or_fixed_string())
-        return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<StringRef, is_nullable, true, StoreType>>>(argument_types);
-    DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_leadlag";
+    LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
+                 << " and type is: " << argument_types[0]->get_name();
     return nullptr;
 }
 
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_lag(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const Array& parameters,
-                                                   const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionLagData, is_nullable>(
-                    name, argument_types, parameters));
-}
+#define CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA,             \
+                                                  FUNCTION_IMPL)                                   \
+    AggregateFunctionPtr CREATE_FUNCTION_NAME(const std::string& name,                             \
+                                              const DataTypes& argument_types,                     \
+                                              const bool result_is_nullable) {                     \
+        const bool arg_is_nullable = argument_types[0]->is_nullable();                             \
+        AggregateFunctionPtr res = nullptr;                                                        \
+                                                                                                   \
+        std::visit(                                                                                \
+                [&](auto result_is_nullable, auto arg_is_nullable) {                               \
+                    res = AggregateFunctionPtr(                                                    \
+                            create_function_lead_lag_first_last<WindowFunctionData, FUNCTION_DATA, \
+                                                                FUNCTION_IMPL, result_is_nullable, \
+                                                                arg_is_nullable>(name,             \
+                                                                                 argument_types)); \
+                },                                                                                 \
+                make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));        \
+        if (!res) {                                                                                \
+            LOG(WARNING) << " failed in  create_aggregate_function_" << name                       \
+                         << " and type is: " << argument_types[0]->get_name();                     \
+        }                                                                                          \
+        return res;                                                                                \
+    }
 
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_lead(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const Array& parameters,
-                                                    const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionLeadData, is_nullable>(
-                    name, argument_types, parameters));
-}
-
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
-                                                     const DataTypes& argument_types,
-                                                     const Array& parameters,
-                                                     const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, is_nullable>(
-                    name, argument_types, parameters));
-}
-
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const Array& parameters,
-                                                    const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionLastData, is_nullable>(
-                    name, argument_types, parameters));
-}
-
-AggregateFunctionPtr create_aggregate_function_replace_if_not_null(const std::string& name,
-                                                                   const DataTypes& argument_types,
-                                                                   const Array& parameters,
-                                                                   const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, false, true>(
-                    name, argument_types, parameters));
-}
-
-AggregateFunctionPtr create_aggregate_function_replace(const std::string& name,
-                                                       const DataTypes& argument_types,
-                                                       const Array& parameters,
-                                                       const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, false, true>(
-                    name, argument_types, parameters));
-}
-
-AggregateFunctionPtr create_aggregate_function_replace_nullable(const std::string& name,
-                                                                const DataTypes& argument_types,
-                                                                const Array& parameters,
-                                                                const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, true, true>(
-                    name, argument_types, parameters));
-}
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_lag, LeadLagData,
+                                          WindowFunctionLagImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_lead, LeadLagData,
+                                          WindowFunctionLeadImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_first, FirstLastData,
+                                          WindowFunctionFirstImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last, FirstLastData,
+                                          WindowFunctionLastImpl);
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", create_aggregate_function_dense_rank);
     factory.register_function("rank", create_aggregate_function_rank);
     factory.register_function("row_number", create_aggregate_function_row_number);
+    factory.register_function("ntile", create_aggregate_function_ntile);
 }
 
-void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("lead", create_aggregate_function_lead<false>);
-    factory.register_function("lead", create_aggregate_function_lead<true>, true);
-    factory.register_function("lag", create_aggregate_function_lag<false>);
-    factory.register_function("lag", create_aggregate_function_lag<true>, true);
-    factory.register_function("first_value", create_aggregate_function_first<false>);
-    factory.register_function("first_value", create_aggregate_function_first<true>, true);
-    factory.register_function("last_value", create_aggregate_function_last<false>);
-    factory.register_function("last_value", create_aggregate_function_last<true>, true);
+void register_aggregate_function_window_lead_lag_first_last(
+        AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("lead", create_aggregate_function_window_lead);
+    factory.register_function_both("lag", create_aggregate_function_window_lag);
+    factory.register_function_both("first_value", create_aggregate_function_window_first);
+    factory.register_function_both("last_value", create_aggregate_function_window_last);
 }
+
 } // namespace doris::vectorized

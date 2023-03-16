@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy.impl;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -28,19 +28,19 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.binary.Base64;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.util.List;
 import java.util.Map;
 
 /*
  * Required env variables:
- * 
+ *
  *  FE_EXIST_HOSTS={{fe_hosts}}
  *  FE_INIT_NUMBER={{fe_init_number}}
  *  ENV_AMBARI_HOST={{ambari_server_host}}
@@ -67,6 +67,7 @@ public class AmbariDeployManager extends DeployManager {
     public static final String ENV_AMBARI_FE_COMPONENTS = "ENV_AMBARI_FE_COMPONENTS"; // PALO_FE
     public static final String ENV_AMBARI_BE_COMPONENTS = "ENV_AMBARI_BE_COMPONENTS";
     public static final String ENV_AMBARI_BROKER_COMPONENTS = "ENV_AMBARI_BROKER_COMPONENTS";
+    public static final String ENV_AMBARI_CN_COMPONENTS = "ENV_AMBARI_CN_COMPONENTS";
 
     // used for getting config info from blueprint
     public static final String ENV_AMBARI_FE_COMPONENTS_CONFIG = "ENV_AMBARI_FE_COMPONENTS_CONFIG"; // palo-fe-node
@@ -76,7 +77,7 @@ public class AmbariDeployManager extends DeployManager {
     // url
     public static final String URL_BLUEPRINT = "http://%s/api/v1/clusters/%s?format=blueprint";
     public static final String URL_COMPONENTS = "http://%s/api/v1/clusters/%s/services/%s/components/%s";
-    
+
     // keywords in json
     public static final String KEY_BE_HEARTBEAT_PORT = "be_heartbeat_service_port";
     public static final String KEY_FE_EDIT_LOG_PORT = "fe_edit_log_port";
@@ -85,7 +86,7 @@ public class AmbariDeployManager extends DeployManager {
     public static final String KEY_HOST_COMPONENTS = "host_components";
     public static final String KEY_HOST_ROLES = "HostRoles";
     public static final String KEY_HOST_NAME = "host_name";
-    
+
     private String authInfo;
     private String encodedAuthInfo;
     private String ambariUrl;
@@ -100,9 +101,10 @@ public class AmbariDeployManager extends DeployManager {
     // reset it every cycle
     private String blueprintJson;
 
-    public AmbariDeployManager(Catalog catalog, long intervalMs) {
-        super(catalog, intervalMs);
-        initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS);
+    public AmbariDeployManager(Env env, long intervalMs) {
+        super(env, intervalMs);
+        initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS,
+                ENV_AMBARI_CN_COMPONENTS);
     }
 
     public AmbariDeployManager() {
@@ -111,17 +113,17 @@ public class AmbariDeployManager extends DeployManager {
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
-        
+                envBrokerServiceGroup, envCnServiceGroup);
+
         this.feConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_FE_COMPONENTS_CONFIG));
         this.beConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_BE_COMPONENTS_CONFIG));
         this.brokerConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_BROKER_COMPONENTS_CONFIG));
 
         if (Strings.isNullOrEmpty(feConfigNode) || Strings.isNullOrEmpty(beConfigNode)) {
             LOG.error("failed to get fe config node: {} or be config node: {}. env var: {}, {}",
-                      feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
+                    feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
             System.exit(-1);
         }
 
@@ -131,7 +133,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         LOG.info("get fe, be and broker config node name: {}, {}, {}",
-                 feConfigNode, beConfigNode, brokerConfigNode);
+                feConfigNode, beConfigNode, brokerConfigNode);
 
         // 1. auth info
         authInfo = System.getenv(ENV_AUTH_INFO);
@@ -145,7 +147,7 @@ public class AmbariDeployManager extends DeployManager {
             LOG.error("failed to get ambari host {} or ambari port {}", ambariHost, ambariPort);
             System.exit(-1);
         }
-        
+
         int port = -1;
         try {
             port = Integer.valueOf(ambariPort);
@@ -180,7 +182,7 @@ public class AmbariDeployManager extends DeployManager {
             System.exit(-1);
         }
     }
-    
+
     @Override
     protected boolean init() {
         super.init();
@@ -195,7 +197,7 @@ public class AmbariDeployManager extends DeployManager {
     }
 
     @Override
-    protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
+    protected List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
         int port = -1;
         if (groupName.equalsIgnoreCase(electableFeServiceGroup)) {
             port = getFeEditLogPort();
@@ -211,7 +213,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         List<String> hostnames = getHostnamesFromComponentsJson(groupName);
-        List<Pair<String, Integer>> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
+        List<SystemInfoService.HostInfo> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
         for (String hostname : hostnames) {
             Pair<String, Integer> hostPort = null;
             try {
@@ -220,7 +222,7 @@ public class AmbariDeployManager extends DeployManager {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;
             }
-            hostPorts.add(hostPort);
+            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, null, hostPort.second));
         }
 
         LOG.info("get {} hosts from ambari: {}", groupName, hostPorts);
@@ -228,7 +230,7 @@ public class AmbariDeployManager extends DeployManager {
     }
 
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
         int port = getBrokerIpcPort();
         if (port == -1) {
             LOG.warn("failed to get port of component: {}", brokerServiceGroup);
@@ -241,7 +243,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         List<String> hostnames = getHostnamesFromComponentsJson(brokerServiceGroup);
-        List<Pair<String, Integer>> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
+        List<SystemInfoService.HostInfo> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
         for (String hostname : hostnames) {
             Pair<String, Integer> hostPort = null;
             try {
@@ -250,10 +252,10 @@ public class AmbariDeployManager extends DeployManager {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;
             }
-            hostPorts.add(hostPort);
+            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, null, hostPort.second));
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from ambari: {}", brokers);
         return brokers;
@@ -266,7 +268,7 @@ public class AmbariDeployManager extends DeployManager {
     private Integer getBeHeartbeatPort() {
         return getPort(beConfigNode, KEY_BE_HEARTBEAT_PORT);
     }
-    
+
     private Integer getBrokerIpcPort() {
         return getPort(brokerConfigNode, KEY_BROKER_IPC_PORT);
     }
@@ -295,12 +297,12 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         List<String> hostnames = Lists.newArrayList();
-        JSONObject componentsObj = new JSONObject(componentsJson);
-        JSONArray componentsArray = componentsObj.getJSONArray(KEY_HOST_COMPONENTS);
+        JSONObject componentsObj = (JSONObject) JSONValue.parse(componentsJson);
+        JSONArray componentsArray = (JSONArray) componentsObj.get(KEY_HOST_COMPONENTS);
         for (Object component : componentsArray) {
             JSONObject componentObj = (JSONObject) component;
             try {
-                JSONObject roleObj = componentObj.getJSONObject(KEY_HOST_ROLES);
+                JSONObject roleObj = (JSONObject) componentObj.get(KEY_HOST_ROLES);
                 String hostname = (String) roleObj.get(KEY_HOST_NAME);
                 hostnames.add(hostname);
             } catch (Exception e) {
@@ -314,13 +316,13 @@ public class AmbariDeployManager extends DeployManager {
     private String getPropertyFromBlueprint(String configNodeName, String propName) {
         Preconditions.checkNotNull(blueprintJson);
         String resProp = null;
-        JSONObject root = new JSONObject(blueprintJson);
-        JSONArray confArray = root.getJSONArray("configurations");
+        JSONObject root = (JSONObject) JSONValue.parse(blueprintJson);
+        JSONArray confArray = (JSONArray) root.get("configurations");
         for (Object object : confArray) {
             JSONObject jobj = (JSONObject) object;
             try {
-                JSONObject comNameObj = jobj.getJSONObject(configNodeName);
-                JSONObject propObj = comNameObj.getJSONObject("properties");
+                JSONObject comNameObj = (JSONObject) jobj.get(configNodeName);
+                JSONObject propObj = (JSONObject) comNameObj.get("properties");
                 resProp = (String) propObj.get(propName);
             } catch (Exception e) {
                 // nothing

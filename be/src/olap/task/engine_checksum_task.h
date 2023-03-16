@@ -28,7 +28,7 @@ namespace doris {
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineChecksumTask : public EngineTask {
 public:
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 public:
     EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version,
@@ -37,13 +37,14 @@ public:
     ~EngineChecksumTask() {}
 
 private:
-    OLAPStatus _compute_checksum();
+    Status _compute_checksum();
 
 private:
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
     TVersion _version;
     uint32_t* _checksum;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

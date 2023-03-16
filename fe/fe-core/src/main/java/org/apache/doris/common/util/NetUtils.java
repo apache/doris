@@ -17,6 +17,10 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.system.SystemInfoService;
+
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,12 +38,13 @@ import java.util.List;
 public class NetUtils {
     private static final Logger LOG = LogManager.getLogger(NetUtils.class);
 
-    public static final String EDIT_LOG_PORT_SUGGESTION = "Please change the 'edit_log_port' in fe.conf and try again." +
-            " But if this is not the first time your start this FE, please DO NOT change it. " +
-            " You need to find the service that occupies the port and shut it down, and then return the port to Doris.";
+    public static final String EDIT_LOG_PORT_SUGGESTION = "Please change the 'edit_log_port' in fe.conf and try again."
+            + " But if this is not the first time your start this FE, please DO NOT change it. "
+            + " You need to find the service that occupies the port and shut it down,"
+            + " and then return the port to Doris.";
     public static final String QUERY_PORT_SUGGESTION = "Please change the 'query_port' in fe.conf and try again.";
-    public static final String HTTP_PORT_SUGGESTION = "Please change the 'http_port' in fe.conf and try again. " +
-            "But you need to make sure that ALL FEs http_port are same.";
+    public static final String HTTP_PORT_SUGGESTION = "Please change the 'http_port' in fe.conf and try again. "
+            + "But you need to make sure that ALL FEs http_port are same.";
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
 
     // Target format is "host:port"
@@ -113,4 +118,28 @@ public class NetUtils {
         }
         return false;
     }
+
+    // assemble an accessible HostPort str, the addr maybe an ipv4/ipv6/FQDN
+    // if ip is ipv6 return: [$addr}]:$port
+    // if ip is ipv4 or FQDN return: $addr:$port
+    public static String getHostPortInAccessibleFormat(String addr, int port) {
+        if (InetAddressValidator.getInstance().isValidInet6Address(addr)) {
+            return "[" + addr + "]:" + port;
+        }
+        return addr + ":" + port;
+    }
+
+    public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) throws AnalysisException {
+        if (hostPort.charAt(0) == '[') {
+            String[] pair = hostPort.substring(1).split("]:");
+            return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
+        } else {
+            String[] pair = hostPort.split(":");
+            if (pair.length != 2) {
+                throw new AnalysisException("invalid host port: " + hostPort);
+            }
+            return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
+        }
+    }
+
 }

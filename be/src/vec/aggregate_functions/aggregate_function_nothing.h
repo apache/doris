@@ -32,8 +32,8 @@ namespace doris::vectorized {
   */
 class AggregateFunctionNothing final : public IAggregateFunctionHelper<AggregateFunctionNothing> {
 public:
-    AggregateFunctionNothing(const DataTypes& arguments, const Array& params)
-            : IAggregateFunctionHelper<AggregateFunctionNothing>(arguments, params) {}
+    AggregateFunctionNothing(const DataTypes& arguments)
+            : IAggregateFunctionHelper<AggregateFunctionNothing>(arguments) {}
 
     String get_name() const override { return "nothing"; }
 
@@ -64,6 +64,12 @@ public:
     void insert_result_into(ConstAggregateDataPtr, IColumn& to) const override {
         to.insert_default();
     }
+
+    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
+                               Arena* arena) const override {}
+
+    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
+                                           Arena* arena) const override {}
 };
 
 } // namespace doris::vectorized

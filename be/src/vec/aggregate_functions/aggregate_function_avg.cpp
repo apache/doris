@@ -29,7 +29,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct Avg {
-    using FieldType = std::conditional_t<IsDecimalNumber<T>, Decimal128, NearestFieldType<T>>;
+    using FieldType = typename AvgNearestFieldTypeTrait<T>::Type;
     using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
 };
 
@@ -38,18 +38,11 @@ using AggregateFuncAvg = typename Avg<T>::Function;
 
 AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
                                                    const DataTypes& argument_types,
-                                                   const Array& parameters,
                                                    const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
     assert_unary(name, argument_types);
 
-    AggregateFunctionPtr res;
-    DataTypePtr data_type = argument_types[0];
-    if (is_decimal(data_type))
-        res.reset(
-                create_with_decimal_type<AggregateFuncAvg>(*data_type, *data_type, argument_types));
-    else
-        res.reset(create_with_numeric_type<AggregateFuncAvg>(*data_type, argument_types));
+    AggregateFunctionPtr res(
+            creator_with_type::create<AggregateFuncAvg>(result_is_nullable, argument_types));
 
     if (!res) {
         LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
@@ -59,6 +52,6 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
 }
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("avg", create_aggregate_function_avg);
+    factory.register_function_both("avg", create_aggregate_function_avg);
 }
 } // namespace doris::vectorized

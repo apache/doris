@@ -22,17 +22,54 @@
 
 namespace doris::vectorized {
 
-using FunctionWeekOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl>;
-using FunctionDayOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl>;
-using FunctionDayOfWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl>;
-using FunctionDayOfMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl>;
-using FunctionYearWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl>;
+using FunctionWeekOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<Int64>>;
+using FunctionWeekOfYearV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<UInt32>>;
+using FunctionDayOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<Int64>>;
+using FunctionDayOfYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<UInt32>>;
+using FunctionDayOfWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<Int64>>;
+using FunctionDayOfWeekV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<UInt32>>;
+using FunctionDayOfMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<Int64>>;
+using FunctionDayOfMonthV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<UInt32>>;
+using FunctionYearWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<Int64>>;
+using FunctionYearWeekV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<UInt32>>;
+using FunctionWeekDay = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<Int64>>;
+using FunctionWeekDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<UInt32>>;
 
-void register_function_time_of_fuction(SimpleFunctionFactory& factory) {
+using FunctionDateTimeV2WeekOfYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<UInt64>>;
+using FunctionDateTimeV2DayOfYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<UInt64>>;
+using FunctionDateTimeV2DayOfWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<UInt64>>;
+using FunctionDateTimeV2DayOfMonth =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<UInt64>>;
+using FunctionDateTimeV2YearWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<UInt64>>;
+using FunctionDateTimeV2WeekDay =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<UInt64>>;
+
+void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeek>();
     factory.register_function<FunctionDayOfMonth>();
     factory.register_function<FunctionDayOfYear>();
     factory.register_function<FunctionWeekOfYear>();
     factory.register_function<FunctionYearWeek>();
+    factory.register_function<FunctionWeekDay>();
+    factory.register_function<FunctionDayOfWeekV2>();
+    factory.register_function<FunctionDayOfMonthV2>();
+    factory.register_function<FunctionDayOfYearV2>();
+    factory.register_function<FunctionWeekOfYearV2>();
+    factory.register_function<FunctionYearWeekV2>();
+    factory.register_function<FunctionWeekDayV2>();
+    factory.register_function<FunctionDateTimeV2WeekOfYear>();
+    factory.register_function<FunctionDateTimeV2DayOfYear>();
+    factory.register_function<FunctionDateTimeV2DayOfWeek>();
+    factory.register_function<FunctionDateTimeV2DayOfMonth>();
+    factory.register_function<FunctionDateTimeV2YearWeek>();
+    factory.register_function<FunctionDateTimeV2WeekDay>();
 }
 } // namespace doris::vectorized

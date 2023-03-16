@@ -1,6 +1,114 @@
 # Changelog
 
-This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
+This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
+
+## v20230228
+- Modified: thrift 0.13 -> 0.16
+
+## v20230221
+- Modified: clucene 2.4.4 -> 2.4.6
+
+## v20230218
+- Modified: libhdfs3 2.3.7 -> 2.3.8
+- Modified: jemalloc 5.2.1 -> 5.3.0
+
+## v20230130
+- Modified: libhdfs3 2.3.6 -> 2.3.7
+
+## v20230120
+- Modified: libhdfs3 2.3.5 -> 2.3.6
+
+## v20230117
+- Modified: bitshuffle 0.3.5 -> 0.5.1
+
+## v20230112
+- Added: clucene 2.4.4
+
+## v20230111
+- Fixed: libgsasl enable GSSAPI
+
+## v20230110
+- Modified: libhdfs3 2.3.4 -> 2.3.5
+
+## v20230105
+- Modified: openssl 1.1.1m -> 1.1.1s fix CVE-2022-1292
+
+## v20221230
+- Modified: libhdfs3 2.3.2 -> 2.3.4
+
+## v20221228
+- Modified: simdjson 1.0.2 -> 3.0.1
+
+## v20221213
+- Modified: protobuf 3.14.0 -> 3.15.0
+
+## v20221212
+- Modified: s2geometry 0.9.0 -> 0.10.0
+- Added: Abseil, it is dependency of new s2geometry
+
+## v20221209
+- Modified: update parallel-hashmap from 1.33 to 1.3.8
+
+## v20221015
+
+- Modified: zstd 1.5.0 -> 1.5.2
+
+## v20220914
+
+- Added: xxhash 0.8.1
+- Added: jemalloc 5.2.1, Build jemalloc separately, and name it as jemalloc_doris, to distinguish it from jemalloc in arrow.
+
+## v20220811
+- Modified: brpc 1.1.0 -> 1.2.0 fix _dl_sym undefined reference on Ubuntu22.04
+
+## v20220802
+
+- Modified: libhdfs3 2.3.1 -> 2.3.2
+
+## v20220718
+
+- Modified: brpc 1.0.0 -> 1.1.0
+- Modified: leveldb 1.20 -> 1.23
+
+## v20220606
+- Added: vectorscan 5.4.7, and a patch for compilation
+
+## v20220613
+- Modified: update libhdfs3 from 2.3.0 to 2.3.1 fix client uuid set error
+
+## v20220608
+- Remove: remove libhdfs3 without kerberos support
+- Modified: make libhdfs3 with kerberos support as default
+- Modified: change libhdfs3 to https://github.com/yangzhg/libhdfs3/releases/tag/v2.3.0 . This version support arm CPUs
+
+## v20220607
+- Added: opentelemetry-cpp 1.4.0, it was introduced for tracing.
+- Added: opentelemetry-proto 0.18.0, it is depended on by opentelemetry-cpp.
+- Added: nlohmann/json 3.10.1, it is depended on by opentelemetry-cpp.
+
+## v20220606
+- Added: hyperscan 5.4.0, and a patch for compilation
+- Added: ragel 6.1.0, it is used by hyperscan to generate files before compilation
+
+## v20220522
+
+- Added: libgsasl 1.8.0, this version of gsasl is only used for libhdfs3 with kerberos
+- Added: krb5 1.19
+
+Now there will be 2 set of libhdfs, one is without kerberos, the other is with kerberos, saved in `thirdparty/installed/libhdfs_with_kerberos/`
+
+## v20220321
+- Added: libbacktrace, it is used by boost stacktrace to print exception stack.
+
+## v20220316
+- Modified: CRoaring 0.3.4 -> 0.4.0
+
+## v20220310
+- Modified: arrow 5.0.0 -> 7.0.0
+- Modified: aws-sdk-cpp 1.8.108 -> 1.9.211
+- Modified: orc 1.6.6 -> 1.7.2
+
+- Removed: aws-c-common: 0.4.63,aws-c-event-stream: 0.2.6, aws-checksums: 0.1.10, aws-c-io-0.7.0 aws-s2n: 0.10.0, aws-c-cal: 0.4.5; those libs are managed by aws-sdk-cpp now
 
 ## v20220211
 

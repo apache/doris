@@ -17,12 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Mocked;
-
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LoadException;
-import com.google.common.collect.Maps;
 
+import com.google.common.collect.Maps;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,7 +38,7 @@ public class SparkYarnConfigFilesTest {
     private Map<String, String> properties;
 
     @Mocked
-    Catalog catalog;
+    Env env;
 
     @Before
     public void setUp() {

@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -32,7 +33,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -82,7 +82,7 @@ public class BeLoadRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
         if (lowBEs.isEmpty() && highBEs.isEmpty()) {
-            LOG.info("cluster is balance: {} with medium: {}. skip", clusterName, medium);
+            LOG.debug("cluster is balance: {} with medium: {}. skip", clusterName, medium);
             return alternativeTablets;
         }
 
@@ -106,7 +106,7 @@ public class BeLoadRebalancer extends Rebalancer {
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         int clusterAvailableBEnum = infoService.getClusterBackendIds(clusterName, true).size();
-        ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
@@ -186,9 +186,11 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         } // end for high backends
 
-        LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                clusterName, medium, alternativeTablets.size(),
-                alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        if (!alternativeTablets.isEmpty()) {
+            LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
+                    clusterName, medium, alternativeTablets.size(),
+                    alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+        }
         return alternativeTablets;
     }
 
@@ -199,10 +201,12 @@ public class BeLoadRebalancer extends Rebalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx,
+            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
+            throw new SchedException(Status.UNRECOVERABLE,
+                    String.format("cluster %s for tag %s does not exist", tabletCtx.getCluster(), tabletCtx.getTag()));
         }
 
         // get classification of backends
@@ -234,7 +238,7 @@ public class BeLoadRebalancer extends Rebalancer {
             if (be == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "backend is dropped: " + replica.getBackendId());
             }
-            hosts.add(be.getHost());
+            hosts.add(be.getIp());
         }
         if (!hasHighReplica) {
             throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
@@ -267,7 +271,7 @@ public class BeLoadRebalancer extends Rebalancer {
                 if (lowBackend == null) {
                     continue;
                 }
-                if (hosts.contains(lowBackend.getHost())) {
+                if (hosts.contains(lowBackend.getIp())) {
                     continue;
                 }
 
@@ -281,8 +285,9 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
-                if (!clusterStat.isMoreBalanced(tabletCtx.getSrcBackendId(), beStat.getBeId(),
-                        tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
+                if (!Config.be_rebalancer_fuzzy_test && !clusterStat.isMoreBalanced(
+                        tabletCtx.getSrcBackendId(), beStat.getBeId(), tabletCtx.getTabletId(),
+                        tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
                     continue;
                 }
 

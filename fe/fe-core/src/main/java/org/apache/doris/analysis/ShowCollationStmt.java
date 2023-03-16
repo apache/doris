@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowCollationStmt extends ShowStmt {

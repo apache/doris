@@ -20,10 +20,11 @@ package org.apache.doris.mysql;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
@@ -75,11 +76,11 @@ import java.util.Random;
 public class MysqlPassword {
     private static final Logger LOG = LogManager.getLogger(MysqlPassword.class);
     // TODO(zhaochun): this is duplicated with handshake packet.
-    public static final byte EMPTY_PASSWORD[] = new byte[0];
+    public static final byte[] EMPTY_PASSWORD = new byte[0];
     public static final int SCRAMBLE_LENGTH = 20;
     public static final int SCRAMBLE_LENGTH_HEX_LENGTH = 2 * SCRAMBLE_LENGTH + 1;
     public static final byte PVERSION41_CHAR = '*';
-    private static final byte DIG_VEC_UPPER[] = {'0', '1', '2', '3', '4', '5', '6', '7',
+    private static final byte[] DIG_VEC_UPPER = {'0', '1', '2', '3', '4', '5', '6', '7',
             '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
     private static Random random = new Random(System.currentTimeMillis());
 
@@ -88,9 +89,8 @@ public class MysqlPassword {
         random.nextBytes(bytes);
         // NOTE: MySQL challenge string can't contain 0.
         for (int i = 0; i < len; ++i) {
-            if ((bytes[i] >= 'a' && bytes[i] <= 'z') 
-                    || (bytes[i] >= 'A' && bytes[i] <='Z')) {
-            } else {
+            if (!((bytes[i] >= 'a' && bytes[i] <= 'z')
+                    || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
                 bytes[i] = (byte) ('a' + (bytes[i] % 26));
             }
         }
@@ -110,7 +110,7 @@ public class MysqlPassword {
     }
 
     // Check that scrambled message corresponds to the password; the function
-    // is used by server to check that recieved reply is authentic.
+    // is used by server to check that received reply is authentic.
     // This function does not check lengths of given strings: message must be
     // null-terminated, reply and hash_stage2 must be at least SHA1_HASH_SIZE
     // long (if not, something fishy is going on).
@@ -279,5 +279,39 @@ public class MysqlPassword {
         }
 
         return passwd;
+    }
+
+    public static final String REG_NUMBER = ".*\\d+.*";
+    public static final String REG_UPPERCASE = ".*[A-Z]+.*";
+    public static final String REG_LOWERCASE = ".*[a-z]+.*";
+    public static final String REG_SYMBOL = ".*[~!@#$%^&*()_+|<>,.?/:;'\\[\\]{}\"]+.*";
+    public static final int MIN_PASSWORD_LEN = 8;
+
+    public static void validatePlainPassword(long validaPolicy, String text) throws AnalysisException {
+        if (validaPolicy == GlobalVariable.VALIDATE_PASSWORD_POLICY_STRONG) {
+            if (Strings.isNullOrEmpty(text) || text.length() < MIN_PASSWORD_LEN) {
+                throw new AnalysisException(
+                        "Violate password validation policy: STRONG. The password must be at least 8 characters");
+            }
+
+            int i = 0;
+            if (text.matches(REG_NUMBER)) {
+                i++;
+            }
+            if (text.matches(REG_LOWERCASE)) {
+                i++;
+            }
+            if (text.matches(REG_UPPERCASE)) {
+                i++;
+            }
+            if (text.matches(REG_SYMBOL)) {
+                i++;
+            }
+            if (i < 3) {
+                throw new AnalysisException(
+                        "Violate password validation policy: STRONG. The password must contain at least 3 types of "
+                                + "numbers, uppercase letters, lowercase letters and special characters.");
+            }
+        }
     }
 }

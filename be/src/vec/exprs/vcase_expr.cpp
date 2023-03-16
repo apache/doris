@@ -17,13 +17,13 @@
 
 #include "vec/exprs/vcase_expr.h"
 
+#include "common/status.h"
 #include "vec/columns/column_nullable.h"
 
 namespace doris::vectorized {
 
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node),
-          _is_prepare(false),
           _has_case_expr(node.case_expr.has_case_expr),
           _has_else_expr(node.case_expr.has_else_expr) {
     if (_has_case_expr) {
@@ -36,28 +36,21 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
 
 Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
-
-    if (_is_prepare) {
-        return Status::OK();
-    }
-    _is_prepare = true;
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
     DataTypes arguments;
     for (int i = 0; i < _children.size(); i++) {
         auto child = _children[i];
-        const auto& child_name = child->expr_name();
-        auto child_column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(child_column), child->data_type(), child_name);
+        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         arguments.emplace_back(child->data_type());
     }
 
     _function = SimpleFunctionFactory::instance().get_function(_function_name, argument_template,
                                                                _data_type);
     if (_function == nullptr) {
-        return Status::NotSupported(
-                fmt::format("vcase_expr Function {} is not implemented", _fn.name.function_name));
+        return Status::NotSupported("vcase_expr Function {} is not implemented",
+                                    _fn.name.function_name);
     }
 
     VExpr::register_function_context(state, context);
@@ -68,19 +61,11 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) {
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
-    CaseState* case_state = new CaseState {_data_type};
-    context->fn_context(_fn_context_index)
-            ->set_function_state(FunctionContext::FRAGMENT_LOCAL, case_state);
     return Status::OK();
 }
 
 void VCaseExpr::close(RuntimeState* state, VExprContext* context,
                       FunctionContext::FunctionStateScope scope) {
-    CaseState* case_state = reinterpret_cast<CaseState*>(
-            context->fn_context(_fn_context_index)
-                    ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    delete case_state;
-
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(state, context, scope);
 }
@@ -90,11 +75,10 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
 
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
 
         block->replace_by_position_if_const(column_id);
-        auto child_column = block->get_by_position(column_id).column;
     }
 
     size_t num_columns_without_result = block->columns();
@@ -111,4 +95,20 @@ const std::string& VCaseExpr::expr_name() const {
     return _expr_name;
 }
 
+std::string VCaseExpr::debug_string() const {
+    std::stringstream out;
+    out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr
+        << " function=" << _function_name << "){";
+    bool first = true;
+    for (VExpr* input_expr : children()) {
+        if (first) {
+            first = false;
+        } else {
+            out << ",";
+        }
+        out << input_expr->debug_string();
+    }
+    out << "}";
+    return out.str();
+}
 } // namespace doris::vectorized

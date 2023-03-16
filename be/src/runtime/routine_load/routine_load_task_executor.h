@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 
 #include "gen_cpp/internal_service.pb.h"
@@ -40,7 +41,7 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    typedef std::function<void(StreamLoadContext*)> ExecFinishCallback;
+    using ExecFinishCallback = std::function<void(std::shared_ptr<StreamLoadContext>)>;
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env);
 
@@ -53,21 +54,24 @@ public:
                                     std::vector<int32_t>* partition_ids);
 
     Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
-        std::vector<PIntegerPair>* partition_offsets);
+                                                 std::vector<PIntegerPair>* partition_offsets);
 
     Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
-        std::vector<PIntegerPair>* partition_offsets);
+                                                   std::vector<PIntegerPair>* partition_offsets);
 
 private:
     // execute the task
-    void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
+    void exec_task(std::shared_ptr<StreamLoadContext> ctx, DataConsumerPool* pool,
+                   ExecFinishCallback cb);
 
-    void err_handler(StreamLoadContext* ctx, const Status& st, const std::string& err_msg);
+    void err_handler(std::shared_ptr<StreamLoadContext> ctx, const Status& st,
+                     const std::string& err_msg);
 
     // for test only
-    Status _execute_plan_for_test(StreamLoadContext* ctx);
+    Status _execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx);
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
-    Status _prepare_ctx(const PKafkaMetaProxyRequest& request, StreamLoadContext* ctx);
+    Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
+                        std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     ExecEnv* _exec_env;
@@ -76,7 +80,7 @@ private:
 
     std::mutex _lock;
     // task id -> load context
-    std::unordered_map<UniqueId, StreamLoadContext*> _task_map;
+    std::unordered_map<UniqueId, std::shared_ptr<StreamLoadContext>> _task_map;
 };
 
 } // namespace doris

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/ToSqlUtils.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -45,7 +48,7 @@ public class ToSqlUtils {
 
     public static List<String> getIdentSqlList(List<String> identList) {
         List<String> identSqlList = Lists.newArrayList();
-        for (String ident: identList) {
+        for (String ident : identList) {
             identSqlList.add(getIdentSql(ident));
         }
         return identSqlList;

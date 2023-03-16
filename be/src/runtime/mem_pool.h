@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/mem-pool.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_MEM_POOL_H
-#define DORIS_BE_RUNTIME_MEM_POOL_H
+#pragma once
 
 #include <stdio.h>
 
@@ -27,9 +29,12 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/dynamic_annotations.h"
 #include "olap/olap_define.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/chunk.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
@@ -88,28 +93,30 @@ class MemTracker;
 ///    delete p;
 class MemPool {
 public:
-    /// 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
-    MemPool(MemTracker* mem_tracker)
-            : current_chunk_idx_(-1),
-              next_chunk_size_(INITIAL_CHUNK_SIZE),
-              total_allocated_bytes_(0),
-              total_reserved_bytes_(0),
-              peak_allocated_bytes_(0),
-              mem_tracker_(mem_tracker) {
-        DCHECK(mem_tracker != nullptr);
-    }
+    // 'tracker' tracks the amount of memory allocated by this pool. Must not be nullptr.
+    MemPool(MemTracker* mem_tracker);
+    MemPool();
 
     /// Frees all chunks of memory and subtracts the total allocated bytes
     /// from the registered limits.
     ~MemPool();
 
     /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
-    /// of the the current chunk. Creates a new chunk if there aren't any chunks
+    /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
-    uint8_t* allocate(int64_t size) { return allocate<false>(size, DEFAULT_ALIGNMENT); }
+    uint8_t* allocate(int64_t size, bool free_old_chunks = false) {
+        return allocate<false>(size, DEFAULT_ALIGNMENT, free_old_chunks);
+    }
+
+    uint8_t* allocate_aligned(int64_t size, int alignment) {
+        DCHECK_GE(alignment, 1);
+        DCHECK_LE(alignment, config::memory_max_alignment);
+        DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
+        return allocate<false>(size, alignment);
+    }
 
     /// Same as Allocate() expect add a check when return a nullptr
-    OLAPStatus allocate_safely(int64_t size, uint8_t*& ret) {
+    Status allocate_safely(int64_t size, uint8_t*& ret) {
         return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret);
     }
 
@@ -147,21 +154,23 @@ public:
     /// All offsets handed out by calls to GetCurrentOffset() for 'src' become invalid.
     void acquire_data(MemPool* src, bool keep_current);
 
-    // Exchange all chunks with input source, including reserved chunks.
-    // This function will keep its own MemTracker, and update it after exchange.
-    // Why we need this other than std::swap? Because swap will swap MemTracker too, which would
-    // lead error. We only has MemTracker's pointer, which can be invalid after swap.
-    void exchange_data(MemPool* other);
-
     std::string debug_string();
 
     int64_t total_allocated_bytes() const { return total_allocated_bytes_; }
     int64_t total_reserved_bytes() const { return total_reserved_bytes_; }
-    int64_t peak_allocated_bytes() const { return peak_allocated_bytes_; }
 
-    MemTracker* mem_tracker() { return mem_tracker_; }
+    MemTracker* mem_tracker() { return _mem_tracker; }
 
-    static constexpr int DEFAULT_ALIGNMENT = 8;
+    // The memory for __int128 should be aligned to 16 bytes.
+    // By the way, in 64-bit system, the address of a block returned by malloc or realloc in GNU systems
+    // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
+    static constexpr int DEFAULT_ALIGNMENT = 16;
+
+#if (defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)) && !defined(BE_TEST)
+    static constexpr int DEFAULT_PADDING_SIZE = 0x10;
+#else
+    static constexpr int DEFAULT_PADDING_SIZE = 0x0;
+#endif
 
 private:
     friend class MemPoolTest;
@@ -189,7 +198,7 @@ private:
     /// if a new chunk needs to be created.
     /// If check_limits is true, this call can fail (returns false) if adding a
     /// new chunk exceeds the mem limits.
-    bool find_chunk(size_t min_size, bool check_limits);
+    Status find_chunk(size_t min_size, bool check_limits, bool free_old_chunks);
 
     /// Check integrity of the supporting data structures; always returns true but DCHECKs
     /// all invariants.
@@ -203,24 +212,45 @@ private:
         return chunks_[current_chunk_idx_].allocated_bytes;
     }
 
+    uint8_t* allocate_from_current_chunk(int64_t size, int alignment) {
+        // Manually ASAN poisoning is complicated and it is hard to make
+        // it work right. There are illustrated examples in
+        // http://blog.hostilefork.com/poison-memory-without-asan/.
+        //
+        // Stacks of use after poison do not provide enough information
+        // to resolve bug, while stacks of use afer free provide.
+        // https://github.com/google/sanitizers/issues/191
+        //
+        // We'd better implement a mempool using malloc/free directly,
+        // thus asan works natively. However we cannot do it in a short
+        // time, so we make manual poisoning work as much as possible.
+        // I refers to https://github.com/mcgov/asan_alignment_example.
+
+        ChunkInfo& info = chunks_[current_chunk_idx_];
+        int64_t aligned_allocated_bytes =
+                BitUtil::RoundUpToPowerOf2(info.allocated_bytes + DEFAULT_PADDING_SIZE, alignment);
+        if (aligned_allocated_bytes + size <= info.chunk.size) {
+            // Ensure the requested alignment is respected.
+            int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
+            uint8_t* result = info.chunk.data + aligned_allocated_bytes;
+            ASAN_UNPOISON_MEMORY_REGION(result, size);
+            DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
+            info.allocated_bytes += padding + size;
+            total_allocated_bytes_ += padding + size;
+            DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
+            return result;
+        }
+        return nullptr;
+    }
+
     template <bool CHECK_LIMIT_FIRST>
-    uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment) {
+    uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment, bool free_old_chunks = false) {
         DCHECK_GE(size, 0);
         if (UNLIKELY(size == 0)) return reinterpret_cast<uint8_t*>(&k_zero_length_region_);
 
         if (current_chunk_idx_ != -1) {
-            ChunkInfo& info = chunks_[current_chunk_idx_];
-            int64_t aligned_allocated_bytes =
-                    BitUtil::RoundUpToPowerOf2(info.allocated_bytes, alignment);
-            if (aligned_allocated_bytes + size <= info.chunk.size) {
-                // Ensure the requested alignment is respected.
-                int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
-                uint8_t* result = info.chunk.data + aligned_allocated_bytes;
-                ASAN_UNPOISON_MEMORY_REGION(result, size);
-                DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
-                info.allocated_bytes += padding + size;
-                total_allocated_bytes_ += padding + size;
-                DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
+            uint8_t* result = allocate_from_current_chunk(size, alignment);
+            if (result != nullptr) {
                 return result;
             }
         }
@@ -230,27 +260,21 @@ private:
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (UNLIKELY(!find_chunk(size, CHECK_LIMIT_FIRST))) return nullptr;
+        if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST, free_old_chunks)))
+            return nullptr;
 
-        ChunkInfo& info = chunks_[current_chunk_idx_];
-        uint8_t* result = info.chunk.data + info.allocated_bytes;
-        ASAN_UNPOISON_MEMORY_REGION(result, size);
-        DCHECK_LE(info.allocated_bytes + size, info.chunk.size);
-        info.allocated_bytes += size;
-        total_allocated_bytes_ += size;
-        DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
-        peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
+        uint8_t* result = allocate_from_current_chunk(size, alignment);
         return result;
     }
 
     template <bool CHECK_LIMIT_FIRST>
-    OLAPStatus ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
+    Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
         uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment);
         if (result == nullptr) {
-            return OLAP_ERR_MALLOC_ERROR;
+            return Status::Error<ErrorCode::MEM_ALLOC_FAILED>();
         }
         ret = result;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
 private:
@@ -271,19 +295,14 @@ private:
     /// sum of all bytes allocated in chunks_
     int64_t total_reserved_bytes_;
 
-    /// Maximum number of bytes allocated from this pool at one time.
-    int64_t peak_allocated_bytes_;
-
     std::vector<ChunkInfo> chunks_;
 
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
-    MemTracker* mem_tracker_;
+    MemTracker* _mem_tracker;
 };
 
 // Stamp out templated implementations here so they're included in IR module
-template uint8_t* MemPool::allocate<false>(int64_t size, int alignment);
-template uint8_t* MemPool::allocate<true>(int64_t size, int alignment);
+template uint8_t* MemPool::allocate<false>(int64_t size, int alignment, bool free_old_chunks);
+template uint8_t* MemPool::allocate<true>(int64_t size, int alignment, bool free_old_chunks);
 } // namespace doris
-
-#endif

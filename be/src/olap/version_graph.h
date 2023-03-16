@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
-#define DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -45,11 +44,11 @@ public:
     void add_version_to_graph(const Version& version);
     /// Delete a version from graph. Notice that this del operation only remove this edges and
     /// remain the vertex.
-    OLAPStatus delete_version_from_graph(const Version& version);
+    Status delete_version_from_graph(const Version& version);
     /// Given a spec_version, this method can find a version path which is the shortest path
     /// in the graph. The version paths are added to version_path as return info.
-    OLAPStatus capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path) const;
+    Status capture_consistent_versions(const Version& spec_version,
+                                       std::vector<Version>* version_path) const;
 
     // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
     double get_orphan_vertex_ratio();
@@ -149,6 +148,10 @@ public:
     /// Add a version to tracker, this version is a new version rowset, not merged rowset.
     void add_version(const Version& version);
 
+    void delete_version(const Version& version) {
+        _version_graph.delete_version_from_graph(version);
+    }
+
     /// Add a version path with stale_rs_metas, this versions in version path
     /// are merged rowsets.  These rowsets are tracked and removed after they are expired.
     /// TabletManager sweep these rowsets using tracker by timing.
@@ -157,8 +160,8 @@ public:
     /// Given a spec_version, this method can find a version path which is the shortest path
     /// in the graph. The version paths are added to version_path as return info.
     /// If this version not in main version, version_path can be included expired rowset.
-    OLAPStatus capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path) const;
+    Status capture_consistent_versions(const Version& spec_version,
+                                       std::vector<Version>* version_path) const;
 
     /// Capture all expired path version.
     /// When the last rowset create time of a path greater than expired time  which can be expressed
@@ -213,5 +216,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_OLAP_VERSION_GRAPH_H

@@ -17,9 +17,9 @@
 
 #include "runtime/large_int_value.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
-#include <fmt/format.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -45,7 +45,7 @@ TEST_F(LargeIntValueTest, string_to_largeint) {
         ss << str;
         __int128 v;
         ss >> v;
-        ASSERT_EQ(v, 1024);
+        EXPECT_EQ(v, 1024);
     }
 
     {
@@ -54,7 +54,7 @@ TEST_F(LargeIntValueTest, string_to_largeint) {
         ss << str;
         __int128 v;
         ss >> v;
-        ASSERT_TRUE(v == MAX_INT128);
+        EXPECT_TRUE(v == MAX_INT128);
     }
 
     {
@@ -63,7 +63,7 @@ TEST_F(LargeIntValueTest, string_to_largeint) {
         ss << str;
         __int128 v;
         ss >> v;
-        ASSERT_TRUE(v == MIN_INT128);
+        EXPECT_TRUE(v == MIN_INT128);
     }
 }
 
@@ -72,7 +72,7 @@ TEST_F(LargeIntValueTest, largeint_to_string) {
         __int128 v1 = std::numeric_limits<int64_t>::max();
         std::stringstream ss;
         ss << v1;
-        ASSERT_EQ(ss.str(), "9223372036854775807");
+        EXPECT_EQ(ss.str(), "9223372036854775807");
     }
 
     {
@@ -90,22 +90,12 @@ TEST_F(LargeIntValueTest, largeint_to_string) {
     }
 }
 
-TEST_F(LargeIntValueTest, largeint_to_string_benchmark) {
+TEST_F(LargeIntValueTest, DISABLED_largeint_to_string_benchmark) {
     for (int i = 0; i < 10000000; i++) {
         __int128 v2 = MAX_INT128;
-       EXPECT_EQ(LargeIntValue::to_string(v2), "170141183460469231731687303715884105727");
-       LargeIntValue::to_string(v2);
+        EXPECT_EQ(LargeIntValue::to_string(v2), "170141183460469231731687303715884105727");
+        LargeIntValue::to_string(v2);
     }
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

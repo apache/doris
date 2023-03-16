@@ -25,6 +25,11 @@ void DumpStackTraceToString(std::string* stacktrace);
 
 namespace doris {
 
+// `boost::stacktrace::stacktrace()` has memory leak, so use the glog internal func to print stacktrace.
+// The reason for the boost::stacktrace memory leak is that a state is saved in the thread local of each
+// thread but is not actively released. Refer to:
+// https://github.com/boostorg/stacktrace/issues/118
+// https://github.com/boostorg/stacktrace/issues/111
 std::string get_stack_trace() {
     std::string s;
     google::glog_internal_namespace_::DumpStackTraceToString(&s);

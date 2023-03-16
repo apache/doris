@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_RUNTIME_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_RUNTIME_PREDICATE_H
+#pragma once
 
-#include <condition_variable>
-#include <list>
-#include <map>
-#include <mutex>
-
-#include "exprs/expr_context.h"
-#include "gen_cpp/Exprs_types.h"
-#include "runtime/types.h"
+#include "runtime/large_int_value.h"
+#include "runtime/runtime_state.h"
+#include "util/lock.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
-class Predicate;
 class ObjectPool;
-class ExprContext;
-class RuntimeState;
 class RuntimePredicateWrapper;
 class MemTracker;
-class TupleRow;
 class PPublishFilterRequest;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;
@@ -45,13 +40,22 @@ class PInFilter;
 class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
+class BloomFilterFuncBase;
+class BitmapFilterFuncBase;
+
+namespace vectorized {
+class VExpr;
+class VExprContext;
+struct SharedRuntimeFilterContext;
+} // namespace vectorized
 
 enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
     IN_FILTER = 0,
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
-    IN_OR_BLOOM_FILTER = 3
+    IN_OR_BLOOM_FILTER = 3,
+    BITMAP_FILTER = 4
 };
 
 inline std::string to_string(RuntimeFilterType type) {
@@ -68,6 +72,9 @@ inline std::string to_string(RuntimeFilterType type) {
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
         return std::string("in_or_bloomfilter");
     }
+    case RuntimeFilterType::BITMAP_FILTER: {
+        return std::string("bitmapfilter");
+    }
     default:
         return std::string("UNKNOWN");
     }
@@ -76,8 +83,13 @@ inline std::string to_string(RuntimeFilterType type) {
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
-    RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              bloom_filter_size(-1), max_in_num(0), filter_id(0), fragment_instance_id(0, 0) {}
+    RuntimeFilterParams()
+            : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
+              bloom_filter_size(-1),
+              max_in_num(0),
+              filter_id(0),
+              fragment_instance_id(0, 0),
+              bitmap_filter_not_in(false) {}
 
     RuntimeFilterType filter_type;
     PrimitiveType column_return_type;
@@ -86,17 +98,30 @@ struct RuntimeFilterParams {
     int32_t max_in_num;
     int32_t filter_id;
     UniqueId fragment_instance_id;
+    bool bitmap_filter_not_in;
 };
 
 struct UpdateRuntimeFilterParams {
+    UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
+                              butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
+            : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequest* request;
-    const char* data;
-    ObjectPool *pool;
+    butil::IOBufAsZeroCopyInputStream* data;
+    ObjectPool* pool;
 };
 
 struct MergeRuntimeFilterParams {
+    MergeRuntimeFilterParams(const PMergeFilterRequest* req,
+                             butil::IOBufAsZeroCopyInputStream* data_stream)
+            : request(req), data(data_stream) {}
     const PMergeFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
+};
+
+enum RuntimeFilterState {
+    READY,
+    NOT_READY,
+    TIME_OUT,
 };
 
 /// The runtimefilter is built in the join node.
@@ -106,33 +131,36 @@ struct MergeRuntimeFilterParams {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeState* state, MemTracker* mem_tracker, ObjectPool* pool)
+    IRuntimeFilter(RuntimeState* state, ObjectPool* pool)
             : _state(state),
-              _mem_tracker(mem_tracker),
               _pool(pool),
               _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
               _filter_id(-1),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
-              _is_ready(false),
+              _rf_state(RuntimeFilterState::NOT_READY),
+              _rf_state_atomic(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               _always_true(false),
-              _probe_ctx(nullptr),
-              _is_ignored(false) {}
+              _is_ignored(false),
+              registration_time_(MonotonicMillis()) {}
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
-                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
-                         const RuntimeFilterRole role, int node_id,
-                         IRuntimeFilter** res);
+    static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
+                         const TQueryOptions* query_options, const RuntimeFilterRole role,
+                         int node_id, IRuntimeFilter** res);
+
+    void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
+    Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
 
     // insert data to build filter
     // only used for producer
     void insert(const void* data);
     void insert(const StringRef& data);
+    void insert_batch(vectorized::ColumnPtr column, const std::vector<int>& rows);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
@@ -142,30 +170,30 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    // get push down expr context
-    // This function can only be called once
-    // _wrapper's function will be clear
-    // only consumer could call this
-    Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs);
+    Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
 
-    // This function is used by UT and producer
-    Status get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs, ExprContext* probe_ctx);
-
-    // This function can be called multiple times
-    Status get_prepared_context(std::vector<ExprContext*>* push_expr_ctxs,
-                                const RowDescriptor& desc,
-                                const std::shared_ptr<MemTracker>& tracker);
+    Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
+                               const RowDescriptor& desc);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
     bool has_remote_target() const { return _has_remote_target; }
 
-    bool is_ready() const { return _is_ready; }
+    bool is_ready() const {
+        return (!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
+               (_state->enable_pipeline_exec() &&
+                _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
+    }
+    RuntimeFilterState current_state() const {
+        return _state->enable_pipeline_exec() ? _rf_state_atomic.load(std::memory_order_acquire)
+                                              : _rf_state;
+    }
+    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
     void set_role(const RuntimeFilterRole role) { _role = role; }
-    int expr_order() { return _expr_order; }
+    int expr_order() const { return _expr_order; }
 
     // only used for consumer
     // if filter is not ready for filter data scan_node
@@ -178,10 +206,10 @@ public:
     void signal();
 
     // init filter with desc
-    Status init_with_desc(const TRuntimeFilterDesc* desc,
-                          const TQueryOptions* options,
-                          UniqueId fragment_id = UniqueId(0, 0),
-                          int node_id = -1);
+    Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
+                          UniqueId fragment_id, int node_id = -1);
+
+    BloomFilterFuncBase* get_bloomfilter() const;
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -191,10 +219,10 @@ public:
 
     // for ut
     const RuntimePredicateWrapper* get_wrapper();
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, MemTracker* tracker,
+    static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, MemTracker* tracker,
+    static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
@@ -203,9 +231,9 @@ public:
     void set_ignored() { _is_ignored = true; }
 
     // for ut
-    bool is_ignored() { return _is_ignored; }
+    bool is_ignored() const { return _is_ignored; }
 
-    void set_ignored_msg(std::string &msg) { _ignored_msg = msg; }
+    void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
 
     // for ut
     bool is_bloomfilter();
@@ -225,6 +253,14 @@ public:
 
     void ready_for_publish();
 
+    std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const;
+
+    static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
+        return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
+    }
+
+    int filter_id() const { return _filter_id; }
+
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -234,11 +270,35 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, MemTracker* tracker, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
+    void _set_push_down() { _is_push_down = true; }
+
+    std::string _format_status() {
+        return fmt::format(
+                "[IsPushDown = {}, RuntimeFilterState = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+                "HasLocalTarget = {}]",
+                _is_push_down, _get_explain_state_string(), _is_ignored, _has_remote_target,
+                _has_local_target);
+    }
+
+    std::string _get_explain_state_string() {
+        if (_state->enable_pipeline_exec()) {
+            return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
+                           ? "READY"
+                   : _rf_state_atomic.load(std::memory_order_acquire) ==
+                                   RuntimeFilterState::TIME_OUT
+                           ? "TIME_OUT"
+                           : "NOT_READY";
+        } else {
+            return _rf_state == RuntimeFilterState::READY      ? "READY"
+                   : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
+                                                               : "NOT_READY";
+        }
+    }
+
     RuntimeState* _state;
-    MemTracker* _mem_tracker;
     ObjectPool* _pool;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
@@ -254,35 +314,29 @@ protected:
     // will apply to local node
     bool _has_local_target;
     // filter is ready for consumer
-    bool _is_ready;
+    RuntimeFilterState _rf_state;
+    std::atomic<RuntimeFilterState> _rf_state_atomic;
     // role consumer or producer
     RuntimeFilterRole _role;
     // expr index
     int _expr_order;
     // used for await or signal
-    std::mutex _inner_mutex;
-    std::condition_variable _inner_cv;
+    doris::Mutex _inner_mutex;
+    doris::ConditionVariable _inner_cv;
+
+    bool _is_push_down = false;
 
     // if set always_true = true
     // this filter won't filter any data
     bool _always_true;
 
-    // build expr_context
-    // ExprContext* _build_ctx;
-    // probe expr_context
-    // it only used in consumer to generate runtime_filter expr_context
-    // we don't have to prepare it or close it
-    ExprContext* _probe_ctx;
+    doris::vectorized::VExprContext* _vprobe_ctx;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
-    std::string _ignored_msg = "";
+    std::string _ignored_msg;
 
-    // some runtime filter will generate
-    // multiple contexts such as minmax filter
-    // these context is called prepared by this,
-    // consumer_close should be called before release
-    std::vector<ExprContext*> _push_down_ctxs;
+    std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
 
     struct rpc_context;
     std::shared_ptr<rpc_context> _rpc_context;
@@ -292,8 +346,9 @@ protected:
     std::unique_ptr<RuntimeProfile> _profile;
     // unix millis
     RuntimeProfile::Counter* _await_time_cost = nullptr;
-    RuntimeProfile::Counter* _effect_time_cost = nullptr;
-    std::unique_ptr<ScopedTimer<MonotonicStopWatch>> _effect_timer;
+
+    /// Time in ms (from MonotonicMillis()), that the filter was registered.
+    const int64_t registration_time_;
 };
 
 // avoid expose RuntimePredicateWrapper
@@ -308,6 +363,142 @@ private:
     WrapperPtr _wrapper;
 };
 
-} // namespace doris
+// copied from expr.h since it is only used in runtime filter
 
-#endif
+template <PrimitiveType T>
+Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
+                                 int scale = 0) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        auto origin_value = reinterpret_cast<const bool*>(data);
+        TBoolLiteral boolLiteral;
+        (*node).__set_node_type(TExprNodeType::BOOL_LITERAL);
+        boolLiteral.__set_value(*origin_value);
+        (*node).__set_bool_literal(boolLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    } else if constexpr (T == TYPE_TINYINT) {
+        auto origin_value = reinterpret_cast<const int8_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
+    } else if constexpr (T == TYPE_SMALLINT) {
+        auto origin_value = reinterpret_cast<const int16_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
+    } else if constexpr (T == TYPE_INT) {
+        auto origin_value = reinterpret_cast<const int32_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
+    } else if constexpr (T == TYPE_BIGINT) {
+        auto origin_value = reinterpret_cast<const int64_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
+    } else if constexpr (T == TYPE_LARGEINT) {
+        auto origin_value = reinterpret_cast<const int128_t*>(data);
+        (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
+        TLargeIntLiteral large_int_literal;
+        large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
+        (*node).__set_large_int_literal(large_int_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+        auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        if (origin_value->type() == TimeType::TIME_DATE) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
+        } else if (origin_value->type() == TimeType::TIME_DATETIME) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
+        } else if (origin_value->type() == TimeType::TIME_TIME) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+        }
+    } else if constexpr (T == TYPE_DATEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
+    } else if constexpr (T == TYPE_DECIMALV2) {
+        auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        auto origin_value = reinterpret_cast<const vectorized::Decimal<int32_t>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        auto origin_value = reinterpret_cast<const vectorized::Decimal<int64_t>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        auto origin_value = reinterpret_cast<const vectorized::Decimal<int128_t>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
+    } else if constexpr (T == TYPE_FLOAT) {
+        auto origin_value = reinterpret_cast<const float*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
+    } else if constexpr (T == TYPE_DOUBLE) {
+        auto origin_value = reinterpret_cast<const double*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
+    } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
+        auto origin_value = reinterpret_cast<const StringRef*>(data);
+        (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
+        TStringLiteral string_literal;
+        string_literal.__set_value(origin_value->to_string());
+        (*node).__set_string_literal(string_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    } else {
+        return Status::InvalidArgument("Invalid argument type!");
+    }
+    return Status::OK();
+}
+
+} // namespace doris

@@ -34,11 +34,12 @@ struct MinusImpl {
         return static_cast<Result>(a) - b;
     }
 
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b) {
-        return a - b;
+    template <typename Result = DecimalV2Value>
+    static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
+        return DecimalV2Value(a.value() - b.value());
     }
 
-    /// Apply operation and check overflow. It's used for Deciamal operations. @returns true if overflowed, false otherwise.
+    /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
         return common::sub_overflow(static_cast<Result>(a), b, c);
@@ -48,7 +49,7 @@ struct MinusImpl {
 struct NameMinus {
     static constexpr auto name = "subtract";
 };
-using FunctionMinus = FunctionBinaryArithmetic<MinusImpl, NameMinus>;
+using FunctionMinus = FunctionBinaryArithmetic<MinusImpl, NameMinus, false>;
 
 void register_function_minus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMinus>();

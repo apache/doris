@@ -20,12 +20,13 @@
 
 #include "vec/data_types/data_type_string.h"
 
-#include "gen_cpp/data.pb.h"
+#include <string_view>
+
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
-#include "vec/io/io_helper.h"
 
 #ifdef __SSE2__
 #include <emmintrin.h>
@@ -33,37 +34,29 @@
 
 namespace doris::vectorized {
 
-template <typename Reader>
-static inline void read(IColumn& column, Reader&& reader) {
-    ColumnString& column_string = assert_cast<ColumnString&>(column);
-    ColumnString::Chars& data = column_string.get_chars();
-    ColumnString::Offsets& offsets = column_string.get_offsets();
-    size_t old_chars_size = data.size();
-    size_t old_offsets_size = offsets.size();
-    try {
-        reader(data);
-        data.push_back(0);
-        offsets.push_back(data.size());
-    } catch (...) {
-        offsets.resize_assume_reserved(old_offsets_size);
-        data.resize_assume_reserved(old_chars_size);
-        throw;
-    }
-}
-
 std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
-    const StringRef& s =
-            assert_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
-                    .get_data_at(row_num);
-    return s.to_string();
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    return value.to_string();
 }
 
-void DataTypeString::to_string(const class doris::vectorized::IColumn & column, size_t row_num,
-        class doris::vectorized::BufferWritable & ostr) const {
-    const StringRef& s =
-            assert_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
-                    .get_data_at(row_num);
-    ostr.write(s.data, s.size);
+void DataTypeString::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
+                               class doris::vectorized::BufferWritable& ostr) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    ostr.write(value.data, value.size);
+}
+
+Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
+    auto* column_data = static_cast<ColumnString*>(column);
+    column_data->insert_data(rb.position(), rb.count());
+    return Status::OK();
 }
 
 Field DataTypeString::get_default() const {
@@ -79,24 +72,55 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 }
 
 // binary: <size array> | total length | <value array>
-//  <size array> : column num | offset1 |offset2 | ...
+//  <size array> : row num | offset1 |offset2 | ...
 //  <value array> : <value1> | <value2 | ...
-int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                          int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
-    return sizeof(uint32_t) * (column.size() + 1) + sizeof(uint64_t) + data_column.get_chars().size();
+
+    if (be_exec_version == 0) {
+        return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
+               data_column.get_chars().size() + column.size();
+    }
+
+    return sizeof(IColumn::Offset) * (column.size() + 1) + sizeof(uint64_t) +
+           data_column.get_chars().size();
 }
 
-char* DataTypeString::serialize(const IColumn& column, char* buf) const {
+char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    // column num
-    *reinterpret_cast<uint32_t*>(buf) = column.size();
-    buf += sizeof(uint32_t);
+    if (be_exec_version == 0) {
+        // row num
+        *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
+        buf += sizeof(IColumn::Offset);
+        // offsets
+        for (int i = 0; i < column.size(); i++) {
+            *reinterpret_cast<IColumn::Offset*>(buf) = data_column.get_offsets()[i] + i + 1;
+            buf += sizeof(IColumn::Offset);
+        }
+        // total length
+        *reinterpret_cast<uint64_t*>(buf) = data_column.get_chars().size() + column.size();
+        buf += sizeof(uint64_t);
+        // values
+        for (int i = 0; i < column.size(); i++) {
+            auto data = data_column.get_data_at(i);
+            memcpy(buf, data.data, data.size);
+            buf += data.size;
+            *buf = '\0';
+            buf++;
+        }
+        return buf;
+    }
+
+    // row num
+    *reinterpret_cast<IColumn::Offset*>(buf) = column.size();
+    buf += sizeof(IColumn::Offset);
     // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(uint32_t));
-    buf += column.size() * sizeof(uint32_t);
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset));
+    buf += column.size() * sizeof(IColumn::Offset);
     // total length
     uint64_t value_len = data_column.get_chars().size();
     *reinterpret_cast<uint64_t*>(buf) = value_len;
@@ -108,20 +132,44 @@ char* DataTypeString::serialize(const IColumn& column, char* buf) const {
     return buf;
 }
 
-const char* DataTypeString::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeString::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
     ColumnString* column_string = assert_cast<ColumnString*>(column);
     ColumnString::Chars& data = column_string->get_chars();
     ColumnString::Offsets& offsets = column_string->get_offsets();
 
-    // column num
-    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
-    buf += sizeof(uint32_t);
+    if (be_exec_version == 0) {
+        // row num
+        IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+        buf += sizeof(IColumn::Offset);
+        // offsets
+        offsets.resize(row_num);
+        for (int i = 0; i < row_num; i++) {
+            offsets[i] = *reinterpret_cast<const IColumn::Offset*>(buf) - i - 1;
+            buf += sizeof(IColumn::Offset);
+        }
+        // total length
+        uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
+        buf += sizeof(uint64_t);
+        // values
+        data.resize(value_len - row_num);
+        for (int i = 0; i < row_num; i++) {
+            memcpy(data.data() + offsets[i - 1], buf, offsets[i] - offsets[i - 1]);
+            buf += offsets[i] - offsets[i - 1] + 1;
+        }
+
+        return buf;
+    }
+
+    // row num
+    IColumn::Offset row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    buf += sizeof(IColumn::Offset);
     // offsets
-    offsets.resize(column_num);
-    memcpy(offsets.data(), buf, sizeof(uint32_t) * column_num);
-    buf += sizeof(uint32_t) * column_num;
+    offsets.resize(row_num);
+    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * row_num);
+    buf += sizeof(IColumn::Offset) * row_num;
     // total length
-    uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf); 
+    uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
     buf += sizeof(uint64_t);
     // values
     data.resize(value_len);

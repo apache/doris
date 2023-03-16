@@ -46,7 +46,7 @@ struct decimal12_t {
             fraction += (sign ? -FRAC_RATIO : FRAC_RATIO);
         }
 
-        //OLAP_LOG_WARNING("agg: int=%ld, frac=%d", integer, fraction);
+        //LOG(WARNING) << "agg: int=" << integer << ", frac=" << fraction;
         //_set_flag();
         return *this;
     }
@@ -81,15 +81,15 @@ struct decimal12_t {
         char buf[128] = {'\0'};
 
         if (integer < 0 || fraction < 0) {
-            snprintf(buf, sizeof(buf), "-%lu.%09u", std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "-%" PRIu64 ".%09u", std::abs(integer), std::abs(fraction));
         } else {
-            snprintf(buf, sizeof(buf), "%lu.%09u", std::abs(integer), std::abs(fraction));
+            snprintf(buf, sizeof(buf), "%" PRIu64 ".%09u", std::abs(integer), std::abs(fraction));
         }
 
         return std::string(buf);
     }
 
-    OLAPStatus from_string(const std::string& str) {
+    Status from_string(const std::string& str) {
         integer = 0;
         fraction = 0;
         const char* value_string = str.c_str();
@@ -97,7 +97,7 @@ struct decimal12_t {
 
         if (sign != nullptr) {
             if (sign != value_string) {
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>();
             } else {
                 ++value_string;
             }
@@ -109,12 +109,16 @@ struct decimal12_t {
             integer = 999999999999999999;
             fraction = 999999999;
         } else {
+            int32_t f = 0;
+            int64_t i = 0;
             if (sepr == value_string) {
-                sscanf(value_string, ".%9d", &fraction);
-                integer = 0;
+                int32_t f = 0;
+                sscanf(value_string, ".%9d", &f);
             } else {
-                sscanf(value_string, "%18ld.%9d", &integer, &fraction);
+                sscanf(value_string, "%18" PRId64 ".%9d", &i, &f);
             }
+            integer = i;
+            fraction = f;
 
             int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
                                                  : MAX_FRAC_DIGITS_NUM;
@@ -127,7 +131,7 @@ struct decimal12_t {
             integer = -integer;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     static const int32_t FRAC_RATIO = 1000000000;

@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
-
+import com.google.common.collect.Maps;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -36,35 +36,36 @@ import java.io.IOException;
 import java.util.List;
 
 public class BatchModifyPartitionsInfoTest {
-    private static String fileName = "./BatchModifyPartitionsInfoTest";
+    private static final String FILE_NAME = "./BatchModifyPartitionsInfoTest";
 
-    private final long DB_ID = 10000L;
-    private final long TB_ID = 30000L;
-    private final long PARTITION_ID_1 = 40000L;
-    private final long PARTITION_ID_2 = 40001L;
-    private final long PARTITION_ID_3 = 40002L;
+    private static final long DB_ID = 10000L;
+    private static final long TB_ID = 30000L;
+    private static final long PARTITION_ID_1 = 40000L;
+    private static final long PARTITION_ID_2 = 40001L;
+    private static final long PARTITION_ID_3 = 40002L;
 
     @After
     public void tearDown() {
-        File file = new File(fileName);
+        File file = new File(FILE_NAME);
         file.delete();
     }
 
     @Test
     public void testSerializeBatchModifyPartitionsInfo() throws IOException, AnalysisException {
-        List<ModifyPartitionInfo> ModifyInfos = Lists.newArrayList();
+        List<ModifyPartitionInfo> modifyInfos = Lists.newArrayList();
         // 1. Write objects to file
-        File file = new File(fileName);
+        File file = new File(FILE_NAME);
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         List<Long> partitionIds = Lists.newArrayList(PARTITION_ID_1, PARTITION_ID_2, PARTITION_ID_3);
         for (long partitionId : partitionIds) {
-            ModifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
-                    DataProperty.DEFAULT_DATA_PROPERTY, ReplicaAllocation.DEFAULT_ALLOCATION, true));
+            modifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM), ReplicaAllocation.DEFAULT_ALLOCATION,
+                    true, "", Maps.newHashMap()));
         }
 
-        BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(ModifyInfos);
+        BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(modifyInfos);
         batchModifyPartitionsInfo.write(out);
         out.flush();
         out.close();

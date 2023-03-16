@@ -17,22 +17,18 @@
 
 package org.apache.doris.httpv2.controller;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.base64.Base64;
-import io.netty.util.CharsetUtil;
-
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.SystemInfoService;
@@ -40,14 +36,16 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.util.CharsetUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.UUID;
-
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -63,7 +61,8 @@ public class BaseController {
         checkWithCookie(request, response, true);
     }
 
-    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request, HttpServletResponse response, boolean checkAuth) {
+    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
+            HttpServletResponse response, boolean checkAuth) {
         // First we check if the request has Authorization header.
         String encodedAuthString = request.getHeader("Authorization");
         if (encodedAuthString != null) {
@@ -72,8 +71,8 @@ public class BaseController {
             UserIdentity currentUser = checkPassword(authInfo);
 
             if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR));
             }
 
             SessionValue value = new SessionValue();
@@ -81,11 +80,11 @@ public class BaseController {
             value.password = authInfo.password;
             addSession(request, response, value);
 
-            ConnectContext ctx = new ConnectContext(null);
+            ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(authInfo.fullUserName);
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
-            ctx.setCatalog(Catalog.getCurrentCatalog());
+            ctx.setEnv(Env.getCurrentEnv());
             ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
             LOG.debug("check auth without cookie success for user: {}, thread: {}",
@@ -125,20 +124,20 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
+                PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
             // need to check auth and check auth failed
             return null;
         }
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
-        ctx.setCatalog(Catalog.getCurrentCatalog());
+        ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setThreadLocalInfo();
         LOG.debug("check cookie success for user: {}, thread: {}",
@@ -192,7 +191,7 @@ public class BaseController {
     }
 
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(currentUser, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -200,7 +199,7 @@ public class BaseController {
 
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(currentUser, db, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -208,7 +207,7 @@ public class BaseController {
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
             throws UnauthorizedException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, db, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
                     + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
@@ -218,10 +217,11 @@ public class BaseController {
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
             throws UnauthorizedException {
         List<UserIdentity> currentUser = Lists.newArrayList();
-        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(authInfo.fullUserName,
-                authInfo.remoteIp, authInfo.password, currentUser)) {
-            throw new UnauthorizedException("Access denied for "
-                    + authInfo.fullUserName + "@" + authInfo.remoteIp);
+        try {
+            Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
+                    authInfo.remoteIp, authInfo.password, currentUser);
+        } catch (AuthenticationException e) {
+            throw new UnauthorizedException(e.formatErrMsg());
         }
         Preconditions.checkState(currentUser.size() == 1);
         return currentUser.get(0);
@@ -299,4 +299,3 @@ public class BaseController {
         return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
     }
 }
-

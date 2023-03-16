@@ -17,77 +17,77 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "olap/fs/block_manager.h"
-#include "olap/fs/fs_util.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/file_utils.h"
 
 namespace doris {
+
+using FileSystemSPtr = std::shared_ptr<io::FileSystem>;
+
 namespace segment_v2 {
 using roaring::Roaring;
 
 class BitmapIndexTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/bitmap_index_test";
-    BitmapIndexTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
 
     void SetUp() override {
         if (FileUtils::check_exist(kTestDir)) {
-            ASSERT_TRUE(FileUtils::remove_all(kTestDir).ok());
+            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
         }
-        ASSERT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
     }
     void TearDown() override {
         if (FileUtils::check_exist(kTestDir)) {
-            ASSERT_TRUE(FileUtils::remove_all(kTestDir).ok());
+            EXPECT_TRUE(FileUtils::remove_all(kTestDir).ok());
         }
     }
-
-private:
-    std::shared_ptr<MemTracker> _tracker;
-    MemPool _pool;
 };
 
 template <FieldType type>
-void write_index_file(std::string& filename, const void* values, size_t value_count,
-                      size_t null_count, ColumnIndexMetaPB* meta) {
-    const TypeInfo* type_info = get_type_info(type);
+void write_index_file(const std::string& filename, FileSystemSPtr fs, const void* values,
+                      size_t value_count, size_t null_count, ColumnIndexMetaPB* meta) {
+    const auto* type_info = get_scalar_type_info<type>();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(filename);
-        ASSERT_TRUE(
-                fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
         BitmapIndexWriter::create(type_info, &writer);
         writer->add_values(values, value_count);
         writer->add_nulls(null_count);
-        ASSERT_TRUE(writer->finish(wblock.get(), meta).ok());
-        ASSERT_EQ(BITMAP_INDEX, meta->type());
-        ASSERT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(writer->finish(file_writer.get(), meta).ok());
+        EXPECT_EQ(BITMAP_INDEX, meta->type());
+        EXPECT_TRUE(file_writer->close().ok());
     }
 }
 
 template <FieldType type>
-void get_bitmap_reader_iter(std::string& file_name, const ColumnIndexMetaPB& meta,
+void get_bitmap_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
                             BitmapIndexReader** reader, BitmapIndexIterator** iter) {
-    *reader = new BitmapIndexReader(file_name, &meta.bitmap_index());
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(io::global_local_filesystem()->open_file(file_name, &file_reader, nullptr),
+              Status::OK());
+    *reader = new BitmapIndexReader(std::move(file_reader), &meta.bitmap_index());
     auto st = (*reader)->load(true, false);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 }
 
 TEST_F(BitmapIndexTest, test_invert) {
@@ -99,40 +99,41 @@ TEST_F(BitmapIndexTest, test_invert) {
 
     std::string file_name = kTestDir + "/invert";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0, &meta);
+    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
+                                          num_uint8_rows, 0, &meta);
     {
-        std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
         get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, meta, &reader, &iter);
+        EXPECT_FALSE(iter == nullptr);
 
         int value = 2;
         bool exact_match;
         Status st = iter->seek_dictionary(&value, &exact_match);
-        ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(exact_match);
-        ASSERT_EQ(2, iter->current_ordinal());
+        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(exact_match);
+        EXPECT_EQ(2, iter->current_ordinal());
 
         Roaring bitmap;
         iter->read_bitmap(iter->current_ordinal(), &bitmap);
-        ASSERT_TRUE(Roaring::bitmapOf(1, 2) == bitmap);
+        EXPECT_TRUE(Roaring::bitmapOf(1, 2) == bitmap);
 
         int value2 = 1024 * 9;
         st = iter->seek_dictionary(&value2, &exact_match);
-        ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(exact_match);
-        ASSERT_EQ(1024 * 9, iter->current_ordinal());
+        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(exact_match);
+        EXPECT_EQ(1024 * 9, iter->current_ordinal());
 
         iter->read_union_bitmap(iter->current_ordinal(), iter->bitmap_nums(), &bitmap);
-        ASSERT_EQ(1025, bitmap.cardinality());
+        EXPECT_EQ(1025, bitmap.cardinality());
 
         int value3 = 1024;
         iter->seek_dictionary(&value3, &exact_match);
-        ASSERT_EQ(1024, iter->current_ordinal());
+        EXPECT_EQ(1024, iter->current_ordinal());
 
         Roaring bitmap2;
         iter->read_union_bitmap(0, iter->current_ordinal(), &bitmap2);
-        ASSERT_EQ(1024, bitmap2.cardinality());
+        EXPECT_EQ(1024, bitmap2.cardinality());
 
         delete reader;
         delete iter;
@@ -153,7 +154,8 @@ TEST_F(BitmapIndexTest, test_invert_2) {
 
     std::string file_name = kTestDir + "/invert2";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0, &meta);
+    write_index_file<OLAP_FIELD_TYPE_INT>(file_name, io::global_local_filesystem(), val,
+                                          num_uint8_rows, 0, &meta);
 
     {
         BitmapIndexReader* reader = nullptr;
@@ -163,14 +165,14 @@ TEST_F(BitmapIndexTest, test_invert_2) {
         int value = 1026;
         bool exact_match;
         auto st = iter->seek_dictionary(&value, &exact_match);
-        ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(!exact_match);
+        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(!exact_match);
 
-        ASSERT_EQ(1024, iter->current_ordinal());
+        EXPECT_EQ(1024, iter->current_ordinal());
 
         Roaring bitmap;
         iter->read_union_bitmap(0, iter->current_ordinal(), &bitmap);
-        ASSERT_EQ(1024, bitmap.cardinality());
+        EXPECT_EQ(1024, bitmap.cardinality());
 
         delete reader;
         delete iter;
@@ -189,7 +191,8 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
 
     std::string file_name = kTestDir + "/mul";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 0, &meta);
+    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(), val,
+                                             num_uint8_rows, 0, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
@@ -198,12 +201,12 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
         int64_t value = 2019;
         bool exact_match;
         auto st = iter->seek_dictionary(&value, &exact_match);
-        ASSERT_TRUE(st.ok()) << "status:" << st.to_string();
-        ASSERT_EQ(0, iter->current_ordinal());
+        EXPECT_TRUE(st.ok()) << "status:" << st.to_string();
+        EXPECT_EQ(0, iter->current_ordinal());
 
         Roaring bitmap;
         iter->read_bitmap(iter->current_ordinal(), &bitmap);
-        ASSERT_EQ(1, bitmap.cardinality());
+        EXPECT_EQ(1, bitmap.cardinality());
 
         delete reader;
         delete iter;
@@ -220,7 +223,8 @@ TEST_F(BitmapIndexTest, test_null) {
 
     std::string file_name = kTestDir + "/null";
     ColumnIndexMetaPB meta;
-    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 30, &meta);
+    write_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, io::global_local_filesystem(), val,
+                                             num_uint8_rows, 30, &meta);
     {
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
@@ -228,7 +232,7 @@ TEST_F(BitmapIndexTest, test_null) {
 
         Roaring bitmap;
         iter->read_null_bitmap(&bitmap);
-        ASSERT_EQ(30, bitmap.cardinality());
+        EXPECT_EQ(30, bitmap.cardinality());
 
         delete reader;
         delete iter;
@@ -238,9 +242,3 @@ TEST_F(BitmapIndexTest, test_null) {
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

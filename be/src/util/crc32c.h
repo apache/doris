@@ -18,8 +18,7 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c.h
 
-#ifndef DORIS_BE_SRC_UTIL_CRC32C_H
-#define DORIS_BE_SRC_UTIL_CRC32C_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -52,5 +51,3 @@ inline uint32_t Value(const std::vector<Slice>& slices) {
 
 } // namespace crc32c
 } // namespace doris
-
-#endif //DORIS_BE_SRC_UTIL_CRC32C_H

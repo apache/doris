@@ -47,6 +47,12 @@ public class CommonUserProperties implements Writable {
     // The tag of the resource that the user is allowed to use
     @SerializedName("resourceTags")
     private Set<Tag> resourceTags = Sets.newHashSet();
+    // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
+    @SerializedName("execMemLimit")
+    private long execMemLimit = -1;
+
+    @SerializedName("queryTimeout")
+    private long queryTimeout = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -61,7 +67,7 @@ public class CommonUserProperties implements Writable {
     String getSqlBlockRules() {
         return sqlBlockRules;
     }
-    
+
     String[] getSqlBlockRulesSplit() {
         return sqlBlockRulesSplit;
     }
@@ -78,7 +84,7 @@ public class CommonUserProperties implements Writable {
         this.sqlBlockRules = sqlBlockRules;
         setSqlBlockRulesSplit(sqlBlockRules);
     }
-    
+
     void setSqlBlockRulesSplit(String sqlBlockRules) {
         // split
         this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
@@ -98,6 +104,22 @@ public class CommonUserProperties implements Writable {
 
     public Set<Tag> getResourceTags() {
         return resourceTags;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
+    public void setExecMemLimit(long execMemLimit) {
+        this.execMemLimit = execMemLimit;
+    }
+
+    public long getQueryTimeout() {
+        return queryTimeout;
+    }
+
+    public void setQueryTimeout(long timeout) {
+        this.queryTimeout = timeout;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

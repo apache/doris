@@ -16,37 +16,36 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -e
+set -eo pipefail
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME=${ROOT}/../..
+export DORIS_HOME="${ROOT}/../.."
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}/env.sh"
 
-export BROKER_HOME=$ROOT
+export BROKER_HOME="${ROOT}"
 
 # prepare thrift
-mkdir -p ${BROKER_HOME}/src/main/resources/thrift
-mkdir -p ${BROKER_HOME}/src/main/thrift
+mkdir -p "${BROKER_HOME}/src/main/resources/thrift"
+mkdir -p "${BROKER_HOME}/src/main/thrift"
 
-cp ${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift ${BROKER_HOME}/src/main/resources/thrift/
+cp "${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift" "${BROKER_HOME}/src/main/resources/thrift"/
 
-$MVN_CMD package -DskipTests
+"${MVN_CMD}" package -DskipTests
 
 echo "Install broker..."
-BROKER_OUTPUT=${BROKER_HOME}/output/apache_hdfs_broker/
-rm -rf ${BROKER_OUTPUT}
+BROKER_OUTPUT="${BROKER_HOME}/output/apache_hdfs_broker"
+rm -rf "${BROKER_OUTPUT}"
 
-install -d ${BROKER_OUTPUT}/bin ${BROKER_OUTPUT}/conf \
-           ${BROKER_OUTPUT}lib/
+install -d "${BROKER_OUTPUT}/bin" "${BROKER_OUTPUT}/conf" \
+    "${BROKER_OUTPUT}/lib"
 
-cp -r -p ${BROKER_HOME}/bin/*.sh ${BROKER_OUTPUT}/bin/
-cp -r -p ${BROKER_HOME}/conf/*.conf ${BROKER_OUTPUT}/conf/
-cp -r -p ${BROKER_HOME}/conf/*.xml ${BROKER_OUTPUT}/conf/
-cp -r -p ${BROKER_HOME}/conf/log4j.properties ${BROKER_OUTPUT}/conf/
-cp -r -p ${BROKER_HOME}/target/lib/* ${BROKER_OUTPUT}/lib/
-cp -r -p ${BROKER_HOME}/target/apache_hdfs_broker.jar ${BROKER_OUTPUT}/lib/
+cp -r -p "${BROKER_HOME}/bin"/*.sh "${BROKER_OUTPUT}/bin"/
+cp -r -p "${BROKER_HOME}/conf"/*.conf "${BROKER_OUTPUT}/conf"/
+cp -r -p "${BROKER_HOME}/conf"/*.xml "${BROKER_OUTPUT}/conf"/
+cp -r -p "${BROKER_HOME}/conf/log4j.properties" "${BROKER_OUTPUT}/conf"/
+cp -r -p "${BROKER_HOME}/target/lib"/* "${BROKER_OUTPUT}/lib"/
+cp -r -p "${BROKER_HOME}/target/apache_hdfs_broker.jar" "${BROKER_OUTPUT}/lib"/
 
 echo "Finished"

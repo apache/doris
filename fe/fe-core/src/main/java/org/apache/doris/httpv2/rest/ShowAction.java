@@ -14,13 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -35,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,8 +51,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -76,6 +75,11 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_meta_info", method = RequestMethod.GET)
     public Object show_meta_info(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         String action = request.getParameter("action");
         if (Strings.isNullOrEmpty(action)) {
             return ResponseEntityBuilder.badRequest("Missing action parameter");
@@ -110,7 +114,7 @@ public class ShowAction extends RestBaseController {
         }
 
         // forward to master if necessary
-        if (!Catalog.getCurrentCatalog().isMaster() && isForward) {
+        if (!Env.getCurrentEnv().isMaster() && isForward) {
             RedirectView redirectView = redirectToMaster(request, response);
             Preconditions.checkNotNull(redirectView);
             return redirectView;
@@ -144,6 +148,11 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_runtime_info", method = RequestMethod.GET)
     public Object show_runtime_info(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         HashMap<String, String> feInfo = new HashMap<String, String>();
 
         // Get memory info
@@ -155,10 +164,9 @@ public class ShowAction extends RestBaseController {
         // Get thread count
         ThreadGroup parentThread;
         for (parentThread = Thread.currentThread().getThreadGroup();
-             parentThread.getParent() != null;
-             parentThread = parentThread.getParent()) {
+                parentThread.getParent() != null;
+                parentThread = parentThread.getParent()) {
         }
-        ;
         feInfo.put("thread_cnt", String.valueOf(parentThread.activeCount()));
 
         return ResponseEntityBuilder.ok(feInfo);
@@ -166,23 +174,27 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_data", method = RequestMethod.GET)
     public Object show_data(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
 
         Map<String, Long> oneEntry = Maps.newHashMap();
 
         String dbName = request.getParameter(DB_KEY);
-        ConcurrentHashMap<String, Database> fullNameToDb = Catalog.getCurrentCatalog().getFullNameToDb();
         long totalSize = 0;
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
-            Database db = fullNameToDb.get(fullDbName);
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
             }
             totalSize = getDataSizeOfDatabase(db);
             oneEntry.put(fullDbName, totalSize);
         } else {
-            for (Database db : fullNameToDb.values()) {
-                if (db.isInfoSchemaDb()) {
+            for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
+                DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+                if (db == null || !(db instanceof Database) || ((Database) db).isInfoSchemaDb()) {
                     continue;
                 }
                 totalSize += getDataSizeOfDatabase(db);
@@ -194,16 +206,16 @@ public class ShowAction extends RestBaseController {
 
     private Map<String, String> getHaInfo() throws IOException {
         HashMap<String, String> feInfo = new HashMap<String, String>();
-        feInfo.put("role", Catalog.getCurrentCatalog().getFeType().toString());
-        if (Catalog.getCurrentCatalog().isMaster()) {
+        feInfo.put("role", Env.getCurrentEnv().getFeType().toString());
+        if (Env.getCurrentEnv().isMaster()) {
             feInfo.put("current_journal_id",
-                    String.valueOf(Catalog.getCurrentCatalog().getEditLog().getMaxJournalId()));
+                    String.valueOf(Env.getCurrentEnv().getEditLog().getMaxJournalId()));
         } else {
             feInfo.put("current_journal_id",
-                    String.valueOf(Catalog.getCurrentCatalog().getReplayedJournalId()));
+                    String.valueOf(Env.getCurrentEnv().getReplayedJournalId()));
         }
 
-        HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();
+        HAProtocol haProtocol = Env.getCurrentEnv().getHaProtocol();
         if (haProtocol != null) {
 
             InetSocketAddress master = null;
@@ -238,18 +250,18 @@ public class ShowAction extends RestBaseController {
             }
         }
 
-        feInfo.put("can_read", String.valueOf(Catalog.getCurrentCatalog().canRead()));
-        feInfo.put("is_ready", String.valueOf(Catalog.getCurrentCatalog().isReady()));
+        feInfo.put("can_read", String.valueOf(Env.getCurrentEnv().canRead()));
+        feInfo.put("is_ready", String.valueOf(Env.getCurrentEnv().isReady()));
 
         Storage storage = new Storage(Config.meta_dir + "/image");
-        feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));
+        feInfo.put("last_checkpoint_version", String.valueOf(storage.getLatestImageSeq()));
         long lastCheckpointTime = storage.getCurrentImageFile().lastModified();
         feInfo.put("last_checkpoint_time", String.valueOf(lastCheckpointTime));
 
         return feInfo;
     }
 
-    public long getDataSizeOfDatabase(Database db) {
+    public long getDataSizeOfDatabase(DatabaseIf db) {
         long totalSize = 0;
         db.readLock();
         try {
@@ -275,10 +287,10 @@ public class ShowAction extends RestBaseController {
 
     private Map<String, Long> getDataSize() {
         Map<String, Long> result = new HashMap<String, Long>();
-        List<String> dbNames = Catalog.getCurrentCatalog().getDbNames();
+        List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
 
         for (String dbName : dbNames) {
-            Catalog.getCurrentCatalog().getDb(dbName).ifPresent(db -> {
+            Env.getCurrentInternalCatalog().getDb(dbName).ifPresent(db -> {
                 long totalSize = getDataSizeOfDatabase(db);
                 result.put(dbName, totalSize);
             });

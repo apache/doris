@@ -36,6 +36,13 @@ import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.cooldown.CooldownConfList;
+import org.apache.doris.cooldown.CooldownDelete;
+import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
@@ -47,14 +54,25 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
+import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
+import org.apache.doris.mtmv.metadata.DropMTMVJob;
+import org.apache.doris.mtmv.metadata.DropMTMVTask;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
+import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
+import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -85,16 +103,21 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -142,6 +165,11 @@ public class JournalEntity implements Writable {
         boolean isRead = false;
         LOG.debug("get opcode: {}", opCode);
         switch (opCode) {
+            case OperationType.OP_LOCAL_EOF: {
+                data = null;
+                isRead = true;
+                break;
+            }
             case OperationType.OP_SAVE_NEXTID: {
                 data = new Text();
                 ((Text) data).readFields(in);
@@ -178,8 +206,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_TABLE: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -220,14 +247,12 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RECOVER_DB:
             case OperationType.OP_RECOVER_TABLE:
             case OperationType.OP_RECOVER_PARTITION: {
-                data = new RecoverInfo();
-                ((RecoverInfo) data).readFields(in);
+                data = RecoverInfo.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_ROLLUP: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -241,6 +266,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_PARTITION: {
                 data = new TableInfo();
                 ((TableInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_RENAME_COLUMN: {
+                data = TableRenameColumnInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -308,9 +338,9 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_FRONTEND:
             case OperationType.OP_ADD_FIRST_FRONTEND:
+            case OperationType.OP_MODIFY_FRONTEND:
             case OperationType.OP_REMOVE_FRONTEND: {
-                data = new Frontend();
-                ((Frontend) data).readFields(in);
+                data = Frontend.read(in);
                 isRead = true;
                 break;
             }
@@ -346,8 +376,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MASTER_INFO_CHANGE: {
-                data = new MasterInfo();
-                ((MasterInfo) data).readFields(in);
+                data = MasterInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -425,6 +454,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
+                data = BatchRemoveTransactionsOperationV2.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
                 isRead = true;
@@ -486,6 +520,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BACKEND_REPLICAS_INFO: {
+                data = BackendReplicasInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadJob.read(in);
                 isRead = true;
@@ -527,7 +566,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_RESOURCE: {
+            case OperationType.OP_CREATE_RESOURCE:
+            case OperationType.OP_ALTER_RESOURCE: {
                 data = Resource.read(in);
                 isRead = true;
                 break;
@@ -545,6 +585,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_JOB_V2: {
                 data = AlterJobV2.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_COOLDOWN_CONF: {
+                data = CooldownConfList.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_COOLDOWN_DELETE: {
+                data = CooldownDelete.read(in);
                 isRead = true;
                 break;
             }
@@ -635,6 +685,113 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_POLICY: {
+                data = Policy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_POLICY: {
+                data = DropPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_STORAGE_POLICY: {
+                data = StoragePolicy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_CATALOG:
+            case OperationType.OP_DROP_CATALOG:
+            case OperationType.OP_ALTER_CATALOG_NAME:
+            case OperationType.OP_ALTER_CATALOG_PROPS:
+            case OperationType.OP_REFRESH_CATALOG: {
+                data = CatalogLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_CATALOG: {
+                data = InitCatalogLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_EXTERNAL_DB: {
+                data = InitDatabaseLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_EXTERNAL_TABLE: {
+                data = InitTableLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_REFRESH_EXTERNAL_DB:
+            case OperationType.OP_DROP_EXTERNAL_TABLE:
+            case OperationType.OP_CREATE_EXTERNAL_TABLE:
+            case OperationType.OP_DROP_EXTERNAL_DB:
+            case OperationType.OP_CREATE_EXTERNAL_DB:
+            case OperationType.OP_ADD_EXTERNAL_PARTITIONS:
+            case OperationType.OP_DROP_EXTERNAL_PARTITIONS:
+            case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS:
+            case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
+                data = ExternalObjectLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
+                data = TableAddOrDropColumnsInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
+                data = TableAddOrDropInvertedIndicesInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CLEAN_LABEL: {
+                data = CleanLabelOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_MTMV_JOB: {
+                data = MTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_MTMV_JOB: {
+                data = DropMTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CHANGE_MTMV_JOB: {
+                data = ChangeMTMVJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_MTMV_TASK: {
+                data = MTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_MTMV_TASK: {
+                data = DropMTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CHANGE_MTMV_TASK: {
+                data = ChangeMTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV_STMT: {
+                data = AlterMultiMaterializedView.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_USER: {
+                data = AlterUserOperationLog.read(in);
+                isRead = true;
+                break;
+            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -644,4 +801,3 @@ public class JournalEntity implements Writable {
         Preconditions.checkState(isRead);
     }
 }
-

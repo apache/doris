@@ -25,7 +25,6 @@
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
-#include "util/logging.h"
 #include "util/metrics.h"
 
 using std::filesystem::path;
@@ -215,18 +214,3 @@ TEST_F(TmpFileMgrTest, TestAllocateFails) {
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::config::query_scratch_dirs = "/tmp";
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-
-    doris::DiskInfo::init();
-
-    return RUN_ALL_TESTS();
-}

@@ -18,15 +18,17 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.monitor.jvm.JvmStats;
+
 import com.codahale.metrics.Histogram;
+
 import java.util.List;
 
 public class JsonMetricVisitor extends MetricVisitor {
     private int ordinal = 0;
     private int metricNumber = 0;
 
-    public JsonMetricVisitor(String prefix) {
-        super(prefix);
+    public JsonMetricVisitor() {
+        super();
     }
 
     @Override
@@ -40,16 +42,15 @@ public class JsonMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visit(StringBuilder sb, @SuppressWarnings("rawtypes") Metric metric) {
+    public void visit(StringBuilder sb, String prefix, @SuppressWarnings("rawtypes") Metric metric) {
         if (ordinal++ == 0) {
             sb.append("[\n");
         }
         sb.append("{\n\t\"tags\":\n\t{\n");
-        sb.append("\t\t\"metric\":\"").append(metric.getName()).append("\"");
+        sb.append("\t\t\"metric\":\"").append(prefix).append(metric.getName()).append("\"");
 
         // name
-        @SuppressWarnings("unchecked")
-        List<MetricLabel> labels = metric.getLabels();
+        @SuppressWarnings("unchecked") List<MetricLabel> labels = metric.getLabels();
         if (!labels.isEmpty()) {
             sb.append(",\n");
             int i = 0;
@@ -61,7 +62,7 @@ public class JsonMetricVisitor extends MetricVisitor {
             }
         }
         sb.append("\n\t},\n");
-        sb.append("\t\"unit\":\"").append(metric.getUnit().name().toLowerCase()).append( "\",\n");
+        sb.append("\t\"unit\":\"").append(metric.getUnit().name().toLowerCase()).append("\",\n");
 
         // value
         sb.append("\t\"value\":").append(metric.getValue().toString()).append("\n}");
@@ -74,7 +75,7 @@ public class JsonMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void visitHistogram(StringBuilder sb, String name, Histogram histogram) {
+    public void visitHistogram(StringBuilder sb, String prefix, String name, Histogram histogram) {
         return;
     }
 
@@ -83,4 +84,3 @@ public class JsonMetricVisitor extends MetricVisitor {
         return;
     }
 }
-

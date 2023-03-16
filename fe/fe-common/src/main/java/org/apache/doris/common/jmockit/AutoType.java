@@ -31,11 +31,11 @@ public class AutoType {
     }
 
     public static Class<?> getPrimitiveType(Class<?> wrapperType) {
-        return (Class)WRAPPER_TO_PRIMITIVE.get(wrapperType);
+        return WRAPPER_TO_PRIMITIVE.get(wrapperType);
     }
 
     public static Class<?> getWrapperType(Class<?> primitiveType) {
-        return (Class)PRIMITIVE_TO_WRAPPER.get(primitiveType);
+        return PRIMITIVE_TO_WRAPPER.get(primitiveType);
     }
 
     static {

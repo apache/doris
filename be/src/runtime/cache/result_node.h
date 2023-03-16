@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
-#define DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
+#pragma once
 
 #include <sys/time.h>
 
@@ -35,8 +34,6 @@
 #include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -190,4 +187,3 @@ private:
 };
 
 } // namespace doris
-#endif

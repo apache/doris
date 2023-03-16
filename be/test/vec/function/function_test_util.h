@@ -22,36 +22,48 @@
 #include <iostream>
 #include <string>
 
-#include "exec/schema_scanner.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
+#include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h"
-#include "util/bitmap_value.h"
-#include "vec/columns/column_complex.h"
-#include "vec/functions/function_string.h"
-#include "vec/functions/function_string_to_string.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
-using DataSet = std::vector<std::pair<std::vector<std::any>, std::any>>;
-using InputTypeSet = std::vector<std::any>;
+using InputDataSet = std::vector<std::vector<AnyType>>; // without result
+using CellSet = std::vector<AnyType>;
+using Expect = AnyType;
+using Row = std::pair<CellSet, Expect>;
+using DataSet = std::vector<Row>;
+using InputTypeSet = std::vector<AnyType>;
 
-int64_t str_to_data_time(std::string datetime_str, bool data_time = true) {
-    VecDateTimeValue v;
-    v.from_date_str(datetime_str.c_str(), datetime_str.size());
-    if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
-        v.to_datetime();
-    } else {
-        v.cast_to_date();
-    }
-    return binary_cast<VecDateTimeValue, Int64>(v);
-}
+int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
+uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
+uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
+
+struct Nullable {
+    TypeIndex tp;
+};
+
+struct Notnull {
+    TypeIndex tp;
+};
+
+struct ConstedNotnull {
+    TypeIndex tp;
+};
 
 namespace ut_type {
+using BOOLEAN = uint8_t;
 using TINYINT = int8_t;
 using SMALLINT = int16_t;
 using INT = int32_t;
@@ -65,251 +77,145 @@ using STRING = std::string;
 using DOUBLE = double;
 using FLOAT = float;
 
-inline auto DECIMAL = Decimal<Int128>::double_to_decimal;
+inline auto DECIMAL = Decimal128::double_to_decimal;
+inline auto DECIMALFIELD = [](double v) {
+    return DecimalField<Decimal128>(Decimal128::double_to_decimal(v), 9);
+};
 
 using DATETIME = std::string;
+
+template <typename T>
+struct DataTypeTraits;
+
+template <>
+struct DataTypeTraits<DataTypeInt8> {
+    using type = Int8;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt16> {
+    using type = Int16;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt32> {
+    using type = Int32;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt64> {
+    using type = Int64;
+};
+
+template <>
+struct DataTypeTraits<DataTypeInt128> {
+    using type = Int128;
+};
+
+template <>
+struct DataTypeTraits<DataTypeFloat32> {
+    using type = Float32;
+};
+
+template <>
+struct DataTypeTraits<DataTypeFloat64> {
+    using type = Float64;
+};
+
+template <typename To, typename From>
+constexpr decltype(auto) convert_to(From value) {
+    using ToType = typename DataTypeTraits<To>::type;
+    return ToType(value);
+}
+
+template <typename T>
+constexpr TypeIndex get_type_index() {
+    if constexpr (std::is_same_v<T, DataTypeInt8>) {
+        return TypeIndex::Int8;
+    } else if constexpr (std::is_same_v<T, DataTypeInt16>) {
+        return TypeIndex::Int16;
+    } else if constexpr (std::is_same_v<T, DataTypeInt32>) {
+        return TypeIndex::Int32;
+    } else if constexpr (std::is_same_v<T, DataTypeInt64>) {
+        return TypeIndex::Int64;
+    } else if constexpr (std::is_same_v<T, DataTypeInt128>) {
+        return TypeIndex::Int128;
+    } else if constexpr (std::is_same_v<T, DataTypeFloat32>) {
+        return TypeIndex::Float32;
+    } else if constexpr (std::is_same_v<T, DataTypeFloat64>) {
+        return TypeIndex::Float64;
+    }
+}
+
+struct UTDataTypeDesc {
+    DataTypePtr data_type;
+    doris::TypeDescriptor type_desc;
+    std::string col_name;
+    bool is_const = false;
+    bool is_nullable = true;
+};
+using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
+
 } // namespace ut_type
 
-template <typename ColumnType, typename Column, typename NullColumn>
-void insert_column_to_block(std::list<ColumnPtr>& columns, ColumnsWithTypeAndName& ctn,
-                            Column&& col, NullColumn&& null_map, Block& block,
-                            const std::string& col_name, int i, bool is_const, int row_size) {
-    columns.emplace_back(ColumnNullable::create(std::move(col), std::move(null_map)));
-    ColumnWithTypeAndName type_and_name(
-            is_const ? ColumnConst::create(columns.back()->get_ptr(), row_size)
-                     : columns.back()->get_ptr(),
-            make_nullable(std::make_shared<ColumnType>()), col_name);
-    block.insert(i, type_and_name);
-    ctn.emplace_back(type_and_name);
-}
+size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
+                               ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type);
+bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs);
+
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell);
+
+Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDataSet& input_set);
+
+Block* process_table_function(TableFunction* fn, Block* input_block,
+                              const InputTypeSet& output_types);
+void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
+                              const InputDataSet& input_set, const InputTypeSet& output_types,
+                              const InputDataSet& output_set);
 
 // Null values are represented by Null()
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
 // A DataSet with a constant column can only have one row of data
-
 template <typename ReturnType, bool nullable = false>
-void check_function(const std::string& func_name, const std::vector<std::any>& input_types,
-                    const DataSet& data_set) {
-    size_t row_size = data_set.size();
-    size_t column_size = input_types.size();
+Status check_function(const std::string& func_name, const InputTypeSet& input_types,
+                      const DataSet& data_set, bool expect_fail = false) {
+    // 1.0 create data type
+    ut_type::UTDataTypeDescs descs;
+    EXPECT_TRUE(parse_ut_data_type(input_types, descs));
 
-    std::list<ColumnPtr> columns;
+    // 1.1 insert data and create block
+    auto row_size = data_set.size();
     Block block;
+    for (size_t i = 0; i < descs.size(); ++i) {
+        auto& desc = descs[i];
+        auto column = desc.data_type->create_column();
+        column->reserve(row_size);
+
+        auto type_ptr = desc.data_type->is_nullable()
+                                ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
+                                : desc.data_type;
+        for (int j = 0; j < row_size; j++) {
+            EXPECT_TRUE(insert_cell(column, type_ptr, data_set[j].first[i]));
+        }
+
+        if (desc.is_const) {
+            column = ColumnConst::create(std::move(column), row_size);
+        }
+        block.insert({std::move(column), desc.data_type, desc.col_name});
+    }
+
+    // 1.2 prepare args for function call
     ColumnNumbers arguments;
-    ColumnsWithTypeAndName ctn;
+    std::vector<doris::TypeDescriptor> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
-    std::vector<ColumnPtrWrapper*> constant_cols;
-    std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
-    doris_udf::FunctionContext::TypeDesc arg_type;
-    // 1. build block and column type and names
-    for (int i = 0; i < column_size; i++) {
-        TypeIndex tp;
-        bool is_const;
-        if (input_types[i].type() == typeid(Consted)) {
-            tp = std::any_cast<Consted>(input_types[i]).tp;
-            is_const = true;
-        } else {
-            tp = std::any_cast<TypeIndex>(input_types[i]);
-            is_const = false;
-        }
-
-        std::string col_name = "k" + std::to_string(i);
-
-        auto null_map = ColumnUInt8::create(row_size, false);
-        auto& null_map_data = null_map->get_data();
-
-        if (tp == TypeIndex::String) {
-            auto col = ColumnString::create();
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto str = std::any_cast<ut_type::STRING>(data_set[j].first[i]);
-                col->insert_data(str.c_str(), str.size());
-            }
-            insert_column_to_block<DataTypeString>(columns, ctn, std::move(col),
-                                                   std::move(null_map), block, col_name, i,
-                                                   is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_STRING;
-        } else if (tp == TypeIndex::BitMap) {
-            auto col = ColumnBitmap::create();
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                BitmapValue* bitmap = std::any_cast<BitmapValue*>(data_set[j].first[i]);
-                col->insert_value(*bitmap);
-            }
-            insert_column_to_block<DataTypeBitMap>(columns, ctn, std::move(col),
-                                                   std::move(null_map), block, col_name, i,
-                                                   is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_OBJECT;
-        } else if (tp == TypeIndex::Int8) {
-            auto col = ColumnInt8::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<ut_type::TINYINT>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeInt8>(columns, ctn, std::move(col), std::move(null_map),
-                                                 block, col_name, i, is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_TINYINT;
-        } else if (tp == TypeIndex::Int16) {
-            auto col = ColumnInt16::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<ut_type::SMALLINT>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeInt16>(columns, ctn, std::move(col), std::move(null_map),
-                                                  block, col_name, i, is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_SMALLINT;
-        } else if (tp == TypeIndex::Int32) {
-            auto col = ColumnInt32::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<ut_type::INT>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeInt32>(columns, ctn, std::move(col), std::move(null_map),
-                                                  block, col_name, i, is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_INT;
-        } else if (tp == TypeIndex::Int64) {
-            auto col = ColumnInt64::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<ut_type::BIGINT>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeInt64>(columns, ctn, std::move(col), std::move(null_map),
-                                                  block, col_name, i, is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_BIGINT;
-        } else if (tp == TypeIndex::Int128) {
-            auto col = ColumnInt128::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<ut_type::LARGEINT>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeInt128>(columns, ctn, std::move(col),
-                                                   std::move(null_map), block, col_name, i,
-                                                   is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_LARGEINT;
-        } else if (tp == TypeIndex::Float64) {
-            auto col = ColumnFloat64::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<ut_type::DOUBLE>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeFloat64>(columns, ctn, std::move(col),
-                                                    std::move(null_map), block, col_name, i,
-                                                    is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_DOUBLE;
-        } else if (tp == TypeIndex::Decimal128) {
-            auto col = ColumnDecimal<Decimal128>::create(0, 9);
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto value = std::any_cast<Decimal<Int128>>(data_set[j].first[i]);
-                col->insert_data(reinterpret_cast<char*>(&value), 0);
-            }
-            insert_column_to_block<DataTypeDecimal<Decimal128>>(columns, ctn, std::move(col),
-                                                                std::move(null_map), block,
-                                                                col_name, i, is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_DECIMALV2;
-        } else if (tp == TypeIndex::DateTime) {
-            static std::string date_time_format("%Y-%m-%d %H:%i:%s");
-            auto col = ColumnInt64::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto datetime_str = std::any_cast<std::string>(data_set[j].first[i]);
-                VecDateTimeValue v;
-                v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                                       datetime_str.c_str(), datetime_str.size());
-                v.to_datetime();
-                col->insert_data(reinterpret_cast<char*>(&v), 0);
-            }
-            insert_column_to_block<DataTypeDateTime>(columns, ctn, std::move(col),
-                                                     std::move(null_map), block, col_name, i,
-                                                     is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_DATETIME;
-        } else if (tp == TypeIndex::Date) {
-            static std::string date_time_format("%Y-%m-%d");
-            auto col = ColumnInt64::create();
-
-            for (int j = 0; j < row_size; j++) {
-                if (data_set[j].first[i].type() == typeid(Null)) {
-                    null_map_data[j] = true;
-                    col->insert_default();
-                    continue;
-                }
-                auto datetime_str = std::any_cast<std::string>(data_set[j].first[i]);
-                VecDateTimeValue v;
-                v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                                       datetime_str.c_str(), datetime_str.size());
-                v.cast_to_date();
-                col->insert_data(reinterpret_cast<char*>(&v), 0);
-            }
-            insert_column_to_block<DataTypeDateTime>(columns, ctn, std::move(col),
-                                                     std::move(null_map), block, col_name, i,
-                                                     is_const, row_size);
-            arg_type.type = doris_udf::FunctionContext::TYPE_DATE;
-        } else {
-            ASSERT_TRUE(false);
-            arg_type.type = doris_udf::FunctionContext::INVALID_TYPE;
-        }
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+    for (size_t i = 0; i < descs.size(); ++i) {
+        auto& desc = descs[i];
         arguments.push_back(i);
-        arg_types.push_back(arg_type);
-        if (is_const) {
-            const auto& column = block.get_by_position(i).column;
-            std::shared_ptr<ColumnPtrWrapper> constant_col =
-                    std::make_shared<ColumnPtrWrapper>(column);
-            constant_col_ptrs.push_back(constant_col);
-            constant_cols.push_back(constant_col.get());
+        arg_types.push_back(desc.type_desc);
+        if (desc.is_const) {
+            constant_col_ptrs.push_back(
+                    std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
+            constant_cols.push_back(constant_col_ptrs.back());
         } else {
             constant_cols.push_back(nullptr);
         }
@@ -318,60 +224,97 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
     // 2. execute function
     auto return_type = nullable ? make_nullable(std::make_shared<ReturnType>())
                                 : std::make_shared<ReturnType>();
-    auto func = SimpleFunctionFactory::instance().get_function(func_name, ctn, return_type);
-    ASSERT_TRUE(func != nullptr);
+    auto func = SimpleFunctionFactory::instance().get_function(
+            func_name, block.get_columns_with_type_and_name(), return_type);
+    EXPECT_TRUE(func != nullptr);
 
-    doris_udf::FunctionContext::TypeDesc fn_ctx_return;
-    if (std::is_same_v<ReturnType, DataTypeUInt8>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_BOOLEAN;
-    } else if (std::is_same_v<ReturnType, DataTypeFloat64>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DOUBLE;
-    } else if (std::is_same_v<ReturnType, DataTypeInt32>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_INT;
-    } else if (std::is_same_v<ReturnType, DateTime>) {
-        fn_ctx_return.type = doris_udf::FunctionContext::TYPE_DATETIME;
+    doris::TypeDescriptor fn_ctx_return;
+    if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_BOOLEAN;
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
+                         std::is_same_v<ReturnType, DataTypeTime>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
+    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
+    } else if (std::is_same_v<ReturnType, DateV2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
+    } else if (std::is_same_v<ReturnType, DateTimeV2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
     } else {
-        fn_ctx_return.type = doris_udf::FunctionContext::INVALID_TYPE;
+        fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
     }
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    fn_ctx->impl()->set_constant_cols(constant_cols);
-    func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-    func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
+    fn_ctx->set_constant_cols(constant_cols);
+    func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
 
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
-    func->execute(fn_ctx, block, arguments, result, row_size);
+    auto st = func->execute(fn_ctx, block, arguments, result, row_size);
+    if (expect_fail) {
+        EXPECT_NE(Status::OK(), st);
+        return st;
+    } else {
+        EXPECT_EQ(Status::OK(), st);
+    }
 
     func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
     func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    ASSERT_TRUE(column != nullptr);
+    EXPECT_TRUE(column != nullptr);
 
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
-            Field field;
-            column->get(i, field);
+            if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
+                const auto& expect_data = any_cast<String>(data_set[i].second);
+                auto s = column->get_data_at(i);
+                if (expect_data.size() == 0) {
+                    // zero size result means invalid
+                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
+                } else {
+                    // convert jsonb binary value to json string to compare with expected json text
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                            << " at row " << i;
+                }
+            } else {
+                Field field;
+                column->get(i, field);
 
-            const auto& column_data = field.get<typename ReturnType::FieldType>();
-            const auto& expect_data =
-                    std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
+                const auto& expect_data =
+                        any_cast<typename ReturnType::FieldType>(data_set[i].second);
 
-            ASSERT_EQ(column_data, expect_data);
+                if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
+                    const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
+                    EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
+                                     std::is_same_v<ReturnType, DataTypeFloat64> ||
+                                     std::is_same_v<ReturnType, DataTypeTime>) {
+                    const auto& column_data = field.get<DataTypeFloat64::FieldType>();
+                    EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
+                } else {
+                    const auto& column_data = field.get<typename ReturnType::FieldType>();
+                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
+                }
+            }
         };
 
         if constexpr (nullable) {
-            bool is_null = data_set[i].second.type() == typeid(Null);
-            ASSERT_EQ(column->is_null_at(i), is_null);
+            bool is_null = data_set[i].second.type() == &typeid(Null);
+            EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
             if (!is_null) check_column_data();
         } else {
             check_column_data();
         }
     }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

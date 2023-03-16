@@ -27,33 +27,24 @@ namespace doris {
 using namespace config;
 
 CONF_mInt16(cfg_validator_1, "15");
-CONF_Validator(cfg_validator_1, [](int16_t config) -> bool {
-    return 0 <= config && config <= 10;
-});
+CONF_Validator(cfg_validator_1, [](int16_t config) -> bool { return 0 <= config && config <= 10; });
 
 CONF_mInt16(cfg_validator_2, "5");
-CONF_Validator(cfg_validator_2, [](int16_t config) -> bool {
-    return 0 <= config && config <= 10;
-});
+CONF_Validator(cfg_validator_2, [](int16_t config) -> bool { return 0 <= config && config <= 10; });
 
 TEST(ConfigValidatorTest, Validator) {
-    ASSERT_FALSE(config::init(nullptr, true));
+    EXPECT_FALSE(config::init(nullptr, true));
     config::Register::_s_field_map->erase("cfg_validator_1");
 
-    ASSERT_TRUE(config::init(nullptr, true));
+    EXPECT_TRUE(config::init(nullptr, true));
 
     Status s = config::set_config("cfg_validator_2", "15");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Invalid argument: validate cfg_validator_2=15 failed");
-    ASSERT_EQ(cfg_validator_2, 5);
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Invalid argument: validate cfg_validator_2=15 failed");
+    EXPECT_EQ(cfg_validator_2, 5);
 
     s = config::set_config("cfg_validator_2", "8");
-    ASSERT_TRUE(s.ok());
-    ASSERT_EQ(cfg_validator_2, 8);
+    EXPECT_TRUE(s.ok());
+    EXPECT_EQ(cfg_validator_2, 8);
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

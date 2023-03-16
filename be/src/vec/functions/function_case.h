@@ -17,17 +17,15 @@
 
 #pragma once
 
+#include <cstdint>
+
+#include "vec/columns/column_complex.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
-
-struct CaseState {
-    DataTypePtr result_type = nullptr;
-};
 
 template <bool has_case, bool has_else>
 struct FunctionCaseName;
@@ -135,13 +133,60 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     template <typename ColumnType, bool when_null, bool then_null>
+    Status execute_short_circuit(const DataTypePtr& data_type, Block& block, size_t result,
+                                 CaseWhenColumnHolder column_holder) {
+        auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
+        int rows_count = column_holder.rows_count;
+
+        // `then` data index corresponding to each row of results, 0 represents `else`.
+        int then_idx[rows_count];
+        int* __restrict then_idx_ptr = then_idx;
+        memset(then_idx_ptr, 0, sizeof(then_idx));
+
+        for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
+            for (int i = 1; i < column_holder.pair_count; i++) {
+                auto when_column_ptr = column_holder.when_ptrs[i].value();
+                if constexpr (has_case) {
+                    if (!case_column_ptr->is_null_at(row_idx) &&
+                        case_column_ptr->compare_at(row_idx, row_idx, *when_column_ptr, -1) == 0) {
+                        then_idx_ptr[row_idx] = i;
+                        break;
+                    }
+                } else {
+                    if constexpr (when_null) {
+                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
+                            then_idx_ptr[row_idx] = i;
+                            break;
+                        }
+                    } else {
+                        if (!then_idx_ptr[row_idx]) {
+                            then_idx_ptr[row_idx] = i;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        auto result_column_ptr = data_type->create_column();
+        update_result_normal(result_column_ptr, then_idx, column_holder);
+        block.replace_by_position(result, std::move(result_column_ptr));
+        return Status::OK();
+    }
+
+    template <typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, size_t result,
                         CaseWhenColumnHolder column_holder) {
+        if (column_holder.pair_count > UINT8_MAX) {
+            return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
+                                                                           column_holder);
+        }
+
         int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
         uint8_t then_idx[rows_count];
-        uint8_t* __restrict then_idx_ptr = &then_idx[0];
+        uint8_t* __restrict then_idx_ptr = then_idx;
         memset(then_idx_ptr, 0, sizeof(then_idx));
 
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
@@ -188,7 +233,9 @@ public:
                                  uint8* then_idx, CaseWhenColumnHolder& column_holder) {
         auto result_column_ptr = data_type->create_column();
 
-        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                      std::is_same_v<ColumnType, ColumnBitmap> ||
+                      std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             update_result_normal(result_column_ptr, then_idx, column_holder);
@@ -204,7 +251,8 @@ public:
         return Status::OK();
     }
 
-    void update_result_normal(MutableColumnPtr& result_column_ptr, uint8* then_idx,
+    template <typename IndexType>
+    void update_result_normal(MutableColumnPtr& result_column_ptr, IndexType* then_idx,
                               CaseWhenColumnHolder& column_holder) {
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
@@ -219,7 +267,8 @@ public:
     }
 
     template <typename ColumnType>
-    void update_result_auto_simd(MutableColumnPtr& result_column_ptr, uint8* __restrict then_idx,
+    void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
+                                 const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) {
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
@@ -317,16 +366,12 @@ public:
                                                   input_rows_count);
         TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
-        return Status::NotSupported(
-                fmt::format("argument_type {} not supported", data_type->get_name()));
+        return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        CaseState* case_state = reinterpret_cast<CaseState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-
-        return execute_get_type(case_state->result_type, block, arguments, result,
+        return execute_get_type(block.get_by_position(result).type, block, arguments, result,
                                 input_rows_count);
     }
 };

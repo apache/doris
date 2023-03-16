@@ -22,7 +22,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "service/backend_options.h"
-#include "util/logging.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -33,14 +32,13 @@ namespace doris {
 
 TEST(AgentUtilsTest, Test) {
     std::string host_name = BackendOptions::get_localhost();
-    int cnt = std::count(host_name.begin(), host_name.end(), '.');
-    ASSERT_EQ(3, cnt);
+    if (!BackendOptions::is_bind_ipv6()) {
+        int cnt = std::count(host_name.begin(), host_name.end(), '.');
+        EXPECT_EQ(3, cnt);
+    } else {
+        int cnt = std::count(host_name.begin(), host_name.end(), ':');
+        EXPECT_GT(cnt, 0);
+    }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::BackendOptions::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -25,9 +25,11 @@
 
 namespace doris {
 
-class Chunk;
+struct Chunk;
 class ChunkArena;
 class MetricEntity;
+class MemTrackerLimiter;
+class Status;
 
 // Used to allocate memory with power-of-two length.
 // This Allocator allocate memory from system and cache free chunks for
@@ -58,27 +60,39 @@ public:
     static ChunkAllocator* instance() { return _s_instance; }
 #endif
 
-    ChunkAllocator(size_t reserve_limit);
-
-    // Allocate a Chunk with a power-of-two length "size".
-    // Return true if success and allocated chunk is saved in "chunk".
-    // Otherwise return false.
-    bool allocate(size_t size, Chunk* chunk);
-
-    bool allocate_align(size_t size, Chunk* chunk);
+    // Up size to 2^n length, allocate a chunk.
+    Status allocate_align(size_t size, Chunk* chunk);
 
     // Free chunk allocated from this allocator
     void free(const Chunk& chunk);
+
+    // Transfer the memory ownership to the chunk allocator.
+    // If the chunk allocator is full, then free to the system.
+    // Note: make sure that the length of 'data' is equal to size,
+    // otherwise the capacity of chunk allocator will be wrong.
+    void free(uint8_t* data, size_t size);
+
+    void clear();
+
+    int64_t mem_consumption() { return _reserved_bytes; }
+
+private:
+    ChunkAllocator(size_t reserve_limit);
 
 private:
     static ChunkAllocator* _s_instance;
 
     size_t _reserve_bytes_limit;
+    // When the reserved chunk memory size is greater than the limit,
+    // it is allowed to steal the chunks of other arenas.
+    size_t _steal_arena_limit;
     std::atomic<int64_t> _reserved_bytes;
     // each core has a ChunkArena
     std::vector<std::unique_ptr<ChunkArena>> _arenas;
 
     std::shared_ptr<MetricEntity> _chunk_allocator_metric_entity;
+
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
 } // namespace doris

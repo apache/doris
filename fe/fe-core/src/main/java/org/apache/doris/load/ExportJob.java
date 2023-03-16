@@ -35,9 +35,9 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -45,16 +45,18 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
+import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.MysqlScanNode;
 import org.apache.doris.planner.OdbcScanNode;
 import org.apache.doris.planner.OlapScanNode;
@@ -65,6 +67,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -84,7 +87,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -116,7 +118,9 @@ public class ExportJob implements Writable {
     }
 
     private long id;
+    private String queryId;
     private String label;
+    private String user;
     private long dbId;
     private long tableId;
     private BrokerDesc brokerDesc;
@@ -126,12 +130,11 @@ public class ExportJob implements Writable {
     private String lineDelimiter;
     private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
-
     private TableName tableName;
-
     private String sql = "";
-
     private JobState state;
+    // If set to true, the profile of export job with be pushed to ProfileManager
+    private volatile boolean enableProfile = false;
     private long createTimeMs;
     private long startTimeMs;
     private long finishTimeMs;
@@ -170,11 +173,12 @@ public class ExportJob implements Writable {
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     private List<String> exportColumns = Lists.newArrayList();
-    private String columns ;
+    private String columns;
 
 
     public ExportJob() {
         this.id = -1;
+        this.queryId = "";
         this.dbId = -1;
         this.tableId = -1;
         this.state = JobState.PENDING;
@@ -183,12 +187,13 @@ public class ExportJob implements Writable {
         this.startTimeMs = -1;
         this.finishTimeMs = -1;
         this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
-        this.analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
+        this.analyzer = new Analyzer(Env.getCurrentEnv(), null);
         this.desc = analyzer.getDescTbl();
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.user = "";
     }
 
     public ExportJob(long jobId) {
@@ -198,15 +203,15 @@ public class ExportJob implements Writable {
 
     public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
-
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
         this.label = this.properties.get(ExportStmt.LABEL);
-
+        this.queryId = ConnectContext.get() != null ? DebugUtil.printId(ConnectContext.get().queryId()) : "N/A";
+        this.user = ConnectContext.get() != null ? ConnectContext.get().getQualifiedUser() : "N/A";
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
         this.whereExpr = stmt.getWhereExpr();
@@ -235,6 +240,7 @@ public class ExportJob implements Writable {
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             this.sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.enableProfile = var.enableProfile();
         } else {
             this.sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -253,8 +259,44 @@ public class ExportJob implements Writable {
         } catch (URISyntaxException e) {
             throw new DdlException("Invalid export path: " + getExportPath());
         }
-        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
+        String headerStr = genHeader(this.properties);
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc, headerStr);
         plan();
+    }
+
+
+    private String genNames() {
+        String names = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            names = names + slot.getColumn().getName() + getColumnSeparator();
+        }
+        names = names.substring(0, names.length() - getColumnSeparator().length());
+        names = names + getLineDelimiter();
+        return names;
+    }
+
+    private String genTypes() {
+        String types = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            types = types + slot.getColumn().getType().toString() + getColumnSeparator();
+        }
+        types = types.substring(0, types.length() - getColumnSeparator().length());
+        types = types + getLineDelimiter();
+        return types;
+    }
+
+    private String genHeader(Map<String, String> properties) {
+        String header = "";
+        if (properties.containsKey("format")) {
+            String headerType = properties.get("format");
+            if (headerType.equals(FeConstants.csv_with_names)) {
+                header = genNames();
+            } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
+                header = genNames();
+                header += genTypes();
+            }
+        }
+        return header;
     }
 
     private void registerToDesc() throws UserException {
@@ -329,7 +371,7 @@ public class ExportJob implements Writable {
 
         // add conjunct
         if (whereExpr != null) {
-            for (ScanNode scanNode: scanNodes) {
+            for (ScanNode scanNode : scanNodes) {
                 scanNode.addConjuncts(whereExpr.getConjuncts());
             }
         }
@@ -382,6 +424,9 @@ public class ExportJob implements Writable {
             case MYSQL:
                 scanNode = new MysqlScanNode(new PlanNodeId(0), exportTupleDesc, (MysqlTable) this.exportTable);
                 break;
+            case JDBC:
+                scanNode = new JdbcScanNode(new PlanNodeId(0), exportTupleDesc, false);
+                break;
             default:
                 break;
         }
@@ -411,6 +456,7 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
                 break;
             case ODBC:
+            case JDBC:
             case MYSQL:
                 fragment = new PlanFragment(
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
@@ -481,7 +527,7 @@ public class ExportJob implements Writable {
         return whereExpr;
     }
 
-    public JobState getState() {
+    public synchronized JobState getState() {
         return state;
     }
 
@@ -611,11 +657,26 @@ public class ExportJob implements Writable {
     }
 
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
-        releaseSnapshotPaths();
         if (msg != null) {
             failMsg = new ExportFailMsg(type, msg);
         }
-        updateState(ExportJob.JobState.CANCELLED, false);
+        if (updateState(ExportJob.JobState.CANCELLED, false)) {
+            // cancel all running coordinators, so that the scheduler's worker thread will be released
+            for (Coordinator coordinator : coordList) {
+                Coordinator registeredCoordinator = QeProcessorImpl.INSTANCE.getCoordinator(coordinator.getQueryId());
+                if (registeredCoordinator != null) {
+                    registeredCoordinator.cancel();
+                }
+            }
+
+            // release snapshot
+            Status releaseSnapshotStatus = releaseSnapshotPaths();
+            if (!releaseSnapshotStatus.ok()) {
+                // snapshot will be removed by GC thread on BE, finally.
+                LOG.warn("failed to release snapshot for export job: {}. err: {}", id,
+                        releaseSnapshotStatus.getErrorMsg());
+            }
+        }
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState) {
@@ -623,6 +684,9 @@ public class ExportJob implements Writable {
     }
 
     public synchronized boolean updateState(ExportJob.JobState newState, boolean isReplay) {
+        if (isFinalState()) {
+            return false;
+        }
         state = newState;
         switch (newState) {
             case PENDING:
@@ -641,9 +705,13 @@ public class ExportJob implements Writable {
                 break;
         }
         if (!isReplay) {
-            Catalog.getCurrentCatalog().getEditLog().logExportUpdateState(id, newState);
+            Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
+    }
+
+    public synchronized boolean isFinalState() {
+        return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
     }
 
     public Status releaseSnapshotPaths() {
@@ -653,12 +721,12 @@ public class ExportJob implements Writable {
             TNetworkAddress address = snapshotPath.first;
             String host = address.getHostname();
             int port = address.getPort();
-            Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, port);
+            Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
             if (backend == null) {
                 continue;
             }
             long backendId = backend.getId();
-            if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
+            if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                 continue;
             }
 
@@ -679,6 +747,18 @@ public class ExportJob implements Writable {
 
     public String getLabel() {
         return label;
+    }
+
+    public String getQueryId() {
+        return queryId;
+    }
+
+    public String getUser() {
+        return user;
+    }
+
+    public boolean getEnableProfile() {
+        return enableProfile;
     }
 
     @Override
@@ -766,19 +846,17 @@ public class ExportJob implements Writable {
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                this.properties.put(propertyKey, propertyValue);
-            }
-            // Because before 0.15, export does not contain label information.
-            // So for compatibility, a label will be added for historical jobs.
-            // This label must be guaranteed to be a certain value to prevent
-            // the label from being different each time.
-            properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            this.properties.put(propertyKey, propertyValue);
         }
+        // Because before 0.15, export does not contain label information.
+        // So for compatibility, a label will be added for historical jobs.
+        // This label must be guaranteed to be a certain value to prevent
+        // the label from being different each time.
+        properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
         this.label = properties.get(ExportStmt.LABEL);
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         if (!Strings.isNullOrEmpty(this.columns)) {
@@ -806,19 +884,8 @@ public class ExportJob implements Writable {
             brokerDesc = BrokerDesc.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
-            tableName = new TableName();
-            tableName.readFields(in);
-        } else {
-            tableName = new TableName("DUMMY", "DUMMY");
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_97) {
-            origStmt = new OriginStatement("", 0);
-            // old version of export does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
-            return;
-        }
+        tableName = new TableName();
+        tableName.readFields(in);
         origStmt = OriginStatement.read(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

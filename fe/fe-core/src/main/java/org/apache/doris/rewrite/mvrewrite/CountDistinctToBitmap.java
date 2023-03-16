@@ -27,13 +27,13 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -69,7 +69,7 @@ public class CountDistinctToBitmap implements ExprRewriteRule {
         }
         SlotRef fnChild0 = (SlotRef) fnExpr.getChild(0);
         Column column = fnChild0.getColumn();
-        Table table = fnChild0.getTable();
+        TableIf table = fnChild0.getTable();
         if (column == null || table == null || !(table instanceof OlapTable)) {
             return expr;
         }

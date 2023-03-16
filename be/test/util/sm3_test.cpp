@@ -30,7 +30,7 @@ public:
 TEST_F(SM3Test, empty) {
     SM3Digest digest;
     digest.digest();
-    ASSERT_STREQ("1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b",
+    EXPECT_STREQ("1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b",
                  digest.hex().c_str());
 }
 
@@ -39,14 +39,14 @@ TEST_F(SM3Test, normal) {
         SM3Digest digest;
         digest.update("abc", 3);
         digest.digest();
-        ASSERT_STREQ("66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0",
+        EXPECT_STREQ("66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0",
                      digest.hex().c_str());
     }
     {
         SM3Digest digest;
         digest.update("0123456789", 10);
         digest.digest();
-        ASSERT_STREQ("09093b72553f5d9d622d6c62f5ffd916ee959679b1bd4d169c3e12aa8328e743",
+        EXPECT_STREQ("09093b72553f5d9d622d6c62f5ffd916ee959679b1bd4d169c3e12aa8328e743",
                      digest.hex().c_str());
     }
 
@@ -55,14 +55,9 @@ TEST_F(SM3Test, normal) {
         digest.update("01234", 5);
         digest.update("56789", 5);
         digest.digest();
-        ASSERT_STREQ("09093b72553f5d9d622d6c62f5ffd916ee959679b1bd4d169c3e12aa8328e743",
+        EXPECT_STREQ("09093b72553f5d9d622d6c62f5ffd916ee959679b1bd4d169c3e12aa8328e743",
                      digest.hex().c_str());
     }
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

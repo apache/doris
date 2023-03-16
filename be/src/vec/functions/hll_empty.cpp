@@ -15,22 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/hll_function.h"
 #include "olap/hll.h"
+#include "vec/columns/column_complex.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/data_types/data_type_hll.h"
-#include "vec/columns/column_complex.h"
 namespace doris::vectorized {
 
 struct HLLEmptyImpl {
     static constexpr auto name = "hll_empty";
     using ReturnColVec = ColumnHLL;
     static auto get_return_type() { return std::make_shared<DataTypeHLL>(); }
-    static HyperLogLog init_value() {
-        return HyperLogLog{};
-    }
+    static HyperLogLog init_value() { return HyperLogLog {}; }
 };
 
 using FunctionHLLEmpty = FunctionConst<HLLEmptyImpl, false>;

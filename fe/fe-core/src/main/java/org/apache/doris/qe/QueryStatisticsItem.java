@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
+
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -82,7 +83,7 @@ public final class QueryStatisticsItem {
         return queryProfile;
     }
 
-    public boolean getIsReportSucc () {
+    public boolean getIsReportSucc() {
         return isReportSucc;
     }
 

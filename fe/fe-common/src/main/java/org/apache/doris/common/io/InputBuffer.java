@@ -30,7 +30,7 @@ import java.io.FilterInputStream;
  *
  * <p>
  * Typical usage is something like the following:
- * 
+ *
  * <pre>
  *
  * InputBuffer buffer = new InputBuffer();
@@ -41,7 +41,7 @@ import java.io.FilterInputStream;
  *   ... read buffer using InputStream methods ...
  * }
  * </pre>
- * 
+ *
  * @see DataInputBuffer
  * @see DataOutput
  */

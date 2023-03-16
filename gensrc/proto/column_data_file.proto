@@ -51,9 +51,9 @@ message ColumnDataHeaderMessage {
     required string magic_string = 1 [default = "COLUMN DATA"];
     required uint32 version = 2 [default = 1];
     required uint64 number_of_rows = 4; 
-    // 列Schema
+    // column schema
     repeated ColumnMessage column = 5;
-    // 每一列的统计信息
+    // statistics for each column
     required uint64 index_length = 7;
     required uint64 data_length = 8;
     required CompressKind compress_kind = 9 [default = COMPRESS_LZO];

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef SIMDUTF8CHECK_H
-#define SIMDUTF8CHECK_H
+#pragma once
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -311,4 +311,3 @@ static inline void avx_count_nibbles(__m256i bytes, struct avx_processed_utf_byt
 }
 
 #endif // __AVX2__
-#endif

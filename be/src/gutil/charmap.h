@@ -13,14 +13,9 @@
 //
 // This class is useful for non-character purposes as well.
 
-#ifndef UTIL_GTL_CHARMAP_H_
-#define UTIL_GTL_CHARMAP_H_
+#pragma once
 
 #include <string.h>
-
-#include "gutil/basictypes.h"
-#include "gutil/integral_types.h"
-#include "gutil/type_traits.h"
 
 class Charmap {
 public:
@@ -74,6 +69,3 @@ protected:
         }
     }
 };
-DECLARE_POD(Charmap);
-
-#endif // UTIL_GTL_CHARMAP_H_

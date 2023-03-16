@@ -94,7 +94,7 @@ struct TQueryOptions {
   8: optional i32 max_io_buffers = 0
   9: optional bool allow_unsupported_formats = 0
   10: optional i64 default_order_by_limit = -1
-  11: optional string debug_action = ""
+  // 11: optional string debug_action = "" // Never used
   12: optional i64 mem_limit = 2147483648
   13: optional bool abort_on_default_limit_exceeded = 0
   14: optional i32 query_timeout = 3600
@@ -160,6 +160,53 @@ struct TQueryOptions {
   // show bitmap data in result, if use this in mysql cli may make the terminal
   // output corrupted character
   43: optional bool return_object_data_as_binary = false
+
+  // trim tailing spaces while querying external table and stream load
+  44: optional bool trim_tailing_spaces_for_external_table_query = false
+
+  45: optional bool enable_function_pushdown;
+
+  46: optional string fragment_transmission_compression_codec;
+
+  48: optional bool enable_local_exchange;
+
+  // For debug purpose, dont' merge unique key and agg key when reading data.
+  49: optional bool skip_storage_engine_merge = false
+
+  // For debug purpose, skip delete predicates when reading data
+  50: optional bool skip_delete_predicate = false
+
+  51: optional bool enable_new_shuffle_hash_method
+
+  52: optional i32 be_exec_version = 0
+  
+  53: optional i32 partitioned_hash_join_rows_threshold = 0
+
+  54: optional bool enable_share_hash_table_for_broadcast_join
+
+  55: optional bool enable_pipeline_engine = false
+
+  56: optional i32 repeat_max_num = 0
+  57: optional bool check_overflow_for_decimal = false
+
+  58: optional i64 external_sort_bytes_threshold = 0
+
+  59: optional i32 partitioned_hash_agg_rows_threshold = 0
+
+  60: optional bool enable_file_cache = true
+  
+  61: optional i32 insert_timeout = 14400
+
+  62: optional i32 execution_timeout = 3600
+
+  // For debug purpose, skip delete bitmap when reading data
+  63: optional bool skip_delete_bitmap = false
+
+  64: optional bool dry_run_query = false
+
+  65: optional bool enable_common_expr_pushdown = false;
+
+  66: optional i32 parallel_instance = 1
 }
     
 
@@ -224,9 +271,9 @@ struct TPlanFragmentExecParams {
   5: list<TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
-  6: optional Types.TPlanNodeId debug_node_id
-  7: optional PlanNodes.TExecNodePhase debug_phase
-  8: optional PlanNodes.TDebugAction debug_action
+  // 6: optional Types.TPlanNodeId debug_node_id // Never used
+  // 7: optional PlanNodes.TExecNodePhase debug_phase // Never used
+  // 8: optional PlanNodes.TDebugAction debug_action // Never used
 
   // Id of this fragment in its role as a sender.
   9: optional i32 sender_id
@@ -251,7 +298,9 @@ struct TQueryGlobals {
   3: optional string time_zone
 
   // Set to true if in a load plan, the max_filter_ratio is 0.0
-  4: optional bool load_zero_tolerance = false;
+  4: optional bool load_zero_tolerance = false
+
+  5: optional i32 nano_seconds
 }
 
 
@@ -263,7 +312,7 @@ enum PaloInternalServiceVersion {
 
 struct TTxnParams {
   1: optional bool need_txn
-  2: optional string auth_code_uuid
+  2: optional string token
   3: optional i64 thrift_rpc_timeout_ms
   4: optional string db
   5: optional string tbl
@@ -272,10 +321,22 @@ struct TTxnParams {
   8: optional Types.TUniqueId fragment_instance_id
   9: optional i64 db_id
   10: optional double max_filter_ratio
+  // For load task with transaction, use this to indicate we use pipeline or not
+  11: optional bool enable_pipeline_txn_load = false;
+}
+
+// Definition of global dict, global dict is used to accelerate query performance of low cardinality data
+struct TColumnDict {
+  1: optional Types.TPrimitiveType type
+  2: list<string> str_dict  // map one string to a integer, using offset as id
+}
+
+struct TGlobalDict {
+  1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
+  2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
 }
 
 // ExecPlanFragment
-
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
 
@@ -327,9 +388,23 @@ struct TExecPlanFragmentParams {
 
   // If true, all @Common components is unset and should be got from BE's cache
   // If this field is unset or it set to false, all @Common components is set.
-  16: optional bool is_simplified_param
+  16: optional bool is_simplified_param = false;
   17: optional TTxnParams txn_conf
   18: optional i64 backend_id
+  19: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+
+  // If it is true, after this fragment is prepared on the BE side,
+  // it will wait for the FE to send the "start execution" command before it is actually executed.
+  // Otherwise, the fragment will start executing directly on the BE side.
+  20: optional bool need_wait_execution_trigger = false;
+
+  21: optional bool build_hash_table_for_broadcast_join = false;
+
+  22: optional list<Types.TUniqueId> instances_sharing_hash_table;
+}
+
+struct TExecPlanFragmentParamsList {
+    1: optional list<TExecPlanFragmentParams> paramsList;
 }
 
 struct TExecPlanFragmentResult {
@@ -359,6 +434,8 @@ struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
   3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
 }
 
 // TransmitData
@@ -476,10 +553,57 @@ struct TCondition {
     1:  required string column_name
     2:  required string condition_op
     3:  required list<string> condition_values
+    // In delete condition, the different column may have same column name, need
+    // using unique id to distinguish them
+    4:  optional i32 column_unique_id
+    5:  optional bool marked_by_runtime_filter = false
 }
 
 struct TExportStatusResult {
     1: required Status.TStatus status
     2: required Types.TExportState state
     3: optional list<string> files
+}
+
+struct TPipelineInstanceParams {
+  1: required Types.TUniqueId fragment_instance_id
+  2: optional bool build_hash_table_for_broadcast_join = false;
+  3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
+  4: optional i32 sender_id
+  5: optional TRuntimeFilterParams runtime_filter_params
+  6: optional i32 backend_num
+}
+
+// ExecPlanFragment
+struct TPipelineFragmentParams {
+  1: required PaloInternalServiceVersion protocol_version
+  2: required Types.TUniqueId query_id
+  3: optional i32 fragment_id
+  4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
+  5: optional Descriptors.TDescriptorTable desc_tbl
+  6: optional Types.TResourceInfo resource_info
+  7: list<TPlanFragmentDestination> destinations
+  8: optional i32 num_senders
+  9: optional bool send_query_statistics_with_every_batch
+  10: optional Types.TNetworkAddress coord
+  11: optional TQueryGlobals query_globals
+  12: optional TQueryOptions query_options
+  // load job related
+  13: optional string import_label
+  14: optional string db_name
+  15: optional i64 load_job_id
+  16: optional TLoadErrorHubInfo load_error_hub_info
+  17: optional i32 fragment_num_on_host
+  18: optional i64 backend_id
+  19: optional bool need_wait_execution_trigger = false
+  20: optional list<Types.TUniqueId> instances_sharing_hash_table
+  21: optional bool is_simplified_param = false;
+  22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+  23: optional Planner.TPlanFragment fragment
+  24: list<TPipelineInstanceParams> local_params
+  25: optional bool shared_scan_opt = false;
+}
+
+struct TPipelineFragmentParamsList {
+    1: optional list<TPipelineFragmentParams> params_list;
 }

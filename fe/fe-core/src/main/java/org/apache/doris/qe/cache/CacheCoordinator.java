@@ -17,14 +17,13 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,13 +37,14 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Use consistent hashing to find the BE corresponding to the key to avoid the change of BE leading to failure to hit the Cache
+ * Use consistent hashing to find the BE corresponding to the key to
+ * avoid the change of BE leading to failure to hit the Cache
  */
 public class CacheCoordinator {
     private static final Logger LOG = LogManager.getLogger(CacheCoordinator.class);
     private static final int VIRTUAL_NODES = 10;
     private static final int REFRESH_NODE_TIME = 300000;
-    public boolean DebugModel = false;
+    public boolean debugModel = false;
     private Hashtable<Long, Backend> realNodes = new Hashtable<>();
     private SortedMap<Long, Backend> virtualNodes = new TreeMap<>();
     private static Lock belock = new ReentrantLock();
@@ -108,9 +108,9 @@ public class CacheCoordinator {
         }
         try {
             belock.lock();
-            ImmutableMap<Long, Backend> idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
+            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
             if (idToBackend != null) {
-                if (!DebugModel) {
+                if (!debugModel) {
                     clearBackend(idToBackend);
                 }
                 for (Backend backend : idToBackend.values().asList()) {

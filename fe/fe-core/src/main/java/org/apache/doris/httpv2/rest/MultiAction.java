@@ -19,7 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.rest.RestBaseResult;
+import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -27,7 +27,6 @@ import org.apache.doris.service.ExecuteEnv;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -36,7 +35,6 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -132,7 +130,7 @@ public class MultiAction extends RestBaseController {
             }
 
             Map<String, String> properties = Maps.newHashMap();
-            String[] keys = {LoadStmt.TIMEOUT_PROPERTY, LoadStmt.MAX_FILTER_RATIO_PROPERTY};
+            String[] keys = {LoadStmt.TIMEOUT_PROPERTY, LoadStmt.MAX_FILTER_RATIO_PROPERTY, LoadStmt.KEY_COMMENT};
             for (String key : keys) {
                 String value = request.getParameter(key);
                 if (!Strings.isNullOrEmpty(value)) {
@@ -257,4 +255,3 @@ public class MultiAction extends RestBaseController {
         }
     }
 }
-

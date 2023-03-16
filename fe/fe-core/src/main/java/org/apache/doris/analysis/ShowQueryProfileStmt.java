@@ -29,11 +29,12 @@ import com.google.common.base.Strings;
 // show query profile "/";   # list all saving query ids
 // show query profile "/e0f7390f5363419e-b416a2a79996083e"  # show graph of fragments of the query
 // show query profile "/e0f7390f5363419e-b416a2a79996083e/0" # show instance list of the specified fragment
-// show query profile "/e0f7390f5363419e-b416a2a79996083e/0/e0f7390f5363419e-b416a2a799960906" # show graph of the instance
+// show query profile "/e0f7390f5363419e-b416a2a79996083e/0/e0f7390f5363419e-b416a2a799960906" # show instance's graph
 public class ShowQueryProfileStmt extends ShowStmt {
     // This should be same as ProfileManager.PROFILE_HEADERS
     public static final ShowResultSetMetaData META_DATA_QUERY_IDS =
             ShowResultSetMetaData.builder()
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("QueryId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("User", ScalarType.createVarchar(128)))
                     .addColumn(new Column("DefaultDb", ScalarType.createVarchar(128)))
@@ -43,6 +44,13 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     .addColumn(new Column("EndTime", ScalarType.createVarchar(128)))
                     .addColumn(new Column("TotalTime", ScalarType.createVarchar(128)))
                     .addColumn(new Column("QueryState", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("TraceId", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("AnalysisTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("PlanTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("ScheduleTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("FetchResultTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("WriteResultTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("WaitAndFetchResultTime", ScalarType.createVarchar(128)))
                     .build();
 
     public static final ShowResultSetMetaData META_DATA_FRAGMENTS =

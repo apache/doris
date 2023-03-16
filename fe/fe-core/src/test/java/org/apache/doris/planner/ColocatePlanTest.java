@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
@@ -29,18 +29,17 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang.StringUtils;
-
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.File;
+import java.util.List;
+import java.util.UUID;
+
 public class ColocatePlanTest {
-    private static final String COLOCATE_ENABLE = "colocate: true";
+    public static final String COLOCATE_ENABLE = "COLOCATE";
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 
@@ -51,7 +50,7 @@ public class ColocatePlanTest {
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
         // create table test_colocate (k1 int ,k2 int, k3 int, k4 int)
         // distributed by hash(k1, k2) buckets 10
         // properties ("replication_num" = "2");
@@ -59,19 +58,19 @@ public class ColocatePlanTest {
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
                 + "'colocate_with' = 'group1');";
         CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
+        Env.getCurrentEnv().createTable(createColocateTableStmt);
         String createTblStmtStr = "create table db1.test(k1 int, k2 int, k3 int, k4 int)"
                 + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        Env.getCurrentEnv().createTable(createTableStmt);
 
         String createMultiPartitionTableStmt = "create table db1.test_multi_partition(k1 int, k2 int)"
                 + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
                 + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
-        CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils.
-                parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
-        Catalog.getCurrentCatalog().createTable(createMultiTableStmt);
+        CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils
+                .parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
+        Env.getCurrentEnv().createTable(createMultiTableStmt);
     }
 
     @AfterClass
@@ -185,5 +184,24 @@ public class ColocatePlanTest {
                 planner.getFragments().get(2), planner.getFragments().get(2).getPlanRoot());
         Assert.assertTrue(isColocateFragment1);
     }
+
+    // Fix #8778
+    @Test
+    public void rollupAndMoreThanOneInstanceWithoutColocate() throws Exception {
+        String createColocateTblStmtStr = "create table db1.test_colocate_one_backend(k1 int, k2 int, k3 int, k4 int) "
+                + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
+        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
+        Env.getCurrentEnv().createTable(createColocateTableStmt);
+
+        String sql = "select a.k1, a.k2, sum(a.k3) "
+                + "from db1.test_colocate_one_backend a join[shuffle] db1.test_colocate_one_backend b on a.k1=b.k1 "
+                + "group by rollup(a.k1, a.k2);";
+        Deencapsulation.setField(ctx.getSessionVariable(), "parallelExecInstanceNum", 2);
+        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
+        Assert.assertEquals(5, StringUtils.countMatches(plan1, "PLAN FRAGMENT"));
+
+    }
+
 
 }

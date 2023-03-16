@@ -20,7 +20,10 @@
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 // this class used in a hash join node
@@ -53,7 +56,7 @@ public:
             consumer_filter->signal();
         };
 
-        auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string &msg) {
+        auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
             runtime_filter->set_ignored();
             runtime_filter->set_ignored_msg(msg);
             runtime_filter->publish();
@@ -78,7 +81,8 @@ public:
                 return d1.type < d2.type;
             }
         };
-        std::sort(sorted_runtime_filter_descs.begin(), sorted_runtime_filter_descs.end(), compare_desc);
+        std::sort(sorted_runtime_filter_descs.begin(), sorted_runtime_filter_descs.end(),
+                  compare_desc);
 
         for (auto& filter_desc : sorted_runtime_filter_descs) {
             IRuntimeFilter* runtime_filter = nullptr;
@@ -94,7 +98,8 @@ public:
 
             bool is_in_filter = (runtime_filter->type() == RuntimeFilterType::IN_FILTER);
 
-            if (over_max_in_num && runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            if (over_max_in_num &&
+                runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
                 runtime_filter->change_to_bloom_filter();
             }
 
@@ -110,25 +115,28 @@ public:
                 bool exists_in_filter = has_in_filter[runtime_filter->expr_order()];
                 if (is_in_filter && over_max_in_num) {
                     VLOG_DEBUG << "fragment instance " << print_id(state->fragment_instance_id())
-                              << " ignore runtime filter(in filter id " << filter_desc.filter_id
-                              << ") because: in_num(" << hash_table_size
-                              << ") >= max_in_num(" << max_in_num << ")";
+                               << " ignore runtime filter(in filter id " << filter_desc.filter_id
+                               << ") because: in_num(" << hash_table_size << ") >= max_in_num("
+                               << max_in_num << ")";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 } else if (!is_in_filter && exists_in_filter) {
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
                     // because in filter is exactly filter, so it is enough to filter data
                     VLOG_DEBUG << "fragment instance " << print_id(state->fragment_instance_id())
-                              << " ignore runtime filter(" << to_string(runtime_filter->type())
-                              << " id " << filter_desc.filter_id
-                              << ") because: already exists in filter";
+                               << " ignore runtime filter(" << to_string(runtime_filter->type())
+                               << " id " << filter_desc.filter_id
+                               << ") because: already exists in filter";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
 #ifdef VLOG_DEBUG_IS_ON
-                std::string msg = fmt::format("fragment instance {} ignore runtime filter(in filter id {}) because: in_num({}) >= max_in_num({})",
-                                              print_id(state->fragment_instance_id()), filter_desc.filter_id, hash_table_size, max_in_num);
+                std::string msg = fmt::format(
+                        "fragment instance {} ignore runtime filter(in filter id {}) because: "
+                        "in_num({}) >= max_in_num({})",
+                        print_id(state->fragment_instance_id()), filter_desc.filter_id,
+                        hash_table_size, max_in_num);
                 ignore_remote_filter(runtime_filter, msg);
 #else
                 ignore_remote_filter(runtime_filter, "ignored");
@@ -136,8 +144,9 @@ public:
                 continue;
             }
 
-            if ((runtime_filter->type() == RuntimeFilterType::IN_FILTER)
-                || (runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER && !over_max_in_num)) {
+            if ((runtime_filter->type() == RuntimeFilterType::IN_FILTER) ||
+                (runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+                 !over_max_in_num)) {
                 has_in_filter[runtime_filter->expr_order()] = true;
             }
             _runtime_filters[runtime_filter->expr_order()].push_back(runtime_filter);
@@ -146,23 +155,12 @@ public:
         return Status::OK();
     }
 
-    void insert(TupleRow* row) {
-        for (int i = 0; i < _build_expr_context.size(); ++i) {
-            auto iter = _runtime_filters.find(i);
-            if (iter != _runtime_filters.end()) {
-                void* val = _build_expr_context[i]->get_value(row);
-                if (val != nullptr) {
-                    for (auto filter : iter->second) {
-                        filter->insert(val);
-                    }
-                }
-            }
-        }
-    }
     void insert(std::unordered_map<const vectorized::Block*, std::vector<int>>& datas) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
-            if (iter == _runtime_filters.end()) continue;
+            if (iter == _runtime_filters.end()) {
+                continue;
+            }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
             for (auto it : datas) {
@@ -170,24 +168,23 @@ public:
 
                 if (auto* nullable =
                             vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                    auto& column_nested = nullable->get_nested_column();
-                    auto& column_nullmap = nullable->get_null_map_column();
+                    auto& column_nested = nullable->get_nested_column_ptr();
+                    auto& column_nullmap = nullable->get_null_map_column_ptr();
+                    std::vector<int> indexs;
                     for (int row_num : it.second) {
-                        if (column_nullmap.get_bool(row_num)) {
+                        if (assert_cast<const vectorized::ColumnUInt8*>(column_nullmap.get())
+                                    ->get_bool(row_num)) {
                             continue;
                         }
-                        const auto& ref_data = column_nested.get_data_at(row_num);
-                        for (auto filter : iter->second) {
-                            filter->insert(ref_data);
-                        }
+                        indexs.push_back(row_num);
+                    }
+                    for (auto filter : iter->second) {
+                        filter->insert_batch(column_nested, indexs);
                     }
 
                 } else {
-                    for (int row_num : it.second) {
-                        const auto& ref_data = column->get_data_at(row_num);
-                        for (auto filter : iter->second) {
-                            filter->insert(ref_data);
-                        }
+                    for (auto filter : iter->second) {
+                        filter->insert_batch(column, it.second);
                     }
                 }
             }
@@ -219,6 +216,29 @@ public:
         }
     }
 
+    void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        for (auto& it : _runtime_filters) {
+            for (auto& filter : it.second) {
+                auto& target = context->runtime_filters[filter->filter_id()];
+                filter->copy_to_shared_context(target);
+            }
+        }
+    }
+
+    Status copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        for (auto& it : _runtime_filters) {
+            for (auto& filter : it.second) {
+                auto filter_id = filter->filter_id();
+                auto ret = context->runtime_filters.find(filter_id);
+                if (ret == context->runtime_filters.end()) {
+                    return Status::Aborted("invalid runtime filter id: {}", filter_id);
+                }
+                filter->copy_from_shared_context(ret->second);
+            }
+        }
+        return Status::OK();
+    }
+
     bool empty() { return !_runtime_filters.size(); }
 
 private:
@@ -229,6 +249,5 @@ private:
     std::map<int, std::list<IRuntimeFilter*>> _runtime_filters;
 };
 
-using RuntimeFilterSlots = RuntimeFilterSlotsBase<ExprContext>;
 using VRuntimeFilterSlots = RuntimeFilterSlotsBase<vectorized::VExprContext>;
 } // namespace doris

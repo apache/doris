@@ -18,7 +18,6 @@
 package org.apache.doris.load.sync.position;
 
 import com.alibaba.otter.canal.protocol.CanalEntry;
-
 import com.google.common.base.Strings;
 
 public class EntryPosition {
@@ -30,7 +29,7 @@ public class EntryPosition {
     public static final EntryPosition MIN_POS = new EntryPosition("", -1L, null);
 
     public EntryPosition() {
-        this(null, (Long)null, (Long)null);
+        this(null, null, null);
     }
 
     public EntryPosition(String journalName, Long position, Long timestamp) {
@@ -41,7 +40,7 @@ public class EntryPosition {
     }
 
     public EntryPosition(String journalName, Long position) {
-        this(journalName, position, (Long)null);
+        this(journalName, position, null);
     }
 
     public String getJournalName() {
@@ -118,6 +117,7 @@ public class EntryPosition {
             return true;
         }
     }
+
     @Override
     public String toString() {
         return "[" + journalName + ":" + position + "]";
@@ -164,7 +164,8 @@ public class EntryPosition {
 
     public static boolean checkPosition(CanalEntry.Header header, EntryPosition entryPosition) {
         boolean result = entryPosition.getExecuteTime().equals(header.getExecuteTime());
-        boolean isEmptyPosition = (Strings.isNullOrEmpty(entryPosition.getJournalName()) && entryPosition.getPosition() == null);
+        boolean isEmptyPosition = (Strings.isNullOrEmpty(entryPosition.getJournalName())
+                && entryPosition.getPosition() == null);
         if (!isEmptyPosition) {
             result &= entryPosition.getPosition().equals(header.getLogfileOffset());
             if (result) {

@@ -1,0 +1,201 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.expressions.literal;
+
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.util.DateUtils;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.time.LocalDateTime;
+import java.time.Year;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
+
+/**
+ * Date literal in Nereids.
+ */
+public class DateLiteral extends Literal {
+
+    protected static DateTimeFormatter DATE_FORMATTER = null;
+    protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;
+    protected static DateTimeFormatter DATEKEY_FORMATTER = null;
+
+    private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
+
+    private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
+    private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
+    private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static final int DATEKEY_LENGTH = 8;
+
+    protected long year;
+    protected long month;
+    protected long day;
+
+    static {
+        try {
+            DATE_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter();
+            DATEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d").toFormatter();
+            DATE_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d").toFormatter();
+        } catch (AnalysisException e) {
+            LOG.error("invalid date format", e);
+            System.exit(-1);
+        }
+    }
+
+    public DateLiteral(String s) throws AnalysisException {
+        this(DateType.INSTANCE, s);
+    }
+
+    protected DateLiteral(DateLikeType dataType, String s) throws AnalysisException {
+        super(dataType);
+        init(s);
+    }
+
+    public DateLiteral(DataType type) throws AnalysisException {
+        super(type);
+    }
+
+    /**
+     * C'tor for date type.
+     */
+    public DateLiteral(long year, long month, long day) {
+        this(DateType.INSTANCE, year, month, day);
+    }
+
+    /**
+     * C'tor for date type.
+     */
+    public DateLiteral(DateLikeType dataType, long year, long month, long day) {
+        super(dataType);
+        this.year = year;
+        this.month = month;
+        this.day = day;
+    }
+
+    /**
+     * C'tor for type conversion.
+     */
+    public DateLiteral(DateLiteral other, DataType type) {
+        super(type);
+        this.year = other.year;
+        this.month = other.month;
+        this.day = other.day;
+    }
+
+    protected void init(String s) throws AnalysisException {
+        try {
+            TemporalAccessor dateTime;
+            if (s.split("-")[0].length() == 2) {
+                dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
+            } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
+                dateTime = DATEKEY_FORMATTER.parse(s);
+            } else {
+                dateTime = DATE_FORMATTER.parse(s);
+            }
+            year = DateUtils.getOrDefault(dateTime, ChronoField.YEAR);
+            month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
+            day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
+        } catch (Exception ex) {
+            throw new AnalysisException("date literal [" + s + "] is invalid");
+        }
+
+        if (checkRange() || checkDate()) {
+            throw new AnalysisException("date literal [" + s + "] is out of range");
+        }
+    }
+
+    protected boolean checkRange() {
+        return year > MAX_DATE.getYear() || month > MAX_DATE.getMonth() || day > MAX_DATE.getDay();
+    }
+
+    protected boolean checkDate() {
+        if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
+            if (month == 2 && day == 29 && Year.isLeap(year)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public Long getValue() {
+        return (year * 10000 + month * 100 + day) * 1000000L;
+    }
+
+    @Override
+    public String getStringValue() {
+        return String.format("%04d-%02d-%02d", year, month, day);
+    }
+
+    @Override
+    public String toSql() {
+        return toString();
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDateLiteral(this, context);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%04d-%02d-%02d", year, month, day);
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATE);
+    }
+
+    public long getYear() {
+        return year;
+    }
+
+    public long getMonth() {
+        return month;
+    }
+
+    public long getDay() {
+        return day;
+    }
+
+    public DateLiteral plusDays(int days) {
+        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    public DateLiteral plusMonths(int months) {
+        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    public DateLiteral plusYears(int years) {
+        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+}

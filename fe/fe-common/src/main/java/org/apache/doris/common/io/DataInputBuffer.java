@@ -30,7 +30,7 @@ import java.io.DataInputStream;
  *
  * <p>
  * Typical usage is something like the following:
- * 
+ *
  * <pre>
  *
  * DataInputBuffer buffer = new DataInputBuffer();
@@ -41,7 +41,7 @@ import java.io.DataInputStream;
  *   ... read buffer using DataInput methods ...
  * }
  * </pre>
- * 
+ *
  */
 public class DataInputBuffer extends DataInputStream {
     private static class Buffer extends ByteArrayInputStream {

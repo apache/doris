@@ -88,9 +88,9 @@ public class RoutineLoadStatistic implements Writable {
         summary.put("unselectedRows", Long.valueOf(this.unselectedRows));
         summary.put("receivedBytes", Long.valueOf(this.receivedBytes));
         summary.put("taskExecuteTimeMs", Long.valueOf(this.totalTaskExcutionTimeMs));
-        summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes / this.totalTaskExcutionTimeMs * 1000));
-        summary.put("loadRowsRate", Long.valueOf((this.totalRows - this.errorRows - this.unselectedRows)
-                / this.totalTaskExcutionTimeMs * 1000));
+        summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes * 1000 / this.totalTaskExcutionTimeMs));
+        summary.put("loadRowsRate", Long.valueOf((this.totalRows - this.errorRows - this.unselectedRows) * 1000
+                / this.totalTaskExcutionTimeMs));
         summary.put("committedTaskNum", Long.valueOf(this.committedTaskNum));
         summary.put("abortedTaskNum", Long.valueOf(this.abortedTaskNum));
         summary.put("runningTxns", runningTxnIds);

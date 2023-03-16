@@ -19,21 +19,21 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
+
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.TimeZone;
-
-import org.apache.doris.common.FeConstants;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 public class PartitionKeyTest {
 
@@ -48,8 +48,8 @@ public class PartitionKeyTest {
     private static Column charString;
     private static Column varchar;
     private static Column bool;
-    
-    private Catalog catalog;
+
+    private Env env;
 
     @BeforeClass
     public static void setUp() {
@@ -198,17 +198,16 @@ public class PartitionKeyTest {
 
     @Test
     public void testSerialization() throws Exception {
-        FakeCatalog fakeCatalog = new FakeCatalog();
-        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeEnv fakeEnv = new FakeEnv(); // CHECKSTYLE IGNORE THIS LINE
+        FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // 1. Write objects to file
-        File file = new File("./keyRangePartition");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+        Path path = Files.createFile(Paths.get("./keyRangePartition"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
+
         PartitionKey keyEmpty = new PartitionKey();
         keyEmpty.write(dos);
-        
+
         List<PartitionValue> keys = new ArrayList<PartitionValue>();
         List<Column> columns = new ArrayList<Column>();
         keys.add(new PartitionValue("100"));
@@ -237,20 +236,20 @@ public class PartitionKeyTest {
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         PartitionKey rKeyEmpty = PartitionKey.read(dis);
-        Assert.assertTrue(keyEmpty.equals(rKeyEmpty));
-        
+        Assert.assertEquals(keyEmpty, rKeyEmpty);
+
         PartitionKey rKey = new PartitionKey();
-        rKey.readFields(dis);        
-        Assert.assertTrue(key.equals(rKey));
-        Assert.assertTrue(key.equals(key));
-        Assert.assertFalse(key.equals(this));
-        
+        rKey.readFields(dis);
+        Assert.assertEquals(key, rKey);
+        Assert.assertEquals(key, key);
+        Assert.assertNotEquals(key, this);
+
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

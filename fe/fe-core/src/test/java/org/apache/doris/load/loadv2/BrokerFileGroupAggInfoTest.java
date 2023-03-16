@@ -24,7 +24,6 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -41,7 +40,7 @@ public class BrokerFileGroupAggInfoTest {
          *  table 1 -> partition[10] file2
          *  table 2 -> partition[]   file3
          *  table 3 -> partition[11, 12]   file4
-         *  
+         *
          * output:
          *  table 1 -> partition[10] (file1, file2)
          *  table 2 -> partition[]   file3
@@ -94,7 +93,7 @@ public class BrokerFileGroupAggInfoTest {
          *  table 1 -> partition[10, 11] file1
          *  table 1 -> partition[11, 12] file2
          *  table 2 -> partition[]   file3
-         *  
+         *
          * output:
          *  throw exception
          */

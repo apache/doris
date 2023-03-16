@@ -50,9 +50,8 @@ void TabletsDistributionAction::handle(HttpRequest* req) {
                 partition_id = std::stoull(req_partition_id);
             } catch (const std::exception& e) {
                 LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
-                Status status = Status::InternalError(
-                        strings::Substitute("invalid argument: partition_id"));
-                std::string status_result = to_json(status);
+                Status status = Status::InternalError("invalid argument: {}", req_partition_id);
+                std::string status_result = status.to_json();
                 HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
                 return;
             }
@@ -64,7 +63,7 @@ void TabletsDistributionAction::handle(HttpRequest* req) {
     }
     LOG(WARNING) << "invalid argument. group_by:" << req_group_method;
     Status status = Status::InternalError(strings::Substitute("invalid argument: group_by"));
-    std::string status_result = to_json(status);
+    std::string status_result = status.to_json();
     HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
 }
 

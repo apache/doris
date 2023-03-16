@@ -26,7 +26,6 @@ import org.apache.doris.common.UserException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -42,7 +41,7 @@ public class LateralViewRef extends TableRef {
 
     // after analyzed
     private FunctionCallExpr fnExpr;
-    private ArrayList<Expr> originSlotRefList = Lists.newArrayList();
+    private List<SlotRef> originSlotRefList = Lists.newArrayList();
     private InlineView view;
     private SlotRef explodeSlotRef;
 
@@ -63,10 +62,6 @@ public class LateralViewRef extends TableRef {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!analyzer.getContext().getSessionVariable().isEnableLateralView()) {
-            throw new AnalysisException("The session variables `enable_lateral_view` is false");
-        }
-
         if (isAnalyzed) {
             return;
         }
@@ -80,7 +75,7 @@ public class LateralViewRef extends TableRef {
 
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
-        explodeSlotRef = new SlotRef(new TableName(null, viewName), columnName);
+        explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
         explodeSlotRef.analyze(analyzer);
         isAnalyzed = true;  // true now that we have assigned desc
     }
@@ -98,7 +93,6 @@ public class LateralViewRef extends TableRef {
         for (Expr expr : fnExpr.getChildren()) {
             checkScalarFunction(expr);
         }
-        fnExpr.collect(SlotRef.class, originSlotRefList);
     }
 
     @Override
@@ -116,11 +110,13 @@ public class LateralViewRef extends TableRef {
     }
 
     public void materializeRequiredSlots(ExprSubstitutionMap baseTblSmap, Analyzer analyzer) throws AnalysisException {
+        Expr substituteFnExpr = fnExpr;
         if (relatedTableRef instanceof InlineViewRef) {
-            originSlotRefList = Expr.trySubstituteList(originSlotRefList, baseTblSmap, analyzer, false);
+            substituteFnExpr = fnExpr.trySubstitute(baseTblSmap, analyzer, false);
         }
-        for (Expr originSlotRef : originSlotRefList) {
-            ((SlotRef) originSlotRef).getDesc().setIsMaterialized(true);
+        substituteFnExpr.collect(SlotRef.class, originSlotRefList);
+        for (SlotRef originSlotRef : originSlotRefList) {
+            originSlotRef.getDesc().setIsMaterialized(true);
         }
         explodeSlotRef.getDesc().setIsMaterialized(true);
     }
@@ -186,7 +182,7 @@ public class LateralViewRef extends TableRef {
 
     @Override
     public String toSql() {
-        return "lateral view " + fnExpr.toSql() + " " + viewName + " as " + columnName;
+        return "lateral view " + expr.toSql() + " " + viewName + " as " + columnName;
     }
 
     @Override
@@ -207,5 +203,3 @@ public class LateralViewRef extends TableRef {
         // The reset of @lateralViewRef happens in the reset() of @relatedTableRef.
     }
 }
-
-

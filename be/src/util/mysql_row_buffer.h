@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
-#define DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#pragma once
 
 #include <stdint.h>
 
@@ -52,12 +51,17 @@ using int128_t = __int128;
 class DateTimeValue;
 class DecimalV2Value;
 
+template <bool is_binary_format = false>
 class MysqlRowBuffer {
 public:
     MysqlRowBuffer();
     ~MysqlRowBuffer();
 
     void reset() { _pos = _buf; }
+
+    // Prepare for binary row buffer
+    // init bitmap
+    void start_binary_row(uint32_t num_cols);
 
     // TODO(zhaochun): add signed/unsigned support
     int push_tinyint(int8_t data);
@@ -73,6 +77,9 @@ public:
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_string(const char* str, int64_t length);
     int push_null();
+
+    template <typename DateType>
+    int push_vec_datetime(DateType& data);
 
     // this function reserved size, change the pos step size, return old pos
     // Becareful when use the returned pointer.
@@ -119,15 +126,21 @@ public:
 private:
     int reserve(int64_t size);
 
+    // append data into buffer
+    int append(const char* data, int64_t len);
+    // the same as mysql net_store_data
+    // the first few bytes is length, followed by data
+    int append_var_string(const char* data, int64_t len);
+
     char* _pos;
     char* _buf;
     int64_t _buf_size;
     char _default_buf[4096];
 
     int _dynamic_mode;
-    char* _len_pos;
+    uint64_t _len_pos;
+    uint32_t _field_pos = 0;
+    uint32_t _field_count = 0;
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H

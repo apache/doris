@@ -29,20 +29,33 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.backup.BlobStorage;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
@@ -54,25 +67,36 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-
-import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.Stack;
+import java.util.Map;
+import java.util.Queue;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Helper class for HiveMetaStoreClient
  */
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
+
+    public static final String COMMENT = "comment";
+
+    private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -118,47 +142,30 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static HiveMetaStoreClient getClient(String metaStoreUris) throws DdlException {
+    public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
-        HiveMetaStoreClient hivemetastoreclient = null;
+        hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                String.valueOf(Config.hive_metastore_client_timeout_second));
+        IMetaStoreClient metaStoreClient = null;
+        String type = hiveConf.get(HMSResource.HIVE_METASTORE_TYPE);
         try {
-            hivemetastoreclient = new HiveMetaStoreClient(hiveConf);
+            if ("dlf".equalsIgnoreCase(type)) {
+                // For aliyun DLF
+                metaStoreClient = new ProxyMetaStoreClient(hiveConf);
+            } else {
+                metaStoreClient = new HiveMetaStoreClient(hiveConf);
+            }
         } catch (MetaException e) {
             LOG.warn("Create HiveMetaStoreClient failed: {}", e.getMessage());
-            throw new DdlException("Create HiveMetaStoreClient failed");
+            throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
         }
-        return hivemetastoreclient;
+        return metaStoreClient;
     }
 
     /**
-     * Check to see if the specified table exists in the specified database.
-     * @param client HiveMetaStoreClient
-     * @param dbName the specified database name
-     * @param tblName the specified table name
-     * @return TRUE if specified.tableName exists, FALSE otherwise.
-     * @throws DdlException
-     */
-    public static boolean tableExists(HiveMetaStoreClient client, String dbName, String tblName) throws DdlException {
-        try {
-            return client.tableExists(dbName, tblName);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
-        } finally {
-            dropClient(client);
-        }
-    }
-
-    /**
-     * close connection to meta store
-     */
-    public static void dropClient(HiveMetaStoreClient client) {
-        client.close();
-    }
-
-    /**
-     * Get data files of partitions in hive table, filter by partition predicate
+     * Get data files of partitions in hive table, filter by partition predicate.
+     *
      * @param hiveTable
      * @param hivePartitionPredicate
      * @param fileStatuses
@@ -167,40 +174,73 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl) throws DdlException {
-        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
-
-        List<RemoteIterator<LocatedFileStatus>> remoteIterators;
-        if (remoteHiveTbl.getPartitionKeys().size() > 0) {
-            // hive partitioned table, get file iterator from table partition sd info
-            List<Partition> hivePartitions = new ArrayList<>();
-            try {
-                client.listPartitionsByExpr(hiveTable.getHiveDb(), hiveTable.getHiveTable(),
-                        SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1, hivePartitions);
-            } catch (TException e) {
-                LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-                throw new DdlException("Connect hive metastore failed.");
-            } finally {
-                client.close();
+            List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
+            throws DdlException {
+        BlobStorage storage = BlobStorage.create("HiveMetaStore", type, hiveTable.getHiveProperties());
+        List<RemoteIterator<LocatedFileStatus>> remoteIterators = new ArrayList<>();
+        try {
+            if (remoteHiveTbl.getPartitionKeys().size() > 0) {
+                String metaStoreUris = hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS);
+                // hive partitioned table, get file iterator from table partition sd info
+                List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl,
+                        hivePartitionPredicate);
+                for (Partition p : hivePartitions) {
+                    String location = normalizeS3LikeSchema(p.getSd().getLocation());
+                    remoteIterators.add(storage.listLocatedStatus(location));
+                }
+            } else {
+                // hive non-partitioned table, get file iterator from table sd info
+                String location = normalizeS3LikeSchema(remoteHiveTbl.getSd().getLocation());
+                remoteIterators.add(storage.listLocatedStatus(location));
             }
-            remoteIterators = getRemoteIterator(hivePartitions);
-        } else {
-            // hive non-partitioned table, get file iterator from table sd info
-            remoteIterators = getRemoteIterator(remoteHiveTbl);
+            return getAllFileStatus(fileStatuses, remoteIterators, storage);
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage(), e);
         }
+    }
 
+    public static String normalizeS3LikeSchema(String location) {
+        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
+        for (String objectStorage : objectStorages) {
+            if (location.startsWith(objectStorage + "://")) {
+                location = location.replaceFirst(objectStorage, "s3");
+                break;
+            }
+        }
+        return location;
+    }
+
+    private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
+            List<RemoteIterator<LocatedFileStatus>> remoteIterators, BlobStorage storage) throws UserException {
+        boolean needFullPath = storage.getStorageType() == StorageBackend.StorageType.S3
+                || storage.getStorageType() == StorageBackend.StorageType.OFS
+                || storage.getStorageType() == StorageBackend.StorageType.JFS;
         String hdfsUrl = "";
-        for (RemoteIterator<LocatedFileStatus> iterator : remoteIterators) {
+        Queue<RemoteIterator<LocatedFileStatus>> queue = Queues.newArrayDeque(remoteIterators);
+        while (queue.peek() != null) {
+            RemoteIterator<LocatedFileStatus> iterator = queue.poll();
             try {
                 while (iterator.hasNext()) {
                     LocatedFileStatus fileStatus = iterator.next();
+                    if (fileStatus.isDirectory()) {
+                        // recursive visit the directory to get the file path.
+                        queue.add(storage.listLocatedStatus(fileStatus.getPath().toString()));
+                        continue;
+                    }
                     TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
                     brokerFileStatus.setIsDir(fileStatus.isDirectory());
                     brokerFileStatus.setIsSplitable(true);
                     brokerFileStatus.setSize(fileStatus.getLen());
                     // path = "/path/to/partition/file_name"
-                    // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse/dae.db/customer/state=CA/city=SanJose/000000_0
+                    // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
+                    //     + /dae.db/customer/state=CA/city=SanJose/000000_0
                     String path = fileStatus.getPath().toUri().getPath();
+                    if (needFullPath) {
+                        // Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
+                        // path = "s3://bucket/path/to/partition/file_name"
+                        // eg: s3://hive-s3-test/region/region.tbl
+                        path = fileStatus.getPath().toString();
+                    }
                     brokerFileStatus.setPath(path);
                     fileStatuses.add(brokerFileStatus);
                     if (StringUtils.isEmpty(hdfsUrl)) {
@@ -212,122 +252,191 @@ public class HiveMetaStoreClientHelper {
                 }
             } catch (IOException e) {
                 LOG.warn("List HDFS file IOException: {}", e.getMessage());
-                throw new DdlException("List HDFS file failed.");
+                throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
             }
         }
-
         return hdfsUrl;
     }
 
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions) throws DdlException {
-        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
-        Configuration configuration = new Configuration(false);
-        for (Partition p : partitions) {
-            String location = p.getSd().getLocation();
-            org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
-            try {
-                FileSystem fileSystem = path.getFileSystem(configuration);
-                iterators.add(fileSystem.listLocatedStatus(path));
-            } catch (IOException e) {
-                LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
-                throw new DdlException("Get HDFS file remote iterator failed.");
-            }
-        }
-        return iterators;
-    }
-
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table) throws DdlException {
-        List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
-        Configuration configuration = new Configuration(false);
-        String location = table.getSd().getLocation();
-        org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
+    /**
+     * list partitions from hiveMetaStore.
+     *
+     * @param metaStoreUris hiveMetaStore uris
+     * @param remoteHiveTbl Hive table
+     * @param hivePartitionPredicate filter when list partitions
+     * @return a list of hive partitions
+     * @throws DdlException when connect hiveMetaStore failed.
+     */
+    public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
+                       ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
+        List<Partition> hivePartitions = new ArrayList<>();
+        IMetaStoreClient client = getClient(metaStoreUris);
         try {
-            FileSystem fileSystem = path.getFileSystem(configuration);
-            iterators.add(fileSystem.listLocatedStatus(path));
-        } catch (IOException e) {
-            LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
-            throw new DdlException("Get HDFS file remote iterator failed.");
-        }
-        return iterators;
-    }
-
-    public static List<String> getPartitionNames(HiveTable hiveTable) throws DdlException {
-        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
-        List<String> partitionNames = new ArrayList<>();
-        try {
-            partitionNames = client.listPartitionNames(hiveTable.getHiveDb(), hiveTable.getHiveTable(), (short) -1);
+            client.listPartitionsByExpr(remoteHiveTbl.getDbName(), remoteHiveTbl.getTableName(),
+                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
+                    null, (short) -1, hivePartitions);
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed: " + e.getMessage());
+        } finally {
+            client.close();
         }
-
-        return partitionNames;
+        return hivePartitions;
     }
 
     public static Table getTable(HiveTable hiveTable) throws DdlException {
-        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
+        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS));
         Table table;
         try {
             table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        }
+        return table;
+    }
+
+    /**
+     * Get hive table with dbName and tableName.
+     * Only for Hudi.
+     *
+     * @param dbName database name
+     * @param tableName table name
+     * @param metaStoreUris hive metastore uris
+     * @return HiveTable
+     * @throws DdlException when get table from hive metastore failed.
+     */
+    @Deprecated
+    public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
+        IMetaStoreClient client = getClient(metaStoreUris);
+        Table table;
+        try {
+            table = client.getTable(dbName, tableName);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        } finally {
+            client.close();
         }
         return table;
     }
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
-     * @param dorisExpr
-     * @param partitions
      * @param tblName
      * @return
      * @throws DdlException
      * @throws SemanticException
      */
-    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr, List<String> partitions, String tblName) throws DdlException {
+    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(List<Expr> conjuncts,
+            List<String> partitionKeys, String tblName) throws DdlException {
+        List<ExprNodeDesc> hivePredicates = new ArrayList<>();
+
+        for (Expr conjunct : conjuncts) {
+            ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
+                    conjunct, partitionKeys, tblName).getFuncDesc();
+            if (hiveExpr != null) {
+                hivePredicates.add(hiveExpr);
+            }
+        }
+        int count = hivePredicates.size();
+        // combine all predicate by `and`
+        // compoundExprs must have at least 2 predicates
+        if (count >= 2) {
+            return HiveMetaStoreClientHelper.getCompoundExpr(hivePredicates, "and");
+        } else if (count == 1) {
+            // only one predicate
+            return (ExprNodeGenericFuncDesc) hivePredicates.get(0);
+        } else {
+            return genAlwaysTrueExpr(tblName);
+        }
+    }
+
+    private static ExprNodeGenericFuncDesc genAlwaysTrueExpr(String tblName) throws DdlException {
+        // have no predicate, make a dummy predicate "1=1" to get all partitions
+        HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
+                new HiveMetaStoreClientHelper.ExprBuilder(tblName);
+        return exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
+                .val(TypeInfoFactory.intTypeInfo, 1)
+                .pred("=", 2).build();
+    }
+
+    private static class ExprNodeGenericFuncDescContext {
+        private static final ExprNodeGenericFuncDescContext BAD_CONTEXT = new ExprNodeGenericFuncDescContext();
+
+        private ExprNodeGenericFuncDesc funcDesc = null;
+        private boolean eligible = false;
+
+        public ExprNodeGenericFuncDescContext(ExprNodeGenericFuncDesc funcDesc) {
+            this.funcDesc = funcDesc;
+            this.eligible = true;
+        }
+
+        private ExprNodeGenericFuncDescContext() {
+        }
+
+        /**
+         * Check eligible before use the expr in CompoundPredicate for `and` and `or` .
+         */
+        public boolean isEligible() {
+            return eligible;
+        }
+
+        public ExprNodeGenericFuncDesc getFuncDesc() {
+            return funcDesc;
+        }
+    }
+
+    private static ExprNodeGenericFuncDescContext convertToHivePartitionExpr(Expr dorisExpr,
+            List<String> partitionKeys, String tblName) throws DdlException {
         if (dorisExpr == null) {
-            return null;
+            return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
 
         if (dorisExpr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) dorisExpr;
+            ExprNodeGenericFuncDescContext left = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(0), partitionKeys, tblName);
+            ExprNodeGenericFuncDescContext right = convertToHivePartitionExpr(
+                    compoundPredicate.getChild(1), partitionKeys, tblName);
+
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    if (left != null && right != null) {
+                    if (left.isEligible() && right.isEligible()) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
-                        andArgs.add(left);
-                        andArgs.add(right);
-                        return getCompoundExpr(andArgs, "and");
-                    } else if (left != null && right == null) {
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "and"));
+                    } else if (left.isEligible()) {
                         return left;
-                    } else if (left == null && right != null) {
+                    } else if (right.isEligible()) {
                         return right;
+                    } else {
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
-                    return null;
                 }
                 case OR: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    if (left != null && right != null) {
-                        List<ExprNodeDesc> orArgs = new ArrayList<>();
-                        orArgs.add(left);
-                        orArgs.add(right);
-                        return getCompoundExpr(orArgs, "or");
-                    } else if (left != null && right == null) {
-                        return left;
-                    } else if (left == null && right != null) {
-                        return right;
+                    if (left.isEligible() && right.isEligible()) {
+                        List<ExprNodeDesc> andArgs = new ArrayList<>();
+                        andArgs.add(left.getFuncDesc());
+                        andArgs.add(right.getFuncDesc());
+                        return new ExprNodeGenericFuncDescContext(getCompoundExpr(andArgs, "or"));
+                    } else {
+                        // If it is not a partition key, this is an always true expr.
+                        // Or if is a partition key and also is a not supportedOp, this is an always true expr.
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
-                    return null;
                 }
                 default:
-                    return null;
+                    // TODO: support NOT predicate for CompoundPredicate
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
             }
         }
+        return binaryExprDesc(dorisExpr, partitionKeys, tblName);
+    }
 
+    private static ExprNodeGenericFuncDescContext binaryExprDesc(Expr dorisExpr,
+            List<String> partitionKeys, String tblName) throws DdlException {
         TExprOpcode opcode = dorisExpr.getOpcode();
         switch (opcode) {
             case EQ:
@@ -338,68 +447,59 @@ public class HiveMetaStoreClientHelper {
             case LT:
             case EQ_FOR_NULL:
                 BinaryPredicate eq = (BinaryPredicate) dorisExpr;
+                // Make sure the col slot is always first
                 SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
-                LiteralExpr literalExpr = null;
-                if (slotRef == null && eq.getChild(0).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(0);
-                    slotRef = convertDorisExprToSlotRef(eq.getChild(1));
-                } else if (eq.getChild(1).isLiteral()) {
-                    literalExpr = (LiteralExpr) eq.getChild(1);
-                }
+                LiteralExpr literalExpr = convertDorisExprToLiteralExpr(eq.getChild(1));
                 if (slotRef == null || literalExpr == null) {
-                    return null;
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 String colName = slotRef.getColumnName();
                 // check whether colName is partition column or not
-                if (!partitions.contains(colName)) {
-                    return null;
+                if (!partitionKeys.contains(colName)) {
+                    return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
                 PrimitiveType dorisPrimitiveType = slotRef.getType().getPrimitiveType();
                 PrimitiveTypeInfo hivePrimitiveType = convertToHiveColType(dorisPrimitiveType);
                 Object value = extractDorisLiteral(literalExpr);
-                ExprBuilder exprBuilder = new ExprBuilder(tblName);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, "NULL")
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
                     } else {
-                        return null;
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
                 }
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=");
                     case NE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("!=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=");
                     case GE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=");
                     case GT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">");
                     case LE:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<=", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=");
                     case LT:
-                        return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<", 2).build();
+                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
                     default:
-                        return null;
+                        return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
             default:
-                return null;
+                // TODO: support in predicate
+                return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
         }
+    }
 
+    private static ExprNodeGenericFuncDescContext genExprDesc(
+            String tblName,
+            PrimitiveTypeInfo hivePrimitiveType,
+            String colName,
+            Object value,
+            String op) throws DdlException {
+        ExprBuilder exprBuilder = new ExprBuilder(tblName);
+        exprBuilder.col(hivePrimitiveType, colName).val(hivePrimitiveType, value);
+        return new ExprNodeGenericFuncDescContext(exprBuilder.pred(op, 2).build());
     }
 
     public static ExprNodeGenericFuncDesc getCompoundExpr(List<ExprNodeDesc> args, String op) throws DdlException {
@@ -409,12 +509,12 @@ public class HiveMetaStoreClientHelper {
                     FunctionRegistry.getFunctionInfo(op).getGenericUDF(), args);
         } catch (SemanticException e) {
             LOG.warn("Convert to Hive expr failed: {}", e.getMessage());
-            throw new DdlException("Convert to Hive expr failed.");
+            throw new DdlException("Convert to Hive expr failed. Error: " + e.getMessage());
         }
         return compoundExpr;
     }
 
-    private static SlotRef convertDorisExprToSlotRef(Expr expr) {
+    public static SlotRef convertDorisExprToSlotRef(Expr expr) {
         SlotRef slotRef = null;
         if (expr instanceof SlotRef) {
             slotRef = (SlotRef) expr;
@@ -426,7 +526,19 @@ public class HiveMetaStoreClientHelper {
         return slotRef;
     }
 
-    private static Object extractDorisLiteral(Expr expr) {
+    public static LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {
+        LiteralExpr literalExpr = null;
+        if (expr instanceof LiteralExpr) {
+            literalExpr = (LiteralExpr) expr;
+        } else if (expr instanceof CastExpr) {
+            if (expr.getChild(0) instanceof LiteralExpr) {
+                literalExpr = (LiteralExpr) expr.getChild(0);
+            }
+        }
+        return literalExpr;
+    }
+
+    public static Object extractDorisLiteral(Expr expr) {
         if (!expr.isLiteral()) {
             return null;
         }
@@ -465,6 +577,7 @@ public class HiveMetaStoreClientHelper {
         }
         return null;
     }
+
     /**
      * Convert from Doris column type to Hive column type
      * @param dorisType
@@ -487,15 +600,21 @@ public class HiveMetaStoreClientHelper {
                 return TypeInfoFactory.floatTypeInfo;
             case DOUBLE:
                 return TypeInfoFactory.doubleTypeInfo;
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
             case DECIMALV2:
                 return TypeInfoFactory.decimalTypeInfo;
             case DATE:
+            case DATEV2:
                 return TypeInfoFactory.dateTypeInfo;
             case DATETIME:
+            case DATETIMEV2:
                 return TypeInfoFactory.timestampTypeInfo;
             case CHAR:
                 return TypeInfoFactory.charTypeInfo;
             case VARCHAR:
+            case STRING:
                 return TypeInfoFactory.varcharTypeInfo;
             default:
                 throw new DdlException("Unsupported column type: " + dorisType);
@@ -507,17 +626,17 @@ public class HiveMetaStoreClientHelper {
      */
     public static class ExprBuilder {
         private final String tblName;
-        private final Stack<ExprNodeDesc> stack = new Stack<>();
+        private final Deque<ExprNodeDesc> queue = new LinkedList<>();
 
         public ExprBuilder(String tblName) {
             this.tblName = tblName;
         }
 
         public ExprNodeGenericFuncDesc build() throws DdlException {
-            if (stack.size() != 1) {
-                throw new DdlException("Build Hive expression Failed: " + stack.size());
+            if (queue.size() != 1) {
+                throw new DdlException("Build Hive expression Failed: " + queue.size());
             }
-            return (ExprNodeGenericFuncDesc)stack.pop();
+            return (ExprNodeGenericFuncDesc) queue.pollFirst();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {
@@ -527,26 +646,258 @@ public class HiveMetaStoreClientHelper {
         private ExprBuilder fn(String name, TypeInfo ti, int args) throws DdlException {
             List<ExprNodeDesc> children = new ArrayList<>();
             for (int i = 0; i < args; ++i) {
-                children.add(stack.pop());
+                children.add(queue.pollFirst());
             }
             try {
-                stack.push(new ExprNodeGenericFuncDesc(ti,
+                queue.offerLast(new ExprNodeGenericFuncDesc(ti,
                         FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
             } catch (SemanticException e) {
                 LOG.warn("Build Hive expression failed: semantic analyze exception: {}", e.getMessage());
-                throw new DdlException("Build Hive expression Failed");
+                throw new DdlException("Build Hive expression Failed. Error: " + e.getMessage());
             }
             return this;
         }
 
         public ExprBuilder col(TypeInfo ti, String col) {
-            stack.push(new ExprNodeColumnDesc(ti, col, tblName, true));
+            queue.offerLast(new ExprNodeColumnDesc(ti, col, tblName, true));
             return this;
         }
 
         public ExprBuilder val(TypeInfo ti, Object val) {
-            stack.push(new ExprNodeConstantDesc(ti, val));
+            queue.offerLast(new ExprNodeConstantDesc(ti, val));
             return this;
         }
     }
+
+    /**
+     * The nested column has inner columns, and each column is separated a comma. The inner column maybe a nested
+     * column too, so we cannot simply split by the comma. We need to match the angle brackets，
+     * and deal with the inner column recursively.
+     */
+    private static int findNextNestedField(String commaSplitFields) {
+        int numLess = 0;
+        int numBracket = 0;
+        for (int i = 0; i < commaSplitFields.length(); i++) {
+            char c = commaSplitFields.charAt(i);
+            if (c == '<') {
+                numLess++;
+            } else if (c == '>') {
+                numLess--;
+            } else if (c == '(') {
+                numBracket++;
+            } else if (c == ')') {
+                numBracket--;
+            } else if (c == ',' && numLess == 0 && numBracket == 0) {
+                return i;
+            }
+        }
+        return commaSplitFields.length();
+    }
+
+    /**
+     * Convert hive type to doris type.
+     */
+    public static Type hiveTypeToDorisType(String hiveType) {
+        String lowerCaseType = hiveType.toLowerCase();
+        switch (lowerCaseType) {
+            case "boolean":
+                return Type.BOOLEAN;
+            case "tinyint":
+                return Type.TINYINT;
+            case "smallint":
+                return Type.SMALLINT;
+            case "int":
+                return Type.INT;
+            case "bigint":
+                return Type.BIGINT;
+            case "date":
+                return ScalarType.createDateV2Type();
+            case "timestamp":
+                return ScalarType.createDatetimeV2Type(0);
+            case "float":
+                return Type.FLOAT;
+            case "double":
+                return Type.DOUBLE;
+            case "string":
+            case "binary":
+                return ScalarType.createStringType();
+            default:
+                break;
+        }
+        // resolve schema like array<int>
+        if (lowerCaseType.startsWith("array")) {
+            if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
+                return ArrayType.create(innerType, true);
+            }
+        }
+        // resolve schema like map<text, int>
+        if (lowerCaseType.startsWith("map")) {
+            if (lowerCaseType.indexOf("<") == 3 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
+                int index = findNextNestedField(keyValue);
+                if (index != keyValue.length() && index != 0) {
+                    return new MapType(hiveTypeToDorisType(keyValue.substring(0, index)),
+                            hiveTypeToDorisType(keyValue.substring(index + 1)));
+                }
+            }
+        }
+        // resolve schema like struct<col1: text, col2: int>
+        if (lowerCaseType.startsWith("struct")) {
+            if (lowerCaseType.indexOf("<") == 6 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);
+                ArrayList<StructField> fields = new ArrayList<>();
+                while (listFields.length() > 0) {
+                    int index = findNextNestedField(listFields);
+                    int pivot = listFields.indexOf(':');
+                    if (pivot > 0 && pivot < listFields.length() - 1) {
+                        fields.add(new StructField(listFields.substring(0, pivot),
+                                hiveTypeToDorisType(listFields.substring(pivot + 1, index))));
+                        listFields = listFields.substring(Math.min(index + 1, listFields.length()));
+                    } else {
+                        break;
+                    }
+                }
+                if (listFields.isEmpty()) {
+                    return new StructType(fields);
+                }
+            }
+        }
+        if (lowerCaseType.startsWith("char")) {
+            ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            if (match.find()) {
+                type.setLength(Integer.parseInt(match.group(1)));
+            }
+            return type;
+        }
+        if (lowerCaseType.startsWith("varchar")) {
+            ScalarType type = ScalarType.createType(PrimitiveType.VARCHAR);
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            if (match.find()) {
+                type.setLength(Integer.parseInt(match.group(1)));
+            }
+            return type;
+        }
+        if (lowerCaseType.startsWith("decimal")) {
+            Matcher match = digitPattern.matcher(lowerCaseType);
+            int precision = ScalarType.DEFAULT_PRECISION;
+            int scale = ScalarType.DEFAULT_SCALE;
+            if (match.find()) {
+                precision = Integer.parseInt(match.group(1));
+            }
+            if (match.find()) {
+                scale = Integer.parseInt(match.group(1));
+            }
+            return ScalarType.createDecimalType(precision, scale);
+        }
+        return Type.UNSUPPORTED;
+    }
+
+    public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
+        StringBuilder output = new StringBuilder();
+        if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
+            output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));
+            if (remoteTable.getViewExpandedText() != null) {
+                output.append(remoteTable.getViewExpandedText());
+            } else {
+                output.append(remoteTable.getViewOriginalText());
+            }
+        } else {
+            output.append(String.format("CREATE TABLE `%s`(\n", remoteTable.getTableName()));
+            Iterator<FieldSchema> fields = remoteTable.getSd().getCols().iterator();
+            while (fields.hasNext()) {
+                FieldSchema field = fields.next();
+                output.append(String.format("  `%s` %s", field.getName(), field.getType()));
+                if (field.getComment() != null) {
+                    output.append(String.format(" COMMENT '%s'", field.getComment()));
+                }
+                if (fields.hasNext()) {
+                    output.append(",\n");
+                }
+            }
+            output.append(")\n");
+            if (remoteTable.getParameters().containsKey(COMMENT)) {
+                output.append(String.format("COMMENT '%s'", remoteTable.getParameters().get(COMMENT))).append("\n");
+            }
+            if (remoteTable.getPartitionKeys().size() > 0) {
+                output.append("PARTITIONED BY (\n")
+                        .append(remoteTable.getPartitionKeys().stream().map(
+                                        partition ->
+                                                String.format(" `%s` %s", partition.getName(), partition.getType()))
+                                .collect(Collectors.joining(",\n")))
+                        .append(")\n");
+            }
+            StorageDescriptor descriptor = remoteTable.getSd();
+            List<String> bucketCols = descriptor.getBucketCols();
+            if (bucketCols != null && bucketCols.size() > 0) {
+                output.append("CLUSTERED BY (\n")
+                        .append(bucketCols.stream().map(
+                                bucketCol -> "  " + bucketCol).collect(Collectors.joining(",\n")))
+                        .append(")\n")
+                        .append(String.format("INTO %d BUCKETS\n", descriptor.getNumBuckets()));
+            }
+            if (descriptor.getSerdeInfo().isSetSerializationLib()) {
+                output.append("ROW FORMAT SERDE\n")
+                        .append(String.format("  '%s'\n", descriptor.getSerdeInfo().getSerializationLib()));
+            }
+            if (descriptor.isSetInputFormat()) {
+                output.append("STORED AS INPUTFORMAT\n")
+                        .append(String.format("  '%s'\n", descriptor.getInputFormat()));
+            }
+            if (descriptor.isSetOutputFormat()) {
+                output.append("OUTPUTFORMAT\n")
+                        .append(String.format("  '%s'\n", descriptor.getOutputFormat()));
+            }
+            if (descriptor.isSetLocation()) {
+                output.append("LOCATION\n")
+                        .append(String.format("  '%s'\n", descriptor.getLocation()));
+            }
+            if (remoteTable.isSetParameters()) {
+                output.append("TBLPROPERTIES (\n");
+                Map<String, String> parameters = Maps.newHashMap();
+                // Copy the parameters to a new Map to keep them unchanged.
+                parameters.putAll(remoteTable.getParameters());
+                if (parameters.containsKey(COMMENT)) {
+                    // Comment is always added to the end of remote table parameters.
+                    // It has already showed above in COMMENT section, so remove it here.
+                    parameters.remove(COMMENT);
+                }
+                Iterator<Map.Entry<String, String>> params = parameters.entrySet().iterator();
+                while (params.hasNext()) {
+                    Map.Entry<String, String> param = params.next();
+                    output.append(String.format("  '%s'='%s'", param.getKey(), param.getValue()));
+                    if (params.hasNext()) {
+                        output.append(",\n");
+                    }
+                }
+                output.append(")");
+            }
+        }
+        return output.toString();
+    }
+
+    public static org.apache.iceberg.Table getIcebergTable(HMSExternalTable table) {
+        String metastoreUri = table.getMetastoreUri();
+        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        Configuration conf = getConfiguration(table);
+        hiveCatalog.setConf(conf);
+        // initialize hive catalog
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUri);
+        catalogProperties.put("uri", metastoreUri);
+        hiveCatalog.initialize("hive", catalogProperties);
+
+        return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
+    }
+
+    public static Configuration getConfiguration(HMSExternalTable table) {
+        Configuration conf = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
 }
+
+

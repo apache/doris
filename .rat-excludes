@@ -26,6 +26,7 @@ jmockit/*
 status.*
 env*
 lru*
+signal_handler.h
 skiplist.h
 string_search.hpp
 coding.*

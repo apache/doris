@@ -42,6 +42,7 @@ using rocksdb::kDefaultColumnFamilyName;
 using rocksdb::NewFixedPrefixTransform;
 
 namespace doris {
+using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 
@@ -58,7 +59,7 @@ OlapMeta::~OlapMeta() {
     }
 }
 
-OLAPStatus OlapMeta::init() {
+Status OlapMeta::init() {
     // init db
     DBOptions options;
     options.IncreaseParallelism();
@@ -77,48 +78,47 @@ OLAPStatus OlapMeta::init() {
     rocksdb::Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
-        return OLAP_ERR_META_OPEN_DB;
+        return Status::Error<META_OPEN_DB_ERROR>();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
-                         std::string* value) {
+Status OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     rocksdb::Status s;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        s = _db->Get(ReadOptions(), handle, Slice(key), value);
+        s = _db->Get(ReadOptions(), handle, rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
     if (s.IsNotFound()) {
-        return OLAP_ERR_META_KEY_NOT_FOUND;
+        return Status::Error<META_KEY_NOT_FOUND>();
     } else if (!s.ok()) {
         LOG(WARNING) << "rocks db get key:" << key << " failed, reason:" << s.ToString();
-        return OLAP_ERR_META_GET;
+        return Status::Error<META_GET_ERROR>();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
-                         std::string* value) {
+                             std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     bool is_exist = false;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        is_exist = _db->KeyMayExist(ReadOptions(), handle, Slice(key), value);
+        is_exist = _db->KeyMayExist(ReadOptions(), handle, rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
-    
+
     return is_exist;
 }
 
-OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key,
-                         const std::string& value) {
+Status OlapMeta::put(const int column_family_index, const std::string& key,
+                     const std::string& value) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
@@ -127,17 +127,17 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key,
         SCOPED_RAW_TIMER(&duration_ns);
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
-        s = _db->Put(write_options, handle, Slice(key), Slice(value));
+        s = _db->Put(write_options, handle, rocksdb::Slice(key), rocksdb::Slice(value));
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
-        return OLAP_ERR_META_PUT;
+        return Status::Error<META_PUT_ERROR>();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& key) {
+Status OlapMeta::remove(const int column_family_index, const std::string& key) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     rocksdb::Status s;
@@ -146,19 +146,18 @@ OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& ke
         SCOPED_RAW_TIMER(&duration_ns);
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
-        s = _db->Delete(write_options, handle, Slice(key));
+        s = _db->Delete(write_options, handle, rocksdb::Slice(key));
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
         LOG(WARNING) << "rocks db delete key:" << key << " failed, reason:" << s.ToString();
-        return OLAP_ERR_META_DELETE;
+        return Status::Error<META_DELETE_ERROR>();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus OlapMeta::iterate(
-        const int column_family_index, const std::string& prefix,
-        std::function<bool(const std::string&, const std::string&)> const& func) {
+Status OlapMeta::iterate(const int column_family_index, const std::string& prefix,
+                         std::function<bool(const std::string&, const std::string&)> const& func) {
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle));
     if (prefix == "") {
@@ -169,12 +168,12 @@ OLAPStatus OlapMeta::iterate(
     rocksdb::Status status = it->status();
     if (!status.ok()) {
         LOG(WARNING) << "rocksdb seek failed. reason:" << status.ToString();
-        return OLAP_ERR_META_ITERATOR;
+        return Status::Error<META_ITERATOR_ERROR>();
     }
     for (; it->Valid(); it->Next()) {
         if (prefix != "") {
             if (!it->key().starts_with(prefix)) {
-                return OLAP_SUCCESS;
+                return Status::OK();
             }
         }
         std::string key = it->key().ToString();
@@ -186,9 +185,9 @@ OLAPStatus OlapMeta::iterate(
     }
     if (!it->status().ok()) {
         LOG(WARNING) << "rocksdb iterator failed. reason:" << status.ToString();
-        return OLAP_ERR_META_ITERATOR;
+        return Status::Error<META_ITERATOR_ERROR>();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 std::string OlapMeta::get_root_path() {

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

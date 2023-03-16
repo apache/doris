@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
-#define DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
+#pragma once
 
 #include <cctype>
 #include <climits>
@@ -27,10 +26,8 @@
 #include <string>
 #include <string_view>
 
-#include "common/logging.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
-#include "util/mysql_global.h"
 
 namespace doris {
 
@@ -61,8 +58,8 @@ public:
 
     static constexpr int32_t PRECISION = 27;
     static constexpr int32_t SCALE = 9;
-    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] =
-            { 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1 };
+    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] = {
+            1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1};
     static constexpr uint32_t ONE_BILLION = 1000000000;
     static constexpr int64_t MAX_INT_VALUE = 999999999999999999;
     static constexpr int32_t MAX_FRAC_VALUE = 999999999;
@@ -77,8 +74,8 @@ public:
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
 
     DecimalV2Value() = default;
-    inline const int128_t& value() const { return _value; }
-    inline int128_t& value() { return _value; }
+    const int128_t& value() const { return _value; }
+    int128_t& value() { return _value; }
 
     DecimalV2Value(const std::string& decimal_str) {
         parse_from_str(decimal_str.c_str(), decimal_str.size());
@@ -92,7 +89,7 @@ public:
         from_olap_decimal(int_value, frac_value);
     }
 
-    inline bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
+    bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
         bool success = true;
         bool is_negative = (int_value < 0 || frac_value < 0);
         if (is_negative) {
@@ -226,11 +223,19 @@ public:
         return DecimalV2Value(MAX_INT_VALUE, MAX_FRAC_VALUE);
     }
 
-    static DecimalV2Value from_decimal_val(const DecimalV2Val& val) {
-        return DecimalV2Value(val.value());
+    static DecimalV2Value get_min_decimal(int precision, int scale) {
+        DCHECK(precision <= 27 && scale <= 9);
+        return DecimalV2Value(
+                -MAX_INT_VALUE % get_scale_base(18 - precision + scale),
+                MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
     }
 
-    void to_decimal_val(DecimalV2Val* value) const { value->val = _value; }
+    static DecimalV2Value get_max_decimal(int precision, int scale) {
+        DCHECK(precision <= 27 && scale <= 9);
+        return DecimalV2Value(
+                MAX_INT_VALUE % get_scale_base(18 - precision + scale),
+                MAX_FRAC_VALUE / get_scale_base(9 - scale) * get_scale_base(9 - scale));
+    }
 
     // Solve Square root for int128
     static DecimalV2Value sqrt(const DecimalV2Value& v);
@@ -318,11 +323,7 @@ std::size_t hash_value(DecimalV2Value const& value);
 
 } // end namespace doris
 
-namespace std {
 template <>
-struct hash<doris::DecimalV2Value> {
+struct std::hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
 };
-} // namespace std
-
-#endif // DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H

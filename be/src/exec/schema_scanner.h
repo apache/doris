@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
+#pragma once
 
 #include <string>
 
@@ -25,13 +24,18 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
 class DorisServer;
 class RuntimeState;
+
+namespace vectorized {
+class Block;
+}
 
 // scanner parameter from frontend
 struct SchemaScannerParam {
@@ -44,6 +48,9 @@ struct SchemaScannerParam {
     const std::string* ip;                   // frontend ip
     int32_t port;                            // frontend thrift port
     int64_t thread_id;
+    const std::vector<TSchemaTableStructure>* table_structure;
+    const std::string* catalog;
+    std::unique_ptr<RuntimeProfile> profile;
 
     SchemaScannerParam()
             : db(nullptr),
@@ -53,7 +60,8 @@ struct SchemaScannerParam {
               user_ip(nullptr),
               current_user_ident(nullptr),
               ip(nullptr),
-              port(0) {}
+              port(0),
+              catalog(nullptr) {}
 };
 
 // virtual scanner for all schema table
@@ -64,37 +72,47 @@ public:
         PrimitiveType type;
         int size;
         bool is_null;
+        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
+        int precision = -1;
+        int scale = -1;
     };
-    SchemaScanner(ColumnDesc* columns, int column_num);
+    SchemaScanner(const std::vector<ColumnDesc>& columns);
+    SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type);
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
     virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    virtual Status get_next_block(vectorized::Block* block, bool* eos);
+    const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
-
     const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
+    TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 
 protected:
+    Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+                                      const std::vector<void*>& datas);
     Status create_tuple_desc(ObjectPool* pool);
 
     bool _is_init;
     // this is used for sub class
     SchemaScannerParam* _param;
-    // pointer to schema table's column desc
-    ColumnDesc* _columns;
-    // num of columns
-    int _column_num;
+    // schema table's column desc
+    std::vector<ColumnDesc> _columns;
     TupleDescriptor* _tuple_desc;
 
     static DorisServer* _s_doris_server;
+
+    TSchemaTableType::type _schema_table_type;
+
+    RuntimeProfile::Counter* _get_db_timer = nullptr;
+    RuntimeProfile::Counter* _get_table_timer = nullptr;
+    RuntimeProfile::Counter* _get_describe_timer = nullptr;
+    RuntimeProfile::Counter* _fill_block_timer = nullptr;
 };
 
 } // namespace doris
-
-#endif

@@ -18,8 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,7 +28,6 @@ import org.apache.doris.common.util.ToSqlContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -86,20 +84,16 @@ public class BaseViewStmt extends DdlStmt {
             if (cols.size() != viewDefStmt.getColLabels().size()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
-            // TODO(zc): type
             for (int i = 0; i < cols.size(); ++i) {
-                PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                Column col = new Column(cols.get(i).getColName(), ScalarType.createType(type));
+                Type type = viewDefStmt.getBaseTblResultExprs().get(i).getType();
+                Column col = new Column(cols.get(i).getColName(), type);
                 col.setComment(cols.get(i).getComment());
                 finalCols.add(col);
             }
         } else {
-            // TODO(zc): type
             for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
-                PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                finalCols.add(new Column(
-                        viewDefStmt.getColLabels().get(i),
-                        ScalarType.createType(type)));
+                Type type = viewDefStmt.getBaseTblResultExprs().get(i).getType();
+                finalCols.add(new Column(viewDefStmt.getColLabels().get(i), type));
             }
         }
         // Set for duplicate columns
@@ -123,6 +117,7 @@ public class BaseViewStmt extends DdlStmt {
 
         Analyzer tmpAnalyzer = new Analyzer(analyzer);
         List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
+        cloneStmt.setNeedToSql(true);
         cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
 
         try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {

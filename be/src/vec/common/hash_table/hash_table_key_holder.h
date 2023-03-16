@@ -69,7 +69,7 @@
   * After the call to key_holder_persist_key(), must return the persistent key.
   */
 template <typename Key>
-inline Key& ALWAYS_INLINE key_holder_get_key(Key&& key) {
+Key& key_holder_get_key(Key&& key) {
     return key;
 }
 
@@ -78,13 +78,13 @@ inline Key& ALWAYS_INLINE key_holder_get_key(Key&& key) {
   * after this call.
   */
 template <typename Key>
-inline void ALWAYS_INLINE key_holder_persist_key(Key&&) {}
+void key_holder_persist_key(Key&&) {}
 
 /**
   * Discard the key. Calling key_holder_get_key() is ill-defined after this.
   */
 template <typename Key>
-inline void ALWAYS_INLINE key_holder_discard_key(Key&&) {}
+void key_holder_discard_key(Key&&) {}
 
 namespace doris::vectorized {
 
@@ -99,7 +99,8 @@ struct ArenaKeyHolder {
 
 } // namespace doris::vectorized
 
-inline StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::ArenaKeyHolder& holder) {
+inline doris::StringRef& ALWAYS_INLINE
+key_holder_get_key(doris::vectorized::ArenaKeyHolder& holder) {
     return holder.key;
 }
 
@@ -125,7 +126,8 @@ struct SerializedKeyHolder {
 
 } // namespace doris::vectorized
 
-inline StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::SerializedKeyHolder& holder) {
+inline doris::StringRef& ALWAYS_INLINE
+key_holder_get_key(doris::vectorized::SerializedKeyHolder& holder) {
     return holder.key;
 }
 

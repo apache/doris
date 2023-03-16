@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,9 +24,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.DropInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -40,9 +38,9 @@ import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -75,36 +73,36 @@ public class OdbcCatalogResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Mocked Catalog catalog, @Injectable PaloAuth auth)
+    public void testFromStmt(@Mocked Env env, @Injectable AccessControllerManager accessManager)
             throws UserException {
         new Expectations() {
             {
-                catalog.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
 
         // host: 127.0.0.1, port: 7777, without driver and odbc_type
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         OdbcCatalogResource resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
         Assert.assertEquals(type, resource.getType().name().toLowerCase());
-        Assert.assertEquals(host, resource.getProperties("host"));
-        Assert.assertEquals(port, resource.getProperties("port"));
-        Assert.assertEquals(user, resource.getProperties("user"));
-        Assert.assertEquals(passwd, resource.getProperties("password"));
+        Assert.assertEquals(host, resource.getProperty("host"));
+        Assert.assertEquals(port, resource.getProperty("port"));
+        Assert.assertEquals(user, resource.getProperty("user"));
+        Assert.assertEquals(passwd, resource.getProperty("password"));
 
         // with driver and odbc_type
         properties.put("driver", "mysql");
         properties.put("odbc_type", "mysql");
-        stmt = new CreateResourceStmt(true, name, properties);
+        stmt = new CreateResourceStmt(true, false, name, properties);
         stmt.analyze(analyzer);
         resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
-        Assert.assertEquals("mysql", resource.getProperties("driver"));
-        Assert.assertEquals("mysql", resource.getProperties("odbc_type"));
+        Assert.assertEquals("mysql", resource.getProperty("driver"));
+        Assert.assertEquals("mysql", resource.getProperty("odbc_type"));
 
         // test getProcNodeData
         BaseProcResult result = new BaseProcResult();
@@ -115,13 +113,12 @@ public class OdbcCatalogResourceTest {
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_92);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
-        File file = new File("./odbcCatalogResource");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        Path path = Files.createFile(Paths.get("./odbcCatalogResource"));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         OdbcCatalogResource odbcCatalogResource1 = new OdbcCatalogResource("odbc1");
         odbcCatalogResource1.write(dos);
@@ -139,7 +136,7 @@ public class OdbcCatalogResourceTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
         OdbcCatalogResource rOdbcCatalogResource1 = (OdbcCatalogResource) OdbcCatalogResource.read(dis);
         OdbcCatalogResource rOdbcCatalogResource2 = (OdbcCatalogResource) OdbcCatalogResource.read(dis);
@@ -147,13 +144,13 @@ public class OdbcCatalogResourceTest {
         Assert.assertEquals("odbc1", rOdbcCatalogResource1.getName());
         Assert.assertEquals("odbc2", rOdbcCatalogResource2.getName());
 
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("host"), "host");
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("port"), "port");
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("user"), "user");
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("password"), "password");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("host"), "host");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("port"), "port");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("user"), "user");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("password"), "password");
 
         // 3. delete files
         dis.close();
-        file.delete();
+        Files.deleteIfExists(path);
     }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
@@ -174,32 +174,35 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.JSONPATHS)) {
-            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONPATHS, jobProperties.get(CreateRoutineLoadStmt.JSONPATHS));
+            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONPATHS,
+                    jobProperties.get(CreateRoutineLoadStmt.JSONPATHS));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.JSONROOT)) {
-            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONROOT, jobProperties.get(CreateRoutineLoadStmt.JSONROOT));
+            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONROOT,
+                    jobProperties.get(CreateRoutineLoadStmt.JSONROOT));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)) {
-            boolean stripOuterArray = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY));
+            boolean stripOuterArray = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY));
             analyzedJobProperties.put(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY, String.valueOf(stripOuterArray));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.NUM_AS_STRING)) {
-            boolean numAsString = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.NUM_AS_STRING));
+            boolean numAsString = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadStmt.NUM_AS_STRING));
             analyzedJobProperties.put(CreateRoutineLoadStmt.NUM_AS_STRING, String.valueOf(numAsString));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.FUZZY_PARSE)) {
-            boolean fuzzyParse = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.FUZZY_PARSE));
+            boolean fuzzyParse = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadStmt.FUZZY_PARSE));
             analyzedJobProperties.put(CreateRoutineLoadStmt.FUZZY_PARSE, String.valueOf(fuzzyParse));
         }
     }
 
     private void checkDataSourceProperties() throws UserException {
         if (!FeConstants.runningUnitTest) {
-            RoutineLoadJob job = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(getDbName(), getLabel());
+            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                    .checkPrivAndGetJob(getDbName(), getLabel());
             dataSourceProperties.setTimezone(job.getTimezone());
         } else {
             dataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);

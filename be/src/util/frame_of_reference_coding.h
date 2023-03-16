@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_FRAME_OF_REFERENCE_CODING_H
-#define DORIS_FRAME_OF_REFERENCE_CODING_H
+#pragma once
 
 #include <cstdlib>
 #include <iostream>
@@ -30,12 +29,12 @@
 
 namespace doris {
 
-static inline uint8_t bits_less_than_64(const uint64_t v) {
+inline uint8_t bits_less_than_64(const uint64_t v) {
     return v == 0 ? 0 : 64 - __builtin_clzll(v);
 }
 
 // See https://stackoverflow.com/questions/28423405/counting-the-number-of-leading-zeros-in-a-128-bit-integer
-static inline uint8_t bits_may_more_than_64(const uint128_t v) {
+inline uint8_t bits_may_more_than_64(const uint128_t v) {
     uint64_t hi = v >> 64;
     uint64_t lo = v;
     int z[3] = {__builtin_clzll(hi), __builtin_clzll(lo) + 64, 128};
@@ -44,7 +43,7 @@ static inline uint8_t bits_may_more_than_64(const uint128_t v) {
 }
 
 template <typename T>
-static inline uint8_t bits(const T v) {
+uint8_t bits(const T v) {
     if (sizeof(T) <= 8) {
         return bits_less_than_64(v);
     } else {
@@ -151,7 +150,7 @@ public:
 private:
     void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
 
-    inline uint32_t frame_size(uint32_t frame_index) {
+    uint32_t frame_size(uint32_t frame_index) {
         return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
     }
 
@@ -188,5 +187,3 @@ private:
     std::vector<T> _out_buffer; // store values of decoded frame
 };
 } // namespace doris
-
-#endif //DORIS_FRAME_OF_REFERENCE_CODING_H

@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -49,7 +48,7 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -153,8 +152,9 @@ public class CacheAnalyzer {
             return Long.compare(table.latestTime, this.latestTime);
         }
 
-        public void Debug() {
-            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(), latestPartitionId, latestVersion, latestTime);
+        public void debug() {
+            LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(),
+                    latestPartitionId, latestVersion, latestTime);
         }
     }
 
@@ -208,13 +208,19 @@ public class CacheAnalyzer {
                 LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
                 return CacheMode.None;
             }
+            if (enablePartitionCache() && ((OlapScanNode) node).getSelectedPartitionNum() > 1
+                    && selectStmt.hasGroupByClause()) {
+                LOG.debug("more than one partition scanned when qeury has agg, partition cache cannot use, queryid {}",
+                        DebugUtil.printId(queryId));
+                return CacheMode.None;
+            }
             CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
             tblTimeList.add(cTable);
         }
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
-        latestTable.Debug();
+        latestTable.debug();
 
         addAllViewStmt(selectStmt);
         String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
@@ -222,12 +228,13 @@ public class CacheAnalyzer {
         if (now == 0) {
             now = nowtime();
         }
-        if (enableSqlCache() &&
-                (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000) {
-            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime, Config.cache_last_version_interval_second*1000);
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                    Config.cache_last_version_interval_second * 1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
-            MetricRepo.COUNTER_CACHE_MODE_SQL.increase(1L);
+            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
         }
 
@@ -239,7 +246,7 @@ public class CacheAnalyzer {
         //Check if selectStmt matches partition key
         //Only one table can be updated in Config.cache_last_version_interval_second range
         for (int i = 1; i < tblTimeList.size(); i++) {
-            if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000) {
+            if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000L) {
                 LOG.debug("the time of other tables is newer than {} s, queryid {}",
                         Config.cache_last_version_interval_second, DebugUtil.printId(queryId));
                 return CacheMode.None;
@@ -254,27 +261,30 @@ public class CacheAnalyzer {
         List<Column> columns = partitionInfo.getPartitionColumns();
         //Partition key has only one column
         if (columns.size() != 1) {
-            LOG.debug("more than one partition column, queryid {}", columns.size(), DebugUtil.printId(queryId));
+            LOG.debug("more than one partition column {}, queryid {}", columns.size(),
+                    DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partColumn = columns.get(0);
         //Check if group expr contain partition column
         if (!checkGroupByPartitionKey(this.selectStmt, partColumn)) {
-            LOG.debug("group by columns does not contains all partition column, queryid {}", DebugUtil.printId(queryId));
+            LOG.debug("group by columns does not contains all partition column, queryid {}",
+                    DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         //Check if whereClause have one CompoundPredicate of partition column
         List<CompoundPredicate> compoundPredicates = Lists.newArrayList();
         getPartitionKeyFromSelectStmt(this.selectStmt, partColumn, compoundPredicates);
         if (compoundPredicates.size() != 1) {
-            LOG.debug("empty or more than one predicates contain partition column, queryid {}", DebugUtil.printId(queryId));
+            LOG.debug("empty or more than one predicates contain partition column, queryid {}",
+                    DebugUtil.printId(queryId));
             return CacheMode.None;
         }
         partitionPredicate = compoundPredicates.get(0);
         cache = new PartitionCache(this.queryId, this.selectStmt);
         ((PartitionCache) cache).setCacheInfo(this.latestTable, this.partitionInfo, this.partColumn,
                 this.partitionPredicate, allViewExpandStmtListStr);
-        MetricRepo.COUNTER_CACHE_MODE_PARTITION.increase(1L);
+        MetricRepo.COUNTER_CACHE_ADDED_PARTITION.increase(1L);
         return CacheMode.Partition;
     }
 
@@ -340,14 +350,14 @@ public class CacheAnalyzer {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) expr;
             if (cp.getOp() == CompoundPredicate.Operator.AND) {
-                if (cp.getChildren().size() == 2 && cp.getChild(0) instanceof BinaryPredicate &&
-                        cp.getChild(1) instanceof BinaryPredicate) {
+                if (cp.getChildren().size() == 2 && cp.getChild(0) instanceof BinaryPredicate
+                        && cp.getChild(1) instanceof BinaryPredicate) {
                     BinaryPredicate leftPre = (BinaryPredicate) cp.getChild(0);
                     BinaryPredicate rightPre = (BinaryPredicate) cp.getChild(1);
                     String leftColumn = getColumnName(leftPre);
                     String rightColumn = getColumnName(rightPre);
-                    if (leftColumn.equalsIgnoreCase(partColumn.getName()) &&
-                            rightColumn.equalsIgnoreCase(partColumn.getName())) {
+                    if (leftColumn.equalsIgnoreCase(partColumn.getName())
+                            && rightColumn.equalsIgnoreCase(partColumn.getName())) {
                         compoundPredicates.add(cp);
                     }
                 }

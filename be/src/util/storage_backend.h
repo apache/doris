@@ -34,8 +34,8 @@ public:
     virtual Status upload(const std::string& local, const std::string& remote) = 0;
     virtual Status upload_with_checksum(const std::string& local, const std::string& remote,
                                         const std::string& checksum) = 0;
-    virtual Status list(const std::string& remote_path, bool contain_md5,
-                        bool recursion, std::map<std::string, FileStat>* files) = 0;
+    virtual Status list(const std::string& remote_path, bool contain_md5, bool recursion,
+                        std::map<std::string, FileStat>* files) = 0;
     virtual Status rename(const std::string& orig_name, const std::string& new_name) = 0;
     virtual Status rename_dir(const std::string& orig_name, const std::string& new_name) = 0;
     virtual Status direct_upload(const std::string& remote, const std::string& content) = 0;

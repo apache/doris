@@ -18,16 +18,15 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.common.SparkDppException;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-
-import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructField;
-import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.types.DecimalType;
-import org.apache.spark.sql.Row;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 
 import com.google.common.collect.Lists;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -41,6 +40,9 @@ import java.util.zip.CRC32;
 
 public class DppUtils {
     public static final String BUCKET_ID = "__bucketId__";
+
+    public static final int STRING_LENGTH_LIMIT = 1048576;
+
     public static Class getClassFromDataType(DataType dataType) {
         if (dataType == null) {
             return null;
@@ -62,7 +64,7 @@ public class DppUtils {
         } else if (dataType.equals(DataTypes.StringType)) {
             return String.class;
         } else if (dataType instanceof DecimalType) {
-            DecimalType decimalType = (DecimalType)dataType;
+            DecimalType decimalType = (DecimalType) dataType;
             return BigDecimal.valueOf(decimalType.precision(), decimalType.scale()).getClass();
         } else if (dataType.equals(DataTypes.TimestampType)) {
             return Long.class;
@@ -94,10 +96,15 @@ public class DppUtils {
             case "HLL":
             case "CHAR":
             case "VARCHAR":
+            case "STRING":
+            case "TEXT":
             case "BITMAP":
             case "OBJECT":
                 return String.class;
             case "DECIMALV2":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
                 return BigDecimal.valueOf(column.precision, column.scale).getClass();
             default:
                 return String.class;
@@ -139,6 +146,8 @@ public class DppUtils {
                 break;
             case "CHAR":
             case "VARCHAR":
+            case "STRING":
+            case "TEXT":
             case "OBJECT":
                 dataType = DataTypes.StringType;
                 break;
@@ -147,6 +156,9 @@ public class DppUtils {
                 dataType = regardDistinctColumnAsBinary ? DataTypes.BinaryType : DataTypes.StringType;
                 break;
             case "DECIMALV2":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
                 dataType = DecimalType.apply(column.precision, column.scale);
                 break;
             default:
@@ -163,13 +175,13 @@ public class DppUtils {
             return buffer;
         }
         if (type.equals(DataTypes.ByteType)) {
-            buffer.put((byte)o);
+            buffer.put((byte) o);
         } else if (type.equals(DataTypes.ShortType)) {
-            buffer.putShort((Short)o);
+            buffer.putShort((Short) o);
         } else if (type.equals(DataTypes.IntegerType)) {
             buffer.putInt((Integer) o);
         } else if (type.equals(DataTypes.LongType)) {
-            buffer.putLong((Long)o);
+            buffer.putLong((Long) o);
         } else if (type.equals(DataTypes.StringType)) {
             try {
                 String str = String.valueOf(o);
@@ -178,11 +190,14 @@ public class DppUtils {
                 throw new RuntimeException(e);
             }
         } else if (type.equals(DataTypes.BooleanType)) {
-            Boolean b = (Boolean)o;
+            Boolean b = (Boolean) o;
             byte value = (byte) (b ? 1 : 0);
             buffer.put(value);
         }
-        buffer.flip();
+        // do not flip buffer when the buffer was created by wrap()
+        if (!type.equals(DataTypes.StringType)) {
+            buffer.flip();
+        }
         return buffer;
     }
 
@@ -200,16 +215,19 @@ public class DppUtils {
         List<StructField> fields = new ArrayList<>();
         for (StructField originField : dstSchema.fields()) {
             if (binaryColumns.contains(originField.name())) {
-                fields.add(DataTypes.createStructField(originField.name(), DataTypes.BinaryType, originField.nullable()));
+                fields.add(DataTypes.createStructField(originField.name(),
+                        DataTypes.BinaryType, originField.nullable()));
             } else {
-                fields.add(DataTypes.createStructField(originField.name(), originField.dataType(), originField.nullable()));
+                fields.add(DataTypes.createStructField(originField.name(),
+                        originField.dataType(), originField.nullable()));
             }
         }
         StructType ret = DataTypes.createStructType(fields);
         return ret;
     }
 
-    public static StructType createDstTableSchema(List<EtlJobConfig.EtlColumn> columns, boolean addBucketIdColumn, boolean regardDistinctColumnAsBinary) {
+    public static StructType createDstTableSchema(List<EtlJobConfig.EtlColumn> columns,
+            boolean addBucketIdColumn, boolean regardDistinctColumnAsBinary) {
         List<StructField> fields = new ArrayList<>();
         if (addBucketIdColumn) {
             StructField bucketIdField = DataTypes.createStructField(BUCKET_ID, DataTypes.StringType, true);
@@ -224,14 +242,17 @@ public class DppUtils {
         return dstSchema;
     }
 
-    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws SparkDppException {
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
+            throws SparkDppException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
-            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                    + ", filePath: " + filePath);
+            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
@@ -241,13 +262,17 @@ public class DppUtils {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                        + ", filePath: " + filePath);
+                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
-                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                        + ", filePath: " + filePath);
+                throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                        + columnsFromPath + ", filePath: " + filePath);
             }
             int index = columnsFromPath.indexOf(pair[0]);
             if (index == -1) {
@@ -260,8 +285,10 @@ public class DppUtils {
             }
         }
         if (size != columnsFromPath.size()) {
-            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
-            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            System.err.println("Fail to parse columnsFromPath, expected: " + columnsFromPath
+                    + ", filePath: " + filePath);
+            throw new SparkDppException("Reason: Fail to parse columnsFromPath, expected: "
+                    + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
     }

@@ -5,8 +5,7 @@
 // This file is an internal atomic implementation for compiler-based
 // ThreadSanitizer. Use base/atomicops.h instead.
 
-#ifndef BASE_ATOMICOPS_INTERNALS_TSAN_H_
-#define BASE_ATOMICOPS_INTERNALS_TSAN_H_
+#pragma once
 
 // Workaround for Chromium BASE_EXPORT definition
 #ifndef BASE_EXPORT
@@ -188,5 +187,3 @@ inline void PauseCPU() {}
 } // namespace base
 
 #undef ATOMICOPS_COMPILER_BARRIER
-
-#endif // BASE_ATOMICOPS_INTERNALS_TSAN_H_

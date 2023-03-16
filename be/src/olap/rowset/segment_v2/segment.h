@@ -25,7 +25,10 @@
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "io/fs/file_system.h"
 #include "olap/iterators.h"
+#include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -34,7 +37,6 @@
 
 namespace doris {
 
-class SegmentGroup;
 class TabletSchema;
 class ShortKeyIndexDecoder;
 class Schema;
@@ -48,7 +50,6 @@ class ColumnIterator;
 class Segment;
 class SegmentIterator;
 using SegmentSharedPtr = std::shared_ptr<Segment>;
-
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -59,70 +60,82 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
+    static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                       const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
 
     ~Segment();
 
     Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
-                        std::shared_ptr<MemTracker> parent,
                         std::unique_ptr<RowwiseIterator>* iter);
 
-    uint64_t id() const { return _segment_id; }
+    uint32_t id() const { return _segment_id; }
+
+    RowsetId rowset_id() const { return _rowset_id; }
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter);
+    Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
 
-    Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
+    Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
-    size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
+    Status new_inverted_index_iterator(const TabletColumn& tablet_column,
+                                       const TabletIndex* index_meta, OlapReaderStatistics* stats,
+                                       InvertedIndexIterator** iter);
 
-    uint32_t num_rows_per_block() const {
+    const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->num_rows_per_block();
-    }
-    ShortKeyIndexIterator lower_bound(const Slice& key) const {
-        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->lower_bound(key);
-    }
-    ShortKeyIndexIterator upper_bound(const Slice& key) const {
-        DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        return _sk_index_decoder->upper_bound(key);
+        return _sk_index_decoder.get();
     }
 
-    // This will return the last row block in this segment.
-    // NOTE: Before call this function , client should assure that
-    // this segment is not empty.
-    uint32_t last_block() const {
+    const PrimaryKeyIndexReader* get_primary_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
-        DCHECK(num_rows() > 0);
-        return _sk_index_decoder->num_items() - 1;
+        return _pk_index_reader.get();
     }
+
+    Status lookup_row_key(const Slice& key, RowLocation* row_location);
+
+    Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
+    Status load_index();
+
+    Status load_pk_index_and_bf();
+
+    std::string min_key() {
+        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
+        return _footer.primary_key_index_meta().min_key();
+    }
+    std::string max_key() {
+        DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
+        return _footer.primary_key_index_meta().max_key();
+    }
+
+    io::FileReaderSPtr file_reader() { return _file_reader; }
+
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema);
+    Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
     Status _create_column_readers();
-    // Load and decode short key index.
-    // May be called multiple times, subsequent calls will no op.
-    Status _load_index();
+    Status _load_pk_bloom_filter();
 
 private:
     friend class SegmentIterator;
-    FilePathDesc _path_desc;
-    uint32_t _segment_id;
-    const TabletSchema* _tablet_schema;
+    io::FileReaderSPtr _file_reader;
 
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    std::shared_ptr<MemTracker> _mem_tracker;
+    uint32_t _segment_id;
+    RowsetId _rowset_id;
+    TabletSchemaSPtr _tablet_schema;
+
+    int64_t _meta_mem_usage;
     SegmentFooterPB _footer;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB
@@ -130,20 +143,24 @@ private:
     // with an old schema.
     std::unordered_map<uint32_t, uint32_t> _column_id_to_footer_ordinal;
 
+    // map column unique id ---> column reader
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
     // after this segment is generated.
-    std::vector<std::unique_ptr<ColumnReader>> _column_readers;
+    std::map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
+    // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
+    DorisCallOnce<Status> _load_pk_bf_once;
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
-    // segment footer need not to be read for remote storage, so _is_open is false. When remote file
-    // need to be read. footer will be read and _is_open will be set to true.
-    bool _is_open = false;
+    // primary key index reader
+    std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
+    // Segment may be destructed after StorageEngine, in order to exit gracefully.
+    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 };
 
 } // namespace segment_v2

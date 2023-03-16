@@ -117,7 +117,7 @@ void set(T& x) {
   * takes any pointer-like object;
   * for (3) and (4), LookupResult = Cell *, and both getters are implemented.
   * They have to be specialized for each particular Cell class to supersede the
-  * default verision that takes a generic pointer-like object.
+  * default version that takes a generic pointer-like object.
   */
 struct VoidKey {};
 struct VoidMapped {
@@ -163,7 +163,7 @@ struct HashTableCell {
 
     Key key;
 
-    HashTableCell() {}
+    HashTableCell() = default;
 
     /// Create a cell with the given key / key and value.
     HashTableCell(const Key& key_, const State&) : key(key_) {}
@@ -244,11 +244,22 @@ template <size_t initial_size_degree = 10>
 struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
     doris::vectorized::UInt8 size_degree = initial_size_degree;
+    doris::vectorized::Int64 double_grow_degree = 31; // 2GB
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
+#ifndef STRICT_MEMORY_USE
     size_t max_fill() const { return 1ULL << (size_degree - 1); }
+#else
+    // When capacity is greater than 2G, grow when 75% of the capacity is satisfied.
+    size_t max_fill() const {
+        return size_degree < double_grow_degree
+                       ? 1ULL << (size_degree - 1)
+                       : (1ULL << size_degree) - (1ULL << (size_degree - 2));
+    }
+#endif
+
     size_t mask() const { return buf_size() - 1; }
 
     /// From the hash value, get the cell number in the hash table.
@@ -268,18 +279,87 @@ struct HashTableGrower {
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
-        size_degree =
-                num_elems <= 1
-                        ? initial_size_degree
-                        : ((initial_size_degree > static_cast<size_t>(log2(num_elems - 1)) + 2)
-                                   ? initial_size_degree
-                                   : (static_cast<size_t>(log2(num_elems - 1)) + 2));
+#ifndef STRICT_MEMORY_USE
+        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 2;
+#else
+        size_t fill_capacity = static_cast<size_t>(log2(num_elems - 1)) + 1;
+        fill_capacity =
+                fill_capacity < double_grow_degree
+                        ? fill_capacity + 1
+                        : (num_elems < (1ULL << fill_capacity) - (1ULL << (fill_capacity - 2))
+                                   ? fill_capacity
+                                   : fill_capacity + 1);
+#endif
+        size_degree = num_elems <= 1 ? initial_size_degree
+                                     : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                            : fill_capacity);
     }
 
     void set_buf_size(size_t buf_size_) {
         size_degree = static_cast<size_t>(log2(buf_size_ - 1) + 1);
     }
 };
+
+/** Determines the size of the hash table, and when and how much it should be resized.
+  * This structure is aligned to cache line boundary and also occupies it all.
+  * Precalculates some values to speed up lookups and insertion into the HashTable (and thus has bigger memory footprint than HashTableGrower).
+  */
+template <size_t initial_size_degree = 8>
+class alignas(64) HashTableGrowerWithPrecalculation {
+    /// The state of this structure is enough to get the buffer size of the hash table.
+
+    doris::vectorized::UInt8 size_degree_ = initial_size_degree;
+    size_t precalculated_mask = (1ULL << initial_size_degree) - 1;
+    size_t precalculated_max_fill = 1ULL << (initial_size_degree - 1);
+
+public:
+    doris::vectorized::UInt8 size_degree() const { return size_degree_; }
+
+    void increase_size_degree(doris::vectorized::UInt8 delta) {
+        size_degree_ += delta;
+        DCHECK(size_degree_ <= 64);
+        precalculated_mask = (1ULL << size_degree_) - 1;
+        precalculated_max_fill = 1ULL << (size_degree_ - 1);
+    }
+
+    static constexpr auto initial_count = 1ULL << initial_size_degree;
+
+    /// If collision resolution chains are contiguous, we can implement erase operation by moving the elements.
+    static constexpr auto performs_linear_probing_with_single_step = true;
+
+    /// The size of the hash table in the cells.
+    size_t buf_size() const { return 1ULL << size_degree_; }
+
+    /// From the hash value, get the cell number in the hash table.
+    size_t place(size_t x) const { return x & precalculated_mask; }
+
+    /// The next cell in the collision resolution chain.
+    size_t next(size_t pos) const { return (pos + 1) & precalculated_mask; }
+
+    /// Whether the hash table is sufficiently full. You need to increase the size of the hash table, or remove something unnecessary from it.
+    bool overflow(size_t elems) const { return elems > precalculated_max_fill; }
+
+    /// Increase the size of the hash table.
+    void increase_size() { increase_size_degree(size_degree_ >= 23 ? 1 : 2); }
+
+    /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
+    void set(size_t num_elems) {
+        size_degree_ =
+                num_elems <= 1
+                        ? initial_size_degree
+                        : ((initial_size_degree > static_cast<size_t>(log2(num_elems - 1)) + 2)
+                                   ? initial_size_degree
+                                   : (static_cast<size_t>(log2(num_elems - 1)) + 2));
+        increase_size_degree(0);
+    }
+
+    void set_buf_size(size_t buf_size_) {
+        size_degree_ = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        increase_size_degree(0);
+    }
+};
+
+static_assert(sizeof(HashTableGrowerWithPrecalculation<>) == 64);
 
 /** When used as a Grower, it turns a hash table into something like a lookup table.
   * It remains non-optimal - the cells store the keys.
@@ -340,21 +420,22 @@ struct ZeroValueStorage<false, Cell> {
     const Cell* zero_value() const { return nullptr; }
 };
 
-template <typename Key, typename Cell, typename Hash, typename Grower, typename Allocator>
+template <typename Key, typename Cell, typename HashMethod, typename Grower, typename Allocator>
 class HashTable : private boost::noncopyable,
-                  protected Hash,
+                  protected HashMethod,
                   protected Allocator,
                   protected Cell::State,
                   protected ZeroValueStorage<Cell::need_zero_value_storage,
                                              Cell> /// empty base optimization
 {
 protected:
-    friend class const_iterator;
-    friend class iterator;
     friend class Reader;
 
-    template <typename, typename, typename, typename, typename, typename, size_t>
-    friend class TwoLevelHashTable;
+    template <typename, size_t>
+    friend class PartitionedHashTable;
+
+    template <typename SubMaps>
+    friend class StringHashTable;
 
     using HashValue = size_t;
     using Self = HashTable;
@@ -365,12 +446,29 @@ protected:
     Grower grower;
     int64_t _resize_timer_ns;
 
+    // the bucket count threshold above which it's converted to partioned hash table
+    // > 0: enable convert dynamically
+    // 0: convert is disabled
+    int _partitioned_threshold = 0;
+    // if need resize and bucket count after resize will be >= _partitioned_threshold,
+    // this flag is set to true, and resize does not actually happen,
+    // PartitionedHashTable will convert this hash table to partitioned hash table
+    bool _need_partition = false;
+
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     mutable size_t collisions = 0;
 #endif
+
+    void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
+
+    bool check_if_need_partition(size_t bucket_count) {
+        return _partitioned_threshold > 0 && bucket_count >= _partitioned_threshold;
+    }
+
+    bool need_partition() { return _need_partition; }
 
     /// Find a cell with the same key or an empty cell, starting from the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_cell(const Key& x, size_t hash_value, size_t place_value) const {
@@ -385,7 +483,8 @@ protected:
         return place_value;
     }
 
-    std::pair<bool, size_t> ALWAYS_INLINE find_cell_opt(const Key& x, size_t hash_value, size_t place_value) const {
+    std::pair<bool, size_t> ALWAYS_INLINE find_cell_opt(const Key& x, size_t hash_value,
+                                                        size_t place_value) const {
         bool is_zero = false;
         do {
             is_zero = buf[place_value].is_zero(*this);
@@ -418,63 +517,6 @@ protected:
             Allocator::free(buf, get_buffer_size_in_bytes());
             buf = nullptr;
         }
-    }
-
-    /// Increase the size of the buffer.
-    void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
-        SCOPED_RAW_TIMER(&_resize_timer_ns);
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-        Stopwatch watch;
-#endif
-
-        size_t old_size = grower.buf_size();
-
-        /** In case of exception for the object to remain in the correct state,
-          *  changing the variable `grower` (which determines the buffer size of the hash table)
-          *  is postponed for a moment after a real buffer change.
-          * The temporary variable `new_grower` is used to determine the new size.
-          */
-        Grower new_grower = grower;
-        if (for_num_elems) {
-            new_grower.set(for_num_elems);
-            if (new_grower.buf_size() <= old_size) return;
-        } else if (for_buf_size) {
-            new_grower.set_buf_size(for_buf_size);
-            if (new_grower.buf_size() <= old_size) return;
-        } else
-            new_grower.increase_size();
-
-        /// Expand the space.
-        buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
-                                                         new_grower.buf_size() * sizeof(Cell)));
-        grower = new_grower;
-
-        /** Now some items may need to be moved to a new location.
-          * The element can stay in place, or move to a new location "on the right",
-          *  or move to the left of the collision resolution chain, because the elements to the left of it have been moved to the new "right" location.
-          */
-        size_t i = 0;
-        for (; i < old_size; ++i)
-            if (!buf[i].is_zero(*this) && !buf[i].is_deleted())
-                reinsert(buf[i], buf[i].get_hash(*this));
-
-        /** There is also a special case:
-          *    if the element was to be at the end of the old buffer,                  [        x]
-          *    but is at the beginning because of the collision resolution chain,      [o       x]
-          *    then after resizing, it will first be out of place again,               [        xo        ]
-          *    and in order to transfer it where necessary,
-          *    after transferring all the elements from the old halves you need to     [         o   x    ]
-          *    process tail from the collision resolution chain immediately after it   [        o    x    ]
-          */
-        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
-            reinsert(buf[i], buf[i].get_hash(*this));
-
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-        watch.stop();
-        std::cerr << std::fixed << std::setprecision(3) << "Resize from " << old_size << " to "
-                  << grower.buf_size() << " took " << watch.elapsedSeconds() << " sec."
-                  << std::endl;
-#endif
     }
 
     /** Paste into the new buffer the value that was in the old buffer.
@@ -568,6 +610,8 @@ protected:
 public:
     using key_type = Key;
     using value_type = typename Cell::value_type;
+    using mapped_type = value_type;
+    using Hash = HashMethod;
 
     // Use lookup_result_get_mapped/Key to work with these values.
     using LookupResult = Cell*;
@@ -603,6 +647,8 @@ public:
         std::swap(buf, rhs.buf);
         std::swap(m_size, rhs.m_size);
         std::swap(grower, rhs.grower);
+        std::swap(_need_partition, rhs._need_partition);
+        std::swap(_partitioned_threshold, rhs._partitioned_threshold);
 
         Hash::operator=(std::move(rhs));
         Allocator::operator=(std::move(rhs));
@@ -682,6 +728,27 @@ protected:
         return false;
     }
 
+    template <typename Func>
+    bool ALWAYS_INLINE lazy_emplace_if_zero(const Key& x, LookupResult& it, size_t hash_value,
+                                            Func&& f) {
+        /// If it is claimed that the zero key can not be inserted into the table.
+        if (!Cell::need_zero_value_storage) return false;
+
+        if (Cell::is_zero(x, *this)) {
+            it = this->zero_value();
+            if (!this->get_has_zero()) {
+                ++m_size;
+                this->set_get_has_zero();
+                std::forward<Func>(f)(Constructor(it), x);
+                this->zero_value()->set_hash(hash_value);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace_non_zero_impl(size_t place_value, KeyHolder&& key_holder,
                                              LookupResult& it, bool& inserted, size_t hash_value) {
@@ -714,10 +781,51 @@ protected:
                 throw;
             }
 
-            // The hash table was rehashed, so we have to re-find the key.
-            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-            assert(!buf[new_place].is_zero(*this));
-            it = &buf[new_place];
+            if (LIKELY(!_need_partition)) {
+                // The hash table was rehashed, so we have to re-find the key.
+                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+                assert(!buf[new_place].is_zero(*this));
+                it = &buf[new_place];
+            }
+        }
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace_non_zero_impl(size_t place_value, KeyHolder&& key_holder,
+                                                  LookupResult& it, size_t hash_value, Func&& f) {
+        it = &buf[place_value];
+
+        if (!buf[place_value].is_zero(*this)) {
+            key_holder_discard_key(key_holder);
+            return;
+        }
+
+        key_holder_persist_key(key_holder);
+        const auto& key = key_holder_get_key(key_holder);
+
+        f(Constructor(&buf[place_value]), key);
+        buf[place_value].set_hash(hash_value);
+        ++m_size;
+
+        if (UNLIKELY(grower.overflow(m_size))) {
+            try {
+                resize();
+            } catch (...) {
+                /** If we have not resized successfully, then there will be problems.
+                  * There remains a key, but uninitialized mapped-value,
+                  *  which, perhaps, can not even be called a destructor.
+                  */
+                --m_size;
+                buf[place_value].set_zero();
+                throw;
+            }
+
+            if (LIKELY(!_need_partition)) {
+                // The hash table was rehashed, so we have to re-find the key.
+                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+                assert(!buf[new_place].is_zero(*this));
+                it = &buf[new_place];
+            }
         }
     }
 
@@ -730,7 +838,21 @@ protected:
         emplace_non_zero_impl(place_value, key_holder, it, inserted, hash_value);
     }
 
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace_non_zero(KeyHolder&& key_holder, LookupResult& it,
+                                             size_t hash_value, Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        size_t place_value = find_cell(key, hash_value, grower.place(hash_value));
+        lazy_emplace_non_zero_impl(place_value, key_holder, it, hash_value, std::forward<Func>(f));
+    }
+
 public:
+    void expanse_for_add_elem(size_t num_elem) {
+        if (add_elem_size_overflow(num_elem)) {
+            resize(grower.buf_size() + num_elem);
+        }
+    }
+
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;
@@ -753,10 +875,43 @@ public:
         __builtin_prefetch(&buf[place_value]);
     }
 
+    template <bool READ>
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
+    template <bool READ, typename KeyHolder>
+    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        const auto& key = key_holder_get_key(key_holder);
+        auto hash_value = hash(key);
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
     /// Reinsert node pointed to by iterator
     void ALWAYS_INLINE reinsert(iterator& it, size_t hash_value) {
         reinsert(*it.get_ptr(), hash_value);
     }
+
+    class Constructor {
+    public:
+        friend class HashTable;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
 
     /** Insert the key.
       * Return values:
@@ -786,6 +941,26 @@ public:
         const auto& key = key_holder_get_key(key_holder);
         if (!emplace_if_zero(key, it, inserted, hash_value))
             emplace_non_zero(key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder>
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                               bool& inserted) {
+        emplace(key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        lazy_emplace(key_holder, it, hash(key), std::forward<Func>(f));
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        if (!lazy_emplace_if_zero(key, it, hash_value, std::forward<Func>(f)))
+            lazy_emplace_non_zero(key_holder, it, hash_value, std::forward<Func>(f));
     }
 
     /// Copy the cell from another hash table. It is assumed that the cell is not zero, and also that there was no such key in the table yet.
@@ -849,7 +1024,7 @@ public:
         this->clear_get_has_zero();
         m_size = 0;
 
-        size_t new_size = 0;
+        doris::vectorized::UInt64 new_size = 0;
         doris::vectorized::read_var_uint(new_size, rb);
 
         free();
@@ -870,7 +1045,7 @@ public:
 
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
 
-    bool should_be_shrink(int64_t valid_row) {
+    bool should_be_shrink(int64_t valid_row) const {
         return valid_row < get_factor() * (size() / 2.0);
     }
 
@@ -881,9 +1056,12 @@ public:
     }
 
     void delete_zero_key(Key key) {
-        if (Cell::is_zero(key, *this))
-             this->clear_get_has_zero();
+        if (this->get_has_zero() && Cell::is_zero(key, *this)) {
+            --m_size;
+            this->clear_get_has_zero();
+        }
     }
+
     void clear() {
         destroy_elements();
         this->clear_get_has_zero();
@@ -911,4 +1089,69 @@ public:
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     size_t getCollisions() const { return collisions; }
 #endif
+
+private:
+    /// Increase the size of the buffer.
+    void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
+        SCOPED_RAW_TIMER(&_resize_timer_ns);
+#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
+        Stopwatch watch;
+#endif
+
+        size_t old_size = grower.buf_size();
+
+        /** In case of exception for the object to remain in the correct state,
+          *  changing the variable `grower` (which determines the buffer size of the hash table)
+          *  is postponed for a moment after a real buffer change.
+          * The temporary variable `new_grower` is used to determine the new size.
+          */
+        Grower new_grower = grower;
+        if (for_num_elems) {
+            new_grower.set(for_num_elems);
+            if (new_grower.buf_size() <= old_size) return;
+        } else if (for_buf_size) {
+            new_grower.set_buf_size(for_buf_size);
+            if (new_grower.buf_size() <= old_size) return;
+        } else
+            new_grower.increase_size();
+
+        // new bucket count exceed partitioned hash table bucket count threshold,
+        // don't resize and set need partition flag
+        if (check_if_need_partition(new_grower.buf_size())) {
+            _need_partition = true;
+            return;
+        }
+
+        /// Expand the space.
+        buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
+                                                         new_grower.buf_size() * sizeof(Cell)));
+        grower = new_grower;
+
+        /** Now some items may need to be moved to a new location.
+          * The element can stay in place, or move to a new location "on the right",
+          *  or move to the left of the collision resolution chain, because the elements to the left of it have been moved to the new "right" location.
+          */
+        size_t i = 0;
+        for (; i < old_size; ++i)
+            if (!buf[i].is_zero(*this) && !buf[i].is_deleted())
+                reinsert(buf[i], buf[i].get_hash(*this));
+
+        /** There is also a special case:
+          *    if the element was to be at the end of the old buffer,                  [        x]
+          *    but is at the beginning because of the collision resolution chain,      [o       x]
+          *    then after resizing, it will first be out of place again,               [        xo        ]
+          *    and in order to transfer it where necessary,
+          *    after transferring all the elements from the old halves you need to     [         o   x    ]
+          *    process tail from the collision resolution chain immediately after it   [        o    x    ]
+          */
+        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
+            reinsert(buf[i], buf[i].get_hash(*this));
+
+#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
+        watch.stop();
+        std::cerr << std::fixed << std::setprecision(3) << "Resize from " << old_size << " to "
+                  << grower.buf_size() << " took " << watch.elapsedSeconds() << " sec."
+                  << std::endl;
+#endif
+    }
 };

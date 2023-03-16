@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalyticEvalNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -24,18 +27,18 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +48,7 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 
@@ -73,12 +76,12 @@ public class AnalyticEvalNode extends PlanNode {
     private final TupleDescriptor bufferedTupleDesc;
 
     public AnalyticEvalNode(
-        PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
-        List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-        AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-        TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
-        Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, input.getTupleIds(), "ANALYTIC");
+            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
+            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
+            TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
+            Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
+        super(id, input.getTupleIds(), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
         tupleIds.add(outputTupleDesc.getId());
@@ -96,12 +99,40 @@ public class AnalyticEvalNode extends PlanNode {
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
-    public boolean isBlockingNode() {
-        return true;
+    // constructor used in Nereids
+    public AnalyticEvalNode(
+            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
+            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
+            TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
+            TupleDescriptor bufferedTupleDesc) {
+        super(id,
+                (input.getOutputTupleDesc() != null
+                        ? Lists.newArrayList(input.getOutputTupleDesc().getId()) :
+                        input.getTupleIds()),
+                "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
+        Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
+        // we're materializing the input row augmented with the analytic output tuple
+        tupleIds.add(outputTupleDesc.getId());
+        this.analyticFnCalls = analyticFnCalls;
+        this.partitionExprs = partitionExprs;
+        this.substitutedPartitionExprs = partitionExprs;
+        this.orderByElements = orderByElements;
+        this.analyticWindow = analyticWindow;
+        this.intermediateTupleDesc = intermediateTupleDesc;
+        this.outputTupleDesc = outputTupleDesc;
+        this.logicalToPhysicalSmap = new ExprSubstitutionMap();
+        this.partitionByEq = partitionByEq;
+        this.orderByEq = orderByEq;
+        this.bufferedTupleDesc = bufferedTupleDesc;
+        children.add(input);
+        nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
+
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
+
     public List<OrderByElement> getOrderByElements() {
         return orderByElements;
     }
@@ -136,17 +167,13 @@ public class AnalyticEvalNode extends PlanNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        cardinality = cardinality == -1 ? getChild(0).cardinality : cardinality;
-        applyConjunctsSelectivity();
-        capCardinalityAtLimit();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats AnalyticEval: cardinality={}", cardinality);
-        }
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -186,8 +213,7 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
         msg.analytic_node.setOutputTupleId(outputTupleDesc.getId().asInt());
         msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
-        msg.analytic_node.setOrderByExprs(
-            Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
+        msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
 
         if (analyticWindow == null) {
@@ -218,20 +244,18 @@ public class AnalyticEvalNode extends PlanNode {
             return "";
         }
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "functions: ");
+        output.append(prefix).append("functions: ");
         List<String> strings = Lists.newArrayList();
 
         for (Expr fnCall : analyticFnCalls) {
-            strings.add("[");
-            strings.add(fnCall.toSql());
-            strings.add("]");
+            strings.add("[" + fnCall.toSql() + "]");
         }
 
         output.append(Joiner.on(", ").join(strings));
         output.append("\n");
 
         if (!partitionExprs.isEmpty()) {
-            output.append(prefix + "partition by: ");
+            output.append(prefix).append("partition by: ");
             strings.clear();
 
             for (Expr partitionExpr : partitionExprs) {
@@ -243,7 +267,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!orderByElements.isEmpty()) {
-            output.append(prefix + "order by: ");
+            output.append(prefix).append("order by: ");
             strings.clear();
 
             for (OrderByElement element : orderByElements) {
@@ -261,16 +285,9 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(
-                prefix + "predicates: " + getExplainString(conjuncts) + "\n");
+            output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");
         }
 
         return output.toString();
-    }
-    public void computeCosts(TQueryOptions queryOptions) {
-        Preconditions.checkNotNull(fragmentId,
-                                   "PlanNode must be placed into a fragment before calling this method.");
-        // TODO: come up with estimate based on window
-        cardinality = 0;
     }
 }

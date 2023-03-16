@@ -17,24 +17,29 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.httpv2.rest.SetConfigAction;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
@@ -44,16 +49,22 @@ import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
-
+import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -61,12 +72,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import lombok.Getter;
-import lombok.Setter;
 
 /*
  * Used to return all node information, configuration information and modify node config.
@@ -88,18 +95,15 @@ public class NodeAction extends RestBaseController {
     public static final String CONFIG_VALUE = "配置值";
     public static final String IS_MUTABLE = "可修改";
 
-    public static final ImmutableList<String> FE_CONFIG_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add(CONFIG).add(NODE_IP_PORT).add(NODE_TYPE).add(CONFIG_TYPE)
-            .add(MASTER_ONLY).add(CONFIG_VALUE).add(IS_MUTABLE)
+    public static final ImmutableList<String> FE_CONFIG_TITLE_NAMES = new ImmutableList.Builder<String>().add(CONFIG)
+            .add(NODE_IP_PORT).add(NODE_TYPE).add(CONFIG_TYPE).add(MASTER_ONLY).add(CONFIG_VALUE).add(IS_MUTABLE)
             .build();
 
-    public static final ImmutableList<String> BE_CONFIG_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add(CONFIG).add(NODE_IP_PORT).add(NODE_TYPE).add(CONFIG_TYPE)
-            .add(CONFIG_VALUE).add(IS_MUTABLE)
-            .build();
+    public static final ImmutableList<String> BE_CONFIG_TITLE_NAMES = new ImmutableList.Builder<String>().add(CONFIG)
+            .add(NODE_IP_PORT).add(NODE_TYPE).add(CONFIG_TYPE).add(CONFIG_VALUE).add(IS_MUTABLE).build();
 
     private Object httpExecutorLock = new Object();
-    private volatile static ExecutorService httpExecutor = null;
+    private static volatile ExecutorService httpExecutor = null;
 
     // Returns all fe information, similar to 'show frontends'.
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
@@ -129,18 +133,18 @@ public class NodeAction extends RestBaseController {
     }
 
     // {
-    //		"column_names": [
-    //			""
-    //		],
-    //	    "rows": [
-    //		    [
-    //			    ""
-    //		    ]
-    //	    ]
+    //   "column_names": [
+    //     ""
+    //   ],
+    //   "rows": [
+    //     [
+    //       ""
+    //     ]
+    //   ]
     // }
     private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
             throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster()) {
             return redirectToMaster(request, response);
         }
 
@@ -157,24 +161,24 @@ public class NodeAction extends RestBaseController {
     @Getter
     @Setter
     public static class NodeInfo {
-        public List<String> column_names;
+        public List<String> columnNames;
         public List<List<String>> rows;
 
-        public NodeInfo(List<String> column_names, List<List<String>> rows) {
-            this.column_names = column_names;
+        public NodeInfo(List<String> columnNames, List<List<String>> rows) {
+            this.columnNames = columnNames;
             this.rows = rows;
         }
     }
 
     // Return fe and be all configuration names.
     // {
-    //		"frontend": [
-    //			""
-    //		],
-    //		"backend": [
-    //			""
-    //		]
-    //	}
+    //   "frontend": [
+    //     ""
+    //   ],
+    //   "backend": [
+    //     ""
+    //   ]
+    // }
     @RequestMapping(path = "/configuration_name", method = RequestMethod.GET)
     public Object configurationName(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
@@ -185,14 +189,13 @@ public class NodeAction extends RestBaseController {
             result.put("frontend", Lists.newArrayList(Config.dump().keySet()));
 
             List<String> beConfigNames = Lists.newArrayList();
-            List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(true);
             if (!beIds.isEmpty()) {
-                Backend be = Catalog.getCurrentSystemInfo().getBackend(beIds.get(0));
-                String url = "http://" + be.getHost() + ":" + be.getHttpPort() + "/api/show_config";
+                Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
+                String url = "http://" + be.getIp() + ":" + be.getHttpPort() + "/api/show_config";
                 String questResult = HttpUtils.doGet(url, null);
-                List<List<String>> configs = GsonUtils.GSON.fromJson(questResult,
-                        new TypeToken<List<List<String>>>() {
-                        }.getType());
+                List<List<String>> configs = GsonUtils.GSON.fromJson(questResult, new TypeToken<List<List<String>>>() {
+                }.getType());
                 for (List<String> config : configs) {
                     beConfigNames.add(config.get(0));
                 }
@@ -207,13 +210,13 @@ public class NodeAction extends RestBaseController {
 
     // Return all fe and be nodes.
     // {
-    //		"frontend": [
-    //			"host:httpPort"
-    //		],
-    //		"backend": [
-    //			"host:httpPort""
-    //		]
-    //	}
+    //   "frontend": [
+    //     "host:httpPort"
+    //   ],
+    //   "backend": [
+    //     "host:httpPort""
+    //   ]
+    // }
     @RequestMapping(path = "/node_list", method = RequestMethod.GET)
     public Object nodeList(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
@@ -226,19 +229,15 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
-        return Catalog.getCurrentCatalog().getFrontends(null)
-                .stream()
-                .map(fe -> fe.getHost() + ":" + Config.http_port)
+        return Env.getCurrentEnv().getFrontends(null).stream().map(fe -> fe.getIp() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
     private static List<String> getBeList() {
-        return Catalog.getCurrentSystemInfo().getBackendIds(false)
-                .stream().map(beId -> {
-                    Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
-                    return be.getHost() + ":" + be.getHttpPort();
-                })
-                .collect(Collectors.toList());
+        return Env.getCurrentSystemInfo().getBackendIds(false).stream().map(beId -> {
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+            return be.getIp() + ":" + be.getHttpPort();
+        }).collect(Collectors.toList());
     }
 
     /*
@@ -271,42 +270,42 @@ public class NodeAction extends RestBaseController {
     //
     // for fe:
     // {
-    //		"column_names": [
-    //			"配置项",
-    //			"节点",
-    //			"节点类型",
-    //			"配置类型",
-    //			"仅master",
-    //			"配置值",
-    //			"可修改"
-    //		],
-    //		"rows": [
-    //			[
-    //				""
-    //			]
-    //		]
-    //	}
+    //   "column_names": [
+    //     "配置项",
+    //     "节点",
+    //     "节点类型",
+    //     "配置类型",
+    //     "仅master",
+    //     "配置值",
+    //     "可修改"
+    //   ],
+    //   "rows": [
+    //     [
+    //       ""
+    //     ]
+    //   ]
+    // }
     //
     // for be:
     // {
-    //		"column_names": [
-    //			"配置项",
-    //			"节点",
-    //			"节点类型",
-    //			"配置类型",
-    //			"配置值",
-    //			"可修改"
-    //		],
-    //		"rows": [
-    //			[
-    //				""
-    //			]
-    //		]
-    //	}
+    //   "column_names": [
+    //     "配置项",
+    //     "节点",
+    //     "节点类型",
+    //     "配置类型",
+    //     "配置值",
+    //     "可修改"
+    //   ],
+    //   "rows": [
+    //     [
+    //       ""
+    //     ]
+    //   ]
+    // }
     @RequestMapping(path = "/configuration_info", method = RequestMethod.POST)
     public Object configurationInfo(HttpServletRequest request, HttpServletResponse response,
-                                    @RequestParam(value = "type") String type,
-                                    @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
+            @RequestParam(value = "type") String type,
+            @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -345,15 +344,13 @@ public class NodeAction extends RestBaseController {
             }
             return ResponseEntityBuilder.ok(new NodeInfo(BE_CONFIG_TITLE_NAMES, data));
         }
-        return ResponseEntityBuilder.badRequest("Unsupported type: " + type + ". Only types of fe or be are " +
-                "supported");
+        return ResponseEntityBuilder.badRequest(
+                "Unsupported type: " + type + ". Only types of fe or be are " + "supported");
     }
 
     // Use thread pool to concurrently fetch configuration information from specified fe or be nodes.
-    private List<List<String>> handleConfigurationInfo(List<Pair<String, Integer>> hostPorts,
-                                                       String authorization, String questPath,
-                                                       String nodeType, List<String> confNames,
-                                                       List<Map.Entry<String, Integer>> errNodes) {
+    private List<List<String>> handleConfigurationInfo(List<Pair<String, Integer>> hostPorts, String authorization,
+            String questPath, String nodeType, List<String> confNames, List<Map.Entry<String, Integer>> errNodes) {
         // The configuration information returned by each node is a List<List<String>> type,
         // configInfoTotal is used to store the configuration information of all nodes.
         List<List<List<String>>> configInfoTotal = Lists.newArrayList();
@@ -364,8 +361,9 @@ public class NodeAction extends RestBaseController {
             Pair<String, Integer> hostPort = hostPorts.get(i);
             configRequestDoneSignal.addMark(hostPort.first + ":" + hostPort.second, -1);
             String url = "http://" + hostPort.first + ":" + hostPort.second + questPath;
-            httpExecutor.submit(new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames,
-                    configRequestDoneSignal, configInfoTotal.get(i)));
+            httpExecutor.submit(
+                    new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
+                            configInfoTotal.get(i)));
         }
         List<List<String>> resultConfigs = Lists.newArrayList();
         try {
@@ -384,8 +382,7 @@ public class NodeAction extends RestBaseController {
         if (httpExecutor == null) {
             synchronized (httpExecutorLock) {
                 if (httpExecutor == null) {
-                    httpExecutor = ThreadPoolManager.newDaemonFixedThreadPool(5, 100,
-                            "node-config-update-pool", true);
+                    httpExecutor = ThreadPoolManager.newDaemonFixedThreadPool(5, 100, "node-config-update-pool", true);
                 }
             }
         }
@@ -414,9 +411,8 @@ public class NodeAction extends RestBaseController {
         private List<List<String>> config;
 
         public HttpConfigInfoTask(String url, Pair<String, Integer> hostPort, String authorization, String nodeType,
-                                  List<String> confNames,
-                                  MarkedCountDownLatch<String, Integer> configRequestDoneSignal,
-                                  List<List<String>> config) {
+                List<String> confNames, MarkedCountDownLatch<String, Integer> configRequestDoneSignal,
+                List<List<String>> config) {
             this.url = url;
             this.hostPort = hostPort;
             this.authorization = authorization;
@@ -430,11 +426,10 @@ public class NodeAction extends RestBaseController {
         public void run() {
             String configInfo;
             try {
-                configInfo = HttpUtils.doGet(url, ImmutableMap.<String, String>builder().put(AUTHORIZATION,
-                        authorization).build());
-                List<List<String>> configs = GsonUtils.GSON.fromJson(configInfo,
-                        new TypeToken<List<List<String>>>() {
-                        }.getType());
+                configInfo = HttpUtils.doGet(url,
+                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build());
+                List<List<String>> configs = GsonUtils.GSON.fromJson(configInfo, new TypeToken<List<List<String>>>() {
+                }.getType());
                 for (List<String> conf : configs) {
                     if (confNames == null || confNames.isEmpty() || confNames.contains(conf.get(0))) {
                         addConfig(conf);
@@ -457,38 +452,37 @@ public class NodeAction extends RestBaseController {
     // Modify fe configuration.
     //
     // request body:
-    //{
-    //	"config_name":{
-    //		"node":[
-    //			""
-    //		],
-    //		"value":"",
-    //		"persist":""
-    //	}
-    //}
+    // {
+    //   "config_name":{
+    //     "node":[
+    //       ""
+    //     ],
+    //     "value":"",
+    //     "persist":""
+    //   }
+    // }
     //
     // return data:
     // {
-    //		"failed":[
-    //			{
-    //				"config_name":"",
-    //				"value"="",
-    //				"node":"",
-    //				"err_info":""
-    //			}
-    //		]
-    //	}
+    //   "failed":[
+    //     {
+    //       "config_name":"",
+    //       "value"="",
+    //       "node":"",
+    //       "err_info":""
+    //     }
+    //   ]
+    //  }
     @RequestMapping(path = "/set_config/fe", method = RequestMethod.POST)
     public Object setConfigFe(HttpServletRequest request, HttpServletResponse response,
-                              @RequestBody Map<String, SetConfigRequestBody> requestBody) {
+            @RequestBody Map<String, SetConfigRequestBody> requestBody) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
-        List<Pair<String, Integer>> aliveFe = Catalog.getCurrentCatalog().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> new Pair<>(fe.getHost(), Config.http_port))
-                .collect(Collectors.toList());
+        List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
+                .map(fe -> Pair.of(fe.getIp(), Config.http_port)).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -501,8 +495,8 @@ public class NodeAction extends RestBaseController {
                     String responsePersist = HttpUtils.doGet(url, header);
                     parseFeSetConfigResponse(responsePersist, nodeConfigs.getHostPort(), failedTotal);
                 } catch (Exception e) {
-                    addSetConfigErrNode(nodeConfigs.getConfigs(true), nodeConfigs.getHostPort(),
-                            e.getMessage(), failedTotal);
+                    addSetConfigErrNode(nodeConfigs.getConfigs(true), nodeConfigs.getHostPort(), e.getMessage(),
+                            failedTotal);
                 }
             }
             if (!nodeConfigs.getConfigs(false).isEmpty()) {
@@ -511,8 +505,8 @@ public class NodeAction extends RestBaseController {
                     String responseTemp = HttpUtils.doGet(url, header);
                     parseFeSetConfigResponse(responseTemp, nodeConfigs.getHostPort(), failedTotal);
                 } catch (Exception e) {
-                    addSetConfigErrNode(nodeConfigs.getConfigs(false), nodeConfigs.getHostPort(),
-                            e.getMessage(), failedTotal);
+                    addSetConfigErrNode(nodeConfigs.getConfigs(false), nodeConfigs.getHostPort(), e.getMessage(),
+                            failedTotal);
                 }
             }
 
@@ -523,23 +517,22 @@ public class NodeAction extends RestBaseController {
     }
 
     private void addSetConfigErrNode(Map<String, String> configs, Pair<String, Integer> hostPort, String err,
-                                     List<Map<String, String>> failedTotal) {
+            List<Map<String, String>> failedTotal) {
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             Map<String, String> failed = Maps.newHashMap();
-            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":" +
-                    hostPort.second, err, failed);
+            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":" + hostPort.second, err, failed);
             failedTotal.add(failed);
         }
     }
 
     private void parseFeSetConfigResponse(String response, Pair<String, Integer> hostPort,
-                                          List<Map<String, String>> failedTotal) throws Exception {
+            List<Map<String, String>> failedTotal) throws Exception {
         JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
         if (jsonObject.get("code").getAsInt() != HttpUtils.REQUEST_SUCCESS_CODE) {
             throw new Exception(jsonObject.get("msg").getAsString());
         }
-        SetConfigAction.SetConfigEntity setConfigEntity = GsonUtils.GSON.fromJson(jsonObject.get("data").getAsJsonObject(),
-                SetConfigAction.SetConfigEntity.class);
+        SetConfigAction.SetConfigEntity setConfigEntity = GsonUtils.GSON.fromJson(
+                jsonObject.get("data").getAsJsonObject(), SetConfigAction.SetConfigEntity.class);
         for (SetConfigAction.ErrConfig errConfig : setConfigEntity.getErrConfigs()) {
             Map<String, String> failed = Maps.newHashMap();
             addFailedConfig(errConfig.getConfigName(), errConfig.getConfigValue(),
@@ -549,7 +542,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private static void addFailedConfig(String configName, String value, String node, String errInfo,
-                                        Map<String, String> failed) {
+            Map<String, String> failed) {
         failed.put("config_name", configName);
         failed.put("value", value);
         failed.put("node", node);
@@ -557,7 +550,7 @@ public class NodeAction extends RestBaseController {
     }
 
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
         sb.append("http://").append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);
@@ -581,18 +574,16 @@ public class NodeAction extends RestBaseController {
     // The request body and return data are in the same format as fe
     @RequestMapping(path = "/set_config/be", method = RequestMethod.POST)
     public Object setConfigBe(HttpServletRequest request, HttpServletResponse response,
-                              @RequestBody Map<String, SetConfigRequestBody> requestBody) {
+            @RequestBody Map<String, SetConfigRequestBody> requestBody) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
-        List<Pair<String, Integer>> aliveBe = Catalog.getCurrentSystemInfo().getBackendIds(true)
-                .stream().map(beId -> {
-                    Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
-                    return new Pair<>(be.getHost(), be.getHttpPort());
-                })
-                .collect(Collectors.toList());
+        List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getBackendIds(true).stream().map(beId -> {
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+            return Pair.of(be.getIp(), be.getHttpPort());
+        }).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveBe, failedTotal);
 
         handleBeSetConfig(nodeConfigList, request.getHeader(AUTHORIZATION), failedTotal);
@@ -603,9 +594,95 @@ public class NodeAction extends RestBaseController {
         return ResponseEntityBuilder.ok(data);
     }
 
+    @PostMapping("/{action}/be")
+    public Object operateBackend(HttpServletRequest request, HttpServletResponse response, @PathVariable String action,
+            @RequestBody BackendReqInfo reqInfo) {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return redirectToMaster(request, response);
+        }
+        try {
+            List<String> hostPorts = reqInfo.getHostPorts();
+            List<HostInfo> hostInfos = new ArrayList<>();
+            for (String hostPort : hostPorts) {
+                hostInfos.add(SystemInfoService.getIpHostAndPort(hostPort, true));
+            }
+            SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
+            if ("ADD".equals(action)) {
+                Map<String, String> properties;
+                if (reqInfo.getProperties() == null) {
+                    properties = new HashMap<>();
+                } else {
+                    properties = reqInfo.getProperties();
+                }
+                Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties,
+                        Tag.DEFAULT_BACKEND_TAG);
+                currentSystemInfo.addBackends(hostInfos, false, "", tagMap);
+            } else if ("DROP".equals(action)) {
+                currentSystemInfo.dropBackends(hostInfos);
+            } else if ("DECOMMISSION".equals(action)) {
+                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getBackendsInCluster(
+                        SystemInfoService.DEFAULT_CLUSTER);
+                backendsInCluster.forEach((k, v) -> {
+                    hostInfos.stream()
+                            .filter(h -> v.getHostName().equals(h.getHostName()) && v.getHeartbeatPort() == h.getPort())
+                            .findFirst().ifPresent(h -> {
+                                v.setDecommissioned(true);
+                                Env.getCurrentEnv().getEditLog().logBackendStateChange(v);
+                            });
+                });
+            }
+        } catch (UserException userException) {
+            return ResponseEntityBuilder.okWithCommonError(userException.getMessage());
+        }
+        return ResponseEntityBuilder.ok();
+    }
+
+    @PostMapping("/{action}/fe")
+    public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return redirectToMaster(request, response);
+        }
+        try {
+            String role = reqInfo.getRole();
+            Env currentEnv = Env.getCurrentEnv();
+            FrontendNodeType frontendNodeType;
+            if (FrontendNodeType.FOLLOWER.name().equals(role)) {
+                frontendNodeType = FrontendNodeType.FOLLOWER;
+            } else {
+                frontendNodeType = FrontendNodeType.OBSERVER;
+            }
+            HostInfo info = SystemInfoService.getIpHostAndPort(reqInfo.getHostPort(), true);
+            if ("ADD".equals(action)) {
+                currentEnv.addFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
+            } else if ("DROP".equals(action)) {
+                currentEnv.dropFrontend(frontendNodeType, info.getIp(), info.getHostName(), info.getPort());
+            }
+        } catch (UserException userException) {
+            return ResponseEntityBuilder.okWithCommonError(userException.getMessage());
+        }
+        return ResponseEntityBuilder.ok();
+    }
+
+    @Data
+    private static class BackendReqInfo {
+
+        private List<String> hostPorts;
+
+        private Map<String, String> properties;
+    }
+
+    @Data
+    private static class FrontendReqInfo {
+
+        private String role;
+
+        private String hostPort;
+    }
+
     // Parsing request body into List<NodeConfigs>
     private List<NodeConfigs> parseSetConfigNodes(Map<String, SetConfigRequestBody> requestBody,
-                                                  List<Map<String, String>> errNodes) {
+            List<Map<String, String>> errNodes) {
         List<NodeConfigs> nodeConfigsList = Lists.newArrayList();
         for (String configName : requestBody.keySet()) {
             SetConfigRequestBody configPara = requestBody.get(configName);
@@ -644,34 +721,34 @@ public class NodeAction extends RestBaseController {
     }
 
     private void checkNodeIsAlive(List<NodeConfigs> nodeConfigsList, List<Pair<String, Integer>> aliveNodes,
-                                  List<Map<String, String>> failedNodes) {
+            List<Map<String, String>> failedNodes) {
         Iterator<NodeConfigs> it = nodeConfigsList.iterator();
         while (it.hasNext()) {
             NodeConfigs node = it.next();
             boolean isExist = false;
             for (Pair<String, Integer> aliveHostPort : aliveNodes) {
-                if (aliveHostPort.first.equals(node.getHostPort().first)
-                        && aliveHostPort.second.equals(node.getHostPort().second)) {
+                if (aliveHostPort.first.equals(node.getHostPort().first) && aliveHostPort.second.equals(
+                        node.getHostPort().second)) {
                     isExist = true;
                     break;
                 }
             }
             if (!isExist) {
-                addSetConfigErrNode(node.getConfigs(true), node.getHostPort(),
-                        "Node does not exist or is not alive", failedNodes);
-                addSetConfigErrNode(node.getConfigs(false), node.getHostPort(),
-                        "Node does not exist or is not alive", failedNodes);
+                addSetConfigErrNode(node.getConfigs(true), node.getHostPort(), "Node does not exist or is not alive",
+                        failedNodes);
+                addSetConfigErrNode(node.getConfigs(false), node.getHostPort(), "Node does not exist or is not alive",
+                        failedNodes);
                 it.remove();
             }
         }
     }
 
     private List<Map<String, String>> handleBeSetConfig(List<NodeConfigs> nodeConfigList, String authorization,
-                                                        List<Map<String, String>> failedTotal) {
+            List<Map<String, String>> failedTotal) {
         initHttpExecutor();
 
-        int configNum = nodeConfigList.stream()
-                .mapToInt(e -> e.getConfigs(true).size() + e.getConfigs(false).size()).sum();
+        int configNum = nodeConfigList.stream().mapToInt(e -> e.getConfigs(true).size() + e.getConfigs(false).size())
+                .sum();
         MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal = new MarkedCountDownLatch<>(configNum);
         for (NodeConfigs nodeConfigs : nodeConfigList) {
             submitBeSetConfigTask(nodeConfigs, true, authorization, beSetConfigCountDownSignal, failedTotal);
@@ -695,30 +772,28 @@ public class NodeAction extends RestBaseController {
     }
 
     private void submitBeSetConfigTask(NodeConfigs nodeConfigs, boolean isPersist, String authorization,
-                                       MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal,
-                                       List<Map<String, String>> failedTotal) {
+            MarkedCountDownLatch<String, Integer> beSetConfigCountDownSignal, List<Map<String, String>> failedTotal) {
         if (!nodeConfigs.getConfigs(isPersist).isEmpty()) {
             for (Map.Entry<String, String> entry : nodeConfigs.getConfigs(isPersist).entrySet()) {
                 failedTotal.add(Maps.newHashMap());
                 Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
-                beSetConfigCountDownSignal.addMark(concatNodeConfig(hostPort.first, hostPort.second,
-                        entry.getKey(), entry.getValue()), -1);
+                beSetConfigCountDownSignal.addMark(
+                        concatNodeConfig(hostPort.first, hostPort.second, entry.getKey(), entry.getValue()), -1);
 
-                String url = concatBeSetConfigUrl(hostPort.first, hostPort.second, entry.getKey(),
-                        entry.getValue(), isPersist);
-                httpExecutor.submit(new HttpSetConfigTask(url, hostPort, authorization, entry.getKey(),
-                        entry.getValue(), beSetConfigCountDownSignal,
-                        failedTotal.get(failedTotal.size() - 1)));
+                String url = concatBeSetConfigUrl(hostPort.first, hostPort.second, entry.getKey(), entry.getValue(),
+                        isPersist);
+                httpExecutor.submit(
+                        new HttpSetConfigTask(url, hostPort, authorization, entry.getKey(), entry.getValue(),
+                                beSetConfigCountDownSignal, failedTotal.get(failedTotal.size() - 1)));
             }
         }
     }
 
-    private String concatBeSetConfigUrl(String host, Integer port, String configName,
-                                        String configValue, boolean isPersist) {
+    private String concatBeSetConfigUrl(String host, Integer port, String configName, String configValue,
+            boolean isPersist) {
         StringBuilder stringBuffer = new StringBuilder();
-        stringBuffer.append("http://").append(host).append(":").append(port)
-                .append("/api/update_config")
-                .append("?").append(configName).append("=").append(configValue);
+        stringBuffer.append("http://").append(host).append(":").append(port).append("/api/update_config").append("?")
+                .append(configName).append("=").append(configValue);
         if (isPersist) {
             stringBuffer.append("&persist=true");
         }
@@ -748,8 +823,8 @@ public class NodeAction extends RestBaseController {
         private Map<String, String> failed;
 
         public HttpSetConfigTask(String url, Pair<String, Integer> hostPort, String authorization, String configName,
-                                 String configValue, MarkedCountDownLatch<String, Integer> beSetConfigDoneSignal,
-                                 Map<String, String> failed) {
+                String configValue, MarkedCountDownLatch<String, Integer> beSetConfigDoneSignal,
+                Map<String, String> failed) {
             this.url = url;
             this.hostPort = hostPort;
             this.authorization = authorization;
@@ -762,16 +837,16 @@ public class NodeAction extends RestBaseController {
         @Override
         public void run() {
             try {
-                String response = HttpUtils.doPost(url, ImmutableMap.<String, String>builder().put(AUTHORIZATION,
-                        authorization).build(), null);
+                String response = HttpUtils.doPost(url,
+                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), null);
                 JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
                 String status = jsonObject.get("status").getAsString();
                 if (!status.equals("OK")) {
                     addFailedConfig(configName, configValue, hostPort.first + ":" + hostPort.second,
                             jsonObject.get("msg").getAsString(), failed);
                 }
-                beSetConfigDoneSignal.markedCountDown(concatNodeConfig(hostPort.first, hostPort.second,
-                        configName, configValue), -1);
+                beSetConfigDoneSignal.markedCountDown(
+                        concatNodeConfig(hostPort.first, hostPort.second, configName, configValue), -1);
             } catch (Exception e) {
                 LOG.warn("set be:{} config:{} failed.", hostPort.first + ":" + hostPort.second,
                         configName + "=" + configValue, e);
@@ -787,7 +862,7 @@ public class NodeAction extends RestBaseController {
         private Map<String, String> nonPersistConfigs;
 
         public NodeConfigs(String host, Integer httpPort) {
-            hostPort = new Pair<>(host, httpPort);
+            hostPort = Pair.of(host, httpPort);
             persistConfigs = Maps.newHashMap();
             nonPersistConfigs = Maps.newHashMap();
         }

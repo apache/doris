@@ -21,7 +21,6 @@
 
 #include <sstream>
 
-#include "exprs/expr.h"
 #include "util/types.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -32,6 +31,14 @@
 
 namespace doris {
 namespace vectorized {
+
+std::string MysqlConnInfo::debug_string() const {
+    std::stringstream ss;
+
+    ss << "(host=" << host << ",port=" << port << ",user=" << user << ",db=" << db
+       << ",passwd=" << passwd << ",charset=" << charset << ")";
+    return ss.str();
+}
 
 VMysqlTableWriter::VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_expr_ctxs)
         : _vec_output_expr_ctxs(output_expr_ctxs) {}
@@ -55,15 +62,15 @@ Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string
     if (res == nullptr) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_real_connect failed because : {}.", mysql_error(_mysql_conn));
-        return Status::InternalError(err_ss.data());
+        return Status::InternalError(fmt::to_string(err_ss.data()));
     }
 
     // set character
-    if (mysql_set_character_set(_mysql_conn, "utf8")) {
+    if (mysql_set_character_set(_mysql_conn, conn_info.charset.c_str())) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_set_character_set failed because : {}.",
                        mysql_error(_mysql_conn));
-        return Status::InternalError(err_ss.data());
+        return Status::InternalError(fmt::to_string(err_ss.data()));
     }
 
     _mysql_tbl = tbl;
@@ -174,6 +181,13 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
             break;
         }
+        case TYPE_DECIMAL32:
+        case TYPE_DECIMAL64:
+        case TYPE_DECIMAL128I: {
+            auto val = type_ptr->to_string(*column, row);
+            fmt::format_to(_insert_stmt_buffer, "{}", val);
+            break;
+        }
         case TYPE_DATE:
         case TYPE_DATETIME: {
             int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
@@ -186,11 +200,36 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
         }
+        case TYPE_DATEV2: {
+            uint32_t int_val =
+                    assert_cast<const vectorized::ColumnUInt32&>(*column).get_data()[row];
+            vectorized::DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, doris::vectorized::DateV2Value<DateV2ValueType>>(int_val);
+
+            char buf[64];
+            char* pos = value.to_string(buf);
+            std::string str(buf, pos - buf - 1);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+            break;
+        }
+        case TYPE_DATETIMEV2: {
+            uint32_t int_val =
+                    assert_cast<const vectorized::ColumnUInt64&>(*column).get_data()[row];
+            vectorized::DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, doris::vectorized::DateV2Value<DateTimeV2ValueType>>(
+                            int_val);
+
+            char buf[64];
+            char* pos = value.to_string(buf, _vec_output_expr_ctxs[i]->root()->type().scale);
+            std::string str(buf, pos - buf - 1);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+            break;
+        }
         default: {
             fmt::memory_buffer err_out;
             fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
                            _vec_output_expr_ctxs[i]->root()->type().type);
-            return Status::InternalError(err_out.data());
+            return Status::InternalError(fmt::to_string(err_out));
         }
         }
     }
@@ -202,7 +241,7 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "Insert to mysql server({}) failed, because: {}.",
                        mysql_get_host_info(_mysql_conn), mysql_error(_mysql_conn));
-        return Status::InternalError(err_ss.data());
+        return Status::InternalError(fmt::to_string(err_ss));
     }
 
     return Status::OK();

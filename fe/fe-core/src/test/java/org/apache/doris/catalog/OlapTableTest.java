@@ -17,46 +17,47 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mock;
-import mockit.MockUp;
-
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
 
 import com.google.common.collect.Lists;
-
+import com.google.common.collect.Maps;
+import mockit.Mock;
+import mockit.MockUp;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 public class OlapTableTest {
 
     @Test
     public void test() throws IOException {
-        
-        new MockUp<Catalog>() {
+
+        new MockUp<Env>() {
             @Mock
-            int getCurrentCatalogJournalVersion() {
+            int getCurrentEnvJournalVersion() {
                 return FeConstants.meta_version;
             }
         };
 
-        Database db = UnitTestUtil.createDb(1, 2, 3, 4, 5, 6, 7, 8);
+        Database db = UnitTestUtil.createDb(1, 2, 3, 4, 5, 6, 7);
         List<Table> tables = db.getTables();
-        
+
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
                 continue;
             }
             OlapTable tbl = (OlapTable) table;
-            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"), IndexDef.IndexType.BITMAP
-                    , "xxxxxx")));
+            tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
+                    IndexDef.IndexType.BITMAP, null, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
@@ -69,8 +70,55 @@ public class OlapTableTest {
             DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
             Table copiedTbl = OlapTable.read(in);
             System.out.println("copied table id: " + copiedTbl.getId());
+            in.close();
         }
-        
+
     }
 
+    @Test
+    public void testResetPropertiesForRestore() {
+        // restore with other key
+        String otherKey = "other_key";
+        String otherValue = "other_value";
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(otherKey, otherValue);
+        TableProperty tableProperty = new TableProperty(properties);
+
+        OlapTable olapTable = new OlapTable();
+        olapTable.setTableProperty(tableProperty);
+        olapTable.setColocateGroup("test_group");
+        Assert.assertTrue(olapTable.isColocateTable());
+        Assert.assertTrue(olapTable.getDefaultReplicaAllocation() == ReplicaAllocation.DEFAULT_ALLOCATION);
+
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) 4);
+        olapTable.resetPropertiesForRestore(false, false, replicaAlloc);
+        Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
+        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assert.assertFalse(olapTable.isColocateTable());
+        Assert.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+
+        // restore with dynamic partition keys
+        properties = Maps.newHashMap();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "HOUR");
+        properties.put(DynamicPartitionProperty.TIME_ZONE, "Asia/Shanghai");
+        properties.put(DynamicPartitionProperty.START, "-2147483648");
+        properties.put(DynamicPartitionProperty.END, "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "dynamic");
+        properties.put(DynamicPartitionProperty.BUCKETS, "10");
+        properties.put(DynamicPartitionProperty.REPLICATION_NUM, "3");
+        properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, "false");
+
+        tableProperty = new TableProperty(properties);
+        olapTable.setTableProperty(tableProperty);
+        olapTable.resetPropertiesForRestore(false, false, ReplicaAllocation.DEFAULT_ALLOCATION);
+
+        Map<String, String> expectedProperties = Maps.newHashMap(properties);
+        expectedProperties.put(DynamicPartitionProperty.ENABLE, "false");
+        Assert.assertEquals(expectedProperties, olapTable.getTableProperty().getProperties());
+        Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
+        Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+    }
 }

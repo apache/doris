@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -26,6 +26,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -39,10 +40,10 @@ import java.util.function.Predicate;
 public class ShowRestoreStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
-            .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation")
-            .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime").add("SnapshotFinishedTime")
-            .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("Progress")
-            .add("TaskErrMsg").add("Status").add("Timeout")
+            .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")
+            .add("ReserveDynamicPartitionEnable").add("RestoreObjs").add("CreateTime").add("MetaPreparedTime")
+            .add("SnapshotFinishedTime").add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
+            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
             .build();
 
     private String dbName;
@@ -76,7 +77,7 @@ public class ShowRestoreStmt extends ShowStmt {
         }
 
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ConnectContext.get().getQualifiedUser(), dbName);
         }
@@ -176,11 +177,12 @@ public class ShowRestoreStmt extends ShowStmt {
             return label -> true;
         }
         if (isAccurateMatch) {
-            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
+            return CaseSensibility.LABEL.getCaseSensibility()
+                    ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
         } else {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            PatternMatcher patternMatcher = PatternMatcherWrapper.createMysqlPattern(
+                    labelValue, CaseSensibility.LABEL.getCaseSensibility());
             return patternMatcher::match;
         }
     }
 }
-

@@ -14,20 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionStringOrArrayToT.h
-// and modified by Doris
 
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 
-template <typename Function>
+template <typename Function, bool WithReturn = false>
 class FunctionAlwaysNotNullable : public IFunction {
 public:
     static constexpr auto name = Function::name;
@@ -45,40 +41,78 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        auto column = block.get_by_position(arguments[0]).column;
-
-        MutableColumnPtr column_result = get_return_type_impl({})->create_column();
-        column_result->resize(input_rows_count);
-
-        if (const ColumnNullable* col_nullable =
-                    check_and_get_column<ColumnNullable>(column.get())) {
-            const ColumnString* col =
-                    check_and_get_column<ColumnString>(col_nullable->get_nested_column_ptr().get());
+    template <typename ColumnType, bool is_nullable>
+    Status execute_internal(const ColumnPtr& column, const DataTypePtr& data_type,
+                            MutableColumnPtr& column_result) {
+        auto type_error = [&]() {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        column->get_name(), get_name());
+        };
+        if constexpr (is_nullable) {
+            const ColumnNullable* col_nullable = check_and_get_column<ColumnNullable>(column.get());
+            const ColumnType* col =
+                    check_and_get_column<ColumnType>(col_nullable->get_nested_column_ptr().get());
             const ColumnUInt8* col_nullmap = check_and_get_column<ColumnUInt8>(
                     col_nullable->get_null_map_column_ptr().get());
 
             if (col != nullptr && col_nullmap != nullptr) {
-                Function::vector_nullable(col->get_chars(), col->get_offsets(),
-                                          col_nullmap->get_data(), column_result);
-
-                block.replace_by_position(result, std::move(column_result));
-                return Status::OK();
+                if constexpr (WithReturn) {
+                    RETURN_IF_ERROR(
+                            Function::vector_nullable(col, col_nullmap->get_data(), column_result));
+                } else {
+                    Function::vector_nullable(col, col_nullmap->get_data(), column_result);
+                }
+            } else {
+                return type_error();
             }
-        } else if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
-            Function::vector(col->get_chars(), col->get_offsets(), column_result);
-
-            block.replace_by_position(result, std::move(column_result));
-            return Status::OK();
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name()));
+            const ColumnType* col = check_and_get_column<ColumnType>(column.get());
+            if constexpr (WithReturn) {
+                RETURN_IF_ERROR(Function::vector(col, column_result));
+            } else {
+                Function::vector(col, column_result);
+            }
         }
-
-        block.replace_by_position(result, std::move(column_result));
         return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
+        const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
+        WhichDataType which(data_type);
+
+        MutableColumnPtr column_result = get_return_type_impl({})->create_column();
+        column_result->resize(input_rows_count);
+
+        auto type_error = [&]() {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
+        };
+        Status status = Status::OK();
+        if (which.is_nullable()) {
+            const DataTypePtr& nested_data_type =
+                    static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
+            WhichDataType nested_which(nested_data_type);
+            if (nested_which.is_string_or_fixed_string()) {
+                status = execute_internal<ColumnString, true>(column, data_type, column_result);
+            } else if (nested_which.is_int64()) {
+                status = execute_internal<ColumnInt64, true>(column, data_type, column_result);
+            } else {
+                return type_error();
+            }
+        } else if (which.is_string_or_fixed_string()) {
+            status = execute_internal<ColumnString, false>(column, data_type, column_result);
+        } else if (which.is_int64()) {
+            status = execute_internal<ColumnInt64, false>(column, data_type, column_result);
+        } else {
+            return type_error();
+        }
+        if (status.ok()) {
+            block.replace_by_position(result, std::move(column_result));
+        }
+        return status;
     }
 };
 

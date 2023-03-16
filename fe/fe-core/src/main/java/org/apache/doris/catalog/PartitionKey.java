@@ -32,7 +32,6 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,12 +40,14 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
 public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     private List<LiteralExpr> keys;
     private List<PrimitiveType> types;
+    private boolean isDefaultListPartitionKey = false;
 
     // constructor for partition prune
     public PartitionKey() {
@@ -54,12 +55,20 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         types = Lists.newArrayList();
     }
 
+    public void setDefaultListPartition(boolean isDefaultListPartitionKey) {
+        this.isDefaultListPartitionKey = isDefaultListPartitionKey;
+    }
+
+    public boolean isDefaultListPartitionKey() {
+        return isDefaultListPartitionKey;
+    }
+
     // Factory methods
     public static PartitionKey createInfinityPartitionKey(List<Column> columns, boolean isMax)
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax));
+            partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
         return partitionKey;
@@ -71,15 +80,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         Preconditions.checkArgument(keys.size() <= columns.size());
         int i;
         for (i = 0; i < keys.size(); ++i) {
-            partitionKey.keys.add(keys.get(i).getValue(
-                    Type.fromPrimitiveType(columns.get(i).getDataType())));
+            partitionKey.keys.add(keys.get(i).getValue(columns.get(i).getType()));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
-            Type type = Type.fromPrimitiveType(columns.get(i).getDataType());
-            partitionKey.keys.add(LiteralExpr.createInfinity(type, false));
+            partitionKey.keys.add(LiteralExpr.createInfinity(columns.get(i).getType(), false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -87,14 +94,16 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return partitionKey;
     }
 
-    public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
+    public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types)
             throws AnalysisException {
         // for multi list partition:
         //
         // PARTITION BY LIST(k1, k2)
         // (
         //     PARTITION p1 VALUES IN (("1","beijing"), ("1", "shanghai")),
-        //     PARTITION p2 VALUES IN (("2","shanghai"))
+        //     PARTITION p2 VALUES IN (("2","shanghai")),
+        //     PARTITION p3 VALUES IN,
+        //     PARTITION p4,
         // )
         //
         // for single list partition:
@@ -106,19 +115,36 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         //     PARTITION p3 VALUES IN ("11", "12", "13", "14", "15"),
         //     PARTITION p4 VALUES IN ("16", "17", "18", "19", "20"),
         //     PARTITION p5 VALUES IN ("21", "22", "23", "24", "25"),
-        //     PARTITION p6 VALUES IN ("26")
+        //     PARTITION p6 VALUES IN ("26"),
+        //     PARTITION p5 VALUES IN,
+        //     PARTITION p7
         // )
         //
-        Preconditions.checkArgument(values.size() == columns.size(),
-                "in value size[" + values.size() + "] is not equal to partition column size[" + columns.size() + "].");
+        // ListPartitionInfo::createAndCheckPartitionItem has checked
+        Preconditions.checkArgument(values.size() <= types.size(),
+                "in value size[" + values.size() + "] is not less than partition column size[" + types.size() + "].");
 
         PartitionKey partitionKey = new PartitionKey();
         for (int i = 0; i < values.size(); i++) {
-            partitionKey.keys.add(values.get(i).getValue(Type.fromPrimitiveType(columns.get(i).getDataType())));
-            partitionKey.types.add(columns.get(i).getDataType());
+            partitionKey.keys.add(values.get(i).getValue(types.get(i)));
+            partitionKey.types.add(types.get(i).getPrimitiveType());
+        }
+        if (values.isEmpty()) {
+            for (int i = 0; i < types.size(); ++i) {
+                partitionKey.keys.add(LiteralExpr.createInfinity(types.get(i), false));
+                partitionKey.types.add(types.get(i).getPrimitiveType());
+            }
+            partitionKey.setDefaultListPartition(true);
         }
 
+        Preconditions.checkState(partitionKey.keys.size() == types.size());
         return partitionKey;
+    }
+
+    public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
+            throws AnalysisException {
+        List<Type> types = columns.stream().map(c -> c.getType()).collect(Collectors.toList());
+        return createListPartitionKeyWithTypes(values, types);
     }
 
     public void pushColumn(LiteralExpr keyValue, PrimitiveType keyType) {
@@ -164,6 +190,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return true;
     }
 
+    public List<String> getPartitionValuesAsStringList() {
+        return keys.stream().map(k -> k.getStringValue()).collect(Collectors.toList());
+    }
+
     public static int compareLiteralExpr(LiteralExpr key1, LiteralExpr key2) {
         int ret = 0;
         if (key1 instanceof MaxLiteral || key2 instanceof MaxLiteral) {
@@ -190,16 +220,16 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     // compare with other PartitionKey. used for partition prune
     @Override
     public int compareTo(PartitionKey other) {
-        int this_key_len = this.keys.size();
-        int other_key_len = other.keys.size();
-        int min_len = Math.min(this_key_len, other_key_len);
-        for (int i = 0; i < min_len; ++i) {
+        int thisKeyLen = this.keys.size();
+        int otherKeyLen = other.keys.size();
+        int minLen = Math.min(thisKeyLen, otherKeyLen);
+        for (int i = 0; i < minLen; ++i) {
             int ret = compareLiteralExpr(this.getKeys().get(i), other.getKeys().get(i));
             if (0 != ret) {
                 return ret;
             }
         }
-        return Integer.compare(this_key_len, other_key_len);
+        return Integer.compare(thisKeyLen, otherKeyLen);
     }
 
     // return: ("100", "200", "300")
@@ -238,7 +268,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         builder.append("]; ");
 
         builder.append("keys: [");
-        builder.append(toString(keys));
+        if (isDefaultListPartitionKey()) {
+            builder.append("default key");
+        } else {
+            builder.append(toString(keys));
+        }
         builder.append("]; ");
 
         return builder.toString();
@@ -311,6 +345,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         break;
                     case DATE:
                     case DATETIME:
+                    case DATEV2:
+                    case DATETIMEV2:
                         literal = DateLiteral.read(in);
                         break;
                     case CHAR:
@@ -325,7 +361,19 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         throw new IOException("type[" + type.name() + "] not supported: ");
                 }
             }
-            literal.setType(Type.fromPrimitiveType(type));
+            if (type != PrimitiveType.DATETIMEV2) {
+                literal.setType(Type.fromPrimitiveType(type));
+            }
+            if (type.isDateV2Type()) {
+                try {
+                    literal.checkValueValid();
+                } catch (AnalysisException e) {
+                    LOG.warn("Value {} for partition key [type = {}] is invalid! This is a bug exists in Doris "
+                            + "1.2.0 and fixed since Doris 1.2.1. You should create this table again using Doris "
+                            + "1.2.1+ .", literal.getStringValue(), type);
+                    ((DateLiteral) literal).setMinValue();
+                }
+            }
             keys.add(literal);
         }
     }

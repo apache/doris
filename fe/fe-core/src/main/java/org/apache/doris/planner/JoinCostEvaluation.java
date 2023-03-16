@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.qe.ConnectContext;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,7 +37,7 @@ import org.apache.logging.log4j.Logger;
  * and result in both "broadcastCost" and "partitionCost" be 0. And this will lead to a SHUFFLE join.
  */
 public class JoinCostEvaluation {
-    private final static Logger LOG = LogManager.getLogger(JoinCostEvaluation.class);
+    private static final Logger LOG = LogManager.getLogger(JoinCostEvaluation.class);
 
     private final long rhsTreeCardinality;
     private final float rhsTreeAvgRowSize;
@@ -144,7 +145,7 @@ public class JoinCostEvaluation {
     public long constructHashTableSpace() {
         double bucketPointerSpace = ((double) rhsTreeCardinality / 0.75) * 8;
         double nodeArrayLen =
-                Math.pow(1.5, (int) ((Math.log((double) rhsTreeCardinality/4096) / Math.log(1.5)) + 1)) * 4096;
+                Math.pow(1.5, (int) ((Math.log((double) rhsTreeCardinality / 4096) / Math.log(1.5)) + 1)) * 4096;
         double nodeOverheadSpace = nodeArrayLen * 16;
         double nodeTuplePointerSpace = nodeArrayLen * rhsTreeTupleIdNum * 8;
         return Math.round((bucketPointerSpace + (double) rhsTreeCardinality * rhsTreeAvgRowSize

@@ -19,29 +19,27 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.doris.qe.SqlModeHelper;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Mocked;
 
 public class SetVarTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 

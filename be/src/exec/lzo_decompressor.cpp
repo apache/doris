@@ -48,8 +48,6 @@ const uint64_t LzopDecompressor::F_ADLER32_C = 0x00000002L;
 const uint64_t LzopDecompressor::F_CRC32_D = 0x00000100L;
 const uint64_t LzopDecompressor::F_ADLER32_D = 0x00000001L;
 
-LzopDecompressor::~LzopDecompressor() {}
-
 Status LzopDecompressor::init() {
     return Status::OK();
 }
@@ -386,7 +384,7 @@ std::string LzopDecompressor::debug_info() {
        << " header size: " << _header_info.header_size
        << " header checksum type: " << _header_info.header_checksum_type
        << " input checksum type: " << _header_info.input_checksum_type
-       << " ouput checksum type: " << _header_info.output_checksum_type;
+       << " output checksum type: " << _header_info.output_checksum_type;
     return ss.str();
 }
 #endif // DORIS_WITH_LZO

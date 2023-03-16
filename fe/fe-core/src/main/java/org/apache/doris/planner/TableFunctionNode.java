@@ -21,13 +21,13 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -42,7 +42,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class TableFunctionNode extends PlanNode {
-
     private List<LateralViewRef> lateralViewRefs;
     private ArrayList<Expr> fnCallExprList;
     private List<TupleId> lateralViewTupleIds;
@@ -51,16 +50,32 @@ public class TableFunctionNode extends PlanNode {
     // Only the slot whose id is in this list will be output by TableFunctionNode
     private List<SlotId> outputSlotIds = Lists.newArrayList();
 
+    public TableFunctionNode(PlanNodeId id, PlanNode inputNode, TupleId lateralViewTupleId,
+            ArrayList<Expr> fnCallExprList, List<SlotId> outputSlotIds) {
+        super(id, "TABLE FUNCTION NODE", StatisticalType.TABLE_FUNCTION_NODE);
+        tupleIds.addAll(inputNode.getTupleIds());
+        tupleIds.add(lateralViewTupleId);
+        this.lateralViewTupleIds = Lists.newArrayList(lateralViewTupleId);
+        this.fnCallExprList = fnCallExprList;
+        this.outputSlotIds = outputSlotIds;
+        this.children.add(inputNode);
+    }
+
     protected TableFunctionNode(PlanNodeId id, PlanNode inputNode, List<LateralViewRef> lateralViewRefs) {
-        super(id, "TABLE FUNCTION NODE");
+        super(id, "TABLE FUNCTION NODE", StatisticalType.TABLE_FUNCTION_NODE);
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
+        tblRefIds.addAll(inputNode.getTblRefIds());
         lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())
                 .collect(Collectors.toList());
         tupleIds.addAll(lateralViewTupleIds);
         tblRefIds.addAll(lateralViewTupleIds);
         children.add(inputNode);
         this.lateralViewRefs = lateralViewRefs;
+    }
+
+    public void setOutputSlotIds(List<SlotId> outputSlotIds) {
+        this.outputSlotIds = outputSlotIds;
     }
 
     /**
@@ -84,6 +99,7 @@ public class TableFunctionNode extends PlanNode {
      * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1;
      * The outputSlots: [k1, c1]
      */
+    // TODO(ml): Unified to projectplanner
     public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
         // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
         if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
@@ -95,33 +111,31 @@ public class TableFunctionNode extends PlanNode {
         }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
-        List<Expr> baseTblResultExprs = selectStmt.getBaseTblResultExprs();
+        List<Expr> baseTblResultExprs = selectStmt.getResultExprs();
         for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+
+            // For vec engine while lateral view involves subquery
+            Expr dst = outputSmap.get(resultExpr);
+            if (dst != null) {
+                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+            }
         }
         // case2
         List<Expr> remainConjuncts = analyzer.getRemainConjuncts(tupleIds);
         for (Expr expr : remainConjuncts) {
             expr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+
+            // For vec engine while lateral view involves subquery
+            Expr dst = outputSmap.get(expr);
+            if (dst != null) {
+                dst.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+            }
         }
         // set output slot ids
         for (SlotRef slotRef : outputSlotRef) {
             outputSlotIds.add(slotRef.getSlotId());
-        }
-
-        // For all other slots from input node which are not in outputSlotIds,
-        // set them as nullable, so that we can set them to null in TableFunctionNode
-        // TODO(cmy): This should be done with a ProjectionNode
-        PlanNode inputNode = getChild(0);
-        List<TupleId> inputTupleIds = inputNode.getTupleIds();
-        for (TupleId tupleId : inputTupleIds) {
-            TupleDescriptor td = analyzer.getTupleDesc(tupleId);
-            for (SlotDescriptor sd : td.getSlots()) {
-                if (!outputSlotIds.contains(sd.getId())) {
-                    sd.setIsNullable(true);
-                }
-            }
         }
     }
 
@@ -146,34 +160,36 @@ public class TableFunctionNode extends PlanNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
-        // TODO the cardinality = child cardinality * cardinality of list column
-        cardinality = children.get(0).cardinality;
+
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "table function: ");
+        output.append(prefix).append("table function: ");
         for (Expr fnExpr : fnCallExprList) {
-            output.append(fnExpr.toSql() + " ");
+            output.append(fnExpr.toSql()).append(" ");
         }
         output.append("\n");
 
-        output.append(prefix + "lateral view tuple id: ");
+        output.append(prefix).append("lateral view tuple id: ");
         for (TupleId tupleId : lateralViewTupleIds) {
-            output.append(tupleId.asInt() + " ");
+            output.append(tupleId.asInt()).append(" ");
         }
         output.append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
             return output.toString();
         }
 
-        output.append(prefix + "output slot id: ");
+        output.append(prefix).append("output slot id: ");
         for (SlotId slotId : outputSlotIds) {
-            output.append(slotId.asInt() + " ");
+            output.append(slotId.asInt()).append(" ");
         }
         output.append("\n");
 
@@ -181,7 +197,7 @@ public class TableFunctionNode extends PlanNode {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
         }
-        output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         return output.toString();
     }
 
@@ -195,4 +211,3 @@ public class TableFunctionNode extends PlanNode {
         }
     }
 }
-

@@ -17,6 +17,11 @@
 
 package org.apache.doris.backup;
 
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -25,11 +30,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
-
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 public class BackupJobInfoTest {
 
@@ -150,7 +150,6 @@ public class BackupJobInfoTest {
             Assert.fail();
         }
         Assert.assertNotNull(jobInfo);
-        System.out.println(jobInfo.toString());
 
         Assert.assertEquals(1522231864000L, jobInfo.backupTime);
         Assert.assertEquals("snapshot1", jobInfo.name);
@@ -160,7 +159,6 @@ public class BackupJobInfoTest {
         Assert.assertEquals(2, jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").indexes.size());
         Assert.assertEquals(2,
                             jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").getIdx("rollup1").tablets.size());
-        System.out.println(jobInfo.getOlapTableInfo("table1").getPartInfo("partition1").getIdx("rollup1").tablets);
         Assert.assertEquals(2,
                             jobInfo.getOlapTableInfo("table1").getPartInfo("partition1")
                             .getIdx("rollup1").getTabletFiles(10007L).size());

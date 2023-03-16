@@ -26,9 +26,9 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -47,7 +48,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -61,10 +61,10 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.dpp.DppResult;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.sparkdpp.DppResult;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -73,6 +73,7 @@ import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -94,7 +95,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -102,6 +102,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -109,7 +110,8 @@ import java.util.Set;
 /**
  * There are 4 steps in SparkLoadJob:
  * Step1: SparkLoadPendingTask will be created by unprotectedExecuteJob method and submit spark etl job.
- * Step2: LoadEtlChecker will check spark etl job status periodically and send push tasks to be when spark etl job is finished.
+ * Step2: LoadEtlChecker will check spark etl job status periodically
+ * and send push tasks to be when spark etl job is finished.
  * Step3: LoadLoadingChecker will check loading status periodically and commit transaction when push tasks are finished.
  * Step4: PublishVersionDaemon will send publish version tasks to be and finish transaction.
  */
@@ -149,9 +151,8 @@ public class SparkLoadJob extends BulkLoadJob {
         super(EtlJobType.SPARK);
     }
 
-    public SparkLoadJob(long dbId, String label, ResourceDesc resourceDesc,
-                        OriginStatement originStmt, UserIdentity userInfo)
-            throws MetaNotFoundException {
+    public SparkLoadJob(long dbId, String label, ResourceDesc resourceDesc, OriginStatement originStmt,
+            UserIdentity userInfo) throws MetaNotFoundException {
         super(EtlJobType.SPARK, dbId, label, originStmt, userInfo);
         this.resourceDesc = resourceDesc;
     }
@@ -166,6 +167,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
     /**
      * merge system conf with load stmt
+     *
      * @throws DdlException
      */
     private void setResourceInfo() throws DdlException {
@@ -179,7 +181,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // set sparkResource and brokerDesc
         String resourceName = resourceDesc.getName();
-        Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+        Resource oriResource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (oriResource == null) {
             throw new DdlException("Resource does not exist. name: " + resourceName);
         }
@@ -194,20 +196,27 @@ public class SparkLoadJob extends BulkLoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
-       transactionId = Catalog.getCurrentGlobalTransactionMgr()
+        transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  LoadJobSourceType.FRONTEND, id, getTimeout());
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        LoadJobSourceType.FRONTEND, id, getTimeout());
     }
 
     @Override
     protected void unprotectedExecuteJob() throws LoadException {
+        try {
+            beginTxn();
+        } catch (UserException e) {
+            LOG.warn("failed to begin transaction for spark load job {}", id, e);
+            throw new LoadException(e.getMessage());
+        }
+
         // create pending task
-        LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
-                                                 sparkResource, brokerDesc);
+        LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), sparkResource,
+                brokerDesc);
         task.init();
         idToTasks.put(task.getSignature(), task);
-        Catalog.getCurrentCatalog().getPendingLoadTaskScheduler().submit(task);
+        Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
     }
 
     @Override
@@ -222,19 +231,16 @@ public class SparkLoadJob extends BulkLoadJob {
         try {
             // check if job has been cancelled
             if (isTxnDone()) {
-                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("state", state)
-                                 .add("error_msg", "this task will be ignored when job is: " + state)
-                                 .build());
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id).add("state", state)
+                        .add("error_msg", "this task will be ignored when job is: " + state).build());
                 return;
             }
 
             if (finishedTaskIds.contains(attachment.getTaskId())) {
-                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("task_id", attachment.getTaskId())
-                                 .add("error_msg", "this is a duplicated callback of pending task "
-                                         + "when broker already has loading task")
-                                 .build());
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id).add("task_id", attachment.getTaskId()).add("error_msg",
+                                "this is a duplicated callback of pending task "
+                                + "when broker already has loading task")
+                        .build());
                 return;
             }
 
@@ -279,7 +285,7 @@ public class SparkLoadJob extends BulkLoadJob {
      * 1. RUNNING, update etl job progress
      * 2. CANCELLED, cancel load job
      * 3. FINISHED, get the etl output file paths, update job state to LOADING and log job update info
-     *
+     * <p>
      * Send push tasks if job state changed to LOADING
      */
     public void updateEtlStatus() throws Exception {
@@ -289,7 +295,8 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // get etl status
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        EtlStatus status = handler.getEtlJobStatus(sparkLoadAppHandle, appId, id, etlOutputPath, sparkResource, brokerDesc);
+        EtlStatus status = handler.getEtlJobStatus(sparkLoadAppHandle, appId, id, etlOutputPath, sparkResource,
+                brokerDesc);
         writeLock();
         try {
             switch (status.getState()) {
@@ -356,7 +363,8 @@ public class SparkLoadJob extends BulkLoadJob {
         unprotectedPrepareLoadingInfos();
     }
 
-    private void unprotectedUpdateToLoadingState(EtlStatus etlStatus, Map<String, Long> filePathToSize) throws LoadException {
+    private void unprotectedUpdateToLoadingState(EtlStatus etlStatus, Map<String, Long> filePathToSize)
+            throws LoadException {
         try {
             for (Map.Entry<String, Long> entry : filePathToSize.entrySet()) {
                 String filePath = entry.getKey();
@@ -364,7 +372,7 @@ public class SparkLoadJob extends BulkLoadJob {
                     continue;
                 }
                 String tabletMetaStr = EtlJobConfig.getTabletMetaStr(filePath);
-                tabletMetaToFileInfo.put(tabletMetaStr, Pair.create(filePath, entry.getValue()));
+                tabletMetaToFileInfo.put(tabletMetaStr, Pair.of(filePath, entry.getValue()));
             }
 
             loadingStatus = etlStatus;
@@ -411,31 +419,30 @@ public class SparkLoadJob extends BulkLoadJob {
         try {
             db = getDb();
         } catch (MetaNotFoundException e) {
-            String errMsg = new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("label", label)
-                    .add("error_msg", "db has been deleted when job is loading")
-                    .build();
+            String errMsg = new LogBuilder(LogKey.LOAD_JOB, id).add("database_id", dbId).add("label", label)
+                    .add("error_msg", "db has been deleted when job is loading").build();
             throw new MetaNotFoundException(errMsg);
         }
 
         AgentBatchTask batchTask = new AgentBatchTask();
         boolean hasLoadPartitions = false;
         Set<Long> totalTablets = Sets.newHashSet();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
+        List<? extends TableIf> tableList = db.getTablesOnIdOrderOrThrowException(
+                Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.readLockTables(tableList);
         try {
             writeLock();
             try {
                 // check state is still loading. If state is cancelled or finished, return.
-                // if state is cancelled or finished and not return, this would throw all partitions have no load data exception,
+                // if state is cancelled or finished and not return,
+                // this would throw all partitions have no load data exception,
                 // because tableToLoadPartitions was already cleaned up,
                 if (state != JobState.LOADING) {
                     LOG.warn("job state is not loading. job id: {}, state: {}", id, state);
                     return totalTablets;
                 }
 
-                for (Table table : tableList) {
+                for (TableIf table : tableList) {
                     Set<Long> partitionIds = tableToLoadPartitions.get(table.getId());
                     OlapTable olapTable = (OlapTable) table;
                     for (long partitionId : partitionIds) {
@@ -446,19 +453,26 @@ public class SparkLoadJob extends BulkLoadJob {
                         }
 
                         hasLoadPartitions = true;
-                        int quorumReplicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
+                        int quorumReplicaNum =
+                                olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum() / 2
+                                        + 1;
 
                         List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.ALL);
                         for (MaterializedIndex index : indexes) {
                             long indexId = index.getId();
                             int schemaHash = indexToSchemaHash.get(indexId);
 
+                            List<TColumn> columnsDesc = new ArrayList<TColumn>();
+                            for (Column column : olapTable.getSchemaByIndexId(indexId)) {
+                                columnsDesc.add(column.toThrift());
+                            }
+
                             int bucket = 0;
                             for (Tablet tablet : index.getTablets()) {
                                 long tabletId = tablet.getId();
                                 totalTablets.add(tabletId);
                                 String tabletMetaStr = String.format("%d.%d.%d.%d.%d", olapTable.getId(), partitionId,
-                                                                     indexId, bucket++, schemaHash);
+                                        indexId, bucket++, schemaHash);
                                 Set<Long> tabletAllReplicas = Sets.newHashSet();
                                 Set<Long> tabletFinishedReplicas = Sets.newHashSet();
                                 for (Replica replica : tablet.getReplicas()) {
@@ -467,13 +481,14 @@ public class SparkLoadJob extends BulkLoadJob {
                                     if (!tabletToSentReplicaPushTask.containsKey(tabletId)
                                             || !tabletToSentReplicaPushTask.get(tabletId).containsKey(replicaId)) {
                                         long backendId = replica.getBackendId();
-                                        long taskSignature = Catalog.getCurrentGlobalTransactionMgr()
+                                        long taskSignature = Env.getCurrentGlobalTransactionMgr()
                                                 .getTransactionIDGenerator().getNextTransactionId();
 
                                         PushBrokerReaderParams params = getPushBrokerReaderParams(olapTable, indexId);
                                         // deep copy TBrokerScanRange because filePath and fileSize will be updated
                                         // in different tablet push task
-                                        TBrokerScanRange tBrokerScanRange = new TBrokerScanRange(params.tBrokerScanRange);
+                                        TBrokerScanRange tBrokerScanRange = new TBrokerScanRange(
+                                                params.tBrokerScanRange);
                                         // update filePath fileSize
                                         TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
                                         tBrokerRangeDesc.setPath("");
@@ -485,22 +500,23 @@ public class SparkLoadJob extends BulkLoadJob {
                                         }
 
                                         // update broker address
-                                        Backend backend = Catalog.getCurrentCatalog().getCurrentSystemInfo()
+                                        Backend backend = Env.getCurrentEnv().getCurrentSystemInfo()
                                                 .getBackend(backendId);
-                                        FsBroker fsBroker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
-                                                brokerDesc.getName(), backend.getHost());
+                                        FsBroker fsBroker = Env.getCurrentEnv().getBrokerMgr().getBroker(
+                                                brokerDesc.getName(), backend.getIp());
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 
-                                        LOG.debug("push task for replica {}, broker {}:{}, backendId {}, filePath {}, fileSize {}" ,
-                                                  replicaId, fsBroker.ip, fsBroker.port, backendId, tBrokerRangeDesc.path,
-                                                  tBrokerRangeDesc.file_size);
+                                        LOG.debug("push task for replica {}, broker {}:{},"
+                                                        + " backendId {}, filePath {}, fileSize {}",
+                                                replicaId, fsBroker.ip,
+                                                fsBroker.port, backendId, tBrokerRangeDesc.path,
+                                                tBrokerRangeDesc.file_size);
 
-                                        PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(), partitionId,
-                                                                         indexId, tabletId, replicaId, schemaHash,
-                                                                         0, id, TPushType.LOAD_V2,
-                                                                         TPriority.NORMAL, transactionId, taskSignature,
-                                                                         tBrokerScanRange, params.tDescriptorTable);
+                                        PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(),
+                                                partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
+                                                TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
+                                                tBrokerScanRange, params.tDescriptorTable, columnsDesc);
                                         if (AgentTaskQueue.addTask(pushTask)) {
                                             batchTask.addTask(pushTask);
                                             if (!tabletToSentReplicaPushTask.containsKey(tabletId)) {
@@ -536,11 +552,8 @@ public class SparkLoadJob extends BulkLoadJob {
                 }
 
                 if (!hasLoadPartitions) {
-                    String errMsg = new LogBuilder(LogKey.LOAD_JOB, id)
-                            .add("database_id", dbId)
-                            .add("label", label)
-                            .add("error_msg", "all partitions have no load data")
-                            .build();
+                    String errMsg = new LogBuilder(LogKey.LOAD_JOB, id).add("database_id", dbId).add("label", label)
+                            .add("error_msg", "all partitions have no load data").build();
                     throw new LoadException(errMsg);
                 }
 
@@ -620,15 +633,14 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     private void tryCommitJob() throws UserException {
-        LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                         .add("txn_id", transactionId)
-                         .add("msg", "Load job try to commit txn")
-                         .build());
+        LOG.info(new LogBuilder(LogKey.LOAD_JOB, id).add("txn_id", transactionId)
+                .add("msg", "Load job try to commit txn").build());
         Database db = getDb();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
+                Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
-            Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
+            Env.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                                               finishTimestamp, state, failMsg));
@@ -683,6 +695,8 @@ public class SparkLoadJob extends BulkLoadJob {
             // clear job infos that not persist
             sparkLoadAppHandle = null;
             resourceDesc = null;
+            etlOutputPath = "";
+            appId = "";
             tableToLoadPartitions.clear();
             indexToPushBrokerReaderParams.clear();
             indexToSchemaHash.clear();
@@ -698,6 +712,13 @@ public class SparkLoadJob extends BulkLoadJob {
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         super.afterVisible(txnState, txnOperated);
+        clearJob();
+    }
+
+    @Override
+    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
+            throws UserException {
+        super.afterAborted(txnState, txnOperated, txnStatusChangeReason);
         clearJob();
     }
 
@@ -728,11 +749,13 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     public void clearSparkLauncherLog() {
-        String logPath = sparkLoadAppHandle.getLogPath();
-        if (!Strings.isNullOrEmpty(logPath)) {
-            File file = new File(logPath);
-            if (file.exists()) {
-                file.delete();
+        if (sparkLoadAppHandle != null) {
+            String logPath = sparkLoadAppHandle.getLogPath();
+            if (!Strings.isNullOrEmpty(logPath)) {
+                File file = new File(logPath);
+                if (file.exists()) {
+                    file.delete();
+                }
             }
         }
     }
@@ -756,16 +779,14 @@ public class SparkLoadJob extends BulkLoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         sparkResource = (SparkResource) Resource.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_91) {
-            sparkLoadAppHandle = SparkLoadAppHandle.read(in);
-        }
+        sparkLoadAppHandle = SparkLoadAppHandle.read(in);
         etlStartTimestamp = in.readLong();
         appId = Text.readString(in);
         etlOutputPath = Text.readString(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String tabletMetaStr = Text.readString(in);
-            Pair<String, Long> fileInfo = Pair.create(Text.readString(in), in.readLong());
+            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
             tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
         }
     }
@@ -777,7 +798,7 @@ public class SparkLoadJob extends BulkLoadJob {
         SparkLoadJobStateUpdateInfo info = new SparkLoadJobStateUpdateInfo(
                 id, state, transactionId, sparkLoadAppHandle, etlStartTimestamp, appId, etlOutputPath,
                 loadStartTimestamp, tabletMetaToFileInfo);
-        Catalog.getCurrentCatalog().getEditLog().logUpdateLoadJob(info);
+        Env.getCurrentEnv().getEditLog().logUpdateLoadJob(info);
     }
 
     @Override
@@ -798,8 +819,8 @@ public class SparkLoadJob extends BulkLoadJob {
                 unprotectedPrepareLoadingInfos();
                 break;
             default:
-                LOG.warn("replay update load job state info failed. error: wrong state. job id: {}, state: {}",
-                         id, state);
+                LOG.warn("replay update load job state info failed. error: wrong state. job id: {}, state: {}", id,
+                        state);
                 break;
         }
     }
@@ -819,9 +840,9 @@ public class SparkLoadJob extends BulkLoadJob {
         @SerializedName(value = "tabletMetaToFileInfo")
         private Map<String, Pair<String, Long>> tabletMetaToFileInfo;
 
-        public SparkLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId, SparkLoadAppHandle sparkLoadAppHandle,
-                                           long etlStartTimestamp, String appId, String etlOutputPath, long loadStartTimestamp,
-                                           Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
+        public SparkLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId,
+                SparkLoadAppHandle sparkLoadAppHandle, long etlStartTimestamp, String appId, String etlOutputPath,
+                long loadStartTimestamp, Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
             super(jobId, state, transactionId, loadStartTimestamp);
             this.sparkLoadAppHandle = sparkLoadAppHandle;
             this.etlStartTimestamp = etlStartTimestamp;
@@ -855,7 +876,7 @@ public class SparkLoadJob extends BulkLoadJob {
      * Params for be push broker reader
      * 1. TBrokerScanRange: file path and size, broker address, tranform expr
      * 2. TDescriptorTable: src and dest SlotDescriptors, src and dest tupleDescriptors
-     *
+     * <p>
      * These params are sent to Be through push task
      */
     private static class PushBrokerReaderParams {
@@ -876,11 +897,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                 destSlotDesc.setIsMaterialized(true);
                 destSlotDesc.setColumn(column);
-                if (column.isAllowNull()) {
-                    destSlotDesc.setIsNullable(true);
-                } else {
-                    destSlotDesc.setIsNullable(false);
-                }
+                destSlotDesc.setIsNullable(column.isAllowNull());
             }
             initTBrokerScanRange(descTable, destTupleDesc, columns, brokerDesc);
             initTDescriptorTable(descTable);
@@ -888,7 +905,7 @@ public class SparkLoadJob extends BulkLoadJob {
         }
 
         private void initTBrokerScanRange(DescriptorTable descTable, TupleDescriptor destTupleDesc,
-                                          List<Column> columns, BrokerDesc brokerDesc) throws AnalysisException {
+                List<Column> columns, BrokerDesc brokerDesc) throws AnalysisException {
             // scan range params
             TBrokerScanRangeParams params = new TBrokerScanRangeParams();
             params.setStrictMode(false);
@@ -897,10 +914,18 @@ public class SparkLoadJob extends BulkLoadJob {
             Map<String, SlotDescriptor> srcSlotDescByName = Maps.newHashMap();
             for (Column column : columns) {
                 SlotDescriptor srcSlotDesc = descTable.addSlotDescriptor(srcTupleDesc);
-                srcSlotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 srcSlotDesc.setIsMaterialized(true);
                 srcSlotDesc.setIsNullable(true);
-                srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
+
+                if (column.getDataType() == PrimitiveType.BITMAP) {
+                    // cast to bitmap when the target column type is bitmap
+                    srcSlotDesc.setType(ScalarType.createType(PrimitiveType.BITMAP));
+                    srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.BITMAP));
+                } else {
+                    srcSlotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
+                }
+
                 params.addToSrcSlotIds(srcSlotDesc.getId().asInt());
                 srcSlotDescByName.put(column.getName(), srcSlotDesc);
             }

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanFragment.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -21,6 +24,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.qe.ConnectContext;
@@ -30,7 +34,6 @@ import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,7 +57,7 @@ import java.util.stream.Collectors;
  * A PlanFragment encapsulates the specific tree of execution nodes that
  * are used to produce the output of the plan fragment, as well as output exprs,
  * destination node, etc. If there are no output exprs, the full row that is
- * is produced by the plan root is marked as materialized.
+ * produced by the plan root is marked as materialized.
  *
  * A plan fragment can have one or many instances, each of which in turn is executed by
  * an individual node and the output sent to a specific instance of the destination
@@ -76,10 +79,16 @@ import java.util.stream.Collectors;
  *   fix that
  */
 public class PlanFragment extends TreeNode<PlanFragment> {
-    private final static Logger LOG = LogManager.getLogger(PlanFragment.class);
+    private static final Logger LOG = LogManager.getLogger(PlanFragment.class);
 
     // id for this plan fragment
     private PlanFragmentId fragmentId;
+    // nereids planner and original planner generate fragments in different order.
+    // This makes nereids fragment id different from that of original planner, and
+    // hence different from that in profile.
+    // in original planner, fragmentSequenceNum is fragmentId, and in nereids planner,
+    // fragmentSequenceNum is the id displayed in profile
+    private int fragmentSequenceNum;
     // private PlanId planId_;
     // private CohortId cohortId_;
 
@@ -116,7 +125,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
-    // statistics correctly when query contains limit, it is necessary to send query 
+    // statistics correctly when query contains limit, it is necessary to send query
     // statistics with every batch, or only in close.
     private boolean transferQueryStatisticsWithEveryBatch;
 
@@ -135,6 +144,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
+
+    private boolean isRightChildOfBroadcastHashJoin = false;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -162,10 +173,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * different fragment.
      */
     public void setFragmentInPlanTree(PlanNode node) {
-        if (node == null) return;
+        if (node == null) {
+            return;
+        }
         node.setFragment(this);
-        if (node instanceof ExchangeNode) return;
-        for (PlanNode child : node.getChildren()) setFragmentInPlanTree(child);
+        if (node instanceof ExchangeNode) {
+            return;
+        }
+        for (PlanNode child : node.getChildren()) {
+            setFragmentInPlanTree(child);
+        }
     }
 
     /**
@@ -216,10 +233,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return hasColocatePlanNode;
     }
 
+    public void setDataPartition(DataPartition dataPartition) {
+        this.dataPartition = dataPartition;
+    }
+
     /**
      * Finalize plan tree and create stream sink, if needed.
      */
-    public void finalize(QueryStmt queryStmt) {
+    public void finalize(StatementBase stmtBase) {
         if (sink != null) {
             return;
         }
@@ -237,8 +258,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 return;
             }
             Preconditions.checkState(sink == null);
+            QueryStmt queryStmt = stmtBase instanceof QueryStmt ? (QueryStmt) stmtBase : null;
             if (queryStmt != null && queryStmt.hasOutFileClause()) {
-                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause());
+                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause(), queryStmt.getColLabels());
             } else {
                 // add ResultSink
                 // we're streaming to an result sink
@@ -285,10 +307,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public String getExplainString(TExplainLevel explainLevel) {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
-        str.append(" OUTPUT EXPRS:");
         if (CollectionUtils.isNotEmpty(outputExprs)) {
-            str.append(outputExprs.stream().map(Expr::toSql)
-                    .collect(Collectors.joining(" | ")));
+            str.append("  OUTPUT EXPRS:\n    ");
+            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining("\n    ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
@@ -315,10 +336,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.dataPartition = dataPartition;
     }
 
-    public PlanFragmentId getId() { return fragmentId; }
+    public PlanFragmentId getId() {
+        return fragmentId;
+    }
 
     public PlanFragment getDestFragment() {
-        if (destNode == null) return null;
+        if (destNode == null) {
+            return null;
+        }
         return destNode.getFragment();
     }
 
@@ -327,15 +352,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         PlanFragment dest = getDestFragment();
         Preconditions.checkNotNull(dest);
         dest.addChild(this);
-    }
-
-    public List<DataPartition> getInputDataPartition() {
-        List<DataPartition> result = Lists.newArrayList();
-        result.add(getDataPartition());
-        for (PlanFragment child : children) {
-            result.add(child.getOutputPartition());
-        }
-        return result;
     }
 
     public DataPartition getDataPartition() {
@@ -409,5 +425,25 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean isTransferQueryStatisticsWithEveryBatch() {
         return transferQueryStatisticsWithEveryBatch;
+    }
+
+    public boolean isRightChildOfBroadcastHashJoin() {
+        return isRightChildOfBroadcastHashJoin;
+    }
+
+    public void setRightChildOfBroadcastHashJoin(boolean value) {
+        isRightChildOfBroadcastHashJoin = value;
+    }
+
+    public int getFragmentSequenceNum() {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            return fragmentSequenceNum;
+        } else {
+            return fragmentId.asInt();
+        }
+    }
+
+    public void setFragmentSequenceNum(int seq) {
+        fragmentSequenceNum = seq;
     }
 }

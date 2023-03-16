@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Strings;
 
@@ -51,7 +52,8 @@ public class DropColumnClause extends AlterTableClause {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(colName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, colName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    colName, FeNameFormat.getColumnNameRegex());
         }
         if (Strings.isNullOrEmpty(rollupName)) {
             rollupName = null;

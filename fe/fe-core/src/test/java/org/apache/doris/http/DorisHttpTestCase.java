@@ -19,10 +19,11 @@ package org.apache.doris.http;
 
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -40,9 +41,15 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.HttpServer;
+import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -50,20 +57,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-
-import java.net.ServerSocket;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
 import junit.framework.AssertionFailedError;
 import mockit.Expectations;
 import mockit.Mock;
@@ -72,8 +67,23 @@ import mockit.Mocked;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
 
-abstract public class DorisHttpTestCase {
+import java.io.File;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+
+public abstract class DorisHttpTestCase {
 
     public OkHttpClient networkClient = new OkHttpClient.Builder()
             .readTimeout(100, TimeUnit.SECONDS)
@@ -102,10 +112,7 @@ abstract public class DorisHttpTestCase {
     private static long tabletId = 400L;
 
     public static long testStartVersion = 12;
-    public static long testStartVersionHash = 12312;
     public static int testSchemaHash = 93423942;
-    public static long testPartitionCurrentVersionHash = 12312;
-    public static long testPartitionNextVersionHash = 123123123;
 
     public static int HTTP_PORT;
 
@@ -113,30 +120,45 @@ abstract public class DorisHttpTestCase {
 
     protected String rootAuth = Credentials.basic("root", "");
 
+    private static final String DORIS_HOME;
+
+    static {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            try {
+                dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        DORIS_HOME = dorisHome;
+    }
+
     @Mocked
     private static EditLog editLog;
 
     public static OlapTable newTable(String name) {
-        Catalog.getCurrentInvertedIndex().clear();
+        Env.getCurrentInvertedIndex().clear();
         Column k1 = new Column("k1", PrimitiveType.BIGINT);
         Column k2 = new Column("k2", PrimitiveType.DOUBLE);
         List<Column> columns = new ArrayList<>();
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 0, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(tabletId);
 
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash,
+                TStorageMedium.HDD);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -146,13 +168,12 @@ abstract public class DorisHttpTestCase {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(2);
         Partition partition = new Partition(testPartitionId, "testPartition", baseIndex, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersion(testStartVersion);
         partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -170,15 +191,16 @@ abstract public class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId + 100,
+                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         partitionInfo.setReplicaAllocation(testPartitionId + 100, ReplicaAllocation.DEFAULT_ALLOCATION);
         EsTable table = null;
         Map<String, String> props = new HashMap<>();
-        props.put(EsTable.HOSTS, "http://node-1:8080");
-        props.put(EsTable.USER, "root");
-        props.put(EsTable.PASSWORD, "root");
-        props.put(EsTable.INDEX, "test");
-        props.put(EsTable.TYPE, "doc");
+        props.put(EsResource.HOSTS, "http://node-1:8080");
+        props.put(EsResource.USER, "root");
+        props.put(EsResource.PASSWORD, "root");
+        props.put(EsResource.INDEX, "test");
+        props.put(EsResource.TYPE, "doc");
         try {
             table = new EsTable(testTableId + 1, name, columns, props, partitionInfo);
         } catch (DdlException e) {
@@ -187,10 +209,11 @@ abstract public class DorisHttpTestCase {
         return table;
     }
 
-    private static Catalog newDelegateCatalog() {
+    private static Env newDelegateCatalog() {
         try {
-            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
-            PaloAuth paloAuth = new PaloAuth();
+            Env env = Deencapsulation.newInstance(Env.class);
+            Auth auth = new Auth();
+            AccessControllerManager accessManager = new AccessControllerManager(auth);
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "default_cluster:testDb");
             OlapTable table = newTable(TABLE_NAME);
@@ -199,61 +222,94 @@ abstract public class DorisHttpTestCase {
             db.createTable(table1);
             EsTable esTable = newEsTable("es_table");
             db.createTable(esTable);
-            new Expectations(catalog) {
+
+            InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
+            new Expectations(internalCatalog) {
                 {
-                    catalog.getAuth();
-                    minTimes = 0;
-                    result = paloAuth;
-
-                    catalog.getDbNullable(db.getId());
+                    internalCatalog.getDbNullable(db.getId());
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable("default_cluster:" + DB_NAME);
+                    internalCatalog.getDbNullable("default_cluster:" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    catalog.isMaster();
-                    minTimes = 0;
-                    result = true;
-
-                    catalog.getDbNullable("default_cluster:emptyDb");
+                    internalCatalog.getDbNullable("default_cluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDbNullable(anyString);
+                    internalCatalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
-                    catalog.getDbNames();
+                    internalCatalog.getDbNames();
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
 
-                    catalog.getLoadInstance();
-                    minTimes = 0;
-                    result = new Load();
-
-                    catalog.getEditLog();
-                    minTimes = 0;
-                    result = editLog;
-
-                    catalog.getClusterDbNames("default_cluster");
+                    internalCatalog.getClusterDbNames("default_cluster");
                     minTimes = 0;
                     result = Lists.newArrayList("default_cluster:testDb");
-
-                    catalog.changeDb((ConnectContext) any, "blockDb");
-                    minTimes = 0;
-
-                    catalog.changeDb((ConnectContext) any, anyString);
-                    minTimes = 0;
-
-                    catalog.initDefaultCluster();
-                    minTimes = 0;
                 }
             };
 
+            CatalogMgr dsMgr = new CatalogMgr();
+            new Expectations(dsMgr) {
+                {
+                    dsMgr.getCatalog((String) any);
+                    minTimes = 0;
+                    result = internalCatalog;
 
-            return catalog;
+                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    minTimes = 0;
+                    result = internalCatalog;
+
+                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    minTimes = 0;
+                    result = internalCatalog;
+                }
+            };
+
+            new Expectations(env) {
+                {
+                    env.getAccessManager();
+                    minTimes = 0;
+                    result = accessManager;
+
+                    env.isMaster();
+                    minTimes = 0;
+                    result = true;
+
+                    env.getLoadInstance();
+                    minTimes = 0;
+                    result = new Load();
+
+                    env.getEditLog();
+                    minTimes = 0;
+                    result = editLog;
+
+                    env.getInternalCatalog();
+                    minTimes = 0;
+                    result = internalCatalog;
+
+                    env.getCurrentCatalog();
+                    minTimes = 0;
+                    result = internalCatalog;
+
+                    env.changeDb((ConnectContext) any, "blockDb");
+                    minTimes = 0;
+
+                    env.changeDb((ConnectContext) any, anyString);
+                    minTimes = 0;
+
+                    env.initDefaultCluster();
+                    minTimes = 0;
+
+                    env.getCatalogMgr();
+                    minTimes = 0;
+                    result = dsMgr;
+                }
+            };
+            return env;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
@@ -271,9 +327,9 @@ abstract public class DorisHttpTestCase {
         Backend backend3 = new Backend(testBackendId3, "node-3", 9308);
         backend3.setBePort(9300);
         backend3.setAlive(true);
-        Catalog.getCurrentSystemInfo().addBackend(backend1);
-        Catalog.getCurrentSystemInfo().addBackend(backend2);
-        Catalog.getCurrentSystemInfo().addBackend(backend3);
+        Env.getCurrentSystemInfo().addBackend(backend1);
+        Env.getCurrentSystemInfo().addBackend(backend2);
+        Env.getCurrentSystemInfo().addBackend(backend3);
     }
 
     @BeforeClass
@@ -291,43 +347,54 @@ abstract public class DorisHttpTestCase {
                 try {
                     socket.close();
                 } catch (Exception e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
         }
 
-        httpServer = new HttpServer(HTTP_PORT);
-        httpServer.setup();
+        FeConstants.runningUnitTest = true;
+        httpServer = new HttpServer();
+        httpServer.setPort(HTTP_PORT);
+        httpServer.setMaxHttpPostSize(100 * 1024 * 1024);
+        httpServer.setAcceptors(2);
+        httpServer.setSelectors(4);
+        httpServer.setWorkers(0);
         httpServer.start();
-        // must ensure the http server started before any unit test
-        while (!httpServer.isStarted()) {
-            Thread.sleep(500);
-        }
     }
 
+    @AfterClass
+    public static void afterClass() {
+        File file = new File(DORIS_HOME);
+        file.delete();
+    }
 
 
     @Before
     public void setUp() {
-        Catalog catalog = newDelegateCatalog();
+        Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
         TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
             SchemaChangeHandler getSchemaChangeHandler() {
                 return new SchemaChangeHandler();
             }
+
             @Mock
-            MaterializedViewHandler getRollupHandler() {
+            MaterializedViewHandler getMaterializedViewHandler() {
                 return new MaterializedViewHandler();
             }
+
             @Mock
-            Catalog getCurrentCatalog() {
-                return catalog;
+            Env getCurrentEnv() {
+                return env;
             }
+
             @Mock
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
+
             @Mock
             TabletInvertedIndex getCurrentInvertedIndex() {
                 return tabletInvertedIndex;
@@ -341,10 +408,6 @@ abstract public class DorisHttpTestCase {
     public void tearDown() {
     }
 
-    @AfterClass
-    public static void closeHttpServer() {
-        httpServer.shutDown();
-    }
 
     public void doSetUp() {
 

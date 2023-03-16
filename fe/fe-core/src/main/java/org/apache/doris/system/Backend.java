@@ -18,24 +18,26 @@
 package org.apache.doris.system;
 
 import org.apache.doris.alter.DecommissionType;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,6 +47,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -67,7 +70,9 @@ public class Backend implements Writable {
     @SerializedName("id")
     private long id;
     @SerializedName("host")
-    private String host;
+    private volatile String ip;
+    @SerializedName("hostName")
+    private String hostName;
     private String version;
 
     @SerializedName("heartbeatPort")
@@ -117,11 +122,29 @@ public class Backend implements Writable {
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
     private BackendStatus backendStatus = new BackendStatus();
-    @SerializedName("tag")
-    private Tag tag = Tag.DEFAULT_BACKEND_TAG;
+    // the locationTag is also saved in tagMap, use a single field here to avoid
+    // creating this everytime we get it.
+    @SerializedName(value = "locationTag", alternate = {"tag"})
+    private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
+
+    @SerializedName("nodeRole")
+    private Tag nodeRoleTag = Tag.DEFAULT_NODE_ROLE_TAG;
+
+    // tag type -> tag value.
+    // A backend can only be assigned to one tag type, and each type can only have one value.
+    @SerializedName("tagMap")
+    private Map<String, String> tagMap = Maps.newHashMap();
+
+    // Counter of heartbeat failure.
+    // Once a heartbeat failed, increase this counter by one.
+    // And if it reaches Config.max_backend_heartbeat_failure_tolerance_count, this backend
+    // will be marked as dead.
+    // And once it back to alive, reset this counter.
+    // No need to persist, because only master FE handle heartbeat.
+    private int heartbeatFailureCounter = 0;
 
     public Backend() {
-        this.host = "";
+        this.ip = "";
         this.version = "";
         this.lastUpdateMs = 0;
         this.lastStartTime = 0;
@@ -136,11 +159,17 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+        this.tagMap.put(locationTag.type, locationTag.value);
     }
 
-    public Backend(long id, String host, int heartbeatPort) {
+    public Backend(long id, String ip, int heartbeatPort) {
+        this(id, ip, null, heartbeatPort);
+    }
+
+    public Backend(long id, String ip, String hostName, int heartbeatPort) {
         this.id = id;
-        this.host = host;
+        this.ip = ip;
+        this.hostName = hostName;
         this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = -1;
@@ -156,14 +185,19 @@ public class Backend implements Writable {
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
+        this.tagMap.put(locationTag.type, locationTag.value);
     }
 
     public long getId() {
         return id;
     }
 
-    public String getHost() {
-        return host;
+    public String getIp() {
+        return ip;
+    }
+
+    public String getHostName() {
+        return hostName;
     }
 
     public String getVersion() {
@@ -255,6 +289,10 @@ public class Backend implements Writable {
         this.backendState = state.ordinal();
     }
 
+    public void setIp(String ip) {
+        this.ip = ip;
+    }
+
     public void setAlive(boolean isAlive) {
         this.isAlive.set(isAlive);
     }
@@ -265,6 +303,10 @@ public class Backend implements Writable {
 
     public void setHttpPort(int httpPort) {
         this.httpPort = httpPort;
+    }
+
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
     }
 
     public void setBeRpcPort(int beRpcPort) {
@@ -323,13 +365,8 @@ public class Backend implements Writable {
         return backendStatus;
     }
 
-    /**
-     * backend belong to some cluster
-     *
-     * @return
-     */
-    public boolean isUsedByCluster() {
-        return this.backendState == BackendState.using.ordinal();
+    public int getHeartbeatFailureCounter() {
+        return heartbeatFailureCounter;
     }
 
     /**
@@ -339,16 +376,6 @@ public class Backend implements Writable {
      */
     public boolean isFreeFromCluster() {
         return this.backendState == BackendState.free.ordinal();
-    }
-
-    /**
-     * backend execute discommission in cluster , and backendState will be free
-     * finally
-     *
-     * @return
-     */
-    public boolean isOffLineFromCluster() {
-        return this.backendState == BackendState.offline.ordinal();
     }
 
     public ImmutableMap<String, DiskInfo> getDisks() {
@@ -397,6 +424,17 @@ public class Backend implements Writable {
         return dataUsedCapacityB;
     }
 
+    public long getRemoteUsedCapacityB() {
+        ImmutableMap<String, DiskInfo> disks = disksRef;
+        long totalRemoteUsedCapacityB = 0L;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                totalRemoteUsedCapacityB += diskInfo.getRemoteUsedCapacity();
+            }
+        }
+        return totalRemoteUsedCapacityB;
+    }
+
     public double getMaxDiskUsedPct() {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         double maxPct = 0.0;
@@ -418,7 +456,8 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> diskInfos = disksRef;
         boolean exceedLimit = true;
         for (DiskInfo diskInfo : diskInfos.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium && !diskInfo.exceedLimit(true)) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium()
+                    == storageMedium && !diskInfo.exceedLimit(true)) {
                 exceedLimit = false;
                 break;
             }
@@ -441,15 +480,6 @@ public class Backend implements Writable {
         return exceedLimit;
     }
 
-    public String getPathByPathHash(long pathHash) {
-        for (DiskInfo diskInfo : disksRef.values()) {
-            if (diskInfo.getPathHash() == pathHash) {
-                return diskInfo.getRootPath();
-            }
-        }
-        return null;
-    }
-
     public void updateDisks(Map<String, TDisk> backendDisks) {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         // The very first time to init the path info
@@ -463,7 +493,7 @@ public class Backend implements Writable {
             }
             if (allPathHashUpdated) {
                 initPathInfo = true;
-                Catalog.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
+                Env.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
             }
         }
 
@@ -495,6 +525,10 @@ public class Backend implements Writable {
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
+            if (tDisk.isSetRemoteUsedCapacity()) {
+                diskInfo.setRemoteUsedCapacity(tDisk.getRemoteUsedCapacity());
+            }
+
             if (tDisk.isSetPathHash()) {
                 diskInfo.setPathHash(tDisk.getPathHash());
             }
@@ -528,21 +562,35 @@ public class Backend implements Writable {
         if (isChanged) {
             // update disksRef
             disksRef = ImmutableMap.copyOf(newDiskInfos);
-            Catalog.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
+            Env.getCurrentSystemInfo().updatePathInfo(addedDisks, removedDisks);
             // log disk changing
-            Catalog.getCurrentCatalog().getEditLog().logBackendStateChange(this);
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(this);
+        }
+    }
+
+    /**
+     * In old version, there is only one tag for a Backend, and it is a "location" type tag.
+     * But in new version, a Backend can have multi tag, so we need to put locationTag to
+     * the new tagMap
+     */
+    private void convertToTagMapAndSetLocationTag() {
+        if (tagMap == null) {
+            // When first upgrade from old version, tags may be null
+            tagMap = Maps.newHashMap();
+        }
+        if (!locationTag.value.equals(tagMap.get(Tag.TYPE_LOCATION))) {
+            // ATTN: here we use Tag.TYPE_LOCATION directly, not locationTag.type,
+            // because we need to make sure the previous tag must be a location type tag,
+            // and if not, convert it to location type.
+            tagMap.put(Tag.TYPE_LOCATION, locationTag.value);
         }
     }
 
     public static Backend read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_99) {
-            Backend backend = new Backend();
-            backend.readFields(in);
-            return backend;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Backend.class);
-        }
+        String json = Text.readString(in);
+        Backend be = GsonUtils.GSON.fromJson(json, Backend.class);
+        be.convertToTagMapAndSetLocationTag();
+        return be;
     }
 
     @Override
@@ -551,50 +599,9 @@ public class Backend implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        host = Text.readString(in);
-        heartbeatPort = in.readInt();
-        bePort = in.readInt();
-        httpPort = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_31) {
-            beRpcPort = in.readInt();
-        }
-        isAlive.set(in.readBoolean());
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_5) {
-            isDecommissioned.set(in.readBoolean());
-        }
-
-        lastUpdateMs = in.readLong();
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_2) {
-            lastStartTime = in.readLong();
-
-            Map<String, DiskInfo> disks = Maps.newHashMap();
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String rootPath = Text.readString(in);
-                DiskInfo diskInfo = DiskInfo.read(in);
-                disks.put(rootPath, diskInfo);
-            }
-
-            disksRef = ImmutableMap.copyOf(disks);
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            ownerClusterName = Text.readString(in);
-            backendState = in.readInt();
-            decommissionType = in.readInt();
-        } else {
-            ownerClusterName = SystemInfoService.DEFAULT_CLUSTER;
-            backendState = BackendState.using.ordinal();
-            decommissionType = DecommissionType.SystemDecommission.ordinal();
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_40) {
-            brpcPort = in.readInt();
-        }
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, ip, heartbeatPort, bePort, isAlive);
     }
 
     @Override
@@ -608,14 +615,14 @@ public class Backend implements Writable {
 
         Backend backend = (Backend) obj;
 
-        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort)
+        return (id == backend.id) && (ip.equals(backend.ip)) && (heartbeatPort == backend.heartbeatPort)
                 && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
-        return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", tag: " + tag + "]";
+        return "Backend [id=" + id + ", host=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
+                + ", tags: " + tagMap + "]";
     }
 
     public String getOwnerClusterName() {
@@ -679,6 +686,12 @@ public class Backend implements Writable {
                 this.brpcPort = hbResponse.getBrpcPort();
             }
 
+            if (!this.getNodeRoleTag().value.equals(hbResponse.getNodeRole()) && Tag.validNodeRoleTag(
+                    hbResponse.getNodeRole())) {
+                isChanged = true;
+                this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, hbResponse.getNodeRole());
+            }
+
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
@@ -690,12 +703,19 @@ public class Backend implements Writable {
             }
 
             heartbeatErrMsg = "";
+            this.heartbeatFailureCounter = 0;
         } else {
-            if (isAlive.compareAndSet(true, false)) {
-                isChanged = true;
-                LOG.warn("{} is dead,", this.toString());
+            // Only set backend to dead if the heartbeat failure counter exceed threshold.
+            if (++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
+                if (isAlive.compareAndSet(true, false)) {
+                    isChanged = true;
+                    LOG.warn("{} is dead,", this.toString());
+                }
             }
 
+            // still set error msg and missing time even if we may not mark this backend as dead,
+            // for debug easily.
+            // But notice that if isChanged = false, these msg will not sync to other FE.
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
             lastMissingHeartbeatTime = System.currentTimeMillis();
         }
@@ -738,12 +758,40 @@ public class Backend implements Writable {
         public volatile boolean isLoadDisabled = false;
     }
 
-    public void setTag(Tag tag) {
-        this.tag = tag;
+    public Tag getLocationTag() {
+        return locationTag;
     }
 
-    public Tag getTag() {
-        return tag;
+    public Tag getNodeRoleTag() {
+        return nodeRoleTag;
+    }
+
+    public boolean isMixNode() {
+        return nodeRoleTag.value.equals(Tag.VALUE_MIX);
+    }
+
+    public boolean isComputeNode() {
+        return nodeRoleTag.value.equals(Tag.VALUE_COMPUTATION);
+    }
+
+    public void setTagMap(Map<String, String> tagMap) {
+        Preconditions.checkState(tagMap.containsKey(Tag.TYPE_LOCATION));
+        this.tagMap = tagMap;
+        this.locationTag = Tag.createNotCheck(Tag.TYPE_LOCATION, tagMap.get(Tag.TYPE_LOCATION));
+        if (tagMap.containsKey(Tag.TYPE_ROLE) && Tag.validNodeRoleTag(tagMap.get(Tag.TYPE_ROLE))) {
+            this.nodeRoleTag = Tag.createNotCheck(Tag.TYPE_ROLE, tagMap.get(Tag.TYPE_ROLE));
+        }
+    }
+
+    public Map<String, String> getTagMap() {
+        return tagMap;
+    }
+
+    public TNetworkAddress getBrpcAdress() {
+        return new TNetworkAddress(getIp(), getBrpcPort());
+    }
+
+    public String getTagMapString() {
+        return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
     }
 }
-

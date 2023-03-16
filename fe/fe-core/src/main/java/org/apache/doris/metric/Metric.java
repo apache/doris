@@ -41,7 +41,7 @@ public abstract class Metric<T> {
         CONNECTIONS,
         PACKETS,
         NOUNIT
-    };
+    }
 
     protected String name;
     protected MetricType type;

@@ -17,195 +17,378 @@
 
 #include "olap/rowset/beta_rowset.h"
 
+#include <fmt/core.h>
+#include <glog/logging.h>
 #include <stdio.h>  // for remove()
 #include <unistd.h> // for link()
 #include <util/file_utils.h>
 
-#include <set>
-
-#include "env/env_remote.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/cache/file_cache_manager.h"
+#include "io/fs/s3_file_system.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
+using namespace ErrorCode;
 
-FilePathDesc BetaRowset::segment_file_path(const FilePathDesc& segment_dir_desc, const RowsetId& rowset_id,
+using io::FileCacheManager;
+
+std::string BetaRowset::segment_file_path(int segment_id) {
+#ifdef BE_TEST
+    if (!config::file_cache_type.empty()) {
+        return segment_file_path(_tablet_path, rowset_id(), segment_id);
+    }
+#endif
+    return segment_file_path(_rowset_dir, rowset_id(), segment_id);
+}
+
+std::string BetaRowset::segment_cache_path(int segment_id) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
+    return fmt::format("{}/{}_{}", _tablet_path, rowset_id().to_string(), segment_id);
+}
+
+// just check that the format is xxx_segmentid and segmentid is numeric
+bool BetaRowset::is_segment_cache_dir(const std::string& cache_dir) {
+    auto segment_id_pos = cache_dir.find_last_of('_') + 1;
+    if (segment_id_pos >= cache_dir.size() || segment_id_pos == 0) {
+        return false;
+    }
+    return std::all_of(cache_dir.cbegin() + segment_id_pos, cache_dir.cend(), ::isdigit);
+}
+
+std::string BetaRowset::segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                           int segment_id) {
-    FilePathDescStream path_desc_s;
-    path_desc_s << segment_dir_desc << "/" << rowset_id.to_string() << "_" << segment_id << ".dat";
-    return path_desc_s.path_desc();
+    // {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
+    return fmt::format("{}/{}_{}.dat", rowset_dir, rowset_id.to_string(), segment_id);
 }
 
-BetaRowset::BetaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
-                       RowsetMetaSharedPtr rowset_meta)
-        : Rowset(schema, rowset_path_desc, std::move(rowset_meta)) {}
-
-BetaRowset::~BetaRowset() {}
-
-OLAPStatus BetaRowset::init() {
-    return OLAP_SUCCESS; // no op
+std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
+                                            int segment_id) {
+    // data/{tablet_id}/{rowset_id}_{seg_num}.dat
+    return remote_segment_path(tablet_id, rowset_id.to_string(), segment_id);
 }
 
-OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
+std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
+                                            int segment_id) {
+    // data/{tablet_id}/{rowset_id}_{seg_num}.dat
+    return fmt::format("{}/{}_{}.dat", remote_tablet_path(tablet_id), rowset_id, segment_id);
+}
+
+std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
+                                                        const RowsetId& rowset_id, int64_t begin,
+                                                        int64_t end) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{begin_seg}-{end_seg}.dat
+    return fmt::format("{}/{}_{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end);
+}
+
+BetaRowset::BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+                       const RowsetMetaSharedPtr& rowset_meta)
+        : Rowset(schema, tablet_path, rowset_meta) {
+    if (_rowset_meta->is_local()) {
+        _rowset_dir = tablet_path;
+    } else {
+        _rowset_dir = remote_tablet_path(_rowset_meta->tablet_id());
+    }
+}
+
+BetaRowset::~BetaRowset() = default;
+
+Status BetaRowset::init() {
+    return Status::OK(); // no op
+}
+
+Status BetaRowset::do_load(bool /*use_cache*/) {
     // do nothing.
     // the segments in this rowset will be loaded by calling load_segments() explicitly.
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
+Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>();
+    }
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        FilePathDesc seg_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), seg_id);
+        auto seg_path = segment_file_path(seg_id);
+        size_t file_size;
+        RETURN_IF_ERROR(fs->file_size(seg_path, &file_size));
+        segments_size->push_back(file_size);
+    }
+    return Status::OK();
+}
+Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
+    return load_segments(0, num_segments(), segments);
+}
+
+Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
+                                 std::vector<segment_v2::SegmentSharedPtr>* segments) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>();
+    }
+    int64_t seg_id = seg_id_begin;
+    while (seg_id < seg_id_end) {
+        DCHECK(seg_id >= 0);
+        auto seg_path = segment_file_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(seg_path_desc, seg_id, _schema, &segment);
+        io::SegmentCachePathPolicy cache_policy;
+        cache_policy.set_cache_path(segment_cache_path(seg_id));
+        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+                                             cache_policy);
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
+                                           reader_options, &segment);
         if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment. " << seg_path_desc.debug_string()
-                    << " under rowset " << unique_id() << " : " << s.to_string();
-            return OLAP_ERR_ROWSET_LOAD_FAILED;
+            LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
+                         << unique_id() << " : " << s.to_string();
+            return s;
         }
         segments->push_back(std::move(segment));
+        seg_id++;
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
+Status BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     // NOTE: We use std::static_pointer_cast for performance
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                                     std::shared_ptr<RowsetReader>* result) {
-    // NOTE: We use std::static_pointer_cast for performance
-    result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this()),
-                                       parent_tracker));
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus BetaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count, size_t key_num,
-                                   std::vector<OlapTuple>* ranges) {
-    ranges->emplace_back(start_key.to_tuple());
-    ranges->emplace_back(end_key.to_tuple());
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus BetaRowset::remove() {
+Status BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
     VLOG_NOTICE << "begin to remove files in rowset " << unique_id()
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>();
+    }
     bool success = true;
+    Status st;
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        LOG(INFO) << "deleting " << path_desc.debug_string();
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager(path_desc.storage_medium);
-        if (!block_mgr->delete_block(path_desc).ok()) {
-            char errmsg[64];
-            VLOG_NOTICE << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
-                        << ", " << path_desc.debug_string();
+        auto seg_path = segment_file_path(i);
+        LOG(INFO) << "deleting " << seg_path;
+        st = fs->delete_file(seg_path);
+        if (!st.ok()) {
+            LOG(WARNING) << st.to_string();
             success = false;
+        }
+        for (auto& column : _schema->columns()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        seg_path, index_meta->index_id());
+                st = fs->delete_file(inverted_index_file);
+                if (!st.ok()) {
+                    LOG(WARNING) << st.to_string();
+                    success = false;
+                } else {
+                    segment_v2::InvertedIndexSearcherCache::instance()->erase(inverted_index_file);
+                }
+            }
+        }
+        if (fs->type() != io::FileSystemType::LOCAL) {
+            auto cache_path = segment_cache_path(i);
+            FileCacheManager::instance()->remove_file_cache(cache_path);
         }
     }
     if (!success) {
         LOG(WARNING) << "failed to remove files in rowset " << unique_id();
-        return OLAP_ERR_ROWSET_DELETE_FILE_FAILED;
+        return Status::Error<ROWSET_DELETE_FILE_FAILED>();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void BetaRowset::do_close() {
     // do nothing.
 }
 
-OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) {
+Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
+                                 size_t new_rowset_start_seg_id) {
+    DCHECK(is_local());
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>();
+    }
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_link_path_desc = segment_file_path(dir_desc, new_rowset_id, i);
+        auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
         // TODO(lingbin): use Env API? or EnvUtil?
-        if (FileUtils::check_exist(dst_link_path_desc.filepath)) {
-            LOG(WARNING) << "failed to create hard link, file already exist: " << dst_link_path_desc.filepath;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
+        bool dst_path_exist = false;
+        if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
+            LOG(WARNING) << "failed to create hard link, file already exist: " << dst_path;
+            return Status::Error<FILE_ALREADY_EXIST>();
         }
-        FilePathDesc src_file_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
+        auto src_path = segment_file_path(i);
         // TODO(lingbin): how external storage support link?
         //     use copy? or keep refcount to avoid being delete?
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager(dir_desc.storage_medium);
-        if (!block_mgr->link_file(src_file_path_desc, dst_link_path_desc).ok()) {
-            LOG(WARNING) << "fail to create hard link. from=" << src_file_path_desc.debug_string() << ", "
-                         << "to=" << dst_link_path_desc.debug_string() << ", errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
+        if (!fs->link_file(src_path, dst_path).ok()) {
+            LOG(WARNING) << "fail to create hard link. from=" << src_path << ", "
+                         << "to=" << dst_path << ", errno=" << Errno::no();
+            return Status::Error<OS_ERROR>();
+        }
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_src_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(src_path,
+                                                                     index_meta->index_id());
+                std::string inverted_index_dst_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(dst_path,
+                                                                     index_meta->index_id());
+
+                if (!fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
+                             .ok()) {
+                    LOG(WARNING) << "fail to create hard link. from="
+                                 << inverted_index_src_file_path << ", "
+                                 << "to=" << inverted_index_dst_file_path
+                                 << ", errno=" << Errno::no();
+                    return Status::Error<OS_ERROR>();
+                }
+                LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
+                          << ", "
+                          << "to=" << inverted_index_dst_file_path;
+            }
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
-    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
+Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
+    DCHECK(is_local());
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_path_desc = segment_file_path(dir, rowset_id(), i);
-        Status status = env->path_exists(dst_path_desc.filepath);
+        auto dst_path = segment_file_path(dir, new_rowset_id, i);
+        Status status = Env::Default()->path_exists(dst_path);
         if (status.ok()) {
-            LOG(WARNING) << "file already exist: " << dst_path_desc.filepath;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
+            LOG(WARNING) << "file already exist: " << dst_path;
+            return Status::Error<FILE_ALREADY_EXIST>();
         }
-        if (!status.is_not_found()) {
-            LOG(WARNING) << "file check exist error: " << dst_path_desc.filepath;
-            return OLAP_ERR_OS_ERROR;
+        if (!status.is<NOT_FOUND>()) {
+            LOG(WARNING) << "file check exist error: " << dst_path;
+            return Status::Error<OS_ERROR>();
         }
-        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        if (!Env::get_env(_rowset_path_desc.storage_medium)->copy_path(
-                src_path_desc.filepath, dst_path_desc.filepath).ok()) {
-            LOG(WARNING) << "fail to copy file. from=" << src_path_desc.filepath << ", to="
-                    << dst_path_desc.filepath << ", errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
+        auto src_path = segment_file_path(i);
+        if (!Env::Default()->copy_path(src_path, dst_path).ok()) {
+            LOG(WARNING) << "fail to copy file. from=" << src_path << ", to=" << dst_path
+                         << ", errno=" << Errno::no();
+            return Status::Error<OS_ERROR>();
+        }
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string inverted_index_src_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(src_path,
+                                                                     index_meta->index_id());
+                std::string inverted_index_dst_file_path =
+                        InvertedIndexDescriptor::get_index_file_name(dst_path,
+                                                                     index_meta->index_id());
+                if (!Env::Default()
+                             ->copy_path(inverted_index_src_file_path, inverted_index_dst_file_path)
+                             .ok()) {
+                    LOG(WARNING) << "fail to copy file. from=" << inverted_index_src_file_path
+                                 << ", to=" << inverted_index_dst_file_path
+                                 << ", errno=" << Errno::no();
+                    return Status::Error<OS_ERROR>();
+                }
+                LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path << ", "
+                          << "to=" << inverted_index_dst_file_path;
+            }
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
-    RemoteEnv* dest_env = dynamic_cast<RemoteEnv*>(Env::get_env(_rowset_path_desc.storage_medium));
-    std::shared_ptr<StorageBackend> storage_backend = dest_env->get_storage_backend();
-    for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_path_desc = segment_file_path(dir_desc, rowset_id(), i);
-        Status status = storage_backend->exist(dst_path_desc.remote_path);
-        if (status.ok()) {
-            LOG(WARNING) << "file already exist: " << dst_path_desc.remote_path;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        if (!status.is_not_found()) {
-            LOG(WARNING) << "file check exist error: " << dst_path_desc.remote_path;
-            return OLAP_ERR_OS_ERROR;
-        }
-        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-
-        if (!storage_backend->upload(src_path_desc.filepath, dst_path_desc.remote_path).ok()) {
-            LOG(WARNING) << "fail to upload file. from=" << src_path_desc.filepath << ", to="
-                         << dst_path_desc.remote_path << ", errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
-        }
-        LOG(INFO) << "succeed to upload file. from " << src_path_desc.filepath << " to "
-                  << dst_path_desc.remote_path;
+Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) {
+    DCHECK(is_local());
+    if (num_segments() < 1) {
+        return Status::OK();
     }
-    return OLAP_SUCCESS;
+    std::vector<io::Path> local_paths;
+    local_paths.reserve(num_segments());
+    std::vector<io::Path> dest_paths;
+    dest_paths.reserve(num_segments());
+    for (int i = 0; i < num_segments(); ++i) {
+        // Note: Here we use relative path for remote.
+        auto remote_seg_path = remote_segment_path(_rowset_meta->tablet_id(), new_rowset_id, i);
+        auto local_seg_path = segment_file_path(i);
+        dest_paths.push_back(remote_seg_path);
+        local_paths.push_back(local_seg_path);
+        for (auto& column : _schema->columns()) {
+            // if (column.has_inverted_index()) {
+            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                std::string remote_inverted_index_file =
+                        InvertedIndexDescriptor::get_index_file_name(remote_seg_path,
+                                                                     index_meta->index_id());
+                std::string local_inverted_index_file =
+                        InvertedIndexDescriptor::get_index_file_name(local_seg_path,
+                                                                     index_meta->index_id());
+                dest_paths.push_back(remote_inverted_index_file);
+                local_paths.push_back(local_inverted_index_file);
+            }
+        }
+    }
+    auto st = dest_fs->batch_upload(local_paths, dest_paths);
+    if (st.ok()) {
+        DorisMetrics::instance()->upload_rowset_count->increment(1);
+        DorisMetrics::instance()->upload_total_byte->increment(data_disk_size());
+    } else {
+        DorisMetrics::instance()->upload_fail_count->increment(1);
+    }
+    return st;
 }
 
 bool BetaRowset::check_path(const std::string& path) {
-    std::set<std::string> valid_paths;
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        valid_paths.insert(path_desc.filepath);
+        auto seg_path = segment_file_path(i);
+        if (seg_path == path) {
+            return true;
+        }
     }
-    return valid_paths.find(path) != valid_paths.end();
+    return false;
 }
 
 bool BetaRowset::check_file_exist() {
-    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        if (!env->path_exists(path_desc.filepath).ok()) {
-            LOG(WARNING) << "data file not existed: " << path_desc.filepath
-                    << " for rowset_id: " << rowset_id();
+        auto seg_path = segment_file_path(i);
+        auto fs = _rowset_meta->fs();
+        if (!fs) {
+            return false;
+        }
+        bool seg_file_exist = false;
+        if (!fs->exists(seg_path, &seg_file_exist).ok() || !seg_file_exist) {
+            LOG(WARNING) << "data file not existed: " << seg_path
+                         << " for rowset_id: " << rowset_id();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BetaRowset::check_current_rowset_segment() {
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return false;
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        std::shared_ptr<segment_v2::Segment> segment;
+        io::SegmentCachePathPolicy cache_policy;
+        cache_policy.set_cache_path(segment_cache_path(seg_id));
+        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+                                             cache_policy);
+        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
+                                           reader_options, &segment);
+        if (!s.ok()) {
+            LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return false;
         }
     }

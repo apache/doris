@@ -53,8 +53,12 @@ public class ColumnBound implements Comparable<ColumnBound> {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         ColumnBound that = (ColumnBound) o;
         return Objects.equal(value, that.value);
     }

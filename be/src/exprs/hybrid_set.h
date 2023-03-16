@@ -15,19 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
+#pragma once
 
 #include <parallel_hashmap/phmap.h>
 
-#include <cstring>
-
 #include "common/object_pool.h"
-#include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -39,16 +35,24 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
+    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
+
     virtual void insert(HybridSetBase* set) = 0;
 
     virtual int size() = 0;
-    virtual bool find(void* data) = 0;
+    virtual bool find(const void* data) = 0;
     // use in vectorize execute engine
-    virtual bool find(void* data, size_t) = 0;
+    virtual bool find(const void* data, size_t) = 0;
+
+    virtual void find_fixed_len(const char* data, const uint8* nullmap, int number,
+                                uint8* results) {
+        LOG(FATAL) << "HybridSetBase not support find_fixed_len";
+    }
+
     class IteratorBase {
     public:
-        IteratorBase() {}
-        virtual ~IteratorBase() {}
+        IteratorBase() = default;
+        virtual ~IteratorBase() = default;
         virtual const void* get_value() = 0;
         virtual bool has_next() const = 0;
         virtual void next() = 0;
@@ -57,26 +61,36 @@ public:
     virtual IteratorBase* begin() = 0;
 };
 
-template <class T>
+template <PrimitiveType T>
 class HybridSet : public HybridSetBase {
 public:
+    using CppType = typename VecPrimitiveTypeTraits<T>::CppType;
+
     HybridSet() = default;
 
     ~HybridSet() override = default;
 
     void insert(const void* data) override {
-        if (data == nullptr) return;
+        if (data == nullptr) {
+            return;
+        }
 
-        if (sizeof(T) >= 16) {
-            // for largeint, it will core dump with no memcpy
-            T value;
-            memcpy(&value, data, sizeof(T));
+        if constexpr (sizeof(CppType) >= 16) {
+            // for large int, it will core dump with no memcpy
+            CppType value;
+            memcpy(&value, data, sizeof(CppType));
             _set.insert(value);
         } else {
-            _set.insert(*reinterpret_cast<const T*>(data));
+            _set.insert(*reinterpret_cast<const CppType*>(data));
         }
     }
     void insert(void* data, size_t) override { insert(data); }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        for (int i = 0; i < number; i++) {
+            insert((void*)((CppType*)data + offsets[i]));
+        }
+    }
 
     void insert(HybridSetBase* set) override {
         HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
@@ -85,12 +99,27 @@ public:
 
     int size() override { return _set.size(); }
 
-    bool find(void* data) override {
-        auto it = _set.find(*reinterpret_cast<T*>(data));
+    bool find(const void* data) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto it = _set.find(*reinterpret_cast<const CppType*>(data));
         return !(it == _set.end());
     }
 
-    bool find(void* data, size_t) override { return find(data); }
+    bool find(const void* data, size_t) override { return find(data); }
+
+    void find_fixed_len(const char* data, const uint8* nullmap, int number,
+                        uint8* results) override {
+        for (int i = 0; i < number; i++) {
+            if (nullmap != nullptr && nullmap[i]) {
+                results[i] = false;
+            } else {
+                results[i] = _set.count(*((CppType*)data + i));
+            }
+        }
+    }
 
     template <class _iT>
     class Iterator : public IteratorBase {
@@ -99,9 +128,9 @@ public:
                  typename phmap::flat_hash_set<_iT>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() { return _begin.operator->(); }
-        virtual void next() { ++_begin; }
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override { return _begin.operator->(); }
+        void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<_iT>::iterator _begin;
@@ -109,49 +138,62 @@ public:
     };
 
     IteratorBase* begin() override {
-        return _pool.add(new (std::nothrow) Iterator<T>(_set.begin(), _set.end()));
+        return _pool.add(new (std::nothrow) Iterator<CppType>(_set.begin(), _set.end()));
     }
 
+    phmap::flat_hash_set<CppType>* get_inner_set() { return &_set; }
+
 private:
-    phmap::flat_hash_set<T> _set;
+    phmap::flat_hash_set<CppType> _set;
     ObjectPool _pool;
 };
 
-class StringValueSet : public HybridSetBase {
+class StringSet : public HybridSetBase {
 public:
-    StringValueSet() = default;
+    StringSet() = default;
 
-    ~StringValueSet() override = default;
+    ~StringSet() override = default;
 
     void insert(const void* data) override {
-        if (data == nullptr) return;
+        if (data == nullptr) {
+            return;
+        }
 
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        std::string str_value(value->ptr, value->len);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        std::string str_value(value->data, value->size);
         _set.insert(str_value);
     }
+
     void insert(void* data, size_t size) override {
         std::string str_value(reinterpret_cast<char*>(data), size);
         _set.insert(str_value);
     }
 
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        LOG(FATAL) << "string set not support insert_fixed_len";
+    }
+
     void insert(HybridSetBase* set) override {
-        StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
+        StringSet* string_set = reinterpret_cast<StringSet*>(set);
         _set.insert(string_set->_set.begin(), string_set->_set.end());
     }
 
     int size() override { return _set.size(); }
 
-    bool find(void* data) override {
-        auto* value = reinterpret_cast<StringValue*>(data);
-        std::string_view str_value(const_cast<const char*>(value->ptr), value->len);
+    bool find(const void* data) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto* value = reinterpret_cast<const StringRef*>(data);
+        std::string_view str_value(const_cast<const char*>(value->data), value->size);
         auto it = _set.find(str_value);
 
         return !(it == _set.end());
     }
 
-    bool find(void* data, size_t size) override {
-        std::string str_value(reinterpret_cast<char*>(data), size);
+    bool find(const void* data, size_t size) override {
+        std::string str_value(reinterpret_cast<const char*>(data), size);
         auto it = _set.find(str_value);
         return !(it == _set.end());
     }
@@ -162,29 +204,116 @@ public:
                  phmap::flat_hash_set<std::string>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() {
-            _value.ptr = const_cast<char*>(_begin->data());
-            _value.len = _begin->length();
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override {
+            _value.data = const_cast<char*>(_begin->data());
+            _value.size = _begin->length();
             return &_value;
         }
-        virtual void next() { ++_begin; }
+        void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<std::string>::iterator _begin;
         typename phmap::flat_hash_set<std::string>::iterator _end;
-        StringValue _value;
+        StringRef _value;
     };
 
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
+    phmap::flat_hash_set<std::string>* get_inner_set() { return &_set; }
+
 private:
     phmap::flat_hash_set<std::string> _set;
     ObjectPool _pool;
 };
 
-} // namespace doris
+// note: Two difference from StringSet
+// 1 StringRef has better comparison performance than std::string
+// 2 std::string keeps its own memory, bug StringRef just keeps ptr and len, so you the caller should manage memory of StringRef
+class StringValueSet : public HybridSetBase {
+public:
+    StringValueSet() = default;
 
-#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
+    ~StringValueSet() override = default;
+
+    void insert(const void* data) override {
+        if (data == nullptr) {
+            return;
+        }
+
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        StringRef sv(value->data, value->size);
+        _set.insert(sv);
+    }
+
+    void insert(void* data, size_t size) override {
+        StringRef sv(reinterpret_cast<char*>(data), size);
+        _set.insert(sv);
+    }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        LOG(FATAL) << "string set not support insert_fixed_len";
+    }
+
+    void insert(HybridSetBase* set) override {
+        StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
+        _set.insert(string_set->_set.begin(), string_set->_set.end());
+    }
+
+    int size() override { return _set.size(); }
+
+    bool find(const void* data) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        auto* value = reinterpret_cast<const StringRef*>(data);
+        auto it = _set.find(*value);
+
+        return !(it == _set.end());
+    }
+
+    bool find(const void* data, size_t size) override {
+        if (data == nullptr) {
+            return false;
+        }
+
+        StringRef sv(reinterpret_cast<const char*>(data), size);
+        auto it = _set.find(sv);
+        return !(it == _set.end());
+    }
+
+    class Iterator : public IteratorBase {
+    public:
+        Iterator(phmap::flat_hash_set<StringRef>::iterator begin,
+                 phmap::flat_hash_set<StringRef>::iterator end)
+                : _begin(begin), _end(end) {}
+        ~Iterator() override = default;
+        bool has_next() const override { return !(_begin == _end); }
+        const void* get_value() override {
+            _value.data = const_cast<char*>(_begin->data);
+            _value.size = _begin->size;
+            return &_value;
+        }
+        void next() override { ++_begin; }
+
+    private:
+        typename phmap::flat_hash_set<StringRef>::iterator _begin;
+        typename phmap::flat_hash_set<StringRef>::iterator _end;
+        StringRef _value;
+    };
+
+    IteratorBase* begin() override {
+        return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
+    }
+
+    phmap::flat_hash_set<StringRef>* get_inner_set() { return &_set; }
+
+private:
+    phmap::flat_hash_set<StringRef> _set;
+    ObjectPool _pool;
+};
+
+} // namespace doris

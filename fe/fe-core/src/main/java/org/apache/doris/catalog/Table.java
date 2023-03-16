@@ -20,20 +20,24 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,16 +45,17 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
  */
-public class Table extends MetaObject implements Writable {
+public abstract class Table extends MetaObject implements Writable, TableIf {
     private static final Logger LOG = LogManager.getLogger(Table.class);
 
     // empirical value.
@@ -59,24 +64,13 @@ public class Table extends MetaObject implements Writable {
 
     public volatile boolean isDropped = false;
 
-    public enum TableType {
-        MYSQL,
-        ODBC,
-        OLAP,
-        SCHEMA,
-        INLINE_VIEW,
-        VIEW,
-        BROKER,
-        ELASTICSEARCH,
-        HIVE,
-        ICEBERG
-    }
-
+    private boolean hasCompoundKey = false;
     protected long id;
     protected volatile String name;
+    protected volatile String qualifiedDbName;
     protected TableType type;
     protected long createTime;
-    protected ReentrantReadWriteLock rwLock;
+    protected QueryableReentrantReadWriteLock rwLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -84,7 +78,7 @@ public class Table extends MetaObject implements Writable {
      *      to query but visible to load process.
      *  If you want to get all visible columns, you should call getBaseSchema() method, which is override in
      *  sub classes.
-     *  
+     *
      *  NOTICE: the order of this fullSchema is meaningless to OlapTable
      */
     /**
@@ -95,7 +89,7 @@ public class Table extends MetaObject implements Writable {
      * Schema change (c3 to bigint)
      * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
      * The fullSchema of OlapTable is mainly used by Scanner of Load job.
-     *
+     * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
     protected List<Column> fullSchema;
@@ -116,7 +110,7 @@ public class Table extends MetaObject implements Writable {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new ReentrantReadWriteLock(true);
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -130,13 +124,13 @@ public class Table extends MetaObject implements Writable {
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (this.fullSchema != null) {
             for (Column col : this.fullSchema) {
-                nameToColumn.put(col.getName(), col);
+                nameToColumn.put(col.getDefineName(), col);
             }
         } else {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new ReentrantReadWriteLock();
+        this.rwLock = new QueryableReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
     }
 
@@ -154,7 +148,12 @@ public class Table extends MetaObject implements Writable {
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
+            boolean res = this.rwLock.readLock().tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try read lock at table[" + name + "]", e);
             return false;
@@ -170,16 +169,22 @@ public class Table extends MetaObject implements Writable {
     }
 
     public boolean writeLockIfExist() {
-        if (!isDropped) {
-            this.rwLock.writeLock().lock();
-            return true;
+        this.rwLock.writeLock().lock();
+        if (isDropped) {
+            this.rwLock.writeLock().unlock();
+            return false;
         }
-        return false;
+        return true;
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-           return this.rwLock.writeLock().tryLock(timeout, unit);
+            boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
+            if (!res && unit.toSeconds(timeout) >= 1) {
+                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
+                        name, timeout, unit.name(), rwLock.getOwner());
+            }
+            return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;
@@ -252,12 +257,29 @@ public class Table extends MetaObject implements Writable {
         return id;
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
     public void setName(String newName) {
         name = newName;
+    }
+
+    void setQualifiedDbName(String qualifiedDbName) {
+        this.qualifiedDbName = qualifiedDbName;
+    }
+
+    public String getQualifiedDbName() {
+        return qualifiedDbName;
+    }
+
+    public String getQualifiedName() {
+        if (StringUtils.isEmpty(qualifiedDbName)) {
+            return name;
+        } else {
+            return qualifiedDbName + "." + name;
+        }
     }
 
     public TableType getType() {
@@ -281,7 +303,7 @@ public class Table extends MetaObject implements Writable {
         if (full) {
             return fullSchema;
         } else {
-            return fullSchema.stream().filter(column -> column.isVisible()).collect(Collectors.toList());
+            return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
     }
 
@@ -295,6 +317,10 @@ public class Table extends MetaObject implements Writable {
 
     public Column getColumn(String name) {
         return nameToColumn.get(name);
+    }
+
+    public List<Column> getColumns() {
+        return Lists.newArrayList(nameToColumn.values());
     }
 
     public long getCreateTime() {
@@ -327,6 +353,8 @@ public class Table extends MetaObject implements Writable {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
+        } else if (type == TableType.MATERIALIZED_VIEW) {
+            table = new MaterializedView();
         } else if (type == TableType.ODBC) {
             table = new OdbcTable();
         } else if (type == TableType.MYSQL) {
@@ -341,6 +369,10 @@ public class Table extends MetaObject implements Writable {
             table = new HiveTable();
         } else if (type == TableType.ICEBERG) {
             table = new IcebergTable();
+        } else if (type == TableType.HUDI) {
+            table = new HudiTable();
+        } else if (type == TableType.JDBC) {
+            table = new JdbcTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }
@@ -384,31 +416,25 @@ public class Table extends MetaObject implements Writable {
 
         this.id = in.readLong();
         this.name = Text.readString(in);
-
+        List<Column> keys = Lists.newArrayList();
         // base schema
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
+            if (column.isKey()) {
+                keys.add(column);
+            }
             this.fullSchema.add(column);
             this.nameToColumn.put(column.getName(), column);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_63) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
+        if (keys.size() > 1) {
+            keys.forEach(key -> key.setCompoundKey(true));
+            hasCompoundKey = true;
         }
+        comment = Text.readString(in);
 
         // read create time
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
-            this.createTime = in.readLong();
-        } else {
-            this.createTime = -1L;
-        }
-    }
-
-    public boolean equals(Table table) {
-        return true;
+        this.createTime = in.readLong();
     }
 
     // return if this table is partitioned.
@@ -421,55 +447,22 @@ public class Table extends MetaObject implements Writable {
         return null;
     }
 
+    @Override
     public String getEngine() {
-        switch (type) {
-            case MYSQL:
-                return "MySQL";
-            case ODBC:
-                return "Odbc";
-            case OLAP:
-                return "Doris";
-            case SCHEMA:
-                return "MEMORY";
-            case INLINE_VIEW:
-                return "InlineView";
-            case VIEW:
-                return "View";
-            case BROKER:
-                return "Broker";
-            case ELASTICSEARCH:
-                return "ElasticSearch";
-            case HIVE:
-                return "Hive";
-            default:
-                return null;
-        }
+        return type.toEngineName();
     }
 
+    @Override
     public String getMysqlType() {
-        switch (type) {
-            case OLAP:
-                return "BASE TABLE";
-            case SCHEMA:
-                return "SYSTEM VIEW";
-            case INLINE_VIEW:
-            case VIEW:
-                return "VIEW";
-            case MYSQL:
-            case ODBC:
-            case BROKER:
-            case ELASTICSEARCH:
-            case HIVE:
-                return "EXTERNAL TABLE";
-            default:
-                return null;
-        }
+        return type.toMysqlType();
     }
 
+    @Override
     public String getComment() {
         return getComment(false);
     }
 
+    @Override
     public String getComment(boolean escapeQuota) {
         if (!Strings.isNullOrEmpty(comment)) {
             if (!escapeQuota) {
@@ -482,6 +475,10 @@ public class Table extends MetaObject implements Writable {
 
     public void setComment(String comment) {
         this.comment = Strings.nullToEmpty(comment);
+    }
+
+    public void setId(long id) {
+        this.id = id;
     }
 
     public CreateTableStmt toCreateTableStmt(String dbName) {
@@ -508,11 +505,42 @@ public class Table extends MetaObject implements Writable {
 
         OlapTable olapTable = (OlapTable) this;
 
-        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+        if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             LOG.debug("table {} is a colocate table, skip tablet checker.", name);
             return false;
         }
 
         return true;
+    }
+
+    public boolean isHasCompoundKey() {
+        return hasCompoundKey;
+    }
+
+    public Set<String> getPartitionNames() {
+        return Collections.EMPTY_SET;
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+        throw new NotImplementedException();
+    }
+
+    /**
+     * for NOT-ANALYZED Olap table, return estimated row count,
+     * for other table, return 1
+     * @return estimated row count
+     */
+    public long estimatedRowCount() {
+        long cardinality = 0;
+        if (this instanceof OlapTable) {
+            OlapTable table = (OlapTable) this;
+            for (long selectedPartitionId : table.getPartitionIds()) {
+                final Partition partition = table.getPartition(selectedPartitionId);
+                final MaterializedIndex baseIndex = partition.getBaseIndex();
+                cardinality += baseIndex.getRowCount();
+            }
+        }
+        return Math.max(cardinality, 1);
     }
 }

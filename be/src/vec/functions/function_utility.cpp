@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <thread>
 
-#include "util/monotime.h"
+#include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
@@ -43,8 +44,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
 
         auto res_column = ColumnUInt8::create();
 
@@ -60,7 +60,7 @@ public:
                     null_map_column->insert(1);
                 } else {
                     int seconds = data_column->get_data()[i];
-                    SleepFor(MonoDelta::FromSeconds(seconds));
+                    std::this_thread::sleep_for(std::chrono::seconds(seconds));
                     res_column->insert(1);
                     null_map_column->insert(0);
                 }
@@ -73,7 +73,7 @@ public:
 
             for (int i = 0; i < input_rows_count; i++) {
                 int seconds = data_column->get_element(i);
-                SleepFor(MonoDelta::FromSeconds(seconds));
+                std::this_thread::sleep_for(std::chrono::seconds(seconds));
                 res_column->insert(1);
             }
 
@@ -103,12 +103,13 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto res_column = ColumnString::create();
         res_column->insert_data(version.c_str(), version.length());
-        block.replace_by_position(result, std::move(res_column));
+        auto col_const = ColumnConst::create(std::move(res_column), input_rows_count);
+        block.replace_by_position(result, std::move(col_const));
         return Status::OK();
     }
 };
 
-const std::string FunctionVersion::version = "5.1.0";
+const std::string FunctionVersion::version = "5.7.99";
 
 void register_function_utility(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSleep>();

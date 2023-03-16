@@ -24,45 +24,43 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class MaterializedIndexMetaTest {
 
     private static String fileName = "./MaterializedIndexMetaSerializeTest";
+    private static Path path = Paths.get(fileName);
 
     @After
-    public void tearDown() {
-        File file = new File(fileName);
-        file.delete();
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(path);
     }
 
     @Test
     public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewStmt stmt)
             throws IOException, AnalysisException {
         // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+        Files.createFile(path);
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
         String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_" + "k1";
         List<Column> schema = Lists.newArrayList();
@@ -92,7 +90,7 @@ public class MaterializedIndexMetaTest {
         out.close();
 
         List<Expr> params = Lists.newArrayList();
-        SlotRef param1 = new SlotRef(new TableName(null, "test"), "c1");
+        SlotRef param1 = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "test"), "c1");
         params.add(param1);
         Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
         columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
@@ -105,7 +103,7 @@ public class MaterializedIndexMetaTest {
 
 
         // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
         MaterializedIndexMeta readIndexMeta = MaterializedIndexMeta.read(in);
         Assert.assertEquals(1, readIndexMeta.getIndexId());
         List<Column> resultColumns = readIndexMeta.getSchema();
@@ -119,5 +117,7 @@ public class MaterializedIndexMetaTest {
                 Assert.assertEquals(null, column.getDefineExpr());
             }
         }
+        // 3.close
+        in.close();
     }
 }

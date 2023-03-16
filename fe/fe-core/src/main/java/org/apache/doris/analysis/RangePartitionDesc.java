@@ -32,15 +32,15 @@ import java.util.Map;
 public class RangePartitionDesc extends PartitionDesc {
 
     public RangePartitionDesc(List<String> partitionColNames,
-                              List<SinglePartitionDesc> singlePartitionDescs) {
-        super(partitionColNames, singlePartitionDescs);
+                              List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        super(partitionColNames, allPartitionDescs);
         type = org.apache.doris.catalog.PartitionType.RANGE;
     }
 
     @Override
     public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
-        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED &&
-                partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
+        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED
+                && partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
             throw new AnalysisException("You can only use fixed or less than values to create range partitions");
         }
     }
@@ -58,7 +58,7 @@ public class RangePartitionDesc extends PartitionDesc {
             idx++;
         }
         sb.append(")\n(\n");
-        
+
         for (int i = 0; i < singlePartitionDescs.size(); i++) {
             if (i != 0) {
                 sb.append(",\n");
@@ -84,6 +84,10 @@ public class RangePartitionDesc extends PartitionDesc {
             boolean find = false;
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
+                    if (column.getType().isComplexType()) {
+                        throw new DdlException("Complex type column can't be partition column: "
+                                + column.getType().toString());
+                    }
                     try {
                         RangePartitionInfo.checkPartitionColumn(column);
                     } catch (AnalysisException e) {
@@ -93,10 +97,6 @@ public class RangePartitionDesc extends PartitionDesc {
                     partitionColumns.add(column);
                     find = true;
                     break;
-                }
-                if (column.getType().isComplexType()) {
-                    throw new DdlException("Complex type column can't be partition column: "
-                            + column.getType().toString());
                 }
             }
             if (!find) {

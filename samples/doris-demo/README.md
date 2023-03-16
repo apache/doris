@@ -35,6 +35,18 @@ Provide usage examples of Doris stream load, including file and memory data impo
 
 Provides the use of Spring to integrate Doris, and provides external data access interfaces
 
+# rpc-udf-java-demo
+
+Provides an example of how to implements an Doris udf function service in java 
+
+# rpc-udf-cpp-demo
+
+Provides an example of how to implements an Doris udf function service in CPP 
+
+# rpc-udf-python-demo
+
+Provides an example of how to implements an Doris udf function service in Python 
+
 # docs
 
 Instructions for each example

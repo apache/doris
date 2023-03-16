@@ -20,8 +20,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
-#include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::starts_with
 #include <sstream>
 
 #include "common/status.h"
@@ -33,6 +31,7 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/md5.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -41,7 +40,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(small_file_cache_count, MetricUnit::NOUNIT);
 SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
         : _exec_env(env), _local_path(local_path) {
     REGISTER_HOOK_METRIC(small_file_cache_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _file_cache.size();
     });
 }
@@ -64,7 +63,7 @@ Status SmallFileMgr::_load_local_files() {
         }
         auto st = _load_single_file(_local_path, file);
         if (!st.ok()) {
-            LOG(WARNING) << "load small file failed: " << st.get_error_msg();
+            LOG(WARNING) << "load small file failed: " << st;
         }
         return true;
     };
@@ -78,19 +77,19 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     // file_id.md5
     std::vector<std::string> parts = strings::Split(file_name, ".");
     if (parts.size() != 2) {
-        return Status::InternalError("Not a valid file name: " + file_name);
+        return Status::InternalError("Not a valid file name: {}", file_name);
     }
     int64_t file_id = std::stol(parts[0]);
     std::string md5 = parts[1];
 
     if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status::InternalError("File with same id is already been loaded: " + file_id);
+        return Status::InternalError("File with same id is already been loaded: {}", file_id);
     }
 
     std::string file_md5;
     RETURN_IF_ERROR(FileUtils::md5sum(path + "/" + file_name, &file_md5));
     if (file_md5 != md5) {
-        return Status::InternalError("Invalid md5 of file: " + file_name);
+        return Status::InternalError("Invalid md5 of file: {}", file_name);
     }
 
     CacheEntry entry;
@@ -112,9 +111,8 @@ Status SmallFileMgr::get_file(int64_t file_id, const std::string& md5, std::stri
         if (!st.ok()) {
             // check file failed, we should remove this cache and download it from FE again
             if (remove(entry.path.c_str()) != 0) {
-                std::stringstream ss;
-                ss << "failed to remove file: " << file_id << ", err: " << std::strerror(errno);
-                return Status::InternalError(ss.str());
+                return Status::InternalError("failed to remove file: {}, err: {}", file_id,
+                                             std::strerror(errno));
             }
             _file_cache.erase(it);
         } else {
@@ -134,7 +132,7 @@ Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5
     if (!FileUtils::check_exist(entry.path)) {
         return Status::InternalError("file not exist");
     }
-    if (!boost::iequals(md5, entry.md5)) {
+    if (!iequal(md5, entry.md5)) {
         return Status::InternalError("invalid MD5");
     }
     return Status::OK();
@@ -187,7 +185,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
     RETURN_IF_ERROR(status);
     digest.digest();
 
-    if (!boost::iequals(digest.hex(), md5)) {
+    if (!iequal(digest.hex(), md5)) {
         LOG(WARNING) << "file's checksum is not equal, download: " << digest.hex()
                      << ", expected: " << md5 << ", file: " << file_id;
         return Status::InternalError("download with invalid md5");

@@ -20,18 +20,42 @@
 #include <memory>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "olap/column_predicate.h"
 #include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
+#include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
 class RowCursor;
-class RowBlockV2;
 class Schema;
-class Conditions;
 class ColumnPredicate;
+
+struct IOContext {
+    IOContext() = default;
+
+    IOContext(const TUniqueId* query_id_, FileCacheStatistics* stats_, bool is_presistent_,
+              bool use_disposable_cache_, bool read_segment_index_, bool enable_file_cache)
+            : query_id(query_id_),
+              is_persistent(is_presistent_),
+              use_disposable_cache(use_disposable_cache_),
+              read_segment_index(read_segment_index_),
+              file_cache_stats(stats_),
+              enable_file_cache(enable_file_cache) {}
+    ReaderType reader_type;
+    const TUniqueId* query_id = nullptr;
+    bool is_persistent = false;
+    bool use_disposable_cache = false;
+    bool read_segment_index = false;
+    FileCacheStatistics* file_cache_stats = nullptr;
+    bool enable_file_cache = true;
+};
+namespace vectorized {
+struct IteratorRowRef;
+};
 
 class StorageReadOptions {
 public:
@@ -63,32 +87,53 @@ public:
     // used by short key index to filter row blocks
     std::vector<KeyRange> key_ranges;
 
-    // reader's column predicates, nullptr if not existed.
-    // used by column index to filter pages and rows
-    // TODO use vector<ColumnPredicate*> instead
-    const Conditions* conditions = nullptr;
+    // For unique-key merge-on-write, the effect is similar to delete_conditions
+    // that filters out rows that are deleted in realtime.
+    // For a particular row, if delete_bitmap.contains(rowid) means that row is
+    // marked deleted and invisible to user anymore.
+    // segment_id -> roaring::Roaring*
+    std::unordered_map<uint32_t, std::shared_ptr<roaring::Roaring>> delete_bitmap;
 
-    // delete conditions used by column index to filter pages
-    std::vector<const Conditions*> delete_conditions;
-
-    std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
+    std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
+            std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
-    // TODO(hkp): refactor the column predicate framework
-    // to unify Conditions and ColumnPredicate
     std::vector<ColumnPredicate*> column_predicates;
+    std::vector<ColumnPredicate*> column_predicates_except_leafnode_of_andnode;
+    std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
+    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
+    TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
-    int block_row_max = 4096;
+    int block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
+
+    TabletSchemaSPtr tablet_schema = nullptr;
+    bool record_rowids = false;
+    // flag for enable topn opt
+    bool use_topn_opt = false;
+    // used for special optimization for query : ORDER BY key DESC LIMIT n
+    bool read_orderby_key_reverse = false;
+    // columns for orderby keys
+    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
+    IOContext io_ctx;
+    vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
+    const std::set<int32_t>* output_columns = nullptr;
+    // runtime state
+    RuntimeState* runtime_state = nullptr;
+    RowsetId rowset_id;
+    Version version;
+    int32_t tablet_id = 0;
 };
 
-// Used to read data in RowBlockV2 one by one
+class RowwiseIterator;
+using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
 public:
-    RowwiseIterator() {}
-    virtual ~RowwiseIterator() {}
+    RowwiseIterator() = default;
+    virtual ~RowwiseIterator() = default;
 
     // Initialize this iterator and make it ready to read with
     // input options.
@@ -101,9 +146,26 @@ public:
     // into input batch with Status::OK() returned
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
-    virtual Status next_batch(RowBlockV2* block) { return Status::NotSupported("to be implemented"); }
+    virtual Status next_batch(vectorized::Block* block) {
+        return Status::NotSupported("to be implemented");
+    }
 
-    virtual Status next_batch(vectorized::Block* block) { return Status::NotSupported("to be implemented"); }
+    virtual Status next_block_view(vectorized::BlockView* block_view) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status next_row(vectorized::IteratorRowRef* ref) {
+        return Status::NotSupported("to be implemented");
+    }
+    virtual Status unique_key_next_row(vectorized::IteratorRowRef* ref) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual bool support_return_data_by_ref() { return false; }
+
+    virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
+        return Status::NotSupported("to be implemented");
+    }
 
     // return schema for this Iterator
     virtual const Schema& schema() const = 0;
@@ -115,8 +177,12 @@ public:
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
 
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
+    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    // return rows merged count by iterator
+    virtual uint64_t merged_rows() const { return 0; }
+
+    // return if it's an empty iterator
+    virtual bool empty() const { return false; }
 };
 
 } // namespace doris

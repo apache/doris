@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -31,7 +30,7 @@ public class TupleIsNullPredicateTest {
         List<TupleId> tupleIds = Lists.newArrayList();
         tupleIds.add(new TupleId(20));
         tupleIds.add(new TupleId(21));
-        TupleIsNullPredicate tupleIsNullPredicate = new TupleIsNullPredicate(tupleIds);
+        TupleIsNullPredicate tupleIsNullPredicate = new TupleIsNullPredicate(tupleIds, null);
         Assert.assertFalse(tupleIsNullPredicate.isBoundByTupleIds(Lists.newArrayList(new TupleId(1))));
     }
 }

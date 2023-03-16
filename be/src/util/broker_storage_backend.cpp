@@ -18,14 +18,17 @@
 #include "util/broker_storage_backend.h"
 
 #include "env/env.h"
-#include "exec/broker_reader.h"
-#include "exec/broker_writer.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "io/broker_writer.h"
+#include "io/file_factory.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_options.h"
 #include "olap/file_helper.h"
+#include "olap/iterators.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 
@@ -42,17 +45,31 @@ inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
 }
 #endif
 
+void BrokerStorageBackend::_init_file_description(const std::string& remote) {
+    _file_description.path = remote;
+    _file_description.start_offset = 0;
+    _file_description.file_size = 0;
+}
+
 BrokerStorageBackend::BrokerStorageBackend(ExecEnv* env, const TNetworkAddress& broker_addr,
                                            const std::map<std::string, std::string>& broker_prop)
         : _env(env), _broker_addr(broker_addr), _broker_prop(broker_prop) {}
 
 Status BrokerStorageBackend::download(const std::string& remote, const std::string& local) {
     // 1. open remote file for read
-    std::vector<TNetworkAddress> broker_addrs;
-    broker_addrs.push_back(_broker_addr);
-    std::unique_ptr<BrokerReader> broker_reader(
-            new BrokerReader(_env, broker_addrs, _broker_prop, remote, 0 /* offset */));
-    RETURN_IF_ERROR(broker_reader->open());
+    std::shared_ptr<io::FileSystem> file_system;
+    io::FileReaderSPtr broker_reader = nullptr;
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
+    IOContext io_ctx;
+    if (config::enable_file_cache && io_ctx.enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    }
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
+    _init_file_description(remote);
+    RETURN_IF_ERROR(FileFactory::create_broker_reader(_broker_addr, _broker_prop, _file_description,
+                                                      &file_system, &broker_reader, reader_options,
+                                                      &io_ctx));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local)) {
@@ -61,36 +78,32 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
 
     // 3. open local file for write
     FileHandler file_handler;
-    OLAPStatus ost =
+    Status ost =
             file_handler.open_with_mode(local, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
-    if (ost != OLAP_SUCCESS) {
-        return Status::InternalError("failed to open file: " + local);
+    if (!ost.ok()) {
+        return Status::InternalError("failed to open file: {}", local);
     }
 
     // 4. read remote and write to local
     VLOG(2) << "read remote file: " << remote << " to local: " << local;
     constexpr size_t buf_sz = 1024 * 1024;
-    char read_buf[buf_sz];
+    std::unique_ptr<uint8_t[]> read_buf(new uint8_t[buf_sz]);
     size_t write_offset = 0;
-    bool eof = false;
-    while (!eof) {
-        int64_t read_len = 0;
-        RETURN_IF_ERROR(
-                broker_reader->read(reinterpret_cast<uint8_t*>(read_buf), buf_sz, &read_len, &eof));
-
-        if (eof) {
-            continue;
+    size_t cur_offset = 0;
+    while (true) {
+        size_t read_len = 0;
+        Slice file_slice(read_buf.get(), buf_sz);
+        RETURN_IF_ERROR(broker_reader->read_at(cur_offset, file_slice, io_ctx, &read_len));
+        cur_offset += read_len;
+        if (read_len == 0) {
+            break;
         }
 
-        if (read_len > 0) {
-            ost = file_handler.pwrite(read_buf, read_len, write_offset);
-            if (ost != OLAP_SUCCESS) {
-                return Status::InternalError("failed to write file: " + local);
-            }
-
-            write_offset += read_len;
+        ost = file_handler.pwrite(read_buf.get(), read_len, write_offset);
+        if (!ost.ok()) {
+            return Status::InternalError("failed to write file: {}", local);
         }
-
+        write_offset += read_len;
     } // file_handler should be closed before calculating checksum
 
     return Status::OK();
@@ -103,14 +116,14 @@ Status BrokerStorageBackend::direct_download(const std::string& remote, std::str
 Status BrokerStorageBackend::upload(const std::string& local, const std::string& remote) {
     // read file and write to broker
     FileHandler file_handler;
-    OLAPStatus ost = file_handler.open(local, O_RDONLY);
-    if (ost != OLAP_SUCCESS) {
-        return Status::InternalError("failed to open file: " + local);
+    Status ost = file_handler.open(local, O_RDONLY);
+    if (!ost.ok()) {
+        return Status::InternalError("failed to open file: {}", local);
     }
 
     size_t file_len = file_handler.length();
     if (file_len == -1) {
-        return Status::InternalError("failed to get length of file: " + local);
+        return Status::InternalError("failed to get length of file: {}", local);
     }
 
     // NOTICE: broker writer must be closed before calling rename
@@ -127,8 +140,8 @@ Status BrokerStorageBackend::upload(const std::string& local, const std::string&
     while (left_len > 0) {
         size_t read_len = left_len > buf_sz ? buf_sz : left_len;
         ost = file_handler.pread(read_buf, read_len, read_offset);
-        if (ost != OLAP_SUCCESS) {
-            return Status::InternalError("failed to read file: " + local);
+        if (!ost.ok()) {
+            return Status::InternalError("failed to read file: {}", local);
         }
         // write through broker
         size_t write_len = 0;
@@ -154,7 +167,7 @@ Status BrokerStorageBackend::rename(const std::string& orig_name, const std::str
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -184,7 +197,7 @@ Status BrokerStorageBackend::rename(const std::string& orig_name, const std::str
         std::stringstream ss;
         ss << "Fail to rename file: " << orig_name << " to: " << new_name << " msg:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     LOG(INFO) << "finished to rename file. orig: " << orig_name << ", new: " << new_name;
@@ -196,15 +209,15 @@ Status BrokerStorageBackend::rename_dir(const std::string& orig_name, const std:
     return rename(orig_name, new_name);
 }
 
-Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_md5,
-                                  bool recursion, std::map<std::string, FileStat>* files) {
+Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_md5, bool recursion,
+                                  std::map<std::string, FileStat>* files) {
     Status status = Status::OK();
     BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,
                                    &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -264,7 +277,7 @@ Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_m
         std::stringstream ss;
         ss << "failed to list files in remote path: " << remote_path << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 
     return status;
@@ -290,7 +303,7 @@ Status BrokerStorageBackend::rm(const std::string& remote) {
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -321,7 +334,7 @@ Status BrokerStorageBackend::rm(const std::string& remote) {
         std::stringstream ss;
         ss << "failed to delete file in remote path: " << remote << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 }
 
@@ -352,7 +365,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -376,7 +389,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         } else if (!check_rep.isPathExist) {
-            return Status::NotFound(path + " not exists!");
+            return Status::NotFound("{} not exists!", path);
         } else {
             return Status::OK();
         }
@@ -384,7 +397,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
         std::stringstream ss;
         ss << "failed to check exist: " << path << ", msg: " << e.what();
         LOG(WARNING) << ss.str();
-        return Status::ThriftRpcError(ss.str());
+        return Status::RpcError(ss.str());
     }
 }
 

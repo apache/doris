@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Predicate.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -29,11 +32,13 @@ public abstract class Predicate extends Expr {
 
     public Predicate() {
         super();
+        type = Type.BOOLEAN;
         this.isEqJoinConjunct = false;
     }
 
     protected Predicate(Predicate other) {
         super(other);
+        type = other.type;
         isEqJoinConjunct = other.isEqJoinConjunct;
     }
 
@@ -47,7 +52,6 @@ public abstract class Predicate extends Expr {
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        type = Type.BOOLEAN;
         // values: true/false/null
         numDistinctValues = 3;
     }
@@ -59,8 +63,7 @@ public abstract class Predicate extends Expr {
      * This will pick up something like "col = 5", but not "2 * col = 10", which is
      * what we want.
      */
-    public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef,
-      Reference<Integer> idxRef) {
+    public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef, Reference<Integer> idxRef) {
         // find slotref
         SlotRef slotRef = null;
         int i = 0;
@@ -117,14 +120,15 @@ public abstract class Predicate extends Expr {
                 Preconditions.checkState(right != null);
 
                 // ATTN(cmy): Usually, the BinaryPredicate in the query will be rewritten through ExprRewriteRule,
-                // and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right".
+                // and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right"
                 // So usually the right child is constant.
                 //
                 // But if there is a subquery in where clause, the planner will equal the subquery to join.
                 // During the equal, some auxiliary BinaryPredicate will be automatically generated,
                 // and these BinaryPredicates will not go through ExprRewriteRule.
                 // As a result, these BinaryPredicates may be as "column on the right and the constant on the left".
-                // Example can be found in QueryPlanTest.java -> testJoinPredicateTransitivityWithSubqueryInWhereClause().
+                // Example can be found in QueryPlanTest.java
+                //   -> testJoinPredicateTransitivityWithSubqueryInWhereClause().
                 //
                 // Because our current planner implementation is very error-prone, so when this happens,
                 // we simply assume that these kind of BinaryPredicates cannot be pushed down,
@@ -152,5 +156,10 @@ public abstract class Predicate extends Expr {
      */
     public Pair<SlotId, SlotId> getEqSlots() {
         return null;
+    }
+
+    @Override
+    public void finalizeImplForNereids() throws AnalysisException {
+        type = Type.BOOLEAN;
     }
 }

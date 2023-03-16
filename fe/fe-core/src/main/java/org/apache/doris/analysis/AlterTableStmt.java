@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,7 +47,7 @@ public class AlterTableStmt extends DdlStmt {
     }
 
     public void setTableName(String newTableName) {
-        tbl = new TableName(tbl.getDb(), newTableName);
+        tbl = new TableName(tbl.getCtl(), tbl.getDb(), newTableName);
     }
 
     public TableName getTbl() {
@@ -64,7 +65,9 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
                     ConnectContext.get().getQualifiedUser(),
@@ -75,6 +78,9 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
         for (AlterClause op : ops) {
+            if (op instanceof AlterTableClause) {
+                ((AlterTableClause) op).setTableName(tbl);
+            }
             op.analyze(analyzer);
         }
     }
@@ -87,10 +93,12 @@ public class AlterTableStmt extends DdlStmt {
                 if (alterFeature == null || alterFeature == EnableFeatureClause.Features.UNKNOWN) {
                     throw new AnalysisException("unknown feature for alter clause");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS
+                        && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                     throw new AnalysisException("Batch delete only supported in unique tables.");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS
+                        && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     throw new AnalysisException("Sequence load only supported in unique tables.");
                 }
                 // analyse sequence column
@@ -152,17 +160,17 @@ public class AlterTableStmt extends DdlStmt {
     public void checkExternalTableOperationAllow(Table table) throws UserException {
         List<AlterClause> clauses = new ArrayList<>();
         for (AlterClause alterClause : ops) {
-            if (alterClause instanceof TableRenameClause ||
-                    alterClause instanceof AddColumnClause ||
-                    alterClause instanceof AddColumnsClause ||
-                    alterClause instanceof DropColumnClause ||
-                    alterClause instanceof ModifyColumnClause ||
-                    alterClause instanceof ReorderColumnsClause ||
-                    alterClause instanceof ModifyEngineClause) {
+            if (alterClause instanceof TableRenameClause
+                    || alterClause instanceof AddColumnClause
+                    || alterClause instanceof AddColumnsClause
+                    || alterClause instanceof DropColumnClause
+                    || alterClause instanceof ModifyColumnClause
+                    || alterClause instanceof ReorderColumnsClause
+                    || alterClause instanceof ModifyEngineClause) {
                 clauses.add(alterClause);
             } else {
-                throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] " +
-                        "do not support " + alterClause.getOpType().toString() + " clause now");
+                throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "
+                        + "do not support " + alterClause.getOpType().toString() + " clause now");
             }
         }
         ops = clauses;

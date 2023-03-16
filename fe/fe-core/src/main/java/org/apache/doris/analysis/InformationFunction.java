@@ -50,7 +50,9 @@ public class InformationFunction extends Expr {
         return String.valueOf(intValue);
     }
 
-    public String getFuncType() {return funcType; }
+    public String getFuncType() {
+        return funcType;
+    }
 
     @Override
     public Expr clone() {

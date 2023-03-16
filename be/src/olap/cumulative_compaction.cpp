@@ -22,30 +22,30 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
-CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::string& label,
-                                           const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, label, parent_tracker) {}
+CumulativeCompaction::CumulativeCompaction(const TabletSharedPtr& tablet)
+        : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CumulativeCompaction::~CumulativeCompaction() {}
 
-OLAPStatus CumulativeCompaction::prepare_compact() {
+Status CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
+        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>();
     }
 
-    MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
+        return Status::Error<TRY_LOCK_FAILED>();
     }
     TRACE("got cumulative compaction lock");
 
     // 1. calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
-    VLOG_CRITICAL << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point()
-            << ", tablet=" << _tablet->full_name();
+    VLOG_CRITICAL << "after calculate, current cumulative point is "
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
@@ -53,14 +53,14 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus CumulativeCompaction::execute_compact_impl() {
-    MutexLock lock(_tablet->get_cumulative_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+Status CumulativeCompaction::execute_compact_impl() {
+    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
+        return Status::Error<TRY_LOCK_FAILED>();
     }
     TRACE("got cumulative compaction lock");
 
@@ -68,8 +68,10 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return OLAP_ERR_CUMULATIVE_CLONE_OCCURRED;
+        return Status::Error<CUMULATIVE_CLONE_OCCURRED>();
     }
+
+    SCOPED_ATTACH_TASK(_mem_tracker);
 
     // 3. do cumulative compaction, merge rowsets
     int64_t permits = get_compaction_permits();
@@ -83,28 +85,23 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
-              << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     TRACE("save cumulative compaction metrics");
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-
-    _tablet->pick_candidate_rowsets_to_cumulative_compaction(
-            config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
-
+Status CumulativeCompaction::pick_rowsets_to_compact() {
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
     if (candidate_rowsets.empty()) {
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
     }
 
-    // candidate_rowsets may not be continuous. Because some rowset may not be selected
-    // because the protection time has not expired(config::cumulative_compaction_skip_window_seconds).
+    // candidate_rowsets may not be continuous
     // So we need to choose the longest continuous path from it.
     std::vector<Version> missing_versions;
     RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
@@ -118,20 +115,19 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 
     size_t compaction_score = 0;
     int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets,
-            config::max_cumulative_compaction_num_singleton_deltas,
-            config::min_cumulative_compaction_num_singleton_deltas, &_input_rowsets,
-            &_last_delete_version, &compaction_score);
+            _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
+            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
+            &compaction_score);
 
     // Cumulative compaction will process with at least 1 rowset.
-    // So when there is no rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION:
+    // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():
     if (_input_rowsets.empty()) {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
-            return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
@@ -144,8 +140,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
         int64_t last_base = _tablet->last_base_compaction_success_time();
         if (last_cumu != 0 || last_base != 0) {
-            int64_t interval_threshold =
-                    config::base_compaction_interval_seconds_since_last_operation * 1000;
+            int64_t interval_threshold = 86400 * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
@@ -157,7 +152,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
                 for (auto& rs : candidate_rowsets) {
                     if (rs->rowset_meta()->is_segments_overlapping()) {
                         _input_rowsets = candidate_rowsets;
-                        return OLAP_SUCCESS;
+                        return Status::OK();
                     }
                 }
 
@@ -175,10 +170,10 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             }
         }
 
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

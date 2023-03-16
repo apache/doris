@@ -17,31 +17,50 @@
 
 #include "vec/olap/block_reader.h"
 
-#include "olap/row_block.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/schema.h"
-#include "olap/storage_engine.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
+#include "common/status.h"
+#include "olap/like_column_predicate.h"
+#include "olap/olap_common.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
-        AggregateFunctionPtr function = _agg_functions[i];
-        AggregateDataPtr place = _agg_places[i];
-        function->destroy(place);
-        delete[] place;
+        _agg_functions[i]->destroy(_agg_places[i]);
+        delete[] _agg_places[i];
     }
 }
 
-OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                           std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    _vcollect_iter.init(this);
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto res = _capture_rs_readers(read_params, &rs_readers);
-    if (res != OLAP_SUCCESS) {
+bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+    std::string cur_max_key;
+    for (const auto& rs_reader : rs_readers) {
+        // version 0-1 of every tablet is empty, just skip this rowset
+        if (rs_reader->rowset()->version().second == 1) {
+            continue;
+        }
+        if (rs_reader->rowset()->num_rows() == 0) {
+            continue;
+        }
+        if (rs_reader->rowset()->is_segments_overlapping()) {
+            return true;
+        }
+        std::string min_key;
+        bool has_min_key = rs_reader->rowset()->min_key(&min_key);
+        if (!has_min_key) {
+            return true;
+        }
+        if (min_key <= cur_max_key) {
+            return true;
+        }
+        CHECK(rs_reader->rowset()->max_key(&cur_max_key));
+    }
+    return false;
+}
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
+    if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
@@ -49,28 +68,36 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
                      << ", version:" << read_params.version;
         return res;
     }
+    // check if rowsets are noneoverlapping
+    _is_rowsets_overlapping = _rowsets_overlapping(read_params.rs_readers);
+    _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
+                        read_params.read_orderby_key_reverse);
 
-    _reader_context.batch_size = _batch_size;
-    _reader_context.is_vec = true;
-    for (auto& rs_reader : rs_readers) {
-        RETURN_NOT_OK(rs_reader->init(&_reader_context));
-        OLAPStatus res = _vcollect_iter.add_child(rs_reader);
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
+    std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    for (auto& rs_reader : read_params.rs_readers) {
+        // _vcollect_iter.topn_next() will init rs_reader by itself
+        if (!_vcollect_iter.use_topn_next()) {
+            RETURN_NOT_OK(rs_reader->init(&_reader_context));
+        }
+        Status res = _vcollect_iter.add_child(rs_reader);
+        if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
-        if (res == OLAP_SUCCESS) {
-            valid_rs_readers->push_back(rs_reader);
+        if (res.ok()) {
+            valid_rs_readers.push_back(rs_reader);
         }
     }
 
-    _vcollect_iter.build_heap(*valid_rs_readers);
-    if (_vcollect_iter.is_merge()) {
+    RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
+    // _vcollect_iter.topn_next() can not use current_row
+    if (!_vcollect_iter.use_topn_next()) {
         auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status == OLAP_ERR_DATA_EOF;
+        _eof = status.is<END_OF_FILE>();
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void BlockReader::_init_agg_state(const ReaderParams& read_params) {
@@ -79,29 +106,18 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     }
 
     _stored_data_columns =
-            _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
+            _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
 
-    auto& tablet_schema = tablet()->tablet_schema();
+    auto& tablet_schema = *_tablet_schema;
     for (auto idx : _agg_columns_idx) {
-        FieldAggregationMethod agg_method =
+        AggregateFunctionPtr function =
                 tablet_schema
                         .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
-                        .aggregation();
-        std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method) + agg_reader_suffix;
-        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-
-        // create aggregate function
-        DataTypes argument_types;
-        argument_types.push_back(_next_row.block->get_data_type(idx));
-        Array params;
-        AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
-                agg_name, argument_types, params,
-                _next_row.block->get_data_type(idx)->is_nullable());
+                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
+                                                vectorized::AGG_READER_SUFFIX);
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
@@ -109,7 +125,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         function->create(place);
         _agg_places.push_back(place);
 
-        //calculate has_string tag
+        // calculate `has_string` tag.
         _stored_has_string_tag[idx] =
                 _stored_data_columns[idx]->is_column_string() ||
                 (_stored_data_columns[idx]->is_nullable() &&
@@ -119,11 +135,10 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     }
 }
 
-OLAPStatus BlockReader::init(const ReaderParams& read_params) {
-    TabletReader::init(read_params);
+Status BlockReader::init(const ReaderParams& read_params) {
+    RETURN_NOT_OK(TabletReader::init(read_params));
 
-    auto return_column_size =
-            read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
+    int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
@@ -140,15 +155,14 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto status = _init_collect_iter(read_params, &rs_readers);
-    if (status != OLAP_SUCCESS) {
+    auto status = _init_collect_iter(read_params);
+    if (!status.ok()) {
         return status;
     }
 
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     switch (tablet()->keys_type()) {
@@ -156,7 +170,14 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &BlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        _next_block_func = &BlockReader::_unique_key_next_block;
+        if (_reader_context.enable_unique_key_merge_on_write) {
+            _next_block_func = &BlockReader::_direct_next_block;
+        } else {
+            _next_block_func = &BlockReader::_unique_key_next_block;
+            if (_filter_delete) {
+                _delete_filter_column = ColumnUInt8::create();
+            }
+        }
         break;
     case KeysType::AGG_KEYS:
         _next_block_func = &BlockReader::_agg_key_next_block;
@@ -167,32 +188,38 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
         break;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) {
+Status BlockReader::_direct_next_block(Block* block, bool* eof) {
     auto res = _vcollect_iter.next(block);
-    if (UNLIKELY(res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF)) {
+    if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
-    *eof = res == OLAP_ERR_DATA_EOF;
-    return OLAP_SUCCESS;
+    *eof = res.is<END_OF_FILE>();
+    _eof = *eof;
+    if (UNLIKELY(_reader_context.record_rowids)) {
+        res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
+        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>())) {
+            return res;
+        }
+        DCHECK_EQ(_block_row_locations.size(), block->rows());
+    }
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                                   ObjectPool* agg_pool, bool* eof) {
-    return OLAP_SUCCESS;
+Status BlockReader::_direct_agg_key_next_block(Block* block, bool* eof) {
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                            bool* eof) {
+Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     auto target_block_row = 0;
+    auto merged_row = 0;
     auto target_columns = block->mutate_columns();
 
     _insert_data_normal(target_columns);
@@ -201,17 +228,18 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
 
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
+        if (UNLIKELY(res.is<END_OF_FILE>())) {
+            _eof = true;
             *eof = true;
             break;
         }
-        if (UNLIKELY(res != OLAP_SUCCESS)) {
+        if (UNLIKELY(!res.ok())) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
 
-        if (!_next_row.is_same) {
-            if (target_block_row == _batch_size) {
+        if (!_get_next_row_same()) {
+            if (target_block_row == _reader_context.batch_size) {
                 break;
             }
             _agg_data_counters.push_back(_last_agg_data_counter);
@@ -219,6 +247,8 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
 
             _insert_data_normal(target_columns);
             target_block_row++;
+        } else {
+            merged_row++;
         }
 
         _append_agg_data(target_columns);
@@ -228,41 +258,80 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
 
-    _merged_rows += target_block_row;
-    return OLAP_SUCCESS;
+    _merged_rows += merged_row;
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     auto target_block_row = 0;
     auto target_columns = block->mutate_columns();
+    if (UNLIKELY(_reader_context.record_rowids)) {
+        _block_row_locations.resize(_reader_context.batch_size);
+    }
 
     do {
         _insert_data_normal(target_columns);
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
+        }
         target_block_row++;
 
         // the version is in reverse order, the first row is the highest version,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
+        if (UNLIKELY(res.is<END_OF_FILE>())) {
+            _eof = true;
             *eof = true;
+            if (UNLIKELY(_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
             break;
         }
 
-        if (UNLIKELY(res != OLAP_SUCCESS)) {
+        if (UNLIKELY(!res.ok())) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-    } while (target_block_row < _batch_size);
+    } while (target_block_row < _reader_context.batch_size);
 
-    _merged_rows += target_block_row;
-    return OLAP_SUCCESS;
+    // do filter delete row in base compaction, only base compaction need to do the job
+    if (_filter_delete) {
+        int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
+        DCHECK(delete_sign_idx > 0);
+        if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
+            LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
+                         << delete_sign_idx
+                         << " not invalid, skip filter delete in base compaction";
+            return Status::OK();
+        }
+        MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
+        reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
+
+        auto* __restrict filter_data =
+                reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
+        auto* __restrict delete_data =
+                reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
+                        ->get_data()
+                        .data();
+        for (int i = 0; i < target_block_row; ++i) {
+            filter_data[i] = delete_data[i] == 0;
+        }
+
+        ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
+                                                         std::make_shared<DataTypeUInt8>(),
+                                                         "__DORIS_COMPACTION_FILTER__"};
+        block->insert(column_with_type_and_name);
+        Block::filter_block(block, target_columns.size(), target_columns.size());
+        _stats.rows_del_filtered += target_block_row - block->rows();
+        DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
+    }
+    return Status::OK();
 }
 
 void BlockReader::_insert_data_normal(MutableColumns& columns) {
@@ -279,7 +348,7 @@ void BlockReader::_append_agg_data(MutableColumns& columns) {
 
     // execute aggregate when have `batch_size` column or some ref invalid soon
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (is_last || _stored_row_ref.size() == _batch_size) {
+    if (is_last || _stored_row_ref.size() == _reader_context.batch_size) {
         _update_agg_data(columns);
     }
 }
@@ -330,7 +399,7 @@ size_t BlockReader::_copy_agg_data() {
             for (auto& it : _temp_ref_map) {
                 if (!it.second.empty()) {
                     auto& src_column = *it.first->get_by_position(idx).column;
-                    for (auto &pos : it.second) {
+                    for (auto& pos : it.second) {
                         dst_column->replace_column_data(src_column, pos.first, pos.second);
                     }
                 }
@@ -361,9 +430,31 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
-            function->create(place); // reset aggregate data
+            // reset aggregate data
+            function->destroy(place);
+            function->create(place);
         }
     }
+}
+
+bool BlockReader::_get_next_row_same() {
+    if (_next_row.is_same) {
+        return true;
+    } else {
+        auto block = _next_row.block.get();
+        return block->get_same_bit(_next_row.row_pos);
+    }
+}
+
+ColumnPredicate* BlockReader::_parse_to_predicate(const FunctionFilter& function_filter) {
+    int32_t index = _tablet_schema->field_index(function_filter._col_name);
+    if (index < 0) {
+        return nullptr;
+    }
+
+    // currently only support like predicate
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 } // namespace doris::vectorized

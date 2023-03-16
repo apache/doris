@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
@@ -27,9 +27,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -51,7 +53,7 @@ public class ShowViewStmt extends ShowStmt {
     private String db;
     private TableName tbl;
 
-    private List<View> matchViews = Lists.newArrayList();;
+    private List<View> matchViews = Lists.newArrayList();
 
     public ShowViewStmt(String db, TableName tbl) {
         this.db = db;
@@ -86,16 +88,19 @@ public class ShowViewStmt extends ShowStmt {
             tbl.setDb(db);
         }
         tbl.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         String dbName = tbl.getDb();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     dbName + ": " + getTbl());
         }
 
-        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         database.getOlapTableOrAnalysisException(tbl.getTbl());
         for (Table table : database.getViews()) {
             View view = (View) table;

@@ -19,20 +19,20 @@
 
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
+#include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
 #include "util/path_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;
 extern MetricPrototype METRIC_query_scan_count;
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : _state(tablet_meta->tablet_state()),
-          _tablet_meta(tablet_meta),
-          _schema(tablet_meta->tablet_schema()),
-          _data_dir(data_dir) {
+        : _state(tablet_meta->tablet_state()), _tablet_meta(tablet_meta), _data_dir(data_dir) {
+    _schema = TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema()->to_key());
     _gen_tablet_path();
 
     std::stringstream ss;
@@ -52,28 +52,32 @@ BaseTablet::~BaseTablet() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
 }
 
-OLAPStatus BaseTablet::set_tablet_state(TabletState state) {
+Status BaseTablet::set_tablet_state(TabletState state) {
     if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
         LOG(WARNING) << "could not change tablet state from shutdown to " << state;
-        return OLAP_ERR_META_INVALID_ARGUMENT;
+        return Status::Error<META_INVALID_ARGUMENT>();
     }
     _tablet_meta->set_tablet_state(state);
     _state = state;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void BaseTablet::_gen_tablet_path() {
-    if (_data_dir != nullptr) {
-        FilePathDescStream desc_s;
-        desc_s << _data_dir->path_desc() << DATA_PREFIX;
-        FilePathDesc path_desc = path_util::join_path_desc_segments(
-                desc_s.path_desc(), std::to_string(_tablet_meta->shard_id()));
-        path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->tablet_id()));
-        _tablet_path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->schema_hash()));
-        if (Env::get_env(_tablet_path_desc.storage_medium)->is_remote_env()) {
-            _tablet_path_desc.remote_path += "/" + _tablet_meta->tablet_uid().to_string();
+    if (_data_dir != nullptr && _tablet_meta != nullptr) {
+        _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX, shard_id(),
+                                   tablet_id(), schema_hash());
+    }
+}
+
+bool BaseTablet::set_tablet_schema_into_rowset_meta() {
+    bool flag = false;
+    for (RowsetMetaSharedPtr rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
+        if (!rowset_meta->tablet_schema()) {
+            rowset_meta->set_tablet_schema(_schema);
+            flag = true;
         }
     }
+    return flag;
 }
 
 } /* namespace doris */

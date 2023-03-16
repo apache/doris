@@ -19,11 +19,7 @@
 
 #include <vector>
 
-#include "exprs/expr.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
-#include "runtime/sorter.h"
-#include "runtime/tuple_row.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
@@ -32,21 +28,49 @@ using std::vector;
 
 namespace doris::vectorized {
 
-VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext *>& ordering_expr, const std::vector<bool>& is_asc_order,
-            const std::vector<bool>& nulls_first, const size_t batch_size, int64_t limit, size_t offset, RuntimeProfile* profile)
-        :_ordering_expr(ordering_expr), _is_asc_order(is_asc_order), _nulls_first(nulls_first), _batch_size(batch_size),
-        _limit(limit), _offset(offset){
+VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
+                                   const std::vector<bool>& is_asc_order,
+                                   const std::vector<bool>& nulls_first, const size_t batch_size,
+                                   int64_t limit, size_t offset, RuntimeProfile* profile)
+        : _ordering_expr(ordering_expr),
+          _is_asc_order(is_asc_order),
+          _nulls_first(nulls_first),
+          _batch_size(batch_size),
+          _limit(limit),
+          _offset(offset) {
+    init_timers(profile);
+}
+
+VSortedRunMerger::VSortedRunMerger(const SortDescription& desc, const size_t batch_size,
+                                   int64_t limit, size_t offset, RuntimeProfile* profile)
+        : _desc(desc),
+          _batch_size(batch_size),
+          _use_sort_desc(true),
+          _limit(limit),
+          _offset(offset),
+          _get_next_timer(nullptr),
+          _get_next_block_timer(nullptr) {
+    init_timers(profile);
+}
+
+void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
     _get_next_timer = ADD_TIMER(profile, "MergeGetNext");
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
 
-Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs, bool parallel) {
-    for (const auto &supplier : input_runs) {
-        _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
+    for (const auto& supplier : input_runs) {
+        if (_use_sort_desc) {
+            _cursors.emplace_back(supplier, _desc);
+        } else {
+            _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+        }
     }
 
     for (auto& _cursor : _cursors) {
-        if (!_cursor._is_eof) _priority_queue.push(SortCursor(&_cursor));
+        if (!_cursor._is_eof) {
+            _priority_queue.push(MergeSortCursor(&_cursor));
+        }
     }
 
     for (const auto& cursor : _cursors) {
@@ -87,8 +111,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             if (current->block_ptr() != nullptr) {
                 for (int i = 0; i < current->all_columns.size(); i++) {
                     auto& column_with_type = current->block_ptr()->get_by_position(i);
-                    column_with_type.column = column_with_type.column->cut(current->pos,
-                            current->rows - current->pos);
+                    column_with_type.column = column_with_type.column->cut(
+                            current->pos, current->rows - current->pos);
                 }
                 current->block_ptr()->swap(*output_block);
                 *eos = !has_next_block(current);
@@ -99,8 +123,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
     } else {
         size_t num_columns = _empty_block.columns();
         bool mem_reuse = output_block->mem_reuse();
-        MutableColumns merged_columns = mem_reuse ?
-                output_block->mutate_columns() : _empty_block.clone_empty_columns();
+        MutableColumns merged_columns =
+                mem_reuse ? output_block->mutate_columns() : _empty_block.clone_empty_columns();
 
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
@@ -116,8 +140,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 ++merged_rows;
             }
             next_heap(current);
-            if (merged_rows == _batch_size)
-                break;
+            if (merged_rows == _batch_size) break;
         }
 
         if (merged_rows == 0) {
@@ -139,7 +162,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
     return Status::OK();
 }
 
-void VSortedRunMerger::next_heap(SortCursor& current) {
+void VSortedRunMerger::next_heap(MergeSortCursor& current) {
     if (!current->isLast()) {
         current->next();
         _priority_queue.push(current);
@@ -148,9 +171,9 @@ void VSortedRunMerger::next_heap(SortCursor& current) {
     }
 }
 
-inline bool VSortedRunMerger::has_next_block(doris::vectorized::SortCursor &current) {
+inline bool VSortedRunMerger::has_next_block(doris::vectorized::MergeSortCursor& current) {
     ScopedTimer<MonotonicStopWatch> timer(_get_next_block_timer);
     return current->has_next_block();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

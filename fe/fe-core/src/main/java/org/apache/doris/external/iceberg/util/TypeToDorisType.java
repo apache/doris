@@ -76,11 +76,11 @@ public class TypeToDorisType extends TypeUtil.SchemaVisitor<Type> {
                 return Type.DOUBLE;
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
-                return ScalarType.createDecimalV2Type(decimal.precision(), decimal.scale());
+                return ScalarType.createDecimalType(decimal.precision(), decimal.scale());
             case DATE:
-                return Type.DATE;
+                return ScalarType.getDefaultDateType(Type.DATE);
             case TIMESTAMP:
-                return Type.DATETIME;
+                return ScalarType.getDefaultDateType(Type.DATETIME);
             case STRING:
                 return Type.STRING;
             // use varchar

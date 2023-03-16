@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
-#define DORIS_BE_RUNTIME_CLIENT_CACHE_H
+#pragma once
 
 #include <list>
 #include <mutex>
@@ -150,22 +149,25 @@ template <class T>
 class ClientConnection {
 public:
     ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, Status* status)
-            : _client_cache(client_cache), _client(nullptr) {
-        *status = _client_cache->get_client(address, &_client, 0);
-
-        if (status->ok()) {
-            DCHECK(_client != nullptr);
-        }
-    }
+            : ClientConnection(client_cache, address, 0, status, 3) {}
 
     ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, int timeout_ms,
-                     Status* status)
+                     Status* status, int max_retries = 3)
             : _client_cache(client_cache), _client(nullptr) {
-        *status = _client_cache->get_client(address, &_client, timeout_ms);
-
-        if (status->ok()) {
-            DCHECK(_client != nullptr);
-        }
+        int num_retries = 0;
+        do {
+            *status = _client_cache->get_client(address, &_client, timeout_ms);
+            if (status->ok()) {
+                DCHECK(_client != nullptr);
+                break;
+            }
+            if (num_retries++ < max_retries) {
+                // exponential backoff retry with starting delay of 500ms
+                usleep(500000 * (1 << num_retries));
+                LOG(INFO) << "Failed to get client from cache: " << status->to_string()
+                          << ", retrying[" << num_retries << "]...";
+            }
+        } while (num_retries < max_retries);
     }
 
     ~ClientConnection() {
@@ -268,8 +270,8 @@ private:
     // since service type is multiple, we should set thrift server type here for be thrift client
     ThriftServer::ServerType get_thrift_server_type() {
         auto& thrift_server_type = config::thrift_server_type_of_fe;
-        transform(thrift_server_type.begin(), thrift_server_type.end(), thrift_server_type.begin(),
-                  toupper);
+        std::transform(thrift_server_type.begin(), thrift_server_type.end(),
+                       thrift_server_type.begin(), [](auto c) { return std::toupper(c); });
         if (strcmp(typeid(T).name(), "N5doris21FrontendServiceClientE") == 0 &&
             thrift_server_type == "THREADED_SELECTOR") {
             return ThriftServer::ServerType::NON_BLOCKING;
@@ -290,10 +292,5 @@ using FrontendServiceConnection = ClientConnection<FrontendServiceClient>;
 class TPaloBrokerServiceClient;
 using BrokerServiceClientCache = ClientCache<TPaloBrokerServiceClient>;
 using BrokerServiceConnection = ClientConnection<TPaloBrokerServiceClient>;
-class TExtDataSourceServiceClient;
-using ExtDataSourceServiceClientCache = ClientCache<TExtDataSourceServiceClient>;
-using ExtDataSourceServiceConnection = ClientConnection<TExtDataSourceServiceClient>;
 
 } // namespace doris
-
-#endif

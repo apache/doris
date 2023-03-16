@@ -17,11 +17,12 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.QueryStatisticsFormatter;
+import org.apache.doris.qe.QueryStatisticsItem;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.QueryStatisticsItem;
-import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

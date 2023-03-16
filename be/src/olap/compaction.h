@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COMPACTION_H
-#define DORIS_BE_SRC_OLAP_COMPACTION_H
+#pragma once
 
 #include <vector>
 
@@ -28,7 +27,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "rowset/rowset_id_generator.h"
-#include "util/semaphore.hpp"
 
 namespace doris {
 
@@ -44,57 +42,60 @@ class Merger;
 //  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, const std::string& label,
-               const std::shared_ptr<MemTracker>& parent_tracker);
+    Compaction(const TabletSharedPtr& tablet, const std::string& label);
     virtual ~Compaction();
 
     // This is only for http CompactionAction
-    OLAPStatus compact();
+    Status compact();
 
-    virtual OLAPStatus prepare_compact() = 0;
-    OLAPStatus execute_compact();
-    virtual OLAPStatus execute_compact_impl() = 0;
+    virtual Status prepare_compact() = 0;
+    Status execute_compact();
+    virtual Status execute_compact_impl() = 0;
+#ifdef BE_TEST
+    void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
+    RowsetSharedPtr output_rowset();
+#endif
 
 protected:
-    virtual OLAPStatus pick_rowsets_to_compact() = 0;
+    virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
-    OLAPStatus do_compaction(int64_t permits);
-    OLAPStatus do_compaction_impl(int64_t permits);
+    Status do_compaction(int64_t permits);
+    Status do_compaction_impl(int64_t permits);
 
-    void modify_rowsets();
+    virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
-    OLAPStatus construct_output_rowset_writer();
-    OLAPStatus construct_input_rowset_readers();
+    Status construct_output_rowset_writer(bool is_vertical = false);
+    Status construct_input_rowset_readers();
 
-    OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
-    OLAPStatus check_correctness(const Merger::Statistics& stats);
-    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                std::vector<Version>* missing_version);
+    Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
+    Status check_correctness(const Merger::Statistics& stats);
+    Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                            std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
 
-private:
-    // get num rows from segment group meta of input rowsets.
-    // return -1 if these are not alpha rowsets.
-    int64_t _get_input_num_rows_from_seg_grps();
+    bool should_vertical_compaction();
+    int64_t get_avg_segment_rows();
+
+    bool handle_ordered_data_compaction();
+    Status do_compact_ordered_rowsets();
+    bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
+    void build_basic_info();
 
 protected:
     // the root tracker for this compaction
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
-    // the child of root, only track rowset readers mem
-    std::shared_ptr<MemTracker> _readers_tracker;
-
-    // the child of root, only track rowset writer mem
-    std::shared_ptr<MemTracker> _writer_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     int64_t _input_rowsets_size;
     int64_t _input_row_num;
+    int64_t _input_num_segments;
+    int64_t _input_index_size;
 
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
@@ -104,9 +105,11 @@ protected:
 
     Version _output_version;
 
+    int64_t _newest_write_timestamp;
+    RowIdConversion _rowid_conversion;
+    TabletSchemaSPtr _cur_tablet_schema;
+
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_COMPACTION_H

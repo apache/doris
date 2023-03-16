@@ -257,37 +257,6 @@ void ClipString(string* full_str, int max_len) {
     }
 }
 
-// ----------------------------------------------------------------------
-// SplitStringToIteratorAllowEmpty()
-//    Split a string using a character delimiter. Append the components
-//    to 'result'.  If there are consecutive delimiters, this function
-//    will return corresponding empty strings. The string is split into
-//    at most the specified number of pieces greedily. This means that the
-//    last piece may possibly be split further. To split into as many pieces
-//    as possible, specify 0 as the number of pieces.
-//
-//    If "full" is the empty string, yields an empty string as the only value.
-//
-//    If "pieces" is negative for some reason, it returns the whole string
-// ----------------------------------------------------------------------
-template <typename StringType, typename ITR>
-static inline void SplitStringToIteratorAllowEmpty(const StringType& full, const char* delim,
-                                                   int pieces, ITR& result) {
-    string::size_type begin_index, end_index;
-    begin_index = 0;
-
-    for (int i = 0; (i < pieces - 1) || (pieces == 0); i++) {
-        end_index = full.find_first_of(delim, begin_index);
-        if (end_index == string::npos) {
-            *result++ = full.substr(begin_index);
-            return;
-        }
-        *result++ = full.substr(begin_index, (end_index - begin_index));
-        begin_index = end_index + 1;
-    }
-    *result++ = full.substr(begin_index);
-}
-
 void SplitStringIntoNPiecesAllowEmpty(const string& full, const char* delim, int pieces,
                                       vector<string>* result) {
     if (pieces == 0) {
@@ -358,8 +327,7 @@ static int CalculateReserveForVector(const string& full, const char* delim) {
 // the characters in the string, not the entire string as a single delimiter.
 // ----------------------------------------------------------------------
 template <typename StringType, typename ITR>
-static inline void SplitStringToIteratorUsing(const StringType& full, const char* delim,
-                                              ITR& result) {
+void SplitStringToIteratorUsing(const StringType& full, const char* delim, ITR& result) {
     // Optimize the common case where delim is a single character.
     if (delim[0] != '\0' && delim[1] == '\0') {
         char c = delim[0];
@@ -502,9 +470,8 @@ string SplitOneStringToken(const char** source, const char* delim) {
 //   account. '\' is not allowed as a delimiter.
 // ----------------------------------------------------------------------
 template <typename ITR>
-static inline void SplitStringWithEscapingToIterator(const string& src,
-                                                     const strings::CharSet& delimiters,
-                                                     const bool allow_empty, ITR* result) {
+void SplitStringWithEscapingToIterator(const string& src, const strings::CharSet& delimiters,
+                                       const bool allow_empty, ITR* result) {
     CHECK(!delimiters.Test('\\')) << "\\ is not allowed as a delimiter.";
     CHECK(result);
     string part;
@@ -950,7 +917,7 @@ bool SplitStringIntoKeyValuePairs(const string& line, const string& key_value_de
             // values; just record that our split failed.
             success = false;
         }
-        // we expect atmost one value because we passed in an empty vsep to
+        // we expect at most one value because we passed in an empty vsep to
         // SplitStringIntoKeyValues
         DCHECK_LE(value.size(), 1);
         kv_pairs->push_back(make_pair(key, value.empty() ? "" : value[0]));

@@ -17,10 +17,20 @@
 
 #include "vec/functions/function_convert_tz.h"
 
+#include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 void register_function_convert_tz(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionConvertTZ>();
+    factory.register_function<
+            FunctionConvertTZ<ConvertTZImpl<DateV2Value<DateTimeV2ValueType>, DataTypeDateTimeV2>,
+                              DataTypeDateTimeV2>>();
+    factory.register_function<FunctionConvertTZ<ConvertTZImpl<VecDateTimeValue, DataTypeDateTime>,
+                                                DataTypeDateTime>>();
+    factory.register_function<FunctionConvertTZ<
+            ConvertTZImpl<DateV2Value<DateV2ValueType>, DataTypeDateV2>, DataTypeDateV2>>();
+    factory.register_function<
+            FunctionConvertTZ<ConvertTZImpl<VecDateTimeValue, DataTypeDate>, DataTypeDate>>();
 }
 
 } // namespace doris::vectorized

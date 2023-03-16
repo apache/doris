@@ -22,6 +22,7 @@
 
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 class DateLUTImpl;
 
@@ -49,10 +50,10 @@ namespace doris::vectorized {
 	*/
 class DataTypeDateTime final : public DataTypeNumberBase<Int64> {
 public:
-    DataTypeDateTime();
+    DataTypeDateTime() = default;
 
     const char* get_family_name() const override { return "DateTime"; }
-    std::string do_get_name() const override {return "DateTime"; }
+    std::string do_get_name() const override { return "DateTime"; }
     TypeIndex get_type_id() const override { return TypeIndex::DateTime; }
 
     bool can_be_used_as_version() const override { return true; }
@@ -60,11 +61,15 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    std::string to_string(const IColumn& column, size_t row_num) const;
+    std::string to_string(const IColumn& column, size_t row_num) const override;
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
+    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+
     static void cast_to_date_time(Int64& x);
+
+    MutableColumnPtr create_column() const override;
 };
 
 template <typename DataType>
@@ -78,6 +83,19 @@ template <>
 inline constexpr bool IsDateType<DataTypeDate> = true;
 
 template <typename DataType>
+constexpr bool IsDateV2Type = false;
+template <>
+inline constexpr bool IsDateV2Type<DataTypeDateV2> = true;
+
+template <typename DataType>
+constexpr bool IsDateTimeV2Type = false;
+template <>
+inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
+
+template <typename DataType>
 constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;
+
+template <typename DataType>
+constexpr bool IsTimeV2Type = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
 
 } // namespace doris::vectorized

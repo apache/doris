@@ -24,15 +24,14 @@
 #include <memory>
 
 #include "gen_cpp/data.pb.h"
-#include "runtime/primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris {
 class PBlock;
 class PColumn;
-enum FieldType;
 
 namespace vectorized {
 
@@ -70,6 +69,7 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
+    virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
 protected:
     virtual String do_get_name() const;
@@ -99,7 +99,7 @@ public:
     virtual DataTypePtr promote_numeric_type() const;
 
     /** Directly insert default value into a column. Default implementation use method IColumn::insert_default.
-      * This should be overriden if data type default value differs from column default value (example: Enum data types).
+      * This should be overridden if data type default value differs from column default value (example: Enum data types).
       */
     virtual void insert_default_into(IColumn& column) const;
 
@@ -177,6 +177,8 @@ public:
       */
     virtual bool is_value_represented_by_integer() const { return false; }
 
+    virtual bool is_object() const { return false; }
+
     /** Unsigned Integers, Date, DateTime. Not nullable.
       */
     virtual bool is_value_represented_by_unsigned_integer() const { return false; }
@@ -234,15 +236,15 @@ public:
     /// Updates avg_value_size_hint for newly read column. Uses to optimize deserialization. Zero expected for first column.
     static void update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint);
 
-    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column) const = 0;
-    virtual char* serialize(const IColumn& column, char* buf) const = 0;
-    virtual const char* deserialize(const char* buf, IColumn* column) const = 0;
+    virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                                      int be_exec_version) const = 0;
+    virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;
+    virtual const char* deserialize(const char* buf, IColumn* column,
+                                    int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
-    static DataTypePtr from_thrift(const doris::PrimitiveType& type, const bool is_nullable = true);
-    static DataTypePtr from_olap_engine(const doris::FieldType& type, const bool is_nullable = true);
 
 private:
     friend class DataTypeFactory;
@@ -278,12 +280,16 @@ struct WhichDataType {
     bool is_int() const {
         return is_int8() || is_int16() || is_int32() || is_int64() || is_int128();
     }
+    bool is_int_or_uint() const { return is_int() || is_uint(); }
     bool is_native_int() const { return is_int8() || is_int16() || is_int32() || is_int64(); }
 
     bool is_decimal32() const { return idx == TypeIndex::Decimal32; }
     bool is_decimal64() const { return idx == TypeIndex::Decimal64; }
     bool is_decimal128() const { return idx == TypeIndex::Decimal128; }
-    bool is_decimal() const { return is_decimal32() || is_decimal64() || is_decimal128(); }
+    bool is_decimal128i() const { return idx == TypeIndex::Decimal128I; }
+    bool is_decimal() const {
+        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i();
+    }
 
     bool is_float32() const { return idx == TypeIndex::Float32; }
     bool is_float64() const { return idx == TypeIndex::Float64; }
@@ -295,15 +301,22 @@ struct WhichDataType {
 
     bool is_date() const { return idx == TypeIndex::Date; }
     bool is_date_time() const { return idx == TypeIndex::DateTime; }
+    bool is_date_v2() const { return idx == TypeIndex::DateV2; }
+    bool is_date_time_v2() const { return idx == TypeIndex::DateTimeV2; }
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
+    bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
 
     bool is_string() const { return idx == TypeIndex::String; }
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
 
+    bool is_json() const { return idx == TypeIndex::JSONB; }
+
     bool is_uuid() const { return idx == TypeIndex::UUID; }
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
+    bool is_struct() const { return idx == TypeIndex::Struct; }
+    bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
     bool is_interval() const { return idx == TypeIndex::Interval; }
 
@@ -311,6 +324,8 @@ struct WhichDataType {
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
     bool is_function() const { return idx == TypeIndex::Function; }
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
+    bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
+    bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)
@@ -318,8 +333,17 @@ struct WhichDataType {
 inline bool is_date(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date();
 }
+inline bool is_date_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_date_v2();
+}
+inline bool is_date_time_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_date_time_v2();
+}
 inline bool is_date_or_datetime(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date_or_datetime();
+}
+inline bool is_date_v2_or_datetime_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_date_v2_or_datetime_v2();
 }
 inline bool is_enum(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_enum();
@@ -327,70 +351,75 @@ inline bool is_enum(const DataTypePtr& data_type) {
 inline bool is_decimal(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_decimal();
 }
+inline bool is_decimal_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_decimal128();
+}
 inline bool is_tuple(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_tuple();
 }
 inline bool is_array(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_array();
 }
-
+inline bool is_map(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_map();
+}
 inline bool is_nothing(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_nothing();
 }
 
 template <typename T>
-inline bool is_uint8(const T& data_type) {
+bool is_uint8(const T& data_type) {
     return WhichDataType(data_type).is_uint8();
 }
 
 template <typename T>
-inline bool is_unsigned_integer(const T& data_type) {
+bool is_unsigned_integer(const T& data_type) {
     return WhichDataType(data_type).is_uint();
 }
 
 template <typename T>
-inline bool is_integer(const T& data_type) {
+bool is_integer(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint();
 }
 
 template <typename T>
-inline bool is_float(const T& data_type) {
+bool is_float(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_float();
 }
 
 template <typename T>
-inline bool is_native_number(const T& data_type) {
+bool is_native_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_native_int() || which.is_native_uint() || which.is_float();
 }
 
 template <typename T>
-inline bool is_number(const T& data_type) {
+bool is_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_decimal();
 }
 
 template <typename T>
-inline bool is_columned_as_number(const T& data_type) {
+bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
-           which.is_uuid();
+           which.is_uuid() || which.is_date_v2_or_datetime_v2();
 }
 
 template <typename T>
-inline bool is_string(const T& data_type) {
+bool is_string(const T& data_type) {
     return WhichDataType(data_type).is_string();
 }
 
 template <typename T>
-inline bool is_fixed_string(const T& data_type) {
+bool is_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_fixed_string();
 }
 
 template <typename T>
-inline bool is_string_or_fixed_string(const T& data_type) {
+bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
 }
 
@@ -401,6 +430,11 @@ inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_typ
 
 inline bool is_compilable_type(const DataTypePtr& data_type) {
     return data_type->is_value_represented_by_number() && !is_decimal(data_type);
+}
+
+inline bool is_complex_type(const DataTypePtr& data_type) {
+    WhichDataType which(data_type);
+    return which.is_array() || which.is_map() || which.is_struct();
 }
 
 } // namespace vectorized

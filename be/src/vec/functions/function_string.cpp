@@ -24,10 +24,9 @@
 #include <string_view>
 
 #include "runtime/string_search.hpp"
-#include "util/encryption_util.h"
-#include "util/simd/vstring_function.h"
 #include "util/url_coding.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/functions/function_reverse.h"
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
@@ -49,8 +48,7 @@ struct StringASCII {
         res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            // if strlen(raw_str) == 0, raw_str[0] is '\0'
-            res[i] = (strlen(raw_str) == 0) ? 0 : static_cast<uint8_t>(raw_str[0]);
+            res[i] = (offsets[i] == offsets[i - 1]) ? 0 : static_cast<uint8_t>(raw_str[0]);
         }
         return Status::OK();
     }
@@ -71,7 +69,7 @@ struct StringLengthImpl {
         auto size = offsets.size();
         res.resize(size);
         for (int i = 0; i < size; ++i) {
-            int str_size = offsets[i] - offsets[i - 1] - 1;
+            int str_size = offsets[i] - offsets[i - 1];
             res[i] = str_size;
         }
         return Status::OK();
@@ -94,8 +92,8 @@ struct StringUtf8LengthImpl {
         res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1] - 1;
-            res[i] = get_char_len(StringValue(const_cast<char*>(raw_str), str_size), str_size);
+            int str_size = offsets[i] - offsets[i - 1];
+            res[i] = get_char_len(StringRef(raw_str, str_size), str_size);
         }
         return Status::OK();
     }
@@ -153,7 +151,7 @@ struct FindInSetOp {
         do {
             end = start;
             // Position end.
-            while (strr[end] != ',' && end < strr.length()) {
+            while (end < strr.length() && strr[end] != ',') {
                 ++end;
             }
 
@@ -188,8 +186,8 @@ struct InStrOP {
             return;
         }
 
-        StringValue str_sv(const_cast<char*>(strl.data()), strl.length());
-        StringValue substr_sv(const_cast<char*>(strr.data()), strr.length());
+        StringRef str_sv(strl.data(), strl.length());
+        StringRef substr_sv(strr.data(), strr.length());
         StringSearch search(&substr_sv);
         // Hive returns positions starting from 1.
         int loc = search.search(&str_sv);
@@ -224,10 +222,10 @@ struct StringFunctionImpl {
         res.resize(size);
         for (int i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_str_size = loffsets[i] - loffsets[i - 1];
 
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_str_size = roffsets[i] - roffsets[i - 1];
 
             std::string_view lview(l_raw_str, l_str_size);
             std::string_view rview(r_raw_str, r_str_size);
@@ -235,65 +233,6 @@ struct StringFunctionImpl {
             OP::execute(lview, rview, res[i]);
         }
 
-        return Status::OK();
-    }
-};
-
-struct NameReverse {
-    static constexpr auto name = "reverse";
-};
-
-struct ReverseImpl {
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        auto rows_count = offsets.size();
-        res_offsets.resize(rows_count);
-        res_data.reserve(data.size());
-        for (int i = 0; i < rows_count; ++i) {
-            auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int64_t src_len = offsets[i] - offsets[i - 1] - 1;
-            char dst[src_len];
-            simd::VStringFunctions::reverse(StringVal((uint8_t*)src_str, src_len),
-                                            StringVal((uint8_t*)dst, src_len));
-            StringOP::push_value_string(std::string_view(dst, src_len), i, res_data, res_offsets);
-        }
-        return Status::OK();
-    }
-};
-
-struct HexStringName {
-    static constexpr auto name = "hex";
-};
-
-struct HexStringImpl {
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
-
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
-        auto rows_count = offsets.size();
-        dst_offsets.resize(rows_count);
-        dst_data.resize(data.size() * 2);
-
-        size_t offset = 0;
-        auto dst_data_ptr = dst_data.data();
-        for (int i = 0; i < rows_count; ++i) {
-            auto source = reinterpret_cast<const unsigned char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
-
-            if (srclen == 0) {
-                DCHECK(*source == '\0');
-                *dst_data_ptr = '\0';
-                dst_data_ptr++;
-                offset++;
-            } else {
-                simd::VStringFunctions::hex_encode(source, srclen,
-                                                   reinterpret_cast<char*>(dst_data_ptr));
-                dst_data_ptr[srclen * 2] = '\0';
-                dst_data_ptr += (srclen * 2 + 1);
-                offset += (srclen * 2 + 1);
-            }
-            dst_offsets[i] = offset;
-        }
         return Status::OK();
     }
 };
@@ -306,21 +245,62 @@ struct NameToUpper {
     static constexpr auto name = "upper";
 };
 
-using char_transter_op = int (*)(int);
-template <char_transter_op op>
+template <typename OpName>
 struct TransferImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
-        res_offsets.resize(offsets.size());
-        for (size_t i = 0; i < offset_size; ++i) {
-            res_offsets[i] = offsets[i];
+        if (UNLIKELY(!offset_size)) {
+            return Status::OK();
         }
+
+        res_offsets.resize(offset_size);
+        memcpy(res_offsets.data(), offsets.data(),
+               offset_size * sizeof(ColumnString::Offsets::value_type));
 
         size_t data_length = data.size();
         res_data.resize(data_length);
-        for (size_t i = 0; i < data_length; ++i) {
-            res_data[i] = op(data[i]);
+        if constexpr (std::is_same_v<OpName, NameToUpper>) {
+            simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
+        } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+            simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+        }
+        return Status::OK();
+    }
+};
+
+// Capitalize first letter
+struct NameToInitcap {
+    static constexpr auto name = "initcap";
+};
+
+struct InitcapImpl {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
+        res_offsets.resize(offsets.size());
+        memcpy(res_offsets.data(), offsets.data(),
+               offset_size * sizeof(ColumnString::Offsets::value_type));
+
+        size_t data_length = data.size();
+        res_data.resize(data_length);
+        simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+
+        bool need_capitalize = true;
+        for (size_t offset_index = 0, start_index = 0; offset_index < offset_size; ++offset_index) {
+            auto end_index = res_offsets[offset_index];
+            need_capitalize = true;
+
+            for (size_t i = start_index; i < end_index; ++i) {
+                if (!::isalnum(res_data[i])) {
+                    need_capitalize = true;
+                } else if (need_capitalize) {
+                    res_data[i] = ::toupper(res_data[i]);
+                    need_capitalize = false;
+                }
+            }
+
+            start_index = end_index;
         }
         return Status::OK();
     }
@@ -347,14 +327,15 @@ struct TrimImpl {
 
         for (size_t i = 0; i < offset_size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            StringVal str(raw_str);
+            ColumnString::Offset size = offsets[i] - offsets[i - 1];
+            StringRef str(raw_str, size);
             if constexpr (is_ltrim) {
                 str = simd::VStringFunctions::ltrim(str);
             }
             if constexpr (is_rtrim) {
                 str = simd::VStringFunctions::rtrim(str);
             }
-            StringOP::push_value_string(std::string_view((char*)str.ptr, str.len), i, res_data,
+            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
                                         res_offsets);
         }
         return Status::OK();
@@ -426,9 +407,9 @@ struct UnHexImpl {
             }
 
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (*source == '\0' && srclen == 0) {
+            if (srclen == 0) {
                 StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
@@ -479,86 +460,6 @@ struct StringSpace {
     }
 };
 
-struct AesEncryptImpl {
-    static constexpr auto name = "aes_encrypt";
-    using Chars = ColumnString::Chars;
-    using Offsets = ColumnString::Offsets;
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map_data) {
-        DCHECK_EQ(loffsets.size(), roffsets.size());
-        size_t input_rows_count = loffsets.size();
-        res_offsets.resize(input_rows_count);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
-            if (*l_raw == '\0' || l_size == 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-                continue;
-            }
-
-            int cipher_len = l_size + 16;
-            char p[cipher_len];
-
-            int outlen = EncryptionUtil::encrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
-                                                 (unsigned char*)r_raw, r_size, NULL, true,
-                                                 (unsigned char*)p);
-            if (outlen < 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-            } else {
-                StringOP::push_value_string(std::string_view(p, outlen), i, res_data, res_offsets);
-            }
-        }
-    }
-};
-
-struct AesDecryptImpl {
-    static constexpr auto name = "aes_decrypt";
-    using Chars = ColumnString::Chars;
-    using Offsets = ColumnString::Offsets;
-    using ReturnType = DataTypeString;
-    using ColumnType = ColumnString;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map_data) {
-        DCHECK_EQ(loffsets.size(), roffsets.size());
-        size_t input_rows_count = loffsets.size();
-        res_offsets.resize(input_rows_count);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
-            if (*l_raw == '\0' || l_size == 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-                continue;
-            }
-
-            int cipher_len = l_size;
-            char p[cipher_len];
-
-            int outlen = EncryptionUtil::decrypt(AES_128_ECB, (unsigned char*)l_raw, l_size,
-                                                 (unsigned char*)r_raw, r_size, NULL, true,
-                                                 (unsigned char*)p);
-            if (outlen < 0) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
-            } else {
-                StringOP::push_value_string(std::string_view(p, outlen), i, res_data, res_offsets);
-            }
-        }
-    }
-};
-
 struct ToBase64Impl {
     static constexpr auto name = "to_base64";
     using ReturnType = DataTypeString;
@@ -577,9 +478,9 @@ struct ToBase64Impl {
             }
 
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (*source == '\0' || srclen == 0) {
+            if (srclen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
@@ -617,9 +518,9 @@ struct FromBase64Impl {
             }
 
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1] - 1;
+            size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (*source == '\0' || srclen == 0) {
+            if (srclen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
@@ -646,9 +547,9 @@ struct StringAppendTrailingCharIfAbsent {
     using Offsets = ColumnString::Offsets;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-    static void vector_vector(const Chars& ldata, const Offsets& loffsets, const Chars& rdata,
-                              const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
-                              NullMap& null_map_data) {
+    static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
+                              const Chars& rdata, const Offsets& roffsets, Chars& res_data,
+                              Offsets& res_offsets, NullMap& null_map_data) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
@@ -657,10 +558,10 @@ struct StringAppendTrailingCharIfAbsent {
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
 
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_size = loffsets[i] - loffsets[i - 1];
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_size = roffsets[i] - roffsets[i - 1];
             const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
             if (r_size != 1) {
@@ -722,25 +623,19 @@ using FunctionStringLocate =
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
 
-using FunctionReverse = FunctionStringToString<ReverseImpl, NameReverse>;
-
-using FunctionHexString = FunctionStringToString<HexStringImpl, HexStringName>;
-
 using FunctionUnHex = FunctionStringOperateToNullType<UnHexImpl>;
 
-using FunctionToLower = FunctionStringToString<TransferImpl<::tolower>, NameToLower>;
+using FunctionToLower = FunctionStringToString<TransferImpl<NameToLower>, NameToLower>;
 
-using FunctionToUpper = FunctionStringToString<TransferImpl<::toupper>, NameToUpper>;
+using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameToUpper>;
+
+using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
 using FunctionLTrim = FunctionStringToString<TrimImpl<true, false>, NameLTrim>;
 
 using FunctionRTrim = FunctionStringToString<TrimImpl<false, true>, NameRTrim>;
 
 using FunctionTrim = FunctionStringToString<TrimImpl<true, true>, NameTrim>;
-
-using FunctionAesEncrypt = FunctionBinaryStringOperateToNullType<AesEncryptImpl>;
-
-using FunctionAesDecrypt = FunctionBinaryStringOperateToNullType<AesDecryptImpl>;
 
 using FunctionToBase64 = FunctionStringOperateToNullType<ToBase64Impl>;
 
@@ -763,44 +658,56 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringFindInSet>();
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
-    factory.register_function<FunctionReverse>();
-    factory.register_function<FunctionHexString>();
+    factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
+    factory.register_function<FunctionToInitcap>();
     factory.register_function<FunctionLTrim>();
     factory.register_function<FunctionRTrim>();
     factory.register_function<FunctionTrim>();
+    factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
     factory.register_function<FunctionLeft>();
     factory.register_function<FunctionRight>();
     factory.register_function<FunctionNullOrEmpty>();
+    factory.register_function<FunctionNotNullOrEmpty>();
     factory.register_function<FunctionStringConcat>();
+    factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
     factory.register_function<FunctionStringRepeat>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
-    factory.register_function<FunctionAesEncrypt>();
-    factory.register_function<FunctionAesDecrypt>();
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
-    factory.register_function<FunctionStringMd5sum>();
+    factory.register_function<FunctionSplitByString>();
+    factory.register_function<FunctionStringMd5AndSM3<MD5Sum>>();
+    factory.register_function<FunctionSubstringIndex>();
+    factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
+    factory.register_function<FunctionStringMd5AndSM3<SM3Sum>>();
+    factory.register_function<FunctionReplace>();
+    factory.register_function<FunctionMask>();
+    factory.register_function<FunctionMaskPartial<true>>();
+    factory.register_function<FunctionMaskPartial<false>>();
+    factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
+    factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
-    factory.register_alias(FunctionStringMd5sum::name, "md5");
+    factory.register_alias(FunctionStringMd5AndSM3<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
+    factory.register_alias(FunctionStringMd5AndSM3<SM3Sum>::name, "sm3");
 }
 
 } // namespace doris::vectorized

@@ -25,7 +25,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class SyncChannelHandle implements SyncChannelCallback {
-    private Logger LOG = LogManager.getLogger(SyncChannelHandle.class);
+    private static final Logger LOG = LogManager.getLogger(SyncChannelHandle.class);
 
     // channel id -> dummy value(-1)
     private MarkedCountDownLatch<Long, Long> latch;

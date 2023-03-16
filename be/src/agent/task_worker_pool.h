@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_TASK_WORKER_POOL_H
-#define DORIS_BE_SRC_TASK_WORKER_POOL_H
+#pragma once
 
 #include <atomic>
 #include <deque>
@@ -24,22 +23,18 @@
 #include <utility>
 #include <vector>
 
-#include "agent/status.h"
-#include "agent/utils.h"
+#include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gutil/ref_counted.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "util/condition_variable.h"
+#include "olap/data_dir.h"
+#include "olap/tablet.h"
 #include "util/countdown_latch.h"
-#include "util/mutex.h"
-#include "util/thread.h"
 
 namespace doris {
 
 class ExecEnv;
 class ThreadPool;
+class AgentUtils;
 
 class TaskWorkerPool {
 public:
@@ -51,12 +46,12 @@ public:
         REALTIME_PUSH,
         PUBLISH_VERSION,
         // Deprecated
-        CLEAR_ALTER_TASK,
+        CLEAR_ALTER_TASK [[deprecated]],
         CLEAR_TRANSACTION_TASK,
         DELETE,
         ALTER_TABLE,
         // Deprecated
-        QUERY_SPLIT_KEY,
+        QUERY_SPLIT_KEY [[deprecated]],
         CLONE,
         STORAGE_MEDIUM_MIGRATE,
         CHECK_CONSISTENCY,
@@ -70,21 +65,20 @@ public:
         MOVE,
         RECOVER_TABLET,
         UPDATE_TABLET_META_INFO,
-        SUBMIT_TABLE_COMPACTION
+        SUBMIT_TABLE_COMPACTION,
+        PUSH_COOLDOWN_CONF,
+        PUSH_STORAGE_POLICY,
+        ALTER_INVERTED_INDEX,
     };
 
-    enum ReportType {
-        TASK,
-        DISK,
-        TABLET
-    };
+    enum ReportType { TASK, DISK, TABLET };
 
     enum class ThreadModel {
-        SINGLE_THREAD,      // Only 1 thread allowed in the pool
-        MULTI_THREADS       // 1 or more threads allowed in the pool
+        SINGLE_THREAD, // Only 1 thread allowed in the pool
+        MULTI_THREADS  // 1 or more threads allowed in the pool
     };
 
-    inline const std::string TYPE_STRING(TaskWorkerType type) {
+    const std::string TYPE_STRING(TaskWorkerType type) {
         switch (type) {
         case CREATE_TABLE:
             return "CREATE_TABLE";
@@ -96,16 +90,12 @@ public:
             return "REALTIME_PUSH";
         case PUBLISH_VERSION:
             return "PUBLISH_VERSION";
-        case CLEAR_ALTER_TASK:
-            return "CLEAR_ALTER_TASK";
         case CLEAR_TRANSACTION_TASK:
             return "CLEAR_TRANSACTION_TASK";
         case DELETE:
             return "DELETE";
         case ALTER_TABLE:
             return "ALTER_TABLE";
-        case QUERY_SPLIT_KEY:
-            return "QUERY_SPLIT_KEY";
         case CLONE:
             return "CLONE";
         case STORAGE_MEDIUM_MIGRATE:
@@ -134,12 +124,18 @@ public:
             return "UPDATE_TABLET_META_INFO";
         case SUBMIT_TABLE_COMPACTION:
             return "SUBMIT_TABLE_COMPACTION";
+        case PUSH_COOLDOWN_CONF:
+            return "PUSH_COOLDOWN_CONF";
+        case PUSH_STORAGE_POLICY:
+            return "PUSH_STORAGE_POLICY";
+        case ALTER_INVERTED_INDEX:
+            return "ALTER_INVERTED_INDEX";
         default:
             return "Unknown";
         }
     }
 
-    inline const std::string TYPE_STRING(ReportType type) {
+    const std::string TYPE_STRING(ReportType type) {
         switch (type) {
         case TASK:
             return "TASK";
@@ -184,6 +180,7 @@ private:
     void _publish_version_worker_thread_callback();
     void _clear_transaction_task_worker_thread_callback();
     void _alter_tablet_worker_thread_callback();
+    void _alter_inverted_index_worker_thread_callback();
     void _clone_worker_thread_callback();
     void _storage_medium_migrate_worker_thread_callback();
     void _check_consistency_worker_thread_callback();
@@ -197,20 +194,25 @@ private:
     void _move_dir_thread_callback();
     void _update_tablet_meta_worker_thread_callback();
     void _submit_table_compaction_worker_thread_callback();
+    void _push_cooldown_conf_worker_thread_callback();
+    void _push_storage_policy_worker_thread_callback();
+
+    void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
+                               int64_t signature, const TTaskType::type task_type,
+                               TFinishTaskRequest* finish_task_request);
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
-    void _handle_report(TReportRequest& request, ReportType type);
+    void _handle_report(const TReportRequest& request, ReportType type);
 
-    AgentStatus _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                 int64_t signature, TTabletInfo* tablet_info);
+    Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
+                            int64_t signature, TTabletInfo* tablet_info);
 
-    AgentStatus _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                          const std::string& src, int64_t job_id, bool overwrite,
-                          std::vector<std::string>* error_msgs);
+    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
+                     bool overwrite);
 
-    OLAPStatus _check_migrate_requset(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                      DataDir** dest_store);
+    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
+                                  DataDir** dest_store);
 
     // random sleep 1~second seconds
     void _random_sleep(int second);
@@ -222,12 +224,11 @@ private:
     const TMasterInfo& _master_info;
     TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
-    std::unique_ptr<MasterServerClient> _master_client;
     ExecEnv* _env;
 
     // Protect task queue
-    Mutex _worker_thread_lock;
-    ConditionVariable _worker_thread_condition_variable;
+    std::mutex _worker_thread_lock;
+    std::condition_variable _worker_thread_condition_variable;
     CountDownLatch _stop_background_threads_latch;
     bool _is_work;
     ThreadModel _thread_model;
@@ -244,13 +245,11 @@ private:
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
 
-    static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;
 
-    static Mutex _s_task_signatures_lock;
+    static std::mutex _s_task_signatures_lock;
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
 } // namespace doris
-#endif // DORIS_BE_SRC_TASK_WORKER_POOL_H

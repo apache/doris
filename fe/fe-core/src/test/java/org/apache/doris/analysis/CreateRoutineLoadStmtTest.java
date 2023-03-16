@@ -17,11 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.qe.ConnectContext;
@@ -29,7 +30,11 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,12 +45,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 public class CreateRoutineLoadStmtTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(CreateRoutineLoadStmtTest.class);
@@ -53,7 +52,9 @@ public class CreateRoutineLoadStmtTest {
     Database database;
 
     @Mocked
-    private Catalog catalog;
+    private Env env;
+    @Mocked
+    private InternalCatalog catalog;
 
     @Mocked
     private ConnectContext ctx;
@@ -63,14 +64,18 @@ public class CreateRoutineLoadStmtTest {
 
     @Before
     public void setUp() {
-        new MockUp<Catalog>() {
+        new MockUp<Env>() {
             @Mock
-            public Catalog getCurrentCatalog() {
-                return catalog;
+            public Env getCurrentEnv() {
+                return env;
             }
         };
         new Expectations() {
             {
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
@@ -100,9 +105,6 @@ public class CreateRoutineLoadStmtTest {
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
         String kafkaPartitionString = "1,2,3";
-        List<String> partitionNameString = Lists.newArrayList();
-        partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
@@ -121,7 +123,7 @@ public class CreateRoutineLoadStmtTest {
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+                                                                                LoadTask.MergeType.APPEND, "");
 
         new MockUp<StatementBase>() {
             @Mock
@@ -155,7 +157,6 @@ public class CreateRoutineLoadStmtTest {
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(partitionNames);
@@ -172,7 +173,7 @@ public class CreateRoutineLoadStmtTest {
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
                                                                                 typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+                                                                                LoadTask.MergeType.APPEND, "");
         new MockUp<StatementBase>() {
             @Mock
             public void analyze(Analyzer analyzer1) {
@@ -180,7 +181,7 @@ public class CreateRoutineLoadStmtTest {
             }
         };
 
-        new Expectations(){
+        new Expectations() {
             {
                 ctx.getSessionVariable();
                 result = sessionVariable;

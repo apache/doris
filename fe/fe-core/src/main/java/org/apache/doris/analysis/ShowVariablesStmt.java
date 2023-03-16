@@ -20,10 +20,10 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -83,9 +83,11 @@ public class ShowVariablesStmt extends ShowStmt {
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         TableName tableName = null;
         if (type == SetType.GLOBAL) {
-            tableName = new TableName(InfoSchemaDb.DATABASE_NAME, "GLOBAL_VARIABLES");
+            tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME,
+                    "GLOBAL_VARIABLES");
         } else {
-            tableName = new TableName(InfoSchemaDb.DATABASE_NAME, "SESSION_VARIABLES");
+            tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME,
+                    "SESSION_VARIABLES");
         }
         // name
         SelectListItem item = new SelectListItem(new SlotRef(tableName, "VARIABLE_NAME"), NAME_COL);
@@ -104,7 +106,7 @@ public class ShowVariablesStmt extends ShowStmt {
 
         // DB: type
         // table: thread id
-        analyzer.setSchemaInfo(type.toSql(), null, null);
+        analyzer.setSchemaInfo(type.toSql(), null, null, null);
         return selectStmt;
     }
 

@@ -102,9 +102,12 @@ BfdParser* BfdParser::create() {
     }
 
     char prog_name[1024];
-    // Ignore unused return value
-    if (fscanf(file, "%1023s ", prog_name))
-        ;
+
+    if (fscanf(file, "%1023s ", prog_name) != 1) {
+        fclose(file);
+        return nullptr;
+    }
+
     fclose(file);
     std::unique_ptr<BfdParser> parser(new BfdParser(prog_name));
     if (parser->parse()) {
@@ -241,7 +244,7 @@ int BfdParser::decode_address(const char* str, const char** end, std::string* fi
         func_name->append("??");
         return -1;
     }
-    // demange function
+    // demangle function
     if (ctx.func_name != nullptr) {
 #define DMGL_PARAMS (1 << 0)
 #define DMGL_ANSI (1 << 1)

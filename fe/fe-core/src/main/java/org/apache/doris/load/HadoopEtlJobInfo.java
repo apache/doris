@@ -17,9 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
@@ -93,15 +91,12 @@ public class HadoopEtlJobInfo extends EtlJobInfo {
         cluster = Text.readString(in);
         etlJobId = Text.readString(in);
         etlOutputDir = Text.readString(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_7) {
-            if (in.readBoolean()) {
-                dppConfig = new DppConfig();
-                dppConfig.readFields(in);
-            }
+        if (in.readBoolean()) {
+            dppConfig = new DppConfig();
+            dppConfig.readFields(in);
         }
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
@@ -111,11 +106,11 @@ public class HadoopEtlJobInfo extends EtlJobInfo {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof HadoopEtlJobInfo)) {
             return false;
         }
-        
+
         HadoopEtlJobInfo jobInfo = (HadoopEtlJobInfo) obj;
 
         if (dppConfig != jobInfo.dppConfig) {
@@ -127,7 +122,7 @@ public class HadoopEtlJobInfo extends EtlJobInfo {
                 return false;
             }
         }
- 
+
         return cluster.equals(jobInfo.cluster)
                 && etlJobId.equals(jobInfo.etlJobId)
                 && etlOutputDir.equals(jobInfo.etlOutputDir);

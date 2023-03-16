@@ -31,6 +31,14 @@ public:
     virtual Status finish() { return Status::OK(); }
     // called when read HTTP failed
     virtual void cancel(const std::string& reason) {}
+
+    bool finished() const { return _finished; }
+    bool cancelled() const { return _cancelled; }
+
+protected:
+    bool _finished = false;
+    bool _cancelled = false;
+    std::string _cancelled_reason = "";
 };
 
 // write message to a local file

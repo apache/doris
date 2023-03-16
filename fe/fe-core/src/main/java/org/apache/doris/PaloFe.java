@@ -17,19 +17,21 @@
 
 package org.apache.doris;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.http.HttpServer;
+import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
+import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
@@ -37,10 +39,11 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
-
-import org.apache.commons.cli.BasicParser;
+import io.grpc.netty.shaded.io.netty.util.internal.logging.InternalLoggerFactory;
+import io.grpc.netty.shaded.io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
@@ -56,15 +59,25 @@ import java.nio.channels.OverlappingFileLockException;
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
 
+    static {
+        InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
+    }
+
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");
 
     public static void main(String[] args) {
-        start(DORIS_HOME_DIR, PID_DIR, args);
+        StartupOptions options = new StartupOptions();
+        options.enableHttpServer = true;
+        options.enableQeService = true;
+        start(DORIS_HOME_DIR, PID_DIR, args, options);
     }
 
     // entrance for doris frontend
-    public static void start(String dorisHomeDir, String pidDir, String[] args) {
+    public static void start(String dorisHomeDir, String pidDir, String[] args, StartupOptions options) {
+        if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
+            Log4jConfig.foreground = true;
+        }
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
             System.err.println("env DORIS_HOME is not set.");
             return;
@@ -108,7 +121,7 @@ public class PaloFe {
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
 
-            LOG.info("Palo FE starting...");
+            LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
 
@@ -121,39 +134,44 @@ public class PaloFe {
                 return;
             }
 
+            // To resolve: "SdkClientException: Multiple HTTP implementations were found on the classpath"
+            // Currently, there are 2 implements of HTTP client: ApacheHttpClient and UrlConnectionHttpClient
+            // The UrlConnectionHttpClient is introduced by #16602, and it causes the exception.
+            // So we set the default HTTP client to UrlConnectionHttpClient.
+            // TODO: remove this after we remove ApacheHttpClient
+            System.setProperty("software.amazon.awssdk.http.service.impl",
+                    "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
+
             // init catalog and wait it be ready
-            Catalog.getCurrentCatalog().initialize(args);
-            Catalog.getCurrentCatalog().waitForReady();
+            Env.getCurrentEnv().initialize(args);
+            Env.getCurrentEnv().waitForReady();
+
+            Telemetry.initOpenTelemetry();
 
             // init and start:
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
             // 3. QeService for MySQL Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
-
             feServer.start();
 
-            if (!Config.enable_http_server_v2) {
-                HttpServer httpServer = new HttpServer(
-                        Config.http_port,
-                        Config.http_max_line_length,
-                        Config.http_max_header_size,
-                        Config.http_max_chunk_size
-                );
-                httpServer.setup();
+            if (options.enableHttpServer) {
+                HttpServer httpServer = new HttpServer();
+                httpServer.setPort(Config.http_port);
+                httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+                httpServer.setAcceptors(Config.jetty_server_acceptors);
+                httpServer.setSelectors(Config.jetty_server_selectors);
+                httpServer.setWorkers(Config.jetty_server_workers);
+                httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
+                httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
+                httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
                 httpServer.start();
-            } else {
-                org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
-                httpServer2.setPort(Config.http_port);
-                httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
-                httpServer2.setAcceptors(Config.jetty_server_acceptors);
-                httpServer2.setSelectors(Config.jetty_server_selectors);
-                httpServer2.setWorkers(Config.jetty_server_workers);
-                httpServer2.start(dorisHomeDir);
             }
 
-            qeService.start();
+            if (options.enableQeService) {
+                QeService qeService = new QeService(Config.query_port, ExecuteEnv.getInstance().getScheduler());
+                qeService.start();
+            }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
 
@@ -161,7 +179,7 @@ public class PaloFe {
                 Thread.sleep(2000);
             }
         } catch (Throwable e) {
-            e.printStackTrace();
+            LOG.warn("", e);
         }
     }
 
@@ -186,9 +204,11 @@ public class PaloFe {
 
     /*
      * -v --version
-     *      Print the version of Palo Frontend
+     *      Print the version of Doris Frontend
      * -h --helper
      *      Specify the helper node when joining a bdb je replication group
+     * -i --image
+     *      Check if the specified image is valid
      * -b --bdb
      *      Run bdbje debug tools
      *
@@ -208,12 +228,13 @@ public class PaloFe {
      *
      */
     private static CommandLineOptions parseArgs(String[] args) {
-        CommandLineParser commandLineParser = new BasicParser();
+        CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
-        options.addOption("v", "version", false, "Print the version of Palo Frontend");
+        options.addOption("v", "version", false, "Print the version of Doris Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
+        options.addOption("i", "image", true, "Check if the specified image is valid");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
-        options.addOption("l", "listdb", false, "Run bdbje debug tools");
+        options.addOption("l", "listdb", false, "List databases in bdbje");
         options.addOption("d", "db", true, "Specify a database in bdbje");
         options.addOption("s", "stat", false, "Print statistic of a database, including count, first key, last key");
         options.addOption("f", "from", true, "Specify the start scan key");
@@ -224,14 +245,14 @@ public class PaloFe {
         try {
             cmd = commandLineParser.parse(options, args);
         } catch (final ParseException e) {
-            e.printStackTrace();
+            LOG.warn("", e);
             System.err.println("Failed to parse command line. exit now");
             System.exit(-1);
         }
 
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
-            return new CommandLineOptions(true, "", null);
+            return new CommandLineOptions(true, "", null, "");
         }
         // helper
         if (cmd.hasOption('h') || cmd.hasOption("helper")) {
@@ -240,14 +261,23 @@ public class PaloFe {
                 System.err.println("Missing helper node");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, helperNode, null);
+            return new CommandLineOptions(false, helperNode, null, "");
         }
-
+        // image
+        if (cmd.hasOption('i') || cmd.hasOption("image")) {
+            // get image path
+            String imagePath = cmd.getOptionValue("image");
+            if (Strings.isNullOrEmpty(imagePath)) {
+                System.err.println("imagePath is not set");
+                System.exit(-1);
+            }
+            return new CommandLineOptions(false, "", null, imagePath);
+        }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
                 // list bdb je databases
                 BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
-                return new CommandLineOptions(false, "", bdbOpts);
+                return new CommandLineOptions(false, "", bdbOpts, "");
             }
             if (cmd.hasOption('d') || cmd.hasOption("db")) {
                 // specify a database
@@ -258,7 +288,7 @@ public class PaloFe {
                 }
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
-                    return new CommandLineOptions(false, "", bdbOpts);
+                    return new CommandLineOptions(false, "", bdbOpts, "");
                 }
                 String fromKey = "";
                 String endKey = "";
@@ -287,7 +317,7 @@ public class PaloFe {
                 }
 
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
-                return new CommandLineOptions(false, "", bdbOpts);
+                return new CommandLineOptions(false, "", bdbOpts, "");
 
             } else {
                 System.err.println("Invalid options when running bdb je tools");
@@ -296,7 +326,7 @@ public class PaloFe {
         }
 
         // helper node is null, means no helper node is specified
-        return new CommandLineOptions(false, null, null);
+        return new CommandLineOptions(false, null, null, "");
     }
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
@@ -308,11 +338,29 @@ public class PaloFe {
             System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
-            BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
+            BDBTool bdbTool = new BDBTool(Env.getCurrentEnv().getBdbDir(), cmdLineOpts.getBdbToolOpts());
             if (bdbTool.run()) {
                 System.exit(0);
             } else {
                 System.exit(-1);
+            }
+        } else if (cmdLineOpts.runImageTool()) {
+            File imageFile = new File(cmdLineOpts.getImagePath());
+            if (!imageFile.exists()) {
+                System.out.println("image does not exist: " + imageFile.getAbsolutePath()
+                        + " . Please put an absolute path instead");
+                System.exit(-1);
+            } else {
+                System.out.println("Start to load image: ");
+                try {
+                    MetaReader.read(imageFile, Env.getCurrentEnv());
+                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                } catch (Exception e) {
+                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
+                    LOG.warn("", e);
+                } finally {
+                    System.exit(0);
+                }
             }
         }
 
@@ -343,6 +391,9 @@ public class PaloFe {
             throw e;
         }
     }
+
+    public static class StartupOptions {
+        public boolean enableHttpServer = true;
+        public boolean enableQeService = true;
+    }
 }
-
-

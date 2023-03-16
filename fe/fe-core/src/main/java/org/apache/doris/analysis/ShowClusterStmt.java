@@ -18,15 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -58,10 +58,8 @@ public class ShowClusterStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                   PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                                                  PaloPrivilege.NODE_PRIV),
-                                                                                    Operator.OR))) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV), Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }

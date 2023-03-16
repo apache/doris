@@ -16,11 +16,11 @@
 // under the License.
 
 #pragma once
-#include <cstring>
 #include <fmt/format.h>
 
-#include "vec/columns/column_string.h"
+#include <cstring>
 
+#include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {
@@ -40,8 +40,8 @@ public:
 
 class VectorBufferWriter final : public BufferWritable {
 public:
-    explicit VectorBufferWriter(ColumnString& vector) :
-        _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
+    explicit VectorBufferWriter(ColumnString& vector)
+            : _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
 
     void write(const char* data, int len) override {
         _data.insert(data, data + len);
@@ -49,14 +49,11 @@ public:
     }
 
     void commit() override {
-        _data.push_back(0);
-        _offsets.push_back(_offsets.back() + _now_offset + 1);
+        _offsets.push_back(_offsets.back() + _now_offset);
         _now_offset = 0;
     }
 
-    ~VectorBufferWriter() {
-        DCHECK(_now_offset == 0);
-    }
+    ~VectorBufferWriter() override { DCHECK(_now_offset == 0); }
 
 private:
     ColumnString::Chars& _data;

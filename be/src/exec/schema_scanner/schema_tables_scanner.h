@@ -15,33 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_TABLES_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_TABLES_SCANNER_H
+#pragma once
 
+#include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 class SchemaTablesScanner : public SchemaScanner {
 public:
     SchemaTablesScanner();
-    virtual ~SchemaTablesScanner();
+    ~SchemaTablesScanner() override;
 
-    virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_new_table();
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _get_new_table();
+    Status _fill_block_impl(vectorized::Block* block);
 
     int _db_index;
-    int _table_index;
     TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 
 } // namespace doris
-
-#endif

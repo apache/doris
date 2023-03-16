@@ -22,15 +22,19 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/runtime_filter.h"
-#include "util/time.h"
-#include "util/uid_util.h"
-// defination for TRuntimeFilterDesc
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_state.h"
+#include "util/uid_util.h"
+
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
 
 namespace doris {
 class TUniqueId;
@@ -45,13 +49,13 @@ class PMergeFilterRequest;
 /// get_filter(filter_id, &filter);
 /// filter->merge(origin_filter)
 
-/// comsumer:
+/// consumer:
 /// get_filter(filter_id, &filter)
 /// filter->wait
 /// if filter->ready().ok(), use filter
 
 // owned by RuntimeState
-// RuntimeFilterMgr will be destoryed when RuntimeState is destoryed
+// RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);
@@ -65,11 +69,12 @@ public:
 
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
     // regist filter
-    Status regist_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                         const TQueryOptions& options, int node_id = -1);
+    Status register_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
+                           const TQueryOptions& options, int node_id = -1);
 
     // update filter by remote
-    Status update_filter(const PPublishFilterRequest* request, const char* data);
+    Status update_filter(const PPublishFilterRequest* request,
+                         butil::IOBufAsZeroCopyInputStream* data);
 
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
 
@@ -91,7 +96,7 @@ private:
     std::map<int32_t, RuntimeFilterMgrVal> _producer_map;
 
     RuntimeState* _state;
-    MemTracker* _tracker;
+    std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
     TNetworkAddress _merge_addr;
@@ -105,7 +110,8 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    RuntimeFilterMergeControllerEntity() : _query_id(0, 0), _fragment_instance_id(0, 0) {}
+    RuntimeFilterMergeControllerEntity(RuntimeState* state)
+            : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
     Status init(UniqueId query_id, UniqueId fragment_instance_id,
@@ -113,15 +119,12 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request, const char* data);
+    Status merge(const PMergeFilterRequest* request,
+                 butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    UniqueId query_id() { return _query_id; }
+    UniqueId query_id() const { return _query_id; }
 
-private:
-    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
-                           const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
-                           const int producer_size);
+    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t create_time;
@@ -130,16 +133,27 @@ private:
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
         IRuntimeFilter* filter;
         std::unordered_set<std::string> arrive_id; // fragment_instance_id ?
-        std::shared_ptr<MemTracker> tracker;
         std::shared_ptr<ObjectPool> pool;
     };
+
+public:
+    RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[std::to_string(id)].get(); }
+
+private:
+    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
+                           const TQueryOptions* query_options,
+                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
+                           const int producer_size);
+
     UniqueId _query_id;
     UniqueId _fragment_instance_id;
     // protect _filter_map
     std::mutex _filter_map_mutex;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // TODO: convert filter id to i32
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
+    RuntimeState* _state;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity
@@ -153,9 +167,14 @@ public:
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
     Status add_entity(const TExecPlanFragmentParams& params,
-                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle);
+                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+                      RuntimeState* state);
+    Status add_entity(const TPipelineFragmentParams& params,
+                      const TPipelineInstanceParams& local_params,
+                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+                      RuntimeState* state);
     // thread safe
-    // increate a reference count
+    // increase a reference count
     // if a query-id is not exist
     // Status.not_ok will be returned and a empty ptr will returned by *handle
     Status acquire(UniqueId query_id, std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle);
@@ -163,16 +182,22 @@ public:
     // thread safe
     // remove a entity by query-id
     // remove_entity will be called automatically by entity when entity is destroyed
-    Status remove_entity(UniqueId queryId);
+    Status remove_entity(UniqueId query_id);
+
+    static const int kShardNum = 128;
 
 private:
-    std::mutex _controller_mutex;
+    uint32_t _get_controller_shard_idx(UniqueId& query_id) {
+        return (uint32_t)query_id.hi % kShardNum;
+    }
+
+    std::mutex _controller_mutex[kShardNum];
     // We store the weak pointer here.
     // When the external object is destroyed, we need to clear this record
     using FilterControllerMap =
-            std::map<std::string, std::weak_ptr<RuntimeFilterMergeControllerEntity>>;
+            std::unordered_map<std::string, std::weak_ptr<RuntimeFilterMergeControllerEntity>>;
     // str(query-id) -> entity
-    FilterControllerMap _filter_controller_map;
+    FilterControllerMap _filter_controller_map[kShardNum];
 };
 
 using runtime_filter_merge_entity_closer = std::function<void(RuntimeFilterMergeControllerEntity*)>;

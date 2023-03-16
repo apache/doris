@@ -27,8 +27,10 @@
 #include "common/utils.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
+#include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/message_body_sink.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "service/backend_options.h"
 #include "util/string_util.h"
@@ -82,7 +84,7 @@ class MessageBodySink;
 
 class StreamLoadContext {
 public:
-    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env), _refs(0) {
+    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
     }
 
@@ -91,14 +93,13 @@ public:
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
         }
-
-        _exec_env->load_stream_mgr()->remove(id);
     }
 
     std::string to_json() const;
 
     std::string prepare_stream_load_record(const std::string& stream_load_record);
-    static void parse_stream_load_record(const std::string& stream_load_record, TStreamLoadRecord& stream_load_item);
+    static void parse_stream_load_record(const std::string& stream_load_record,
+                                         TStreamLoadRecord& stream_load_item);
 
     // the old mini load result format is not same as stream load.
     // add this function for compatible with old mini load result format.
@@ -108,12 +109,8 @@ public:
     // also print the load source info if detail is set to true
     std::string brief(bool detail = false) const;
 
-    void ref() { _refs.fetch_add(1); }
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
-
 public:
-    // load type, eg: ROUTINE LOAD/MANUL LOAD
+    // load type, eg: ROUTINE LOAD/MANUAL LOAD
     TLoadType::type load_type;
     // load data source: eg: KAFKA/RAW
     TLoadSourceType::type load_src_type;
@@ -135,6 +132,7 @@ public:
     int32_t timeout_second = -1;
     AuthInfo auth;
     bool two_phase_commit = false;
+    std::string load_comment;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.
@@ -160,8 +158,10 @@ public:
     // otherwise we save source data to file first, then process it.
     bool use_streaming = false;
     TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
+    TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
 
     std::shared_ptr<MessageBodySink> body_sink;
+    std::shared_ptr<io::StreamLoadPipe> pipe;
 
     TStreamLoadPutResult put_result;
 
@@ -198,14 +198,17 @@ public:
     // to identified a specified data consumer.
     int64_t consumer_id;
 
-    // If this is an tranactional insert operation, this will be true
+    // If this is an transactional insert operation, this will be true
     bool need_commit_self = false;
+
+    // csv with header type
+    std::string header_type = "";
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
     ExecEnv* _exec_env;
-    std::atomic<int> _refs;
 };
 
 } // namespace doris

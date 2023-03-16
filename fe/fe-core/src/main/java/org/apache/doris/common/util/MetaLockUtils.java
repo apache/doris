@@ -17,9 +17,11 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -31,37 +33,47 @@ import java.util.concurrent.TimeUnit;
  */
 public class MetaLockUtils {
 
-    public static void readLockDatabases(List<Database> databaseList) {
-        for (Database database : databaseList) {
+    public static void readLockDatabases(List<? extends DatabaseIf> databaseList) {
+        for (DatabaseIf database : databaseList) {
             database.readLock();
         }
     }
 
-    public static void readUnlockDatabases(List<Database> databaseList) {
+    public static void readUnlockDatabases(List<? extends DatabaseIf> databaseList) {
         for (int i = databaseList.size() - 1; i >= 0; i--) {
             databaseList.get(i).readUnlock();
         }
     }
 
-    public static void readLockTables(List<Table> tableList) {
-        for (Table table : tableList) {
+    public static void readLockTables(List<? extends TableIf> tableList) {
+        for (TableIf table : tableList) {
             table.readLock();
         }
     }
 
-    public static void readUnlockTables(List<Table> tableList) {
+    public static void readUnlockTables(List<? extends TableIf> tableList) {
         for (int i = tableList.size() - 1; i >= 0; i--) {
             tableList.get(i).readUnlock();
         }
     }
 
-    public static void writeLockTables(List<Table> tableList) {
-        for (Table table : tableList) {
+    public static void writeLockTables(List<? extends TableIf> tableList) {
+        for (TableIf table : tableList) {
             table.writeLock();
         }
     }
 
-    public static void writeLockTablesOrMetaException(List<Table> tableList) throws MetaNotFoundException {
+    public static List<? extends TableIf> writeLockTablesIfExist(List<? extends TableIf> tableList) {
+        List<TableIf> lockedTablesList = Lists.newArrayListWithCapacity(tableList.size());
+        for (TableIf table : tableList) {
+            if (table.writeLockIfExist()) {
+                lockedTablesList.add(table);
+            }
+        }
+        return lockedTablesList;
+    }
+
+    public static void writeLockTablesOrMetaException(List<? extends TableIf> tableList) throws MetaNotFoundException {
         for (int i = 0; i < tableList.size(); i++) {
             try {
                 tableList.get(i).writeLockOrMetaException();
@@ -74,7 +86,8 @@ public class MetaLockUtils {
         }
     }
 
-    public static boolean tryWriteLockTablesOrMetaException(List<Table> tableList, long timeout, TimeUnit unit) throws MetaNotFoundException {
+    public static boolean tryWriteLockTablesOrMetaException(List<? extends TableIf> tableList, long timeout,
+            TimeUnit unit) throws MetaNotFoundException {
         for (int i = 0; i < tableList.size(); i++) {
             try {
                 if (!tableList.get(i).tryWriteLockOrMetaException(timeout, unit)) {
@@ -93,7 +106,7 @@ public class MetaLockUtils {
         return true;
     }
 
-    public static void writeUnlockTables(List<Table> tableList) {
+    public static void writeUnlockTables(List<? extends TableIf> tableList) {
         for (int i = tableList.size() - 1; i >= 0; i--) {
             tableList.get(i).writeUnlock();
         }

@@ -4,195 +4,105 @@
 
 #include "common/status.h"
 
-#include "gutil/strings/fastmem.h" // for memcpy_inlined
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+
+#include "gen_cpp/types.pb.h" // for PStatus
 
 namespace doris {
 
-inline const char* assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code,
-                                  const Slice& msg2) {
-    DCHECK(code != TStatusCode::OK);
-
-    const uint32_t len1 = msg.size;
-    const uint32_t len2 = msg2.size;
-    const uint32_t size = len1 + ((len2 > 0) ? (2 + len2) : 0);
-    auto result = new char[size + 7];
-    memcpy(result, &size, sizeof(size));
-    result[4] = static_cast<char>(code);
-    memcpy(result + 5, &precise_code, sizeof(precise_code));
-    memcpy(result + 7, msg.data, len1);
-    if (len2 > 0) {
-        result[7 + len1] = ':';
-        result[8 + len1] = ' ';
-        memcpy(result + 9 + len1, msg2.data, len2);
-    }
-    return result;
-}
-
-const char* Status::copy_state(const char* state) {
-    uint32_t size;
-    strings::memcpy_inlined(&size, state, sizeof(size));
-    auto result = new char[size + 7];
-    strings::memcpy_inlined(result, state, size + 7);
-    return result;
-}
-
-Status::Status(const TStatus& s) : _state(nullptr) {
-    if (s.status_code != TStatusCode::OK) {
-        if (s.error_msgs.empty()) {
-            _state = assemble_state(s.status_code, Slice(), 1, Slice());
-        } else {
-            _state = assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
+Status::Status(const TStatus& s) {
+    _code = static_cast<int>(s.status_code);
+    if (_code != ErrorCode::OK) {
+        if (!s.error_msgs.empty()) {
+            if (_err_msg == nullptr) {
+                _err_msg = std::make_unique<ErrMsg>();
+            }
+            _err_msg->_msg = s.error_msgs[0];
+#ifdef ENABLE_STACKTRACE
+            _err_msg->_stack = "";
+#endif
         }
+    } else {
+        _err_msg.reset();
     }
 }
 
-Status::Status(const PStatus& s) : _state(nullptr) {
-    TStatusCode::type code = (TStatusCode::type)s.status_code();
-    if (code != TStatusCode::OK) {
-        if (s.error_msgs_size() == 0) {
-            _state = assemble_state(code, Slice(), 1, Slice());
-        } else {
-            _state = assemble_state(code, s.error_msgs(0), 1, Slice());
+Status::Status(const PStatus& s) {
+    _code = s.status_code();
+    if (_code != ErrorCode::OK) {
+        if (s.error_msgs_size() > 0) {
+            if (_err_msg == nullptr) {
+                _err_msg = std::make_unique<ErrMsg>();
+            }
+            _err_msg->_msg = s.error_msgs(0);
+#ifdef ENABLE_STACKTRACE
+            _err_msg->_stack = "";
+#endif
         }
+    } else {
+        _err_msg.reset();
     }
 }
-
-Status::Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2)
-        : _state(assemble_state(code, msg, precise_code, msg2)) {}
 
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();
-    if (_state == nullptr) {
+    if (ok()) {
         s->status_code = TStatusCode::OK;
-    } else {
-        s->status_code = code();
-        auto msg = message();
-        s->error_msgs.emplace_back(msg.data, msg.size);
-        s->__isset.error_msgs = true;
+        return;
     }
+    s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
+    s->error_msgs.push_back(
+            fmt::format("[{}]{}", code_as_string(), _err_msg ? _err_msg->_msg : ""));
+    s->__isset.error_msgs = true;
+}
+
+TStatus Status::to_thrift() const {
+    TStatus s;
+    to_thrift(&s);
+    return s;
 }
 
 void Status::to_protobuf(PStatus* s) const {
     s->clear_error_msgs();
-    if (_state == nullptr) {
-        s->set_status_code((int)TStatusCode::OK);
-    } else {
-        s->set_status_code(code());
-        auto msg = message();
-        s->add_error_msgs(msg.data, msg.size);
+    s->set_status_code((int)_code);
+    if (!ok() && _err_msg) {
+        s->add_error_msgs(_err_msg->_msg);
     }
 }
 
-std::string Status::code_as_string() const {
-    if (_state == nullptr) {
-        return "OK";
+Status& Status::prepend(std::string_view msg) {
+    if (!ok()) {
+        if (_err_msg == nullptr) {
+            _err_msg = std::make_unique<ErrMsg>();
+        }
+        _err_msg->_msg = std::string(msg) + _err_msg->_msg;
     }
-    switch (code()) {
-    case TStatusCode::OK:
-        return "OK";
-    case TStatusCode::CANCELLED:
-        return "Cancelled";
-    case TStatusCode::NOT_IMPLEMENTED_ERROR:
-        return "Not supported";
-    case TStatusCode::RUNTIME_ERROR:
-        return "Runtime error";
-    case TStatusCode::MEM_LIMIT_EXCEEDED:
-        return "Memory limit exceeded";
-    case TStatusCode::INTERNAL_ERROR:
-        return "Internal error";
-    case TStatusCode::THRIFT_RPC_ERROR:
-        return "Thrift rpc error";
-    case TStatusCode::TIMEOUT:
-        return "Timeout";
-    case TStatusCode::MEM_ALLOC_FAILED:
-        return "Memory alloc failed";
-    case TStatusCode::BUFFER_ALLOCATION_FAILED:
-        return "Buffer alloc failed";
-    case TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE:
-        return "Minimum reservation unavailable";
-    case TStatusCode::PUBLISH_TIMEOUT:
-        return "Publish timeout";
-    case TStatusCode::LABEL_ALREADY_EXISTS:
-        return "Label already exist";
-    case TStatusCode::END_OF_FILE:
-        return "End of file";
-    case TStatusCode::NOT_FOUND:
-        return "Not found";
-    case TStatusCode::CORRUPTION:
-        return "Corruption";
-    case TStatusCode::INVALID_ARGUMENT:
-        return "Invalid argument";
-    case TStatusCode::IO_ERROR:
-        return "IO error";
-    case TStatusCode::ALREADY_EXIST:
-        return "Already exist";
-    case TStatusCode::NETWORK_ERROR:
-        return "Network error";
-    case TStatusCode::ILLEGAL_STATE:
-        return "Illegal state";
-    case TStatusCode::NOT_AUTHORIZED:
-        return "Not authorized";
-    case TStatusCode::REMOTE_ERROR:
-        return "Remote error";
-    case TStatusCode::SERVICE_UNAVAILABLE:
-        return "Service unavailable";
-    case TStatusCode::UNINITIALIZED:
-        return "Uninitialized";
-    case TStatusCode::CONFIGURATION_ERROR:
-        return "Configuration error";
-    case TStatusCode::INCOMPLETE:
-        return "Incomplete";
-    case TStatusCode::DATA_QUALITY_ERROR:
-        return "Data quality error";
-    default: {
-        char tmp[30];
-        snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));
-        return tmp;
-    }
-    }
-    return std::string();
+    return *this;
 }
 
-std::string Status::to_string() const {
-    std::string result(code_as_string());
-    if (_state == nullptr) {
-        return result;
+Status& Status::append(std::string_view msg) {
+    if (!ok()) {
+        if (_err_msg == nullptr) {
+            _err_msg = std::make_unique<ErrMsg>();
+        }
+        _err_msg->_msg.append(msg);
     }
-
-    result.append(": ");
-    Slice msg = message();
-    result.append(reinterpret_cast<const char*>(msg.data), msg.size);
-    int16_t posix = precise_code();
-    if (posix != 1) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), " (error %d)", posix);
-        result.append(buf);
-    }
-    return result;
+    return *this;
 }
 
-Slice Status::message() const {
-    if (_state == nullptr) {
-        return Slice();
-    }
-
-    uint32_t length;
-    memcpy(&length, _state, sizeof(length));
-    return Slice(_state + 7, length);
-}
-
-Status Status::clone_and_prepend(const Slice& msg) const {
-    if (ok()) {
-        return *this;
-    }
-    return Status(code(), msg, precise_code(), message());
-}
-
-Status Status::clone_and_append(const Slice& msg) const {
-    if (ok()) {
-        return *this;
-    }
-    return Status(code(), message(), precise_code(), msg);
+std::string Status::to_json() const {
+    rapidjson::StringBuffer s;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
+    writer.StartObject();
+    // status
+    writer.Key("status");
+    writer.String(code_as_string().c_str());
+    // msg
+    writer.Key("msg");
+    ok() ? writer.String("OK") : writer.String(_err_msg ? _err_msg->_msg.c_str() : "");
+    writer.EndObject();
+    return s.GetString();
 }
 
 } // namespace doris

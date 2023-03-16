@@ -1,0 +1,26 @@
+{
+  "test_202207": {
+    "mappings": {
+      "properties": {
+        "test1": {
+          "type": "keyword"
+        },
+        "test2": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "test3": {
+          "type": "double"
+        },
+        "test4": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}

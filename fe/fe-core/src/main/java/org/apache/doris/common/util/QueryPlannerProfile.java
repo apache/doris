@@ -30,7 +30,11 @@ public class QueryPlannerProfile {
     public static final String KEY_ANALYSIS = "Analysis Time";
     public static final String KEY_PLAN = "Plan Time";
     public static final String KEY_SCHEDULE = "Schedule Time";
-    public static final String KEY_FETCH = "Wait and Fetch Result Time";
+    public static final String KEY_WAIT_AND_FETCH = "Wait and Fetch Result Time";
+
+    public static final String KEY_FETCH = "Fetch Result Time";
+
+    public static final String KEY_WRITE = "Write Result Time";
 
     // timestamp of query begin
     private long queryBeginTime = -1;
@@ -42,6 +46,12 @@ public class QueryPlannerProfile {
     private long queryScheduleFinishTime = -1;
     // Query result fetch end time
     private long queryFetchResultFinishTime = -1;
+
+    private long tempStarTime = -1;
+
+    private long queryFetchResultConsumeTime = 0;
+
+    private long queryWriteResultConsumeTime = 0;
 
     public void setQueryBeginTime() {
         this.queryBeginTime = TimeUtils.getStartTime();
@@ -61,6 +71,18 @@ public class QueryPlannerProfile {
 
     public void setQueryFetchResultFinishTime() {
         this.queryFetchResultFinishTime = TimeUtils.getStartTime();
+    }
+
+    public void setTempStartTime() {
+        this.tempStarTime = TimeUtils.getStartTime();
+    }
+
+    public void freshFetchResultConsumeTime() {
+        this.queryFetchResultConsumeTime += TimeUtils.getStartTime() - tempStarTime;
+    }
+
+    public void freshWriteResultConsumeTime() {
+        this.queryWriteResultConsumeTime += TimeUtils.getStartTime() - tempStarTime;
     }
 
     public long getQueryBeginTime() {
@@ -99,6 +121,10 @@ public class QueryPlannerProfile {
         plannerProfile.addInfoString(KEY_ANALYSIS, getPrettyQueryAnalysisFinishTime());
         plannerProfile.addInfoString(KEY_PLAN, getPrettyQueryPlanFinishTime());
         plannerProfile.addInfoString(KEY_SCHEDULE, getPrettyQueryScheduleFinishTime());
-        plannerProfile.addInfoString(KEY_FETCH, getPrettyQueryFetchResultFinishTime());
+        plannerProfile.addInfoString(KEY_FETCH,
+                RuntimeProfile.printCounter(queryFetchResultConsumeTime, TUnit.TIME_NS));
+        plannerProfile.addInfoString(KEY_WRITE,
+                RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_NS));
+        plannerProfile.addInfoString(KEY_WAIT_AND_FETCH, getPrettyQueryFetchResultFinishTime());
     }
 }

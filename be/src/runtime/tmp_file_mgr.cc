@@ -21,8 +21,7 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <filesystem>
-// #include <gutil/strings/substitute.h>
-// #include <gutil/strings/join.h>
+#include <random>
 
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -89,7 +88,7 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
         Status status = FileSystemUtil::verify_is_directory(tmp_path.string());
         if (!status.ok()) {
             LOG(WARNING) << "Cannot use directory " << tmp_path.string()
-                         << " for scratch: " << status.get_error_msg();
+                         << " for scratch: " << status;
             continue;
         }
         // Find the disk id of tmp_path. Add the scratch directory if there isn't another
@@ -117,7 +116,7 @@ Status TmpFileMgr::init_custom(const vector<string>& tmp_dirs, bool one_dir_per_
             } else {
                 LOG(WARNING) << "Could not remove and recreate directory "
                              << scratch_subdir_path.string() << ": cannot use it for scratch. "
-                             << "Error was: " << status.get_error_msg();
+                             << "Error was: " << status;
             }
         }
     }
@@ -139,9 +138,7 @@ Status TmpFileMgr::get_file(const DeviceId& device_id, const TUniqueId& query_id
     DCHECK_GE(device_id, 0);
     DCHECK_LT(device_id, _tmp_dirs.size());
     if (is_blacklisted(device_id)) {
-        std::stringstream error_msg;
-        error_msg << "path is blacklist. path: " << _tmp_dirs[device_id].path();
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("path is blacklist. path: {}", _tmp_dirs[device_id].path());
     }
 
     // Generate the full file path.
@@ -160,6 +157,14 @@ string TmpFileMgr::get_tmp_dir_path(DeviceId device_id) const {
     DCHECK_GE(device_id, 0);
     DCHECK_LT(device_id, _tmp_dirs.size());
     return _tmp_dirs[device_id].path();
+}
+
+std::string TmpFileMgr::get_tmp_dir_path() {
+    std::vector<DeviceId> devices = active_tmp_devices();
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(devices.begin(), devices.end(), g);
+    return get_tmp_dir_path(devices.front());
 }
 
 void TmpFileMgr::blacklist_device(DeviceId device_id) {
@@ -217,15 +222,13 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
     Status status;
     if (_mgr->is_blacklisted(_device_id)) {
         _blacklisted = true;
-        std::stringstream error_msg;
-        error_msg << "path is blacklist. path: " << _path;
-        return Status::InternalError(error_msg.str());
+        return Status::InternalError("path is blacklist. path: {}", _path);
     }
     if (_current_size == 0) {
         // First call to AllocateSpace. Create the file.
         status = FileSystemUtil::create_file(_path);
         if (!status.ok()) {
-            report_io_error(status.get_error_msg());
+            report_io_error(status.to_string());
             return status;
         }
         _disk_id = DiskInfo::disk_id(_path.c_str());
@@ -233,7 +236,7 @@ Status TmpFileMgr::File::allocate_space(int64_t write_size, int64_t* offset) {
     int64_t new_size = _current_size + write_size;
     status = FileSystemUtil::resize_file(_path, new_size);
     if (!status.ok()) {
-        report_io_error(status.get_error_msg());
+        report_io_error(status.to_string());
         return status;
     }
     *offset = _current_size;

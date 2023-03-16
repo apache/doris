@@ -26,7 +26,6 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,7 +49,8 @@ public class MovesCacheMap {
     private final Table<String, Tag, Map<TStorageMedium, MovesCache>> cacheMap = HashBasedTable.create();
     private long lastExpireConfig = -1L;
 
-    // TabletId -> Pair<Move, ToDeleteReplicaId>, 'ToDeleteReplicaId == -1' means this move haven't been scheduled successfully.
+    // TabletId -> Pair<Move, ToDeleteReplicaId>, 'ToDeleteReplicaId == -1'
+    // means this move haven't been scheduled successfully.
     public static class MovesCache {
         Cache<Long, Pair<PartitionRebalancer.TabletMove, Long>> cache;
 
@@ -66,7 +66,8 @@ public class MovesCacheMap {
     // Cyclical update the cache mapping, cuz the cluster may be deleted, we should delete the corresponding cache too.
     public void updateMapping(Table<String, Tag, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
         if (expireAfterAccessSecond > 0 && lastExpireConfig != expireAfterAccessSecond) {
-            LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.", lastExpireConfig, expireAfterAccessSecond);
+            LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.",
+                    lastExpireConfig, expireAfterAccessSecond);
             cacheMap.clear();
             lastExpireConfig = expireAfterAccessSecond;
         }
@@ -79,7 +80,8 @@ public class MovesCacheMap {
                 .collect(Collectors.toList());
         for (Table.Cell<String, Tag, ClusterLoadStatistic> cell : toAdd) {
             Map<TStorageMedium, MovesCache> newCacheMap = Maps.newHashMap();
-            Arrays.stream(TStorageMedium.values()).forEach(m -> newCacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
+            Arrays.stream(TStorageMedium.values())
+                    .forEach(m -> newCacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
             this.cacheMap.put(cell.getRowKey(), cell.getColumnKey(), newCacheMap);
         }
     }
@@ -115,7 +117,8 @@ public class MovesCacheMap {
     }
 
     public long size() {
-        return cacheMap.values().stream().mapToLong(maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
+        return cacheMap.values().stream().mapToLong(
+                maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
     }
 
     @Override

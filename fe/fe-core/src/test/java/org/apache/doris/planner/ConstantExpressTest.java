@@ -122,6 +122,10 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select current_time();",
                 "");
+
+        testConstantExpressResult(
+                "select current_date();",
+                "");
     }
 
     @Test
@@ -133,6 +137,14 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select cast ('2020-01-20' as date);",
                 "'2020-01-20'");
+
+        testConstantExpressResult(
+                "select cast ('2020-01-20 00:00:00' as datetime);",
+                "'2020-01-20 00:00:00'");
+
+        testConstantExpressResult(
+                "select cast ('2020-01-20 00:00:00' as datetime(0));",
+                "'2020-01-20 00:00:00'");
     }
 
     @Test
@@ -147,18 +159,11 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select 1 * 10.0;",
-                "10.0");
+                "10");
 
         testConstantExpressResult(
                 "select 1 / 10.0;",
                 "0.1");
-    }
-
-    @Test
-    public void testMath() throws Exception {
-        testConstantExpressResult(
-                "select floor(2.3);",
-                "2");
     }
 
     @Test
@@ -228,7 +233,6 @@ public class ConstantExpressTest {
 
     @Test
     public void testTimestamp() throws Exception {
-        testConstantExpressResult("select timestamp('2021-07-24 00:00:00')",
-            "'2021-07-24 00:00:00'");
+        testConstantExpressResult("select timestamp('2021-07-24 00:00:00')", "'2021-07-24 00:00:00'");
     }
 }

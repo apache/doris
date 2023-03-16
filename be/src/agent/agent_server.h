@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_AGENT_SERVER_H
-#define DORIS_BE_SRC_AGENT_AGENT_SERVER_H
+#pragma once
 
 #include <memory>
 #include <string>
@@ -45,19 +44,12 @@ public:
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
+    // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
-
-    // Multi-Load will still use the following 3 methods for now.
-    void submit_etl_task(TAgentResult& agent_result, const TMiniLoadEtlTaskRequest& request);
-    void get_etl_status(TMiniLoadEtlStatusResult& agent_result,
-                        const TMiniLoadEtlStatusRequest& request);
-    void delete_etl_files(TAgentResult& result, const TDeleteEtlFilesRequest& request);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
 
-    // Not Owned
-    ExecEnv* _exec_env;
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
 
@@ -68,6 +60,8 @@ private:
     std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
     std::unique_ptr<TaskWorkerPool> _delete_workers;
     std::unique_ptr<TaskWorkerPool> _alter_tablet_workers;
+    std::unique_ptr<TaskWorkerPool> _alter_inverted_index_workers;
+    std::unique_ptr<TaskWorkerPool> _push_cooldown_conf_workers;
     std::unique_ptr<TaskWorkerPool> _clone_workers;
     std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_workers;
     std::unique_ptr<TaskWorkerPool> _check_consistency_workers;
@@ -88,9 +82,8 @@ private:
 
     std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
 
+    std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers;
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_AGENT_AGENT_SERVER_H

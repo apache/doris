@@ -17,6 +17,8 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.S3Resource;
+
 import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -56,27 +58,27 @@ public class S3StorageTest {
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
-        properties.put(S3Storage.USE_PATH_STYLE, "false");
+        properties.put(S3Resource.USE_PATH_STYLE, "false");
 
         properties.put("AWS_REGION", "bj");
         storage = new S3Storage(properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
 
         content =
-                "O wild West Wind, thou breath of Autumn's being\n" +
-                        "Thou, from whose unseen presence the leaves dead\n" +
-                        "Are driven, like ghosts from an enchanter fleeing,\n" +
-                        "Yellow, and black, and pale, and hectic red,\n" +
-                        "Pestilence-stricken multitudes:O thou\n" +
-                        "Who chariotest to their dark wintry bed\n" +
-                        "The winged seeds, where they lie cold and low,\n" +
-                        "Each like a corpse within its grave, until\n" +
-                        "Thine azure sister of the Spring shall blow\n" +
-                        "Her clarion o'er the dreaming earth, and fill\n" +
-                        "(Driving sweet buds like flocks to feed in air)\n" +
-                        "With living hues and odors plain and hill:\n" +
-                        "Wild Spirit, which art moving everywhere;\n" +
-                        "Destroyer and preserver; hear, oh, hear!";
+                "O wild West Wind, thou breath of Autumn's being\n"
+                        + "Thou, from whose unseen presence the leaves dead\n"
+                        + "Are driven, like ghosts from an enchanter fleeing,\n"
+                        + "Yellow, and black, and pale, and hectic red,\n"
+                        + "Pestilence-stricken multitudes:O thou\n"
+                        + "Who chariotest to their dark wintry bed\n"
+                        + "The winged seeds, where they lie cold and low,\n"
+                        + "Each like a corpse within its grave, until\n"
+                        + "Thine azure sister of the Spring shall blow\n"
+                        + "Her clarion o'er the dreaming earth, and fill\n"
+                        + "(Driving sweet buds like flocks to feed in air)\n"
+                        + "With living hues and odors plain and hill:\n"
+                        + "Wild Spirit, which art moving everywhere;\n"
+                        + "Destroyer and preserver; hear, oh, hear!";
         Assert.assertEquals(Status.OK, storage.directUpload(content, testFile));
     }
 

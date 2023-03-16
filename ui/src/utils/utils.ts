@@ -27,16 +27,14 @@ function isSuccess(response) {
 
     let {code, msg} = response;
 
-    if (code === 0 && msg === 'success') {
-        return true
-    }
-    return false;
+    return code === 0 && msg === 'success';
 }
-function getDbName(params) {
+
+function getDbName(params?: any) {
     const infoArr = location.pathname.split('/');
-    const str = infoArr[infoArr.length-1];
-    const res = {};
-    if(str && str !=='Playground'){
+    const str = infoArr[infoArr.length - 1];
+    const res: any = {};
+    if (str && str !== 'Playground') {
         const db_name = str.split('-')[0];
         const tbl_name = str.split('-')[1];
         res.db_name = db_name;
@@ -44,10 +42,11 @@ function getDbName(params) {
     }
     return res;
 }
+
 function getTimeNow() {
     let dateNow = new Date();
     let fmt = 'yyyy-MM-dd hh:mm:ss';
-    var o = {
+    let o = {
         'M+': dateNow.getMonth() + 1,
         'd+': dateNow.getDate(),
         'h+': dateNow.getHours(),
@@ -58,29 +57,31 @@ function getTimeNow() {
     };
     if (/(y+)/.test(fmt)) {
         fmt = fmt.replace(
-          RegExp.$1,
-          (dateNow.getFullYear() + '').substr(4 - RegExp.$1.length)
+            RegExp.$1,
+            (dateNow.getFullYear() + '').substr(4 - RegExp.$1.length)
         );
     }
-    for (var k in o) {
+    for (let k in o) {
         if (new RegExp('(' + k + ')').test(fmt)) {
             fmt = fmt.replace(
                 RegExp.$1,
                 RegExp.$1.length === 1
-                ? o[k]
-                : ('00' + o[k]).substr(('' + o[k]).length)
+                    ? o[k]
+                    : ('00' + o[k]).substr(('' + o[k]).length)
             );
         }
     }
     return fmt;
 }
-function getBasePath(){
+
+function getBasePath() {
     let arr = location.pathname.split('/');
     let res = '';
-    if(arr.length>5){
-        arr = arr.slice(0,5);
+    if (arr.length > 5) {
+        arr = arr.slice(0, 5);
         res = arr.join('/');
     }
     return res;
 }
-module.exports = {isSuccess, getDbName, getTimeNow, getBasePath};
+
+export {isSuccess, getDbName, getTimeNow, getBasePath};

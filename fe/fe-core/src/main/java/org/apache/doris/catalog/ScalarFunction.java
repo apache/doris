@@ -19,8 +19,10 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.HdfsURI;
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.URI;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
@@ -28,7 +30,7 @@ import org.apache.doris.thrift.TScalarFunction;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,10 +41,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-
-import com.google.gson.Gson;
-
-import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
 // import org.apache.doris.thrift.TSymbolType;
 
@@ -73,11 +71,19 @@ public class ScalarFunction extends Function {
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
                           TFunctionBinaryType binaryType, boolean userVisible, boolean isVec) {
-        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec, NullableMode.DEPEND_ON_ARGUMENT);
+        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec,
+                NullableMode.DEPEND_ON_ARGUMENT);
+    }
+
+    /** nerieds custom scalar function */
+    public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs, String symbolName,
+            TFunctionBinaryType binaryType, boolean userVisible, boolean isVec, NullableMode nullableMode) {
+        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec, nullableMode);
+        this.symbolName = symbolName;
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes,
-                          Type retType, HdfsURI location, String symbolName, String initFnSymbol,
+                          Type retType, URI location, String symbolName, String initFnSymbol,
                           String closeFnSymbol) {
         super(fnName, argTypes, retType, false);
         setLocation(location);
@@ -155,6 +161,7 @@ public class ScalarFunction extends Function {
                     break;
                 case DOUBLE:
                 case TIME:
+                case TIMEV2:
                     beFn += "_double_val";
                     break;
                 case CHAR:
@@ -162,22 +169,33 @@ public class ScalarFunction extends Function {
                 case HLL:
                 case BITMAP:
                 case STRING:
+                case QUANTILE_STATE:
                     beFn += "_string_val";
                     break;
                 case DATE:
                 case DATETIME:
+                case DATEV2:
+                case DATETIMEV2:
                     beFn += "_datetime_val";
                     break;
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     beFn += "_decimalv2_val";
                     usesDecimalV2 = true;
+                    break;
+                case JSONB:
+                    beFn += "_jsonb_val";
                     break;
                 default:
                     Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) beClass = "DecimalV2Operators";
+        if (usesDecimalV2) {
+            beClass = "DecimalV2Operators";
+        }
         String symbol = "doris::" + beClass + "::" + beFn;
         return createBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
     }
@@ -226,6 +244,7 @@ public class ScalarFunction extends Function {
                     break;
                 case DOUBLE:
                 case TIME:
+                case TIMEV2:
                     beFn.append("_double_val");
                     break;
                 case CHAR:
@@ -234,11 +253,22 @@ public class ScalarFunction extends Function {
                 case BITMAP:
                     beFn.append("_string_val");
                     break;
+                case JSONB:
+                    beFn.append("_jsonb_val");
+                    break;
+                case LAMBDA_FUNCTION:
+                    beFn.append("_lambda_function");
+                    break;
                 case DATE:
                 case DATETIME:
+                case DATEV2:
+                case DATETIMEV2:
                     beFn.append("_datetime_val");
                     break;
                 case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
                     beFn.append("_decimalv2_val");
                     usesDecimalV2 = true;
                     break;
@@ -247,7 +277,9 @@ public class ScalarFunction extends Function {
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) beClass = "DecimalV2Operators";
+        if (usesDecimalV2) {
+            beClass = "DecimalV2Operators";
+        }
         String symbol = "doris::" + beClass + "::" + beFn;
         return createVecBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
     }
@@ -269,31 +301,27 @@ public class ScalarFunction extends Function {
                 new FunctionName(name), argTypes, retType, hasVarArgs, userVisible);
         fn.symbolName = symbol;
         fn.nullableMode = nullableMode;
-
-//        try {
-//            fn.symbolName_ = fn.lookupSymbol(symbol, TSymbolType.UDF_EVALUATE, null,
-//                    fn.hasVarArgs(), fn.getArgs());
-//        } catch (AnalysisException e) {
-//            // This should never happen
-//            Preconditions.checkState(false, "Builtin symbol '" + symbol + "'" + argTypes
-//                    + " not found!" + e.getStackTrace());
-//            throw new RuntimeException("Builtin symbol not found!", e);
-//        }
         return fn;
     }
 
     public static ScalarFunction createVecBuiltinOperator(
             String name, String symbol, ArrayList<Type> argTypes, Type retType, NullableMode nullableMode) {
-        return createVecBuiltin(name, symbol, argTypes, false, retType, false, nullableMode);
+        return createVecBuiltin(name, null, symbol, null, argTypes, false, retType, false, nullableMode);
     }
 
     //TODO: This method should not be here, move to other place in the future
-    public static ScalarFunction createVecBuiltin(
-            String name, String symbol, ArrayList<Type> argTypes,
-            boolean hasVarArgs, Type retType, boolean userVisible, NullableMode nullableMode) {
-        ScalarFunction fn = new ScalarFunction(
-                new FunctionName(name), argTypes, retType, hasVarArgs, userVisible, true);
+    public static ScalarFunction createVecBuiltin(String name, String prepareFnSymbolBName, String symbol,
+            String closeFnSymbolName, ArrayList<Type> argTypes, boolean hasVarArgs, Type retType, boolean userVisible,
+            NullableMode nullableMode) {
+        ScalarFunction fn = new ScalarFunction(new FunctionName(name), argTypes, retType, hasVarArgs, userVisible,
+                true);
+        if (prepareFnSymbolBName != null) {
+            fn.prepareFnSymbol = prepareFnSymbolBName;
+        }
         fn.symbolName = symbol;
+        if (closeFnSymbolName != null) {
+            fn.closeFnSymbol = closeFnSymbolName;
+        }
         fn.nullableMode = nullableMode;
         return fn;
     }
@@ -315,23 +343,39 @@ public class ScalarFunction extends Function {
             TFunctionBinaryType binaryType,
             FunctionName name, Type[] args,
             Type returnType, boolean isVariadic,
-            String objectFile, String symbol, String prepareFnSymbol, String closeFnSymbol) {
+            URI location, String symbol, String prepareFnSymbol, String closeFnSymbol) {
         ScalarFunction fn = new ScalarFunction(name, Arrays.asList(args), returnType, isVariadic, binaryType,
                 true, false);
         fn.symbolName = symbol;
         fn.prepareFnSymbol = prepareFnSymbol;
         fn.closeFnSymbol = closeFnSymbol;
-        fn.setLocation(new HdfsURI(objectFile));
+        fn.setLocation(location);
         return fn;
     }
 
-    public void setSymbolName(String s) { symbolName = s; }
-    public void setPrepareFnSymbol(String s) { prepareFnSymbol = s; }
-    public void setCloseFnSymbol(String s) { closeFnSymbol = s; }
+    public void setSymbolName(String s) {
+        symbolName = s;
+    }
 
-    public String getSymbolName() { return symbolName; }
-    public String getPrepareFnSymbol() { return prepareFnSymbol; }
-    public String getCloseFnSymbol() { return closeFnSymbol; }
+    public void setPrepareFnSymbol(String s) {
+        prepareFnSymbol = s;
+    }
+
+    public void setCloseFnSymbol(String s) {
+        closeFnSymbol = s;
+    }
+
+    public String getSymbolName() {
+        return symbolName;
+    }
+
+    public String getPrepareFnSymbol() {
+        return prepareFnSymbol;
+    }
+
+    public String getCloseFnSymbol() {
+        return closeFnSymbol;
+    }
 
     @Override
     public String toSql(boolean ifNotExists) {
@@ -349,23 +393,35 @@ public class ScalarFunction extends Function {
         if (getCloseFnSymbol() != null) {
             sb.append(",\n  \"CLOSE_FN\"=").append("\"" + getCloseFnSymbol() + "\"");
         }
-        sb.append(",\n  \"OBJECT_FILE\"=")
-                .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
-        sb.append(",\n  \"MD5\"=").append("\"" + getChecksum() + "\"");
+
+        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            sb.append(",\n  \"FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+        } else {
+            sb.append(",\n  \"OBJECT_FILE\"=")
+                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+        }
+        sb.append(",\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
         sb.append("\n);");
         return sb.toString();
     }
 
     @Override
-    public TFunction toThrift() {
-        TFunction fn = super.toThrift();
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
+        TFunction fn = super.toThrift(realReturnType, realArgTypes);
         fn.setScalarFn(new TScalarFunction());
-        fn.getScalarFn().setSymbol(symbolName);
-        if (prepareFnSymbol != null) {
-            fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);
-        }
-        if (closeFnSymbol != null) {
-            fn.getScalarFn().setCloseFnSymbol(closeFnSymbol);
+        if (getBinaryType() != TFunctionBinaryType.BUILTIN || !VectorizedUtil.optRpcForPipeline()) {
+            fn.getScalarFn().setSymbol(symbolName);
+            if (prepareFnSymbol != null) {
+                fn.getScalarFn().setPrepareFnSymbol(prepareFnSymbol);
+            }
+            if (closeFnSymbol != null) {
+                fn.getScalarFn().setCloseFnSymbol(closeFnSymbol);
+            }
+        } else {
+            fn.getScalarFn().setSymbol("");
         }
         return fn;
     }
@@ -378,8 +434,8 @@ public class ScalarFunction extends Function {
         super.writeFields(output);
         // 3.symbols
         Text.writeString(output, symbolName);
-        writeOptionString(output, prepareFnSymbol);
-        writeOptionString(output, closeFnSymbol);
+        IOUtils.writeOptionString(output, prepareFnSymbol);
+        IOUtils.writeOptionString(output, closeFnSymbol);
     }
 
     public void readFields(DataInput input) throws IOException {

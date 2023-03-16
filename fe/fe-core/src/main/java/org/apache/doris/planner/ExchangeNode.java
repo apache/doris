@@ -14,24 +14,34 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/ExchangeNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExchangeNode;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,16 +61,11 @@ public class ExchangeNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ExchangeNode.class);
 
     public static final String EXCHANGE_NODE = "EXCHANGE";
-    public static final String VEXCHANGE_NODE = "VEXCHANGE";
     public static final String MERGING_EXCHANGE_NODE = "MERGING-EXCHANGE";
 
     // The parameters based on which sorted input streams are merged by this
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
-
-    // Offset after which the exchange begins returning rows. Currently valid
-    // only if mergeInfo_ is non-null, i.e. this is a merging exchange node.
-    private long offset;
 
     /**
      * Create ExchangeNode that consumes output of inputNode.
@@ -68,14 +73,19 @@ public class ExchangeNode extends PlanNode {
      * need to compute the cardinality here.
      */
     public ExchangeNode(PlanNodeId id, PlanNode inputNode, boolean copyConjuncts) {
-        super(id, inputNode, EXCHANGE_NODE);
+        super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
         offset = 0;
         children.add(inputNode);
         if (!copyConjuncts) {
             this.conjuncts = Lists.newArrayList();
         }
         // Only apply the limit at the receiver if there are multiple senders.
-        if (inputNode.getFragment().isPartitioned()) limit = inputNode.limit;
+        if (inputNode.getFragment().isPartitioned()) {
+            limit = inputNode.limit;
+        }
+        if (!(inputNode instanceof ExchangeNode)) {
+            offset = inputNode.offset;
+        }
         computeTupleIds();
     }
 
@@ -88,8 +98,15 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     public final void computeTupleIds() {
-        clearTupleIds();
-        tupleIds.addAll(getChild(0).getTupleIds());
+        PlanNode inputNode = getChild(0);
+        TupleDescriptor outputTupleDesc = inputNode.getOutputTupleDesc();
+        if (outputTupleDesc != null) {
+            tupleIds.clear();
+            tupleIds.add(outputTupleDesc.getId());
+        } else {
+            clearTupleIds();
+            tupleIds.addAll(getChild(0).getTupleIds());
+        }
         tblRefIds.addAll(getChild(0).getTblRefIds());
         nullableTupleIds.addAll(getChild(0).getNullableTupleIds());
     }
@@ -105,10 +122,10 @@ public class ExchangeNode extends PlanNode {
     }
 
     @Override
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         Preconditions.checkState(children.size() == 1);
-        cardinality = children.get(0).cardinality;
-        capCardinalityAtLimit();
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
         }
@@ -118,10 +135,10 @@ public class ExchangeNode extends PlanNode {
      * Set the parameters used to merge sorted input streams. This can be called
      * after init().
      */
-    public void setMergeInfo(SortInfo info, long offset) {
+    public void setMergeInfo(SortInfo info) {
         this.mergeInfo = info;
-        this.offset = offset;
-        this.planNodeName = MERGING_EXCHANGE_NODE;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + MERGING_EXCHANGE_NODE
+                : MERGING_EXCHANGE_NODE;
     }
 
     @Override
@@ -132,12 +149,12 @@ public class ExchangeNode extends PlanNode {
             msg.exchange_node.addToInputRowTuples(tid.asInt());
         }
         if (mergeInfo != null) {
-            TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(mergeInfo.getOrderingExprs()), mergeInfo.getIsAscOrder(),
-                mergeInfo.getNullsFirst());
-            msg.exchange_node.setSortInfo(sortInfo);
-            msg.exchange_node.setOffset(offset);
+            msg.exchange_node.setSortInfo(mergeInfo.toThrift());
+            if (mergeInfo.useTwoPhaseRead()) {
+                msg.exchange_node.setNodesInfo(createNodesInfo());
+            }
         }
+        msg.exchange_node.setOffset(offset);
     }
 
     @Override
@@ -153,4 +170,22 @@ public class ExchangeNode extends PlanNode {
         return numInstances;
     }
 
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        return prefix + "offset: " + offset + "\n";
+    }
+
+    /**
+    * Set the parameters used to fetch data by rowid column
+    * after init().
+    */
+    private TPaloNodesInfo createNodesInfo() {
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getBackendIds(true /*need alive*/)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
+    }
 }

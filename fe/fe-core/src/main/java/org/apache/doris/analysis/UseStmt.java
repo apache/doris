@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -27,7 +27,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,19 +35,35 @@ import org.apache.logging.log4j.Logger;
  */
 public class UseStmt extends StatementBase {
     private static final Logger LOG = LogManager.getLogger(UseStmt.class);
+    private String catalogName;
     private String database;
 
     public UseStmt(String db) {
         database = db;
     }
 
+    public UseStmt(String catalogName, String db) {
+        this.catalogName = catalogName;
+        this.database = db;
+    }
+
     public String getDatabase() {
         return database;
     }
 
+    public String getCatalogName() {
+        return catalogName;
+    }
+
     @Override
     public String toSql() {
-        return "USE `" + database + "`";
+        StringBuilder sb = new StringBuilder();
+        sb.append("USE ");
+        if (catalogName != null) {
+            sb.append("`").append(catalogName).append("`.");
+        }
+        sb.append("`").append(database).append("`");
+        return sb.toString();
     }
 
     @Override
@@ -62,9 +77,12 @@ public class UseStmt extends StatementBase {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
         database = ClusterNamespace.getFullName(getClusterName(), database);
-        
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), database, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), database);
+
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), ConnectContext.get().getDefaultCatalog(), database,
+                        PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                    analyzer.getQualifiedUser(), database);
         }
     }
 

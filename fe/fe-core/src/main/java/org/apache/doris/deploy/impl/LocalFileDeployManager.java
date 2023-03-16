@@ -17,7 +17,7 @@
 
 package org.apache.doris.deploy.impl;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.deploy.DeployManager;
@@ -26,7 +26,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -55,21 +54,22 @@ public class LocalFileDeployManager extends DeployManager {
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
+    public static final String ENV_CN_SERVICE = "CN_SERVICE";
 
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
     private String clusterInfoFile;
 
-    public LocalFileDeployManager(Catalog catalog, long intervalMs) {
-        super(catalog, intervalMs);
-        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
+    public LocalFileDeployManager(Env env, long intervalMs) {
+        super(env, intervalMs);
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE, ENV_CN_SERVICE);
     }
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                               envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         // namespace
         clusterInfoFile = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
@@ -83,8 +83,8 @@ public class LocalFileDeployManager extends DeployManager {
     }
 
     @Override
-    public List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
-        List<Pair<String, Integer>> result = Lists.newArrayList();
+    public List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
+        List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
         FileChannel channel = null;
@@ -111,7 +111,7 @@ public class LocalFileDeployManager extends DeployManager {
 
                 for (String endpoint : endpoints) {
                     Pair<String, Integer> hostPorts = SystemInfoService.validateHostAndPort(endpoint);
-                    result.add(hostPorts);
+                    result.add(new SystemInfoService.HostInfo(hostPorts.first, null, hostPorts.second));
                 }
 
                 // only need one line
@@ -134,7 +134,7 @@ public class LocalFileDeployManager extends DeployManager {
                     LOG.warn("failed to close buffered reader after reading file: {}", clusterInfoFile, e);
                 }
             }
-            if (lock != null && channel.isOpen()) {
+            if (lock != null) {
                 try {
                     lock.release();
                 } catch (IOException e) {
@@ -155,8 +155,8 @@ public class LocalFileDeployManager extends DeployManager {
     }
 
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
+        List<SystemInfoService.HostInfo> hostPorts = getGroupHostInfos(brokerServiceGroup);
         if (hostPorts == null) {
             return null;
         }
@@ -166,7 +166,7 @@ public class LocalFileDeployManager extends DeployManager {
             System.exit(-1);
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from file: {}", brokers);
         return brokers;

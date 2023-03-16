@@ -26,7 +26,10 @@
 #include <cmath>
 #include <cstring>
 
-#include "runtime/datetime_value.h"
+#include "util/simd/bits.h"
+#include "util/stack_util.h"
+#include "vec/columns/column_impl.h"
+#include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
@@ -34,7 +37,7 @@
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
-#include "util/simd/bits.h"
+#include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
 
@@ -53,8 +56,147 @@ const char* ColumnVector<T>::deserialize_and_insert_from_arena(const char* pos) 
 }
 
 template <typename T>
+size_t ColumnVector<T>::get_max_row_byte_size() const {
+    return sizeof(T);
+}
+
+template <typename T>
+void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                                    size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        keys[i].size += sizeof(T);
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                                  const uint8_t* null_map,
+                                                  size_t max_row_byte_size) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            keys[i].size += sizeof(T);
+        }
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
+        keys[i].size -= sizeof(T);
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
+                                                    const size_t num_rows,
+                                                    const uint8_t* null_map) {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
+            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
+            keys[i].size -= sizeof(T);
+        } else {
+            insert_default();
+        }
+    }
+}
+
+template <typename T>
 void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
+}
+
+template <typename T>
+void ColumnVector<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                               const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+template <typename T>
+void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
+                                               const uint8_t* __restrict null_data) const {
+    auto s = size();
+    if (null_data) {
+        for (int i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                       sizeof(T), hashes[i]);
+            }
+        }
+    } else {
+        for (int i = 0; i < s; i++) {
+            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                   sizeof(T), hashes[i]);
+        }
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                                  IColumn::Permutation& perms, EqualRange& range,
+                                  bool last_column) const {
+    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+}
+
+template <typename T>
+void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
+                                       int nan_direction_hint, int direction,
+                                       std::vector<uint8>& cmp_res,
+                                       uint8* __restrict filter) const {
+    auto sz = this->size();
+    DCHECK(cmp_res.size() == sz);
+    const auto& cmp_base = assert_cast<const ColumnVector<T>&>(rhs).get_data()[rhs_row_id];
+    size_t begin = simd::find_zero(cmp_res, 0);
+    while (begin < sz) {
+        size_t end = simd::find_one(cmp_res, begin + 1);
+        for (size_t row_id = begin; row_id < end; row_id++) {
+            auto value_a = get_data()[row_id];
+            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            if (res * direction < 0) {
+                filter[row_id] = 1;
+                cmp_res[row_id] = 1;
+            } else if (res * direction > 0) {
+                cmp_res[row_id] = 1;
+            }
+        }
+        begin = simd::find_zero(cmp_res, end + 1);
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                             const uint8_t* __restrict null_data) const {
+    auto s = hashes.size();
+    DCHECK(s == size());
+
+    if constexpr (!std::is_same_v<T, Int64>) {
+        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+    } else {
+        if (type == TYPE_DATE || type == TYPE_DATETIME) {
+            char buf[64];
+            auto date_convert_do_crc = [&](size_t i) {
+                const DateTimeValue& date_val = (const DateTimeValue&)data[i];
+                auto len = date_val.to_buffer(buf);
+                hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
+            };
+
+            if (null_data == nullptr) {
+                for (size_t i = 0; i < s; i++) {
+                    date_convert_do_crc(i);
+                }
+            } else {
+                for (size_t i = 0; i < s; i++) {
+                    if (null_data[i] == 0) {
+                        date_convert_do_crc(i);
+                    }
+                }
+            }
+        } else {
+            DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        }
+    }
 }
 
 template <typename T>
@@ -176,9 +318,12 @@ const char* ColumnVector<T>::get_family_name() const {
 template <typename T>
 MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data.resize(size);
 
         size_t count = std::min(this->size(), size);
@@ -204,8 +349,7 @@ Float64 ColumnVector<T>::get_float64(size_t n) const {
 
 template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    const ColumnVector& src_vec = dynamic_cast<const ColumnVector&>(src);
-
+    const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     if (start + length > src_vec.data.size()) {
         LOG(FATAL) << fmt::format(
                 "Parameters start = {}, length = {}, are out of bound in "
@@ -219,11 +363,25 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 }
 
 template <typename T>
-void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) {
-    const Self& src_vec = assert_cast<const Self&>(src);
-    data.reserve(size() + (indices_end - indices_begin));
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        data.push_back_without_reserve(src_vec.get_element(*x));
+void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                          const int* indices_end) {
+    auto origin_size = size();
+    auto new_size = indices_end - indices_begin;
+    data.resize(origin_size + new_size);
+
+    const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+
+    if constexpr (std::is_same_v<T, UInt8>) {
+        // nullmap : indices_begin[i] == -1 means is null at the here, set true here
+        for (int i = 0; i < new_size; ++i) {
+            data[origin_size + i] = (indices_begin[i] == -1) +
+                                    (indices_begin[i] != -1) * src_data[indices_begin[i]];
+        }
+    } else {
+        // real data : indices_begin[i] == -1 what at is meaningless
+        for (int i = 0; i < new_size; ++i) {
+            data[origin_size + i] = src_data[indices_begin[i]];
+        }
     }
 }
 
@@ -231,13 +389,17 @@ template <typename T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
     if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
+        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
+                   << ", filter size: " << filt.size() << get_stack_trace();
     }
 
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
     Container& res_data = res->get_data();
 
-    if (result_size_hint) res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
+    res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
@@ -259,7 +421,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
         } else {
             while (mask) {
                 const size_t idx = __builtin_ctzll(mask);
-                res_data.push_back(data_pos[idx]);
+                res_data.push_back_without_reserve(data_pos[idx]);
                 mask = mask & (mask - 1);
             }
         }
@@ -269,13 +431,71 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     }
 
     while (filt_pos < filt_end) {
-        if (*filt_pos) res_data.push_back(*data_pos);
+        if (*filt_pos) {
+            res_data.push_back_without_reserve(*data_pos);
+        }
 
         ++filt_pos;
         ++data_pos;
     }
 
     return res;
+}
+
+template <typename T>
+size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
+    size_t size = data.size();
+    if (size != filter.size()) {
+        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
+                   << ", filter size: " << filter.size() << get_stack_trace();
+    }
+
+    const UInt8* filter_pos = filter.data();
+    const UInt8* filter_end = filter_pos + size;
+    T* data_pos = data.data();
+    T* result_data = data_pos;
+
+    /** A slightly more optimized version.
+        * Based on the assumption that often pieces of consecutive values
+        *  completely pass or do not pass the filter.
+        * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
+        */
+    static constexpr size_t SIMD_BYTES = 32;
+    const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
+
+    while (filter_pos < filter_end_sse) {
+        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
+
+        if (0xFFFFFFFF == mask) {
+            memmove(result_data, data_pos, sizeof(T) * SIMD_BYTES);
+            result_data += SIMD_BYTES;
+        } else {
+            while (mask) {
+                const size_t idx = __builtin_ctzll(mask);
+                *result_data = data_pos[idx];
+                ++result_data;
+                mask = mask & (mask - 1);
+            }
+        }
+
+        filter_pos += SIMD_BYTES;
+        data_pos += SIMD_BYTES;
+    }
+
+    while (filter_pos < filter_end) {
+        if (*filter_pos) {
+            *result_data = *data_pos;
+            ++result_data;
+        }
+
+        ++filter_pos;
+        ++data_pos;
+    }
+
+    const auto new_size = result_data - data.data();
+    resize(new_size);
+
+    return new_size;
 }
 
 template <typename T>
@@ -292,6 +512,9 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
     }
 
     auto res = this->create(limit);
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
     typename Self::Container& res_data = res->get_data();
     for (size_t i = 0; i < limit; ++i) res_data[i] = data[perm[i]];
 
@@ -305,15 +528,18 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
         LOG(FATAL) << "Size of offsets doesn't match size of column.";
     }
 
-    if (0 == size) return this->create();
-
     auto res = this->create();
+    if constexpr (std::is_same_v<T, vectorized::Int64>) {
+        res->copy_date_types(*this);
+    }
+    if (0 == size) return res;
+
     typename Self::Container& res_data = res->get_data();
     res_data.reserve(offsets.back());
 
     // vectorized this code to speed up
     IColumn::Offset counts[size];
-    for (size_t i = 0; i < size; ++i) {
+    for (ssize_t i = 0; i < size; ++i) {
         counts[i] = offsets[i] - offsets[i - 1];
     }
 
@@ -325,15 +551,17 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
-    size_t size = data.size();
+void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                                size_t begin, int count_sz) const {
+    size_t size = count_sz < 0 ? data.size() : count_sz;
     if (size == 0) return;
 
     auto& res = reinterpret_cast<ColumnVector<T>&>(column);
     typename Self::Container& res_data = res.get_data();
     res_data.reserve(target_size);
 
-    for (size_t i = 0; i < size; ++i) {
+    size_t end = begin + size;
+    for (size_t i = begin; i < end; ++i) {
         res_data.add_num_element_without_reserve(data[i], counts[i]);
     }
 }
@@ -377,6 +605,11 @@ void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min);
     max = NearestFieldType<T>(cur_max);
+}
+
+template <typename T>
+ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
+    return select_index_impl(*this, indexes, limit);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

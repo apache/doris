@@ -34,31 +34,31 @@ TEST_F(CodingTest, fixed_le) {
 
     encode_fixed8(buf, 124);
     uint8_t val8 = decode_fixed8(buf);
-    ASSERT_EQ(124, val8);
+    EXPECT_EQ(124, val8);
 
     encode_fixed16_le(buf, 12345);
     uint16_t val16 = decode_fixed16_le(buf);
-    ASSERT_EQ(12345, val16);
+    EXPECT_EQ(12345, val16);
 
     encode_fixed32_le(buf, 1234554321);
     uint32_t val32 = decode_fixed32_le(buf);
-    ASSERT_EQ(1234554321, val32);
+    EXPECT_EQ(1234554321, val32);
 
     encode_fixed64_le(buf, 12345543211234554321UL);
     uint64_t val64 = decode_fixed64_le(buf);
-    ASSERT_EQ(12345543211234554321UL, val64);
+    EXPECT_EQ(12345543211234554321UL, val64);
 
     std::string str;
     put_fixed32_le(&str, val32);
     put_fixed64_le(&str, val64);
 
-    ASSERT_EQ(4 + 8, str.size());
+    EXPECT_EQ(4 + 8, str.size());
     val32 = decode_fixed32_le((const uint8_t*)str.data());
-    ASSERT_EQ(1234554321, val32);
+    EXPECT_EQ(1234554321, val32);
 
     encode_fixed64_le(buf, 12345543211234554321UL);
     val64 = decode_fixed64_le((const uint8_t*)str.data() + 4);
-    ASSERT_EQ(12345543211234554321UL, val64);
+    EXPECT_EQ(12345543211234554321UL, val64);
 }
 
 TEST_F(CodingTest, variant) {
@@ -68,19 +68,19 @@ TEST_F(CodingTest, variant) {
         uint8_t* ptr = buf;
         ptr = encode_varint32(ptr, 1);
         ptr = encode_varint64(ptr, 2);
-        ASSERT_EQ(2, ptr - buf);
+        EXPECT_EQ(2, ptr - buf);
     }
 
     const uint8_t* ptr = buf;
     const uint8_t* limit = ptr + 64;
     uint32_t val32;
     ptr = decode_varint32_ptr(ptr, limit, &val32);
-    ASSERT_NE(nullptr, ptr);
-    ASSERT_EQ(1, val32);
+    EXPECT_NE(nullptr, ptr);
+    EXPECT_EQ(1, val32);
     uint64_t val64;
     ptr = decode_varint64_ptr(ptr, limit, &val64);
-    ASSERT_NE(nullptr, ptr);
-    ASSERT_EQ(2, val64);
+    EXPECT_NE(nullptr, ptr);
+    EXPECT_EQ(2, val64);
 }
 
 TEST_F(CodingTest, variant_bigvalue) {
@@ -89,21 +89,21 @@ TEST_F(CodingTest, variant_bigvalue) {
     {
         uint8_t* ptr = buf;
         ptr = encode_varint32(ptr, 1234554321UL);
-        ASSERT_EQ(5, ptr - buf);
+        EXPECT_EQ(5, ptr - buf);
         ptr = encode_varint64(ptr, 12345543211234554321UL);
-        ASSERT_EQ(5 + 10, ptr - buf);
+        EXPECT_EQ(5 + 10, ptr - buf);
     }
 
     const uint8_t* ptr = buf;
     const uint8_t* limit = ptr + 64;
     uint32_t val32;
     ptr = decode_varint32_ptr(ptr, limit, &val32);
-    ASSERT_NE(nullptr, ptr);
-    ASSERT_EQ(1234554321UL, val32);
+    EXPECT_NE(nullptr, ptr);
+    EXPECT_EQ(1234554321UL, val32);
     uint64_t val64;
     ptr = decode_varint64_ptr(ptr, limit, &val64);
-    ASSERT_NE(nullptr, ptr);
-    ASSERT_EQ(12345543211234554321UL, val64);
+    EXPECT_NE(nullptr, ptr);
+    EXPECT_EQ(12345543211234554321UL, val64);
 }
 
 TEST_F(CodingTest, variant_fail) {
@@ -118,7 +118,7 @@ TEST_F(CodingTest, variant_fail) {
         const uint8_t* limit = ptr + 4;
         uint32_t val32;
         ptr = decode_varint32_ptr(ptr, limit, &val32);
-        ASSERT_EQ(nullptr, ptr);
+        EXPECT_EQ(nullptr, ptr);
     }
 
     {
@@ -130,7 +130,7 @@ TEST_F(CodingTest, variant_fail) {
         const uint8_t* limit = ptr + 4;
         uint64_t val64;
         ptr = decode_varint64_ptr(ptr, limit, &val64);
-        ASSERT_EQ(nullptr, ptr);
+        EXPECT_EQ(nullptr, ptr);
     }
 }
 
@@ -141,24 +141,19 @@ TEST_F(CodingTest, put_varint) {
     put_varint64(&val, 2);
     put_varint64_varint32(&val, 3, 4);
 
-    ASSERT_EQ(4, val.size());
+    EXPECT_EQ(4, val.size());
     const uint8_t* ptr = (const uint8_t*)val.data();
     const uint8_t* limit = ptr + 4;
     uint32_t val32;
     uint64_t val64;
     ptr = decode_varint32_ptr(ptr, limit, &val32);
-    ASSERT_EQ(1, val32);
+    EXPECT_EQ(1, val32);
     ptr = decode_varint64_ptr(ptr, limit, &val64);
-    ASSERT_EQ(2, val64);
+    EXPECT_EQ(2, val64);
     ptr = decode_varint64_ptr(ptr, limit, &val64);
-    ASSERT_EQ(3, val64);
+    EXPECT_EQ(3, val64);
     ptr = decode_varint32_ptr(ptr, limit, &val32);
-    ASSERT_EQ(4, val32);
+    EXPECT_EQ(4, val32);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

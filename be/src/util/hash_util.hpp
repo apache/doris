@@ -14,12 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/hash-util.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
+#pragma once
+
+#include <functional>
 
 #include "common/compiler_util.h"
-#include "common/logging.h"
 
 // For cross compiling with clang, we need to be able to generate an IR file with
 // no sse instructions.  Attempting to load a precompiled IR file that contains
@@ -27,7 +30,10 @@
 // the code that is built and the runtime checks to control what code is run.
 #ifdef __SSE4_2__
 #include <nmmintrin.h>
+#elif __aarch64__
+#include <sse2neon.h>
 #endif
+#include <xxh3.h>
 #include <zlib.h>
 
 #include "gen_cpp/Types_types.h"
@@ -39,10 +45,25 @@ namespace doris {
 // Utility class to compute hash values.
 class HashUtil {
 public:
+    template <typename T>
+    static uint32_t fixed_len_to_uint32(T value) {
+        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
+            return value;
+        }
+        return std::hash<T>()(value);
+    }
+
     static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
         return crc32(hash, (const unsigned char*)data, bytes);
     }
-#ifdef __SSE4_2__
+
+    static uint32_t zlib_crc_hash_null(uint32_t hash) {
+        // null is treat as 0 when hash
+        static const int INT_VALUE = 0;
+        return crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+    }
+
+#if defined(__SSE4_2__) || defined(__aarch64__)
     // Compute the Crc32 hash for data using SSE4 instructions.  The input hash parameter is
     // the current hash/seed value.
     // This should only be called if SSE is supported.
@@ -119,60 +140,11 @@ public:
     // refer to https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
     static const uint32_t MURMUR3_32_SEED = 104729;
 
-    ALWAYS_INLINE static uint32_t rotl32(uint32_t x, int8_t r) {
-        return (x << r) | (x >> (32 - r));
-    }
-
-    ALWAYS_INLINE static uint32_t fmix32(uint32_t h) {
-        h ^= h >> 16;
-        h *= 0x85ebca6b;
-        h ^= h >> 13;
-        h *= 0xc2b2ae35;
-        h ^= h >> 16;
-        return h;
-    }
-
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
     static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
-        const uint8_t* data = (const uint8_t*)key;
-        const int nblocks = len / 4;
-
-        uint32_t h1 = seed;
-
-        const uint32_t c1 = 0xcc9e2d51;
-        const uint32_t c2 = 0x1b873593;
-        const uint32_t* blocks = (const uint32_t*)(data + nblocks * 4);
-
-        for (int i = -nblocks; i; i++) {
-            uint32_t k1 = blocks[i];
-
-            k1 *= c1;
-            k1 = rotl32(k1, 15);
-            k1 *= c2;
-
-            h1 ^= k1;
-            h1 = rotl32(h1, 13);
-            h1 = h1 * 5 + 0xe6546b64;
-        }
-
-        const uint8_t* tail = (const uint8_t*)(data + nblocks * 4);
-        uint32_t k1 = 0;
-        switch (len & 3) {
-        case 3:
-            k1 ^= tail[2] << 16;
-        case 2:
-            k1 ^= tail[1] << 8;
-        case 1:
-            k1 ^= tail[0];
-            k1 *= c1;
-            k1 = rotl32(k1, 15);
-            k1 *= c2;
-            h1 ^= k1;
-        };
-
-        h1 ^= len;
-        h1 = fmix32(h1);
-        return h1;
+        uint32_t out = 0;
+        murmur_hash3_x86_32(key, len, seed, &out);
+        return out;
     }
 
     static const int MURMUR_R = 47;
@@ -197,16 +169,22 @@ public:
         switch (len & 7) {
         case 7:
             h ^= uint64_t(data2[6]) << 48;
+            [[fallthrough]];
         case 6:
             h ^= uint64_t(data2[5]) << 40;
+            [[fallthrough]];
         case 5:
             h ^= uint64_t(data2[4]) << 32;
+            [[fallthrough]];
         case 4:
             h ^= uint64_t(data2[3]) << 24;
+            [[fallthrough]];
         case 3:
             h ^= uint64_t(data2[2]) << 16;
+            [[fallthrough]];
         case 2:
             h ^= uint64_t(data2[1]) << 8;
+            [[fallthrough]];
         case 1:
             h ^= uint64_t(data2[0]);
             h *= MURMUR_PRIME;
@@ -289,20 +267,26 @@ public:
         switch (len & 7) {
         case 7:
             h ^= (uint64_t)data[6] << 48;
+            [[fallthrough]];
         case 6:
             h ^= (uint64_t)data[5] << 40;
+            [[fallthrough]];
         case 5:
             h ^= (uint64_t)data[4] << 32;
+            [[fallthrough]];
         case 4:
             h ^= (uint64_t)data[3] << 24;
+            [[fallthrough]];
         case 3:
             h ^= (uint64_t)data[2] << 16;
+            [[fallthrough]];
         case 2:
             h ^= (uint64_t)data[1] << 8;
+            [[fallthrough]];
         case 1:
             h ^= (uint64_t)data[0];
             h *= m;
-        };
+        }
 
         h ^= h >> r;
         h *= m;
@@ -351,13 +335,24 @@ public:
         std::hash<T> hasher;
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
+
+    // xxHash function for a byte array.  For convenience, a 64-bit seed is also
+    // hashed into the result.  The mapping may change from time to time.
+    static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
+        return XXH3_64bits_withSeed(s, len, seed);
+    }
+
+    // same to the up function, just for null value
+    static xxh_u64 xxHash64NullWithSeed(xxh_u64 seed) {
+        static const int INT_VALUE = 0;
+        return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
+    }
 };
 
 } // namespace doris
 
-namespace std {
 template <>
-struct hash<doris::TUniqueId> {
+struct std::hash<doris::TUniqueId> {
     std::size_t operator()(const doris::TUniqueId& id) const {
         std::size_t seed = 0;
         seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
@@ -367,7 +362,7 @@ struct hash<doris::TUniqueId> {
 };
 
 template <>
-struct hash<doris::TNetworkAddress> {
+struct std::hash<doris::TNetworkAddress> {
     size_t operator()(const doris::TNetworkAddress& address) const {
         std::size_t seed = 0;
         seed = doris::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
@@ -379,7 +374,7 @@ struct hash<doris::TNetworkAddress> {
 #if __GNUC__ < 6 && !defined(__clang__)
 // Cause this is builtin function
 template <>
-struct hash<__int128> {
+struct std::hash<__int128> {
     std::size_t operator()(const __int128& val) const {
         return doris::HashUtil::hash(&val, sizeof(val), 0);
     }
@@ -387,7 +382,7 @@ struct hash<__int128> {
 #endif
 
 template <>
-struct hash<std::pair<doris::TUniqueId, int64_t>> {
+struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
     size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
         size_t seed = 0;
         seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
@@ -396,7 +391,3 @@ struct hash<std::pair<doris::TUniqueId, int64_t>> {
         return seed;
     }
 };
-
-} // namespace std
-
-#endif

@@ -24,17 +24,17 @@
 #include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "io/fs/file_reader.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
 
-namespace fs {
-class WritableBlock;
-}
+namespace io {
+class FileWriter;
+} // namespace io
 
 namespace segment_v2 {
 
@@ -55,7 +55,7 @@ struct ZoneMap {
 
     bool pass_all = false;
 
-    void to_proto(ZoneMapPB* dst, Field* field) {
+    void to_proto(ZoneMapPB* dst, Field* field) const {
         if (pass_all) {
             dst->set_min("");
             dst->set_max("");
@@ -69,29 +69,55 @@ struct ZoneMap {
     }
 };
 
+class ZoneMapIndexWriter {
+public:
+    static Status create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res);
+
+    ZoneMapIndexWriter() = default;
+
+    virtual ~ZoneMapIndexWriter() = default;
+
+    virtual void add_values(const void* values, size_t count) = 0;
+
+    virtual void add_nulls(uint32_t count) = 0;
+
+    // mark the end of one data page so that we can finalize the corresponding zone map
+    virtual Status flush() = 0;
+
+    virtual Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) = 0;
+
+    virtual void moidfy_index_before_flush(ZoneMap& zone_map) = 0;
+
+    virtual uint64_t size() const = 0;
+
+    virtual void reset_page_zone_map() = 0;
+    virtual void reset_segment_zone_map() = 0;
+};
+
 // Zone map index is represented by an IndexedColumn with ordinal index.
 // The IndexedColumn stores serialized ZoneMapPB for each data page.
 // It also create and store the segment-level zone map in the index meta so that
 // reader can prune an entire segment without reading pages.
-class ZoneMapIndexWriter {
+template <PrimitiveType Type>
+class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    explicit ZoneMapIndexWriter(Field* field);
+    explicit TypedZoneMapIndexWriter(Field* field);
 
-    void add_values(const void* values, size_t count);
+    void add_values(const void* values, size_t count) override;
 
-    void add_nulls(uint32_t count) { _page_zone_map.has_null = true; }
+    void add_nulls(uint32_t count) override { _page_zone_map.has_null = true; }
 
     // mark the end of one data page so that we can finalize the corresponding zone map
-    Status flush();
+    Status flush() override;
 
-    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta);
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
 
-    void moidfy_index_before_flush(ZoneMap& zone_map);
+    void moidfy_index_before_flush(ZoneMap& zone_map) override;
 
-    uint64_t size() { return _estimated_size; }
+    uint64_t size() const override { return _estimated_size; }
 
-    void reset_page_zone_map();
-    void reset_segment_zone_map();
+    void reset_page_zone_map() override;
+    void reset_segment_zone_map() override;
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
@@ -109,7 +135,6 @@ private:
     ZoneMap _segment_zone_map;
     // TODO(zc): we should replace this memory pool later, we only allocate min/max
     // for field. But MemPool allocate 4KB least, it will a waste for most cases.
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 
     // serialized ZoneMapPB for each data page
@@ -119,8 +144,8 @@ private:
 
 class ZoneMapIndexReader {
 public:
-    explicit ZoneMapIndexReader(const FilePathDesc& path_desc, const ZoneMapIndexPB* index_meta)
-            : _path_desc(path_desc), _index_meta(index_meta) {}
+    explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader, const ZoneMapIndexPB* index_meta)
+            : _file_reader(std::move(file_reader)), _index_meta(index_meta) {}
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -130,7 +155,7 @@ public:
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    FilePathDesc _path_desc;
+    io::FileReaderSPtr _file_reader;
     const ZoneMapIndexPB* _index_meta;
 
     std::vector<ZoneMapPB> _page_zone_maps;

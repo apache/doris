@@ -36,11 +36,13 @@ import org.apache.doris.common.AnalysisException;
  * and be converted to be NULL when in other clause
  */
 public class RewriteDateLiteralRule implements ExprRewriteRule {
-    public final static ExprRewriteRule INSTANCE = new RewriteDateLiteralRule();
+    public static final ExprRewriteRule INSTANCE = new RewriteDateLiteralRule();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BinaryPredicate)) return expr;
+        if (!(expr instanceof BinaryPredicate)) {
+            return expr;
+        }
         Expr lchild = expr.getChild(0);
         if (!lchild.getType().isDateType()) {
             return expr;
@@ -52,7 +54,8 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
         if (!valueExpr.isConstant()) {
             return expr;
         }
-        // Only consider CastExpr and try our best to convert non-date_literal to date_literal，to be compatible with MySQL
+        // Only consider CastExpr and try our best to convert non-date_literal
+        // to date_literal，to be compatible with MySQL
         if (valueExpr instanceof CastExpr) {
             Expr childExpr = valueExpr.getChild(0);
             if (childExpr instanceof LiteralExpr) {
@@ -65,7 +68,8 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
                     if (clauseType == ExprRewriter.ClauseType.OTHER_CLAUSE) {
                         return new NullLiteral();
                     } else {
-                        throw new AnalysisException("Incorrect datetime value: " + valueExpr.toSql() + " in expression: " + expr.toSql());
+                        throw new AnalysisException("Incorrect datetime value: "
+                                + valueExpr.toSql() + " in expression: " + expr.toSql());
                     }
                 }
             }

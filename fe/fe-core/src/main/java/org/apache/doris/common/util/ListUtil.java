@@ -25,7 +25,6 @@ import org.apache.doris.common.DdlException;
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -70,16 +69,15 @@ public class ListUtil {
         return result;
     }
 
-    public static void checkPartitionKeyListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
-        Collections.sort(list1, PARTITION_KEY_COMPARATOR);
-        Collections.sort(list2, PARTITION_KEY_COMPARATOR);
+    public static void checkPartitionKeyListsMatch(List<PartitionItem> list1,
+            List<PartitionItem> list2) throws DdlException {
+        list1.sort(PARTITION_KEY_COMPARATOR);
+        list2.sort(PARTITION_KEY_COMPARATOR);
 
         int idx1 = 0;
         int idx2 = 0;
-        List<PartitionKey> keys1 = new ArrayList<>();
-        List<PartitionKey> keys2 = new ArrayList<>();
-        keys1.addAll(list1.get(idx1).getItems());
-        keys2.addAll(list2.get(idx2).getItems());
+        List<PartitionKey> keys1 = new ArrayList<>(list1.get(idx1).getItems());
+        List<PartitionKey> keys2 = new ArrayList<>(list2.get(idx2).getItems());
 
         while (true) {
             int size = Math.min(keys1.size(), keys2.size());
@@ -132,8 +130,8 @@ public class ListUtil {
             for (PartitionKey checkKey : checkKeys) {
                 for (PartitionItem currentItem : list1) {
                     if (((ListPartitionItem) currentItem).getItems().contains(checkKey)) {
-                        throw new DdlException("The partition key[" + checkKey.toSql() + "] is overlap with current " +
-                                currentItem.toString());
+                        throw new DdlException("The partition key[" + checkKey.toSql()
+                                + "] is overlap with current " + currentItem);
                     }
                 }
             }

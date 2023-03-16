@@ -17,109 +17,80 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/tuple_reader.h"
-#include "olap/row.h"
+#include "runtime/thread_context.h"
+#include "vec/olap/block_reader.h"
 
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
                                        TVersion version, uint32_t* checksum)
-        : _tablet_id(tablet_id),
-          _schema_hash(schema_hash),
-          _version(version),
-          _checksum(checksum) {}
+        : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(
+            MemTrackerLimiter::Type::LOAD,
+            "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
+}
 
-OLAPStatus EngineChecksumTask::execute() {
-    OLAPStatus res = _compute_checksum();
-    return res;
+Status EngineChecksumTask::execute() {
+    SCOPED_ATTACH_TASK(_mem_tracker);
+    return _compute_checksum();
 } // execute
 
-OLAPStatus EngineChecksumTask::_compute_checksum() {
+Status EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
-    OLAPStatus res = OLAP_SUCCESS;
+    OlapStopWatch watch;
 
     if (_checksum == nullptr) {
-        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::InvalidArgument("invalid checksum which is nullptr");
     }
 
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id, _schema_hash);
-    if (nullptr == tablet.get()) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
-                         _schema_hash);
-        return OLAP_ERR_TABLE_NOT_FOUND;
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
+    if (nullptr == tablet) {
+        return Status::InternalError("could not find tablet {}", _tablet_id);
     }
 
-    TupleReader reader;
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version version(0, _version);
+    Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
+    if (acquire_reader_st != Status::OK()) {
+        LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
+                     << "res=" << acquire_reader_st;
+        return acquire_reader_st;
+    }
+    size_t input_size = 0;
+    for (const auto& rowset : input_rowsets) {
+        input_size += rowset->data_disk_size();
+    }
+    vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
-    reader_params.tablet = tablet;
-    reader_params.reader_type = READER_CHECKSUM;
-    reader_params.version = Version(0, _version);
+    vectorized::Block block;
+    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
+            tablet, READER_CHECKSUM, input_rowsets, &reader_params, &block))
 
-    {
-        ReadLock rdlock(tablet->get_header_lock_ptr());
-        const RowsetSharedPtr message = tablet->rowset_with_max_version();
-        if (message == nullptr) {
-            LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
-            return OLAP_ERR_VERSION_NOT_EXIST;
-        }
-
-        OLAPStatus acquire_reader_st =
-                tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
-        if (acquire_reader_st != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
-                         << "res=" << acquire_reader_st;
-            return acquire_reader_st;
-        }
-    }
-
-    for (size_t i = 0; i < tablet->tablet_schema().num_columns(); ++i) {
-        reader_params.return_columns.push_back(i);
-    }
-
-    res = reader.init(reader_params);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("initiate reader fail. [res=%d]", res);
+    auto res = reader.init(reader_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "initiate reader fail. res = " << res;
         return res;
     }
-
-    RowCursor row;
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
-    std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
-    res = row.init(tablet->tablet_schema(), reader_params.return_columns);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to init row cursor. [res=%d]", res);
-        return res;
-    }
-    row.allocate_memory_for_string_type(tablet->tablet_schema());
 
     bool eof = false;
-    uint32_t row_checksum = 0;
-    while (true) {
-        OLAPStatus res =
-                reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
-        if (res == OLAP_SUCCESS && eof) {
-            VLOG_NOTICE << "reader reads to the end.";
-            break;
-        } else if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);
-            return res;
-        }
-        // The value of checksum is independent of the sorting of data rows.
-        row_checksum ^= hash_row(row, 0);
-        // the memory allocate by mem pool has been copied,
-        // so we should release memory immediately
-        mem_pool->clear();
-        agg_object_pool.reset(new ObjectPool());
-    }
+    SipHash block_hash;
+    uint64_t rows = 0;
+    while (!eof) {
+        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, &eof));
+        rows += block.rows();
 
-    LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
-    *_checksum = row_checksum;
-    return OLAP_SUCCESS;
+        block.update_hash(block_hash);
+        block.clear_column_data();
+    }
+    uint64_t checksum64 = block_hash.get64();
+    *_checksum = (checksum64 >> 32) ^ (checksum64 & 0xffffffff);
+
+    LOG(INFO) << "success to finish compute checksum. tablet_id = " << _tablet_id
+              << ", rows = " << rows << ", checksum=" << *_checksum
+              << ", total_size = " << input_size << ", cost(us): " << watch.get_elapse_time_us();
+    return Status::OK();
 }
 
 } // namespace doris

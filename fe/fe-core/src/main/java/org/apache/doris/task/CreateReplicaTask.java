@@ -20,11 +20,15 @@ package org.apache.doris.task;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
@@ -41,20 +45,22 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class CreateReplicaTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(CreateReplicaTask.class);
 
+    private long replicaId;
     private short shortKeyColumnCount;
     private int schemaHash;
 
     private long version;
-    private long versionHash;
 
     private KeysType keysType;
     private TStorageType storageType;
     private TStorageMedium storageMedium;
+    private TCompressionType compressionType;
 
     private List<Column> columns;
 
@@ -67,6 +73,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
+    private boolean isDynamicSchema;
+
     private TTabletType tabletType;
 
     // used for synchronous process
@@ -78,65 +86,48 @@ public class CreateReplicaTask extends AgentTask {
     private long baseTabletId = -1;
     private int baseSchemaHash = -1;
 
-    private TStorageFormat storageFormat = null;
+    // V2 is beta rowset, v1 is alpha rowset
+    // TODO should unify the naming of v1(alpha rowset), v2(beta rowset), it is very confused to read code
+    private TStorageFormat storageFormat = TStorageFormat.V2;
 
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
+    private long storagePolicyId = 0; // <= 0 means no storage policy
+
+    private boolean enableUniqueKeyMergeOnWrite;
+
+    private boolean disableAutoCompaction;
+
+    private boolean storeRowColumn;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version, long versionHash,
-                             KeysType keysType, TStorageType storageType,
-                             TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
-                             List<Index> indexes,
-                             boolean isInMemory,
-                             TTabletType tabletType) {
-        super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
-
-        this.shortKeyColumnCount = shortKeyColumnCount;
-        this.schemaHash = schemaHash;
-
-        this.version = version;
-        this.versionHash = versionHash;
-
-        this.keysType = keysType;
-        this.storageType = storageType;
-        this.storageMedium = storageMedium;
-
-        this.columns = columns;
-
-        this.bfColumns = bfColumns;
-        this.indexes = indexes;
-        this.bfFpp = bfFpp;
-
-        this.latch = latch;
-
-        this.isInMemory = isInMemory;
-        this.tabletType = tabletType;
-    }
-
-    public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version, long versionHash,
+                             long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
                              List<Index> indexes,
                              boolean isInMemory,
                              TTabletType tabletType,
-                             DataSortInfo dataSortInfo) {
+                             DataSortInfo dataSortInfo,
+                             TCompressionType compressionType,
+                             boolean enableUniqueKeyMergeOnWrite,
+                             String storagePolicy, boolean disableAutoCompaction,
+                             boolean storeRowColumn,
+                             boolean isDynamicSchema) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
+        this.replicaId = replicaId;
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;
 
         this.version = version;
-        this.versionHash = versionHash;
 
         this.keysType = keysType;
         this.storageType = storageType;
         this.storageMedium = storageMedium;
+        this.compressionType = compressionType;
 
         this.columns = columns;
 
@@ -147,8 +138,19 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
+        this.isDynamicSchema = isDynamicSchema;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
+        this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
+        if (storagePolicy != null && !storagePolicy.isEmpty()) {
+            Optional<Policy> policy = Env.getCurrentEnv().getPolicyMgr()
+                    .findPolicy(storagePolicy, PolicyTypeEnum.STORAGE);
+            if (policy.isPresent()) {
+                this.storagePolicyId = policy.get().getId();
+            }
+        }
+        this.disableAutoCompaction = disableAutoCompaction;
+        this.storeRowColumn = storeRowColumn;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -208,6 +210,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         int deleteSign = -1;
         int sequenceCol = -1;
+        int versionCol = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
@@ -218,8 +221,8 @@ public class CreateReplicaTask extends AgentTask {
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if(column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
+            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
             }
             tColumn.setVisible(column.isVisible());
             tColumns.add(tColumn);
@@ -229,10 +232,14 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isSequenceColumn()) {
                 sequenceCol = i;
             }
+            if (column.isVersionColumn()) {
+                versionCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
+        tSchema.setVersionColIdx(versionCol);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
@@ -247,17 +254,23 @@ public class CreateReplicaTask extends AgentTask {
             tSchema.setBloomFilterFpp(bfFpp);
         }
         tSchema.setIsInMemory(isInMemory);
+        tSchema.setDisableAutoCompaction(disableAutoCompaction);
+        tSchema.setStoreRowColumn(storeRowColumn);
+        tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
-        createTabletReq.setVersionHash(versionHash);
 
         createTabletReq.setStorageMedium(storageMedium);
+        if (storagePolicyId > 0) {
+            createTabletReq.setStoragePolicyId(storagePolicyId);
+        }
         if (inRestoreMode) {
             createTabletReq.setInRestoreMode(true);
         }
         createTabletReq.setTableId(tableId);
         createTabletReq.setPartitionId(partitionId);
+        createTabletReq.setReplicaId(replicaId);
 
         if (baseTabletId != -1) {
             createTabletReq.setBaseTabletId(baseTabletId);
@@ -269,6 +282,8 @@ public class CreateReplicaTask extends AgentTask {
         }
 
         createTabletReq.setTabletType(tabletType);
+        createTabletReq.setCompressionType(compressionType);
+        createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
         return createTabletReq;
     }
 }

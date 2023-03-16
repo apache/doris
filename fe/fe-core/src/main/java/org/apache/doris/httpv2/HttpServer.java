@@ -19,7 +19,9 @@ package org.apache.doris.httpv2;
 
 import org.apache.doris.PaloFe;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
+import org.apache.doris.service.FrontendOptions;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -38,8 +40,36 @@ public class HttpServer extends SpringBootServletInitializer {
     private int port;
     private int acceptors;
     private int selectors;
-    private int maxHttpPostSize ;
+    private int maxHttpPostSize;
     private int workers;
+
+    private int minThreads;
+    private int maxThreads;
+    private int maxHttpHeaderSize;
+
+    public int getMaxHttpHeaderSize() {
+        return maxHttpHeaderSize;
+    }
+
+    public void setMaxHttpHeaderSize(int maxHttpHeaderSize) {
+        this.maxHttpHeaderSize = maxHttpHeaderSize;
+    }
+
+    public int getMinThreads() {
+        return minThreads;
+    }
+
+    public void setMinThreads(int minThreads) {
+        this.minThreads = minThreads;
+    }
+
+    public int getMaxThreads() {
+        return maxThreads;
+    }
+
+    public void setMaxThreads(int maxThreads) {
+        this.maxThreads = maxThreads;
+    }
 
     public void setWorkers(int workers) {
         this.workers = workers;
@@ -66,9 +96,14 @@ public class HttpServer extends SpringBootServletInitializer {
         return application.sources(HttpServer.class);
     }
 
-    public void start(String dorisHome) {
+    public void start() {
         Map<String, Object> properties = new HashMap<>();
         properties.put("server.port", port);
+        if (FrontendOptions.isBindIPV6()) {
+            properties.put("server.address", "::0");
+        } else {
+            properties.put("server.address", "0.0.0.0");
+        }
         properties.put("server.servlet.context-path", "/");
         properties.put("spring.resources.static-locations", "classpath:/static");
         properties.put("spring.http.encoding.charset", "UTF-8");
@@ -78,8 +113,11 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
         properties.put("server.jetty.selectors", this.selectors);
+        properties.put("server.jetty.threadPool.maxThreads", this.maxThreads);
+        properties.put("server.jetty.threadPool.minThreads", this.minThreads);
+        properties.put("server.max-http-header-size", this.maxHttpHeaderSize);
         //Worker thread pool is not set by default, set according to your needs
-        if(this.workers > 0) {
+        if (this.workers > 0) {
             properties.put("server.jetty.workers", this.workers);
         }
         // This is to disable the spring-boot-devtools restart feature.
@@ -90,7 +128,12 @@ public class HttpServer extends SpringBootServletInitializer {
             System.setProperty("spring.http.multipart.location", PaloFe.DORIS_HOME_DIR);
         }
         System.setProperty("spring.banner.image.location", "doris-logo.png");
-        properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
+        if (FeConstants.runningUnitTest) {
+            // this is currently only used for unit test
+            properties.put("logging.config", getClass().getClassLoader().getResource("log4j2.xml").getPath());
+        } else {
+            properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
+        }
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)

@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/scan-node.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
+#pragma once
 
 #include <string>
 
@@ -79,6 +81,8 @@ public:
 
     bool is_scan_node() const override { return true; }
 
+    void set_no_agg_finalize() { _need_agg_finalize = false; }
+
     RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
     RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
     RuntimeProfile::Counter* total_throughput_counter() const { return _total_throughput_counter; }
@@ -90,14 +94,18 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
+    void _peel_pushed_vconjunct(
+            RuntimeState* state,
+            const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
+
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
-    // # rows/tuples read from the scanner (including those discarded by eval_conjuncts())
     RuntimeProfile::Counter* _rows_read_counter;
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
+
+protected:
+    bool _need_agg_finalize = true;
 };
 
 } // namespace doris
-
-#endif

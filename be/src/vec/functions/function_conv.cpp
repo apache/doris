@@ -52,11 +52,15 @@ public:
         ColumnPtr argument_columns[3];
 
         for (int i = 0; i < 3; ++i) {
-            argument_columns[i] = block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(result_null_map_column->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -124,8 +128,8 @@ struct ConvInt64Impl {
                                                    StringParser::PARSE_OVERFLOW);
             }
         }
-        StringVal str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+        StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
     }
 };
 
@@ -149,8 +153,8 @@ struct ConvStringImpl {
         if (!MathFunctions::handle_parse_result(dst_base, &decimal_num, parse_res)) {
             result_column->insert_data("0", 1);
         } else {
-            StringVal str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+            result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
         }
     }
 };

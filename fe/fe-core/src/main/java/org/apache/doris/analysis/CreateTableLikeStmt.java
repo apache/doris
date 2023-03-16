@@ -17,16 +17,18 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Joiner;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,11 +48,12 @@ public class CreateTableLikeStmt extends DdlStmt {
     private final ArrayList<String> rollupNames;
     private final boolean withAllRollup;
 
-    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName, ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
+    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName,
+            ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
-        if (!CollectionUtils.isEmpty(rollupNames) && withAllRollup){
+        if (!CollectionUtils.isEmpty(rollupNames) && withAllRollup) {
             throw new DdlException("Either all or part of the rollup can be copied, not both");
         }
         this.rollupNames = rollupNames;
@@ -89,15 +92,19 @@ public class CreateTableLikeStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         existedTableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(existedTableName.getCtl(), this.getClass().getSimpleName());
         ConnectContext ctx = ConnectContext.get();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, existedTableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, existedTableName.getDb(),
                 existedTableName.getTbl(), PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
         }
 
         tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         FeNameFormat.checkTableName(getTableName());
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ctx, tableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableName.getDb(),
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
@@ -107,10 +114,10 @@ public class CreateTableLikeStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE TABLE ").append(tableName.toSql()).append(" LIKE ").append(existedTableName.toSql());
-        if (withAllRollup && CollectionUtils.isEmpty(rollupNames)){
+        if (withAllRollup && CollectionUtils.isEmpty(rollupNames)) {
             sb.append(" WITH ROLLUP");
         }
-        if (!withAllRollup && !CollectionUtils.isEmpty(rollupNames)){
+        if (!withAllRollup && !CollectionUtils.isEmpty(rollupNames)) {
             sb.append(" WITH ROLLUP (").append(Joiner.on(",").join(rollupNames)).append(")");
         }
         return sb.toString();

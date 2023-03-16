@@ -34,6 +34,7 @@
 #include "gutil/strings/strip.h"
 #include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -50,11 +51,6 @@ Status FileUtils::create_dir(const std::string& dir_path) {
 
 Status FileUtils::remove_all(const std::string& file_path) {
     return Env::Default()->delete_dir(file_path);
-}
-
-Status FileUtils::remove_all(const std::string& path, TStorageMedium::type storage_medium) {
-    Env* env = Env::get_env(storage_medium);
-    return env->delete_dir(path);
 }
 
 Status FileUtils::remove(const std::string& path) {
@@ -171,15 +167,11 @@ Status FileUtils::split_paths(const char* path, std::vector<std::string>* path_v
     // Check if
     std::sort(path_vec->begin(), path_vec->end());
     if (std::unique(path_vec->begin(), path_vec->end()) != path_vec->end()) {
-        std::stringstream ss;
-        ss << "Same path in path.[path=" << path << "]";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Same path in path.[path={}]", path);
     }
 
     if (path_vec->size() == 0) {
-        std::stringstream ss;
-        ss << "Size of vector after split is zero.[path=" << path << "]";
-        return Status::InternalError(ss.str());
+        return Status::InternalError("Size of vector after split is zero.[path={}]", path);
     }
 
     return Status::OK();
@@ -201,11 +193,13 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
         return Status::InternalError("failed to stat file");
     }
     size_t file_len = statbuf.st_size;
+    CONSUME_THREAD_MEM_TRACKER(file_len);
     void* buf = mmap(0, file_len, PROT_READ, MAP_SHARED, fd, 0);
 
     unsigned char result[MD5_DIGEST_LENGTH];
     MD5((unsigned char*)buf, file_len, result);
     munmap(buf, file_len);
+    RELEASE_THREAD_MEM_TRACKER(file_len);
 
     std::stringstream ss;
     for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
@@ -214,6 +208,21 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     ss >> *md5sum;
 
     close(fd);
+    return Status::OK();
+}
+
+Status FileUtils::mtime(const std::string& file, time_t* m_time) {
+    int fd = open(file.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return Status::InternalError("failed to open file");
+    }
+
+    Defer defer {[&]() { close(fd); }};
+    struct stat statbuf;
+    if (fstat(fd, &statbuf) < 0) {
+        return Status::InternalError("failed to stat file");
+    }
+    *m_time = statbuf.st_mtime;
     return Status::OK();
 }
 

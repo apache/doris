@@ -22,27 +22,28 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Injectable;
-
 public class MVColumnBitmapUnionPatternTest {
+    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Test
     public void testCorrectExpr1(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -53,7 +54,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testCorrectExpr2(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
         new Expectations() {
@@ -65,6 +66,7 @@ public class MVColumnBitmapUnionPatternTest {
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(castExpr);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -75,12 +77,13 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testUpperCaseOfFunction(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.INT);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP.toUpperCase(), child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION.toUpperCase(), params);
@@ -91,7 +94,7 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testIncorrectArithmeticExpr1(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, slotRef1, slotRef2);
@@ -105,13 +108,14 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testIncorrectArithmeticExpr2(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
         ArithmeticExpr arithmeticExpr = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, slotRef1, slotRef2);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(arithmeticExpr);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -122,12 +126,13 @@ public class MVColumnBitmapUnionPatternTest {
 
     @Test
     public void testIncorrectDecimalSlotRef(@Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef1, "type", Type.DECIMALV2);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(slotRef1);
         FunctionCallExpr child0 = new FunctionCallExpr(FunctionSet.TO_BITMAP, child0Params);
+        child0.setType(Type.BITMAP);
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.BITMAP_UNION, params);
@@ -139,7 +144,7 @@ public class MVColumnBitmapUnionPatternTest {
     @Test
     public void testAggTableBitmapColumn(@Injectable SlotDescriptor desc,
             @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
-        TableName tableName = new TableName("db", "table");
+        TableName tableName = new TableName(internalCtl, "db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef1);

@@ -15,18 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
+#pragma once
 
 #include <unordered_map>
 
 #include "common/object_pool.h"
-#include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 
 namespace doris {
 
@@ -59,5 +55,3 @@ private:
     ObjectPool _pool;
 };
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H

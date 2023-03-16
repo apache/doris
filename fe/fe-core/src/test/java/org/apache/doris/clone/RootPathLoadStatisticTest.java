@@ -21,7 +21,6 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Test;
 

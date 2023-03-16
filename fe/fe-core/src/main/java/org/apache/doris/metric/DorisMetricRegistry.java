@@ -17,9 +17,7 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.catalog.Catalog;
-
-import com.google.common.collect.Lists;
+import org.apache.doris.catalog.Env;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -29,34 +27,49 @@ import java.util.stream.Collectors;
 
 public class DorisMetricRegistry {
 
-    private Collection<Metric> paloMetrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
+    private Collection<Metric> metrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
+    private Collection<Metric> systemMetrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
 
     public DorisMetricRegistry() {
 
     }
 
-    public synchronized void addPaloMetrics(Metric paloMetric) {
+    public synchronized void addMetrics(Metric metric) {
         // No metric needs to be added to the Checkpoint thread.
         // And if you add a metric in Checkpoint thread, it will cause the metric to be added repeatedly,
         // and the Checkpoint Catalog may be saved incorrectly, resulting in FE memory leaks.
-        if (!Catalog.isCheckpointThread()) {
-            paloMetrics.add(paloMetric);
+        if (!Env.isCheckpointThread()) {
+            metrics.add(metric);
         }
     }
 
-    public synchronized List<Metric> getPaloMetrics() {
-        return Lists.newArrayList(paloMetrics);
+    public synchronized void addSystemMetrics(Metric sysMetric) {
+        if (!Env.isCheckpointThread()) {
+            systemMetrics.add(sysMetric);
+        }
+    }
+
+    public synchronized List<Metric> getMetrics() {
+        return metrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
+    }
+
+    public synchronized List<Metric> getSystemMetrics() {
+        return systemMetrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
     }
 
     // the metrics by metric name
-    public synchronized List<Metric> getPaloMetricsByName(String name) {
-        return paloMetrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+    public synchronized List<Metric> getMetricsByName(String name) {
+        List<Metric> list = metrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+        if (list.isEmpty()) {
+            list = systemMetrics.stream().filter(m -> m.getName().equals(name)).collect(Collectors.toList());
+        }
+        return list;
     }
 
     public synchronized void removeMetrics(String name) {
-        // Same reason as comment in addPaloMetrics()
-        if (!Catalog.isCheckpointThread()) {
-            paloMetrics = paloMetrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
+        // Same reason as comment in addMetrics()
+        if (!Env.isCheckpointThread()) {
+            metrics = metrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
         }
     }
 }

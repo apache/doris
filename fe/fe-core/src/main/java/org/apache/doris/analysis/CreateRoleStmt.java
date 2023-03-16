@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -28,10 +28,20 @@ import org.apache.doris.qe.ConnectContext;
 
 public class CreateRoleStmt extends DdlStmt {
 
+    private boolean ifNotExists;
     private String role;
 
     public CreateRoleStmt(String role) {
         this.role = role;
+    }
+
+    public CreateRoleStmt(boolean ifNotExists, String role) {
+        this.ifNotExists = ifNotExists;
+        this.role = role;
+    }
+
+    public boolean isSetIfNotExists() {
+        return ifNotExists;
     }
 
     public String getQualifiedRole() {
@@ -45,8 +55,8 @@ public class CreateRoleStmt extends DdlStmt {
         role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
 
         // check if current user has GRANT priv on GLOBAL level.
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE USER");
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE ROLE");
         }
     }
 

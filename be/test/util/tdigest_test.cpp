@@ -21,7 +21,7 @@
 
 #include <random>
 
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 
 namespace doris {
 
@@ -49,18 +49,6 @@ protected:
         // Code here will be called immediately after each test (right
         // before the destructor).
     }
-
-    static void SetUpTestCase() {
-        static bool initialized = false;
-        if (!initialized) {
-            FLAGS_logtostderr = true;
-            google::InstallFailureSignalHandler();
-            google::InitGoogleLogging("testing::TDigestTest");
-            initialized = true;
-        }
-    }
-
-    // Objects declared here can be used by all tests in the test case for Foo.
 };
 
 static double quantile(const double q, const std::vector<double>& values) {
@@ -141,7 +129,7 @@ TEST_F(TDigestTest, FewValues) {
 
     EXPECT_EQ(digest.processed().size(), values.size());
 
-    std::vector<double> testValues{0.0, 1.0e-10, qvalue(gen), 0.5, 1.0 - 1e-10, 1.0};
+    std::vector<double> testValues {0.0, 1.0e-10, qvalue(gen), 0.5, 1.0 - 1e-10, 1.0};
     for (auto q : testValues) {
         double q1 = quantile(q, values);
         auto q2 = digest.quantile(q);
@@ -169,7 +157,7 @@ TEST_F(TDigestTest, MoreThan2BValues) {
     }
     EXPECT_EQ(static_cast<long>(1000 + float(10L * (1 << 28))), digest.totalWeight());
     EXPECT_GT(digest.totalWeight(), std::numeric_limits<int32_t>::max());
-    std::vector<double> quantiles{0, 0.1, 0.5, 0.9, 1, reals(gen)};
+    std::vector<double> quantiles {0, 0.1, 0.5, 0.9, 1, reals(gen)};
     std::sort(quantiles.begin(), quantiles.end());
     auto prev = std::numeric_limits<double>::min();
     for (double q : quantiles) {
@@ -183,7 +171,7 @@ TEST_F(TDigestTest, MergeTest) {
     TDigest digest1(1000);
     TDigest digest2(1000);
 
-    digest2.add(std::vector<const TDigest*>{&digest1});
+    digest2.add(std::vector<const TDigest*> {&digest1});
 }
 
 TEST_F(TDigestTest, TestSorted) {
@@ -218,8 +206,8 @@ TEST_F(TDigestTest, ExtremeQuantiles) {
     // [ ?, 10, ?, 20, ?, ?, 50, ?, ? ]
     // and we expect it to compute approximate missing values:
     // [ 5, 10, 15, 20, 30, 40, 50, 60, 70]
-    std::vector<double> values{5.0, 10.0, 15.0, 20.0, 30.0, 35.0, 40.0, 45.0, 50.0};
-    std::vector<double> quantiles{1.5 / 9.0, 3.5 / 9.0, 6.5 / 9.0};
+    std::vector<double> values {5.0, 10.0, 15.0, 20.0, 30.0, 35.0, 40.0, 45.0, 50.0};
+    std::vector<double> quantiles {1.5 / 9.0, 3.5 / 9.0, 6.5 / 9.0};
     for (auto q : quantiles) {
         EXPECT_NEAR(quantile(q, values), digest.quantile(q), 0.01) << "q = " << q;
     }
@@ -247,8 +235,3 @@ TEST_F(TDigestTest, Montonicity) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

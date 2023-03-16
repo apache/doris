@@ -23,6 +23,7 @@
   */
 #pragma once
 
+#include <cstddef>
 template <bool clear_memory_, bool mmap_populate = false>
 class Allocator;
 

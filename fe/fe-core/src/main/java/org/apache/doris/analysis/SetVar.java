@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -49,7 +49,7 @@ public class SetVar {
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
-            this.result = (LiteralExpr)value;
+            this.result = (LiteralExpr) value;
         }
     }
 
@@ -58,7 +58,7 @@ public class SetVar {
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
-            this.result = (LiteralExpr)value;
+            this.result = (LiteralExpr) value;
         }
     }
 
@@ -89,7 +89,7 @@ public class SetVar {
         }
 
         if (type == SetType.GLOBAL) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                         "ADMIN");
             }
@@ -109,12 +109,12 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support non-constant expr.");
         }
 
-        final Expr literalExpr = value.getResultValue();
+        final Expr literalExpr = value.getResultValue(false);
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
 
-        result = (LiteralExpr)literalExpr;
+        result = (LiteralExpr) literalExpr;
 
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
@@ -132,7 +132,8 @@ public class SetVar {
         if (getVariable().equalsIgnoreCase(SessionVariable.PREFER_JOIN_METHOD)) {
             String value = getValue().getStringValue();
             if (!value.equalsIgnoreCase("broadcast") && !value.equalsIgnoreCase("shuffle")) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.PREFER_JOIN_METHOD, value);
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.PREFER_JOIN_METHOD, value);
             }
         }
 
@@ -148,15 +149,6 @@ public class SetVar {
         }
         if (getVariable().equalsIgnoreCase("is_report_success")) {
             variable = SessionVariable.ENABLE_PROFILE;
-        }
-
-        if (getVariable().equalsIgnoreCase(SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION)) {
-            String value = getValue().getStringValue();
-            if (!"1".equals(value) && !"2".equals(value)) {
-                throw new AnalysisException("Value of " +
-                    SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION + " should be " +
-                    "either 1 or 2, but meet " + value);
-            }
         }
     }
 

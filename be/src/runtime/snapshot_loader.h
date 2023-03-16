@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H
-#define DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H
+#pragma once
 
 #include <stdint.h>
 
@@ -33,7 +32,7 @@ namespace doris {
 
 class ExecEnv;
 class StorageBackend;
-class FileStat;
+struct FileStat;
 
 /*
  * Upload:
@@ -50,19 +49,18 @@ class FileStat;
  * It will also only download files which does not exist in local dir.
  *
  * Move:
- * move() is the final step of restore process. it will replace the 
+ * move() is the final step of restore process. it will replace the
  * old tablet data dir with the newly downloaded snapshot dir.
  * and reload the tablet header to take this tablet on line.
- * 
+ *
  */
 class SnapshotLoader {
 public:
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id);
     SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                    const TNetworkAddress& broker_addr,
-                   const std::map<std::string, std::string>& broker_prop);
-    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                   const std::map<std::string, std::string>& broker_prop);
+                   const std::map<std::string, std::string>& broker_prop,
+                   TStorageBackendType::type type);
 
     ~SnapshotLoader();
 
@@ -104,5 +102,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H

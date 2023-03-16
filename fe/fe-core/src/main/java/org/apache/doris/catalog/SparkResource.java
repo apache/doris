@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
@@ -27,13 +28,13 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
 import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.Map;
@@ -74,11 +75,16 @@ public class SparkResource extends Resource {
     private static final String YARN_MASTER = "yarn";
     private static final String SPARK_CONFIG_PREFIX = "spark.";
     private static final String BROKER_PROPERTY_PREFIX = "broker.";
+    private static final String ENV_PREFIX = "env.";
     // spark uses hadoop configs in the form of spark.hadoop.*
     private static final String SPARK_HADOOP_CONFIG_PREFIX = "spark.hadoop.";
     private static final String SPARK_YARN_RESOURCE_MANAGER_ADDRESS = "spark.hadoop.yarn.resourcemanager.address";
     private static final String SPARK_FS_DEFAULT_FS = "spark.hadoop.fs.defaultFS";
     private static final String YARN_RESOURCE_MANAGER_ADDRESS = "yarn.resourcemanager.address";
+    private static final String SPARK_YARN_RESOURCE_MANAGER_HA_ENABLED = "spark.hadoop.yarn.resourcemanager.ha.enabled";
+    private static final String SPARK_YARN_RESOURCE_MANAGER_HA_RMIDS = "spark.hadoop.yarn.resourcemanager.ha.rm-ids";
+    private static final String YARN_RESOURCE_MANAGER_ADDRESS_FOMART = "spark.hadoop.yarn.resourcemanager.address.%s";
+    private static final String YARN_RESOURCE_MANAGER_HOSTNAME_FORMAT = "spark.hadoop.yarn.resourcemanager.hostname.%s";
 
     public enum DeployMode {
         CLUSTER,
@@ -103,19 +109,22 @@ public class SparkResource extends Resource {
     // broker username and password
     @SerializedName(value = "brokerProperties")
     private Map<String, String> brokerProperties;
+    @SerializedName(value = "envConfigs")
+    private Map<String, String> envConfigs;
 
     public SparkResource(String name) {
-        this(name, Maps.newHashMap(), null, null, Maps.newHashMap());
+        this(name, Maps.newHashMap(), null, null, Maps.newHashMap(), Maps.newHashMap());
     }
 
     // "public" for testing
     public SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String broker,
-                         Map<String, String> brokerProperties) {
+                         Map<String, String> brokerProperties, Map<String, String> envConfigs) {
         super(name, ResourceType.SPARK);
         this.sparkConfigs = sparkConfigs;
         this.workingDir = workingDir;
         this.broker = broker;
         this.brokerProperties = brokerProperties;
+        this.envConfigs = envConfigs;
     }
 
     public String getMaster() {
@@ -149,18 +158,39 @@ public class SparkResource extends Resource {
         return sparkConfigs;
     }
 
+    public Map<String, String> getEnvConfigsWithoutPrefix() {
+        Map<String, String> envConfig = Maps.newHashMap();
+        if (envConfigs != null) {
+            for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
+                if (entry.getKey().startsWith(ENV_PREFIX)) {
+                    String key = entry.getKey().substring(ENV_PREFIX.length());
+                    envConfig.put(key, entry.getValue());
+                }
+            }
+        }
+        return envConfig;
+    }
+
     public Pair<String, String> getYarnResourcemanagerAddressPair() {
-        return Pair.create(YARN_RESOURCE_MANAGER_ADDRESS, sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_ADDRESS));
+        return Pair.of(YARN_RESOURCE_MANAGER_ADDRESS, sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_ADDRESS));
     }
 
     public SparkResource getCopiedResource() {
-        return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
+        return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties, envConfigs);
     }
 
-    // Each SparkResource has and only has one SparkRepository.
-    // This method get the remote archive which matches the dpp version from remote repository
+    @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(sparkConfigs);
+        return copiedProperties;
+    }
+
+    /**
+     * Each SparkResource has and only has one SparkRepository.
+     * This method get the remote archive which matches the dpp version from remote repository
+     */
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
-        String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
+        String remoteRepositoryPath = workingDir + "/" + Env.getCurrentEnv().getClusterId()
                 + "/" + SparkRepository.REPOSITORY_DIR + name;
         BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
         SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc);
@@ -206,6 +236,11 @@ public class SparkResource extends Resource {
             return;
         }
 
+        // update properties
+        updateProperties(properties);
+    }
+
+    private void updateProperties(Map<String, String> properties) throws DdlException {
         // update spark configs
         if (properties.containsKey(SPARK_MASTER)) {
             throw new DdlException("Cannot change spark master");
@@ -220,6 +255,15 @@ public class SparkResource extends Resource {
             broker = properties.get(BROKER);
         }
         brokerProperties.putAll(getBrokerProperties(properties));
+        Map<String, String> env = getEnvConfig(properties);
+        if (env.size() > 0) {
+            if (envConfigs == null) {
+                envConfigs = env;
+            } else {
+                envConfigs.putAll(env);
+            }
+        }
+        LOG.info("updateProperties,{},{}", properties, envConfigs);
     }
 
     @Override
@@ -228,6 +272,8 @@ public class SparkResource extends Resource {
 
         // get spark configs
         sparkConfigs = getSparkConfig(properties);
+        envConfigs = getEnvConfig(properties);
+        LOG.info("setProperties,{},{}", properties, envConfigs);
         // check master and deploy mode
         if (getMaster() == null) {
             throw new DdlException("Missing " + SPARK_MASTER + " in properties");
@@ -242,10 +288,31 @@ public class SparkResource extends Resource {
             throw new DdlException("Missing " + SPARK_SUBMIT_DEPLOY_MODE + " in properties");
         }
         // if deploy machines do not set HADOOP_CONF_DIR env, we should set these configs blow
-        if ((!sparkConfigs.containsKey(SPARK_YARN_RESOURCE_MANAGER_ADDRESS) || !sparkConfigs.containsKey(SPARK_FS_DEFAULT_FS))
-                && isYarnMaster()) {
-            throw new DdlException("Missing (" + SPARK_YARN_RESOURCE_MANAGER_ADDRESS + " and " + SPARK_FS_DEFAULT_FS
-                                           + ") in yarn master");
+        if (isYarnMaster()) {
+            if (!sparkConfigs.containsKey(SPARK_FS_DEFAULT_FS)) {
+                throw new DdlException("Missing (" + SPARK_FS_DEFAULT_FS + ") in yarn master");
+            }
+
+            String haEnabled = sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_HA_ENABLED);
+            if (StringUtils.isNotEmpty(haEnabled) && "true".equals(haEnabled)) {
+                if (StringUtils.isEmpty(SPARK_YARN_RESOURCE_MANAGER_HA_RMIDS)) {
+                    throw new DdlException("Missing (" + SPARK_YARN_RESOURCE_MANAGER_HA_RMIDS + ") in yarn master, "
+                        + "when " + SPARK_YARN_RESOURCE_MANAGER_HA_ENABLED + "=true.");
+                }
+
+                String[] haIds = sparkConfigs.get(SPARK_YARN_RESOURCE_MANAGER_HA_RMIDS).split(",");
+                for (String haId : haIds) {
+                    String addressKey = String.format(YARN_RESOURCE_MANAGER_ADDRESS_FOMART, haId);
+                    String hostnameKey = String.format(YARN_RESOURCE_MANAGER_HOSTNAME_FORMAT, haId);
+                    if (!sparkConfigs.containsKey(addressKey) && !sparkConfigs.containsKey(hostnameKey)) {
+                        throw new DdlException("Missing " + addressKey + " or " + hostnameKey + " in yarn master, "
+                            + "when " + SPARK_YARN_RESOURCE_MANAGER_HA_ENABLED + "=true.");
+                    }
+                }
+            } else if (!sparkConfigs.containsKey(SPARK_YARN_RESOURCE_MANAGER_ADDRESS)) {
+                throw new DdlException("Missing (" + SPARK_YARN_RESOURCE_MANAGER_ADDRESS + ") in yarn master, "
+                    + "or not turned on ha.");
+            }
         }
 
         // check working dir and broker
@@ -255,7 +322,7 @@ public class SparkResource extends Resource {
             throw new DdlException("working_dir and broker should be assigned at the same time");
         }
         // check broker exist
-        if (broker != null && !Catalog.getCurrentCatalog().getBrokerMgr().containsBroker(broker)) {
+        if (broker != null && !Env.getCurrentEnv().getBrokerMgr().containsBroker(broker)) {
             throw new DdlException("Unknown broker name(" + broker + ")");
         }
         brokerProperties = getBrokerProperties(properties);
@@ -269,6 +336,16 @@ public class SparkResource extends Resource {
             }
         }
         return sparkConfig;
+    }
+
+    private Map<String, String> getEnvConfig(Map<String, String> properties) {
+        Map<String, String> envConfig = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(ENV_PREFIX)) {
+                envConfig.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return envConfig;
     }
 
     private Map<String, String> getSparkHadoopConfig(Map<String, String> properties) {
@@ -292,6 +369,25 @@ public class SparkResource extends Resource {
     }
 
     @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        updateProperties(properties);
+        super.modifyProperties(properties);
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        copiedProperties.keySet().removeAll(getSparkConfig(properties).keySet());
+        copiedProperties.keySet().removeAll(getBrokerProperties(properties).keySet());
+        copiedProperties.remove(BROKER);
+        copiedProperties.remove(WORKING_DIR);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown spark resource properties: " + copiedProperties);
+        }
+    }
+
+    @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
         for (Map.Entry<String, String> entry : sparkConfigs.entrySet()) {
@@ -305,6 +401,11 @@ public class SparkResource extends Resource {
         }
         for (Map.Entry<String, String> entry : brokerProperties.entrySet()) {
             result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+        }
+        if (envConfigs != null) {
+            for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
+                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+            }
         }
     }
 }

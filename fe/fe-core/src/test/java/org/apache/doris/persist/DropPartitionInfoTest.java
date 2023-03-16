@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,7 +33,7 @@ public class DropPartitionInfoTest {
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_89);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file
@@ -40,7 +41,7 @@ public class DropPartitionInfoTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true);
+        DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0);
         info1.write(dos);
 
         dos.flush();
@@ -57,14 +58,14 @@ public class DropPartitionInfoTest {
         Assert.assertFalse(rInfo1.isTempPartition());
         Assert.assertTrue(rInfo1.isForceDrop());
 
-        Assert.assertTrue(rInfo1.equals(info1));
-        Assert.assertFalse(rInfo1.equals(this));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(-1L, 2L, "test_partition", false, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, -2L, "test_partition", false, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition1", false, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", true, true)));
-        Assert.assertFalse(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", false, false)));
-        Assert.assertTrue(info1.equals(new DropPartitionInfo(1L, 2L, "test_partition", false, true)));
+        Assert.assertEquals(rInfo1, info1);
+        Assert.assertNotEquals(rInfo1, this);
+        Assert.assertNotEquals(info1, new DropPartitionInfo(-1L, 2L, "test_partition", false, true, 0));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, -2L, "test_partition", false, true, 0));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition1", false, true, 0));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", true, true, 0));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, false, 0));
+        Assert.assertEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0));
 
         // 3. delete files
         dis.close();

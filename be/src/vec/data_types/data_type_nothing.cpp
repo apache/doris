@@ -20,9 +20,7 @@
 
 #include "vec/data_types/data_type_nothing.h"
 
-#include "gen_cpp/data.pb.h"
 #include "vec/columns/column_nothing.h"
-#include "vec/common/typeid_cast.h"
 
 namespace doris::vectorized {
 
@@ -30,11 +28,12 @@ MutableColumnPtr DataTypeNothing::create_column() const {
     return ColumnNothing::create(0);
 }
 
-char* DataTypeNothing::serialize(const IColumn& column, char* buf) const {
+char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     return buf;
 }
 
-const char* DataTypeNothing::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
+                                         int be_exec_version) const {
     return buf;
 }
 

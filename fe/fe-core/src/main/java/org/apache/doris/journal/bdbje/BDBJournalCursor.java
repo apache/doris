@@ -25,7 +25,6 @@ import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,7 +34,7 @@ import java.util.List;
 
 public class BDBJournalCursor implements JournalCursor {
     private static final Logger LOG = LogManager.getLogger(BDBJournalCursor.class);
-    
+
     private long toKey;
     private long currentKey;
     private BDBEnvironment environment;
@@ -43,7 +42,7 @@ public class BDBJournalCursor implements JournalCursor {
     private Database database;
     private int nextDbPositionIndex;
     private final int maxTryTime = 3;
-    
+
     public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey) {
         if (toKey < fromKey || fromKey < 0) {
             System.out.println("Invalid key range!");
@@ -68,7 +67,7 @@ public class BDBJournalCursor implements JournalCursor {
             throw new NullPointerException("dbNames is null.");
         }
         this.nextDbPositionIndex = 0;
-        
+
         // find the db which may contain the fromKey
         String dbName = null;
         for (long db : dbNames) {
@@ -79,14 +78,14 @@ public class BDBJournalCursor implements JournalCursor {
                 break;
             }
         }
-        
+
         if (dbName == null) {
             LOG.error("Can not find the key:{}, fail to get journal cursor. will exit.", fromKey);
             System.exit(-1);
         }
         this.database = env.openDatabase(dbName);
     }
-    
+
     @Override
     public JournalEntity next() {
         JournalEntity ret = null;
@@ -97,7 +96,7 @@ public class BDBJournalCursor implements JournalCursor {
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);
         myBinding.objectToEntry(key, theKey);
-        
+
         DatabaseEntry theData = new DatabaseEntry();
         // if current db does not contain any more data, then we go to search the next db
         try {
@@ -152,6 +151,6 @@ public class BDBJournalCursor implements JournalCursor {
 
     @Override
     public void close() {
-        
+
     }
 }

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H
-#define DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H
+#pragma once
 
 #include <functional>
 #include <map>
@@ -33,18 +32,18 @@ public:
 
     virtual ~OlapMeta();
 
-    OLAPStatus init();
+    Status init();
 
-    OLAPStatus get(const int column_family_index, const std::string& key, std::string* value);
+    Status get(const int column_family_index, const std::string& key, std::string* value);
 
     bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
 
-    OLAPStatus put(const int column_family_index, const std::string& key, const std::string& value);
+    Status put(const int column_family_index, const std::string& key, const std::string& value);
 
-    OLAPStatus remove(const int column_family_index, const std::string& key);
+    Status remove(const int column_family_index, const std::string& key);
 
-    OLAPStatus iterate(const int column_family_index, const std::string& prefix,
-                       std::function<bool(const std::string&, const std::string&)> const& func);
+    Status iterate(const int column_family_index, const std::string& prefix,
+                   std::function<bool(const std::string&, const std::string&)> const& func);
 
     std::string get_root_path();
 
@@ -55,5 +54,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H

@@ -17,7 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
@@ -33,7 +33,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,7 +44,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -172,6 +170,7 @@ public class TransactionState implements Writable {
 
     private long dbId;
     private List<Long> tableIdList;
+    private int replicaNum = 0;
     private long transactionId;
     private String label;
     // requestId is used to judge whether a begin request is a internal retry request.
@@ -189,9 +188,10 @@ public class TransactionState implements Writable {
     private String reason = "";
     // error replica ids
     private Set<Long> errorReplicas;
-    private CountDownLatch latch;
+    // this latch will be counted down when txn status change to VISIBLE
+    private CountDownLatch visibleLatch;
 
-    // this state need not to be serialized
+    // this state need not be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
     private long publishVersionTime = -1;
@@ -208,9 +208,8 @@ public class TransactionState implements Writable {
     // 2. callback object has been removed from CallbackFactory
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
-    private long timeoutMs = Config.stream_load_default_timeout_second;
+    private long timeoutMs = Config.stream_load_default_timeout_second * 1000;
     private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
-    private String authCode = "";
 
     // is set to true, we will double the publish timeout
     private boolean prolongPublishTimeout = false;
@@ -247,12 +246,11 @@ public class TransactionState implements Writable {
         this.errorReplicas = Sets.newHashSet();
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
-        this.latch = new CountDownLatch(1);
-        this.authCode = UUID.randomUUID().toString();
+        this.visibleLatch = new CountDownLatch(1);
     }
 
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
-                            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
+            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
@@ -270,27 +268,13 @@ public class TransactionState implements Writable {
         this.errorReplicas = Sets.newHashSet();
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
-        this.latch = new CountDownLatch(1);
+        this.visibleLatch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
-        this.authCode = UUID.randomUUID().toString();
-    }
-
-    public void setAuthCode(String authCode) {
-        this.authCode = authCode;
-    }
-
-    public String getAuthCode() {
-        return authCode;
     }
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
-    }
-
-    public boolean isRunning() {
-        return transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED;
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
@@ -385,7 +369,6 @@ public class TransactionState implements Writable {
 
         // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
-            this.latch.countDown();
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             }
@@ -398,7 +381,7 @@ public class TransactionState implements Writable {
 
     public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
         // before status changed
-        callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+        callback = Env.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
         if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
@@ -426,11 +409,11 @@ public class TransactionState implements Writable {
         afterStateTransform(transactionStatus, txnOperated, null);
     }
 
-    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
-            throws UserException {
+    public void afterStateTransform(TransactionStatus transactionStatus,
+            boolean txnOperated, String txnStatusChangeReason) throws UserException {
         // after status changed
         if (callback == null) {
-            callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+            callback = Env.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
         }
         if (callback != null) {
             switch (transactionStatus) {
@@ -450,8 +433,8 @@ public class TransactionState implements Writable {
     }
 
     public void replaySetTransactionStatus() {
-        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
-                callbackId);
+        TxnStateChangeCallback callback = Env.getCurrentGlobalTransactionMgr().getCallbackFactory()
+                .getCallback(callbackId);
         if (callback != null) {
             if (transactionStatus == TransactionStatus.ABORTED) {
                 callback.replayOnAborted(this);
@@ -463,8 +446,12 @@ public class TransactionState implements Writable {
         }
     }
 
+    public void countdownVisibleLatch() {
+        this.visibleLatch.countDown();
+    }
+
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
-        this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
+        this.visibleLatch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
 
     public void setPrepareTime(long prepareTime) {
@@ -497,6 +484,14 @@ public class TransactionState implements Writable {
 
     public List<Long> getTableIdList() {
         return tableIdList;
+    }
+
+    public int getReplicaNum() {
+        return replicaNum;
+    }
+
+    public void setReplicaNum(int replicaNum) {
+        this.replicaNum = replicaNum;
     }
 
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
@@ -540,8 +535,10 @@ public class TransactionState implements Writable {
 
     // return true if txn is running but timeout
     public boolean isTimeout(long currentMillis) {
-        return (transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs) ||
-                (transactionStatus == TransactionStatus.PRECOMMITTED && currentMillis - preCommitTime > preCommittedTimeoutMs);
+        return (transactionStatus == TransactionStatus.PREPARE
+                && currentMillis - prepareTime > timeoutMs)
+                || (transactionStatus == TransactionStatus.PRECOMMITTED
+                && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
@@ -652,32 +649,11 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
-            TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
-            String ip = Text.readString(in);
-            txnCoordinator = new TxnCoordinator(sourceType, ip);
-        } else {
-            // to compatible old version, the old txn coordinator looks like: "BE: 192.186.1.1"
-            String coordStr = Text.readString(in);
-            String[] parts = coordStr.split(":");
-            if (parts.length != 2) {
-                // should not happen, just create a mocked TxnCoordinator
-                txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-            } else {
-                if (parts[0].trim().equalsIgnoreCase("FE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, parts[1].trim());
-                } else if (parts[0].trim().equalsIgnoreCase("BE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.BE, parts[1].trim());
-                } else {
-                    // unknown format, should not happen, just create a mocked TxnCoordinator
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-                }
-            }
-        }
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_107) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_107) {
             preCommitTime = in.readLong();
         }
         commitTime = in.readLong();
@@ -688,20 +664,15 @@ public class TransactionState implements Writable {
             errorReplicas.add(in.readLong());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
-            if (in.readBoolean()) {
-                txnCommitAttachment = TxnCommitAttachment.read(in);
-            }
-            callbackId = in.readLong();
-            timeoutMs = in.readLong();
+        if (in.readBoolean()) {
+            txnCommitAttachment = TxnCommitAttachment.read(in);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
-            tableIdList = Lists.newArrayList();
-            int tableListSize = in.readInt();
-            for (int i = 0; i < tableListSize; i++) {
-                tableIdList.add(in.readLong());
-            }
+        callbackId = in.readLong();
+        timeoutMs = in.readLong();
+        tableIdList = Lists.newArrayList();
+        int tableListSize = in.readInt();
+        for (int i = 0; i < tableListSize; i++) {
+            tableIdList.add(in.readLong());
         }
     }
 

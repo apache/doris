@@ -51,6 +51,7 @@ public enum MysqlCommand {
     COM_RESET_CONNECTION("COM_RESET_CONNECTION", 31);
 
     private static Map<Integer, MysqlCommand> codeMap = Maps.newHashMap();
+
     static {
         EnumSet<MysqlCommand> enumSet = EnumSet.allOf(MysqlCommand.class);
         for (MysqlCommand command : enumSet) {

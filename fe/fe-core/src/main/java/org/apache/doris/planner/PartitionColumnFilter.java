@@ -27,7 +27,6 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -118,14 +117,14 @@ public class PartitionColumnFilter {
         if (null == lowerBound) {
             str += "lowerBound is UNSET";
         } else {
-            str += "lowerBound is " + lowerBound.getStringValue() + " and lowerBoundInclusive is " +
-                    lowerBoundInclusive;
+            str += "lowerBound is " + lowerBound.getStringValue() + " and lowerBoundInclusive is "
+                    + lowerBoundInclusive;
         }
         if (null == upperBound) {
             str += "\nupperBound is UNSET";
         } else {
-            str += "\nupperBound is " + upperBound.getStringValue() + " and upperBoundInclusive is " +
-                    upperBoundInclusive;
+            str += "\nupperBound is " + upperBound.getStringValue() + " and upperBoundInclusive is "
+                    + upperBoundInclusive;
         }
         if (null == inPredicate) {
             str += "\ninPredicate is UNSET";
@@ -134,5 +133,4 @@ public class PartitionColumnFilter {
         }
         return str;
     }
-};
-/* vim: set ts=4 sw=4 sts=4 tw=100 noet: */
+}

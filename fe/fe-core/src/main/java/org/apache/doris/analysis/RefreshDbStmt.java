@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -27,27 +27,50 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Strings;
+import java.util.Map;
 
 public class RefreshDbStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(RefreshDbStmt.class);
+    private static final String INVALID_CACHE = "invalid_cache";
 
+    private String catalogName;
     private String dbName;
+    private Map<String, String> properties;
+    private boolean invalidCache = false;
 
-    public RefreshDbStmt(String dbName) {
+    public RefreshDbStmt(String dbName, Map<String, String> properties) {
         this.dbName = dbName;
+        this.properties = properties;
+    }
+
+    public RefreshDbStmt(String catalogName, String dbName, Map<String, String> properties) {
+        this.catalogName = catalogName;
+        this.dbName = dbName;
+        this.properties = properties;
     }
 
     public String getDbName() {
         return dbName;
     }
 
+    public String getCatalogName() {
+        return catalogName;
+    }
+
+    public boolean isInvalidCache() {
+        return invalidCache;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(catalogName)) {
+            catalogName = ConnectContext.get().getCurrentCatalog().getName();
+        }
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
@@ -58,22 +81,31 @@ public class RefreshDbStmt extends DdlStmt {
 
         // Don't allow dropping 'information_schema' database
         if (dbName.equalsIgnoreCase(ClusterNamespace.getFullName(getClusterName(), InfoSchemaDb.DATABASE_NAME))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+            ErrorReport.reportAnalysisException(
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
         // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.DROP)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ConnectContext.get().getQualifiedUser(), dbName);
         }
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
+        String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
+        // Default is to invalid cache.
+        invalidCache = invalidConfig == null ? true : invalidConfig.equalsIgnoreCase("true");
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("REFRESH DATABASE ").append("`").append(dbName).append("`");
+        sb.append("REFRESH DATABASE ");
+        if (catalogName != null) {
+            sb.append("`").append(catalogName).append("`.");
+        }
+        sb.append("`").append(dbName).append("`");
         return sb.toString();
     }
 

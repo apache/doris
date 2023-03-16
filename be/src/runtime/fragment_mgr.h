@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_FRAGMENT_MGR_H
-#define DORIS_BE_RUNTIME_FRAGMENT_MGR_H
+#pragma once
 
 #include <functional>
 #include <memory>
@@ -33,11 +32,22 @@
 #include "http/rest_monitor_iface.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
-#include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thread.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
+
+namespace pipeline {
+class PipelineFragmentContext;
+}
+
+namespace io {
+class StreamLoadPipe;
+}
 
 class QueryFragmentsCtx;
 class ExecEnv;
@@ -48,33 +58,61 @@ class TExecPlanFragmentParams;
 class TExecPlanFragmentParamsList;
 class TUniqueId;
 class RuntimeFilterMergeController;
-class StreamLoadPipe;
 
 std::string to_load_error_http_path(const std::string& file_name);
+
+struct ReportStatusRequest {
+    const Status& status;
+    RuntimeProfile* profile;
+    bool done;
+    TNetworkAddress coord_addr;
+    TUniqueId query_id;
+    int fragment_id;
+    TUniqueId fragment_instance_id;
+    int backend_num;
+    RuntimeState* runtime_state;
+    std::function<Status(Status)> update_fn;
+    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+};
 
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
-    using FinishCallback = std::function<void(PlanFragmentExecutor*)>;
+    using FinishCallback = std::function<void(RuntimeState*, Status*)>;
 
     FragmentMgr(ExecEnv* exec_env);
-    virtual ~FragmentMgr();
+    ~FragmentMgr() override;
 
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
 
-    // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params);
 
-    Status cancel(const TUniqueId& fragment_id) {
-        return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
+    void remove_pipeline_context(
+            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+
+    // TODO(zc): report this is over
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
+
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
+
+    Status start_query_execution(const PExecPlanFragmentStartRequest* request);
+
+    void cancel(const TUniqueId& fragment_id) {
+        cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
     }
 
-    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason);
+    void cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                const std::string& msg = "");
+
+    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                      const std::string& msg = "");
+
+    bool query_is_canceled(const TUniqueId& query_id);
 
     void cancel_worker();
 
-    virtual void debug(std::stringstream& ss);
+    void debug(std::stringstream& ss) override;
 
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns
@@ -83,16 +121,35 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
+    Status apply_filter(const PPublishFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
+    Status merge_filter(const PMergeFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
+    std::string to_http_path(const std::string& file_name);
 
-    std::shared_ptr<StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
+    void coordinator_callback(const ReportStatusRequest& req);
 
 private:
-    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
+
+    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
+
+    void _set_scan_concurrency(const TPipelineFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
+
+    bool _is_scan_node(const TPlanNodeType::type& type);
+
+    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
+
+    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                    const TPipelineInstanceParams& local_params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
 
     // This is input params
     ExecEnv* _exec_env;
@@ -103,8 +160,12 @@ private:
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
+
+    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
+
     // query id -> QueryFragmentsCtx
     std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
+    std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
@@ -118,5 +179,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

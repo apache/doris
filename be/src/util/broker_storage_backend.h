@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/file_factory.h"
 #include "util/storage_backend.h"
 
 namespace doris {
@@ -36,8 +37,8 @@ public:
                                 const std::string& checksum) override;
     Status rename(const std::string& orig_name, const std::string& new_name) override;
     Status rename_dir(const std::string& orig_name, const std::string& new_name) override;
-    Status list(const std::string& remote_path, bool contain_md5,
-                bool recursion, std::map<std::string, FileStat>* files) override;
+    Status list(const std::string& remote_path, bool contain_md5, bool recursion,
+                std::map<std::string, FileStat>* files) override;
     Status direct_upload(const std::string& remote, const std::string& content) override;
     Status rm(const std::string& remote) override;
     Status rmdir(const std::string& remote) override;
@@ -49,8 +50,11 @@ public:
     Status exist_dir(const std::string& path) override;
 
 private:
+    void _init_file_description(const std::string& remote);
+
     ExecEnv* _env;
     const TNetworkAddress& _broker_addr;
     const std::map<std::string, std::string>& _broker_prop;
+    FileDescription _file_description;
 };
 } // end namespace doris

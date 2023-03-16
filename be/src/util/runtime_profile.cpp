@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/runtime-profile.cc
+// and modified by Doris
 
 #include "util/runtime_profile.h"
 
@@ -26,8 +29,6 @@
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
-#include "util/monotime.h"
-#include "util/pretty_printer.h"
 #include "util/thrift_util.h"
 #include "util/url_coding.h"
 
@@ -41,11 +42,10 @@ static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSw
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
 // The root counter name for all top level counters.
-static const std::string ROOT_COUNTER = "";
+static const std::string ROOT_COUNTER;
 
 RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
-          _own_pool(false),
           _name(name),
           _metadata(-1),
           _is_averaged_profile(is_averaged_profile),
@@ -54,7 +54,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
-RuntimeProfile::~RuntimeProfile() {}
+RuntimeProfile::~RuntimeProfile() = default;
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
     DCHECK(other != nullptr);
@@ -235,6 +235,11 @@ void RuntimeProfile::divide(int n) {
     }
 }
 
+void RuntimeProfile::clear_children() {
+    std::lock_guard<std::mutex> l(_children_lock);
+    _children.clear();
+}
+
 void RuntimeProfile::compute_time_in_profile() {
     compute_time_in_profile(total_time_counter()->value());
 }
@@ -254,7 +259,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 
     int64_t local_time = total_time_counter()->value() - total_child_time;
     // Counters have some margin, set to 0 if it was negative.
-    local_time = std::max(0L, local_time);
+    local_time = std::max<int64_t>(0L, local_time);
     _local_time_percent = static_cast<double>(local_time) / total;
     _local_time_percent = std::min(1.0, _local_time_percent) * 100;
 
@@ -275,6 +280,15 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
         add_child_unlock(child, indent, (*pos).first);
     }
     return child;
+}
+
+void RuntimeProfile::insert_child_head(doris::RuntimeProfile* child, bool indent) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    DCHECK(child != nullptr);
+    _child_map[child->_name] = child;
+
+    auto it = _children.begin();
+    _children.insert(it, std::make_pair(child, indent));
 }
 
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
@@ -422,20 +436,6 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
     return counter;
 }
 
-RuntimeProfile::ThreadCounters* RuntimeProfile::add_thread_counters(const std::string& prefix) {
-    ThreadCounters* counter = _pool->add(new ThreadCounters());
-    counter->_total_time = add_counter(prefix + THREAD_TOTAL_TIME, TUnit::TIME_NS);
-    counter->_user_time =
-            add_counter(prefix + THREAD_USER_TIME, TUnit::TIME_NS, prefix + THREAD_TOTAL_TIME);
-    counter->_sys_time =
-            add_counter(prefix + THREAD_SYS_TIME, TUnit::TIME_NS, prefix + THREAD_TOTAL_TIME);
-    counter->_voluntary_context_switches =
-            add_counter(prefix + THREAD_VOLUNTARY_CONTEXT_SWITCHES, TUnit::UNIT);
-    counter->_involuntary_context_switches =
-            add_counter(prefix + THREAD_INVOLUNTARY_CONTEXT_SWITCHES, TUnit::UNIT);
-    return counter;
-}
-
 RuntimeProfile::Counter* RuntimeProfile::get_counter(const std::string& name) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
@@ -469,7 +469,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     std::ostream& stream = *s;
 
     // create copy of _counter_map and _child_counter_map so we don't need to hold lock
-    // while we call value() on the counters (some of those might be DerivedCounters)
+    // while we call value() on the counters
     CounterMap counter_map;
     ChildCounterMap child_counter_map;
     {
@@ -539,6 +539,88 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
         bool indent = children[i].second;
         profile->pretty_print(s, prefix + (indent ? "  " : ""));
     }
+}
+
+void RuntimeProfile::add_to_span() {
+    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    if (!span->IsRecording() || _added_to_span) {
+        return;
+    }
+    _added_to_span = true;
+
+    CounterMap counter_map;
+    ChildCounterMap child_counter_map;
+    {
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+        counter_map = _counter_map;
+        child_counter_map = _child_counter_map;
+    }
+
+    auto total_time = counter_map.find("TotalTime");
+    DCHECK(total_time != counter_map.end());
+
+    // profile name like "VDataBufferSender  (dst_fragment_instance_id=-2608c96868f3b77d--713968f450bfbe0d):"
+    // to "VDataBufferSender"
+    auto i = _name.find_first_of("(: ");
+    auto short_name = _name.substr(0, i);
+    span->SetAttribute("TotalTime", print_json_counter(short_name, total_time->second));
+
+    {
+        std::lock_guard<std::mutex> l(_info_strings_lock);
+        for (const std::string& key : _info_strings_display_order) {
+            // nlohmann json will core dump when serializing 'KeyRanges', here temporarily skip it.
+            if (key.compare("KeyRanges") == 0) {
+                continue;
+            }
+            span->SetAttribute(key, print_json_info(short_name, _info_strings.find(key)->second));
+        }
+    }
+
+    RuntimeProfile::add_child_counters_to_span(span, short_name, ROOT_COUNTER, counter_map,
+                                               child_counter_map);
+
+    ChildVector children;
+    {
+        std::lock_guard<std::mutex> l(_children_lock);
+        children = _children;
+    }
+
+    for (int i = 0; i < children.size(); ++i) {
+        RuntimeProfile* profile = children[i].first;
+        profile->add_to_span();
+    }
+}
+
+void RuntimeProfile::add_child_counters_to_span(OpentelemetrySpan span,
+                                                const std::string& profile_name,
+                                                const std::string& counter_name,
+                                                const CounterMap& counter_map,
+                                                const ChildCounterMap& child_counter_map) {
+    ChildCounterMap::const_iterator itr = child_counter_map.find(counter_name);
+
+    if (itr != child_counter_map.end()) {
+        const std::set<std::string>& child_counters = itr->second;
+        for (const std::string& child_counter : child_counters) {
+            CounterMap::const_iterator iter = counter_map.find(child_counter);
+            DCHECK(iter != counter_map.end());
+            span->SetAttribute(iter->first, print_json_counter(profile_name, iter->second));
+            RuntimeProfile::add_child_counters_to_span(span, profile_name, child_counter,
+                                                       counter_map, child_counter_map);
+        }
+    }
+}
+
+std::string RuntimeProfile::print_json_info(const std::string& profile_name, std::string value) {
+    rapidjson::StringBuffer s;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(s);
+
+    writer.StartObject();
+    writer.Key("profile");
+    writer.String(profile_name.c_str());
+    writer.Key("pretty");
+    writer.String(value.c_str());
+    writer.EndObject();
+    return s.GetString();
 }
 
 void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {

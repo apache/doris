@@ -69,8 +69,8 @@ message DataPageFooterPB {
     // required: size of nullmap, 0 if the page doesn't contain NULL
     optional uint32 nullmap_size = 3;
     // only for array column
-    // Save the first array's first item's ordinal.
-    optional uint64 first_array_item_ordinal = 4;
+    // Save the offset of next page 
+    optional uint64 next_array_item_ordinal = 4;
 }
 
 message IndexPageFooterPB {
@@ -162,6 +162,16 @@ message ColumnMetaPB {
 
 }
 
+message PrimaryKeyIndexMetaPB {
+    // primary key index
+    optional IndexedColumnMetaPB primary_key_index = 1;
+    // bloom filter index
+    optional ColumnIndexMetaPB bloom_filter_index = 2;
+
+    optional bytes min_key = 3;
+    optional bytes max_key = 4;
+}
+
 message SegmentFooterPB {
     optional uint32 version = 1 [default = 1]; // file version
     repeated ColumnMetaPB columns = 2; // tablet schema
@@ -175,6 +185,9 @@ message SegmentFooterPB {
 
     // Short key index's page
     optional PagePointerPB short_key_index_page = 9;
+
+    // Primary key index meta
+    optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
 }
 
 message BTreeMetaPB {
@@ -252,11 +265,13 @@ message BitmapIndexPB {
 
 enum HashStrategyPB {
     HASH_MURMUR3_X64_64 = 0;
+    CITY_HASH_64 = 1;
 }
 
 enum BloomFilterAlgorithmPB {
     BLOCK_BLOOM_FILTER = 0;
     CLASSIC_BLOOM_FILTER = 1;
+    NGRAM_BLOOM_FILTER = 2;
 }
 
 message BloomFilterIndexPB {

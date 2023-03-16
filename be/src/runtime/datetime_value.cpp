@@ -47,14 +47,6 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
-static bool is_leap(uint32_t year) {
-    return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year));
-}
-
-static uint32_t calc_days_in_year(uint32_t year) {
-    return is_leap(year) ? 366 : 365;
-}
-
 RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
 bool DateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -62,15 +54,19 @@ bool DateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uin
                                 uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59 ||
                 microsecond > 999999;
-    return time || check_date(year, month, day);
+    if (type == TIME_TIME) {
+        return time;
+    } else {
+        return time || check_date(year, month, day);
+    }
 }
 
 bool DateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
-    if (month != 0 && month <= 12 && day > s_days_in_month[month]) {
-        // Feb 29 in leap year is valid.
-        if (!(month == 2 && day == 29 && is_leap(year))) return true;
+    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
+    if (year > 9999 || month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
+        return true;
     }
-    return year > 9999 || month > 12 || day > 31;
+    return false;
 }
 
 // The interval format is that with no delimiters
@@ -79,7 +75,7 @@ bool DateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 bool DateTimeValue::from_date_str(const char* date_str, int len) {
     const char* ptr = date_str;
     const char* end = date_str + len;
-    // ONLY 2, 6 can follow by a sapce
+    // ONLY 2, 6 can follow by a space
     const static int allow_space_mask = 4 | 64;
     const static int MAX_DATE_PARTS = 8;
     uint32_t date_val[MAX_DATE_PARTS];
@@ -200,7 +196,7 @@ bool DateTimeValue::from_date_str(const char* date_str, int len) {
 // [YY_PART_YEAR * 10000L + 101, 991231] for two digits year 1970 ~1999
 // (991231, 10000101) invalid, because support 1000-01-01
 // [10000101, 99991231] for four digits year date value.
-// (99991231, 101000000) invalid, NOTE below this is datetime vaule hh:mm:ss must exist.
+// (99991231, 101000000) invalid, NOTE below this is datetime value hh:mm:ss must exist.
 // [101000000, (YY_PART_YEAR - 1)##1231235959] two digits year datetime value
 // ((YY_PART_YEAR - 1)##1231235959, YY_PART_YEAR##0101000000) invalid
 // ((YY_PART_YEAR)##1231235959, 99991231235959] two digits year datetime value 1970 ~ 1999
@@ -996,6 +992,10 @@ static bool str_to_int64(const char* ptr, const char** endptr, int64_t* ret) {
     if (ptr >= end) {
         return false;
     }
+    // a valid input should at least contains one digit
+    if (!isdigit(*ptr)) {
+        return false;
+    }
     // Skip '0'
     while (ptr < end && *ptr == '0') {
         ptr++;
@@ -1451,7 +1451,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
     }
     // 1. already_set_date_part means _year, _month, _day be set, so we only set time part
     // 2. already_set_time_part means _hour, _minute, _second, _microsecond be set,
-    //    so we only neet to set date part
+    //    so we only need to set date part
     // 3. if both are true, means all part of date_time be set, no need check_range_and_set_time
     bool already_set_date_part = yearday > 0 || (week_num >= 0 && weekday > 0);
     if (already_set_date_part && already_set_time_part) return true;

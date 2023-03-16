@@ -18,8 +18,9 @@
 package org.apache.doris.common;
 
 import org.apache.doris.common.io.BitmapValue;
-import java.io.ByteArrayOutputStream;
+
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -33,7 +34,7 @@ public class BitmapValueUtil {
         return bos.toByteArray();
     }
 
-    public static BitmapValue deserializeToBitmap(byte[] bytes) throws IOException{
+    public static BitmapValue deserializeToBitmap(byte[] bytes) throws IOException {
         BitmapValue bitmapValue = new BitmapValue();
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
         bitmapValue.deserialize(in);

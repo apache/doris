@@ -102,6 +102,7 @@ protected:
     char* c_start = null; /// Does not include pad_left.
     char* c_end = null;
     char* c_end_of_storage = null; /// Does not include pad_right.
+    char* c_end_peak = null;
 
     /// The amount of memory occupied by the num_elements of the elements.
     static size_t byte_size(size_t num_elements) { return num_elements * ELEMENT_SIZE; }
@@ -111,15 +112,26 @@ protected:
         return byte_size(num_elements) + pad_right + pad_left;
     }
 
+    inline void reset_peak() {
+        if (UNLIKELY(c_end - c_end_peak > 65536)) {
+            THREAD_MEM_TRACKER_TRANSFER_FROM(c_end - c_end_peak,
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+            c_end_peak = c_end;
+        }
+    }
+
     void alloc_for_num_elements(size_t num_elements) {
         alloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(num_elements)));
     }
 
     template <typename... TAllocatorParams>
     void alloc(size_t bytes, TAllocatorParams&&... allocator_params) {
-        c_start = c_end = reinterpret_cast<char*>(TAllocator::alloc(
-                                  bytes, std::forward<TAllocatorParams>(allocator_params)...)) +
-                          pad_left;
+        THREAD_MEM_TRACKER_TRANSFER_TO(bytes - pad_right - pad_left,
+                                       ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+        c_start = c_end = c_end_peak =
+                reinterpret_cast<char*>(TAllocator::alloc(
+                        bytes, std::forward<TAllocatorParams>(allocator_params)...)) +
+                pad_left;
         c_end_of_storage = c_start + bytes - pad_right - pad_left;
 
         if (pad_left) memset(c_start - ELEMENT_SIZE, 0, ELEMENT_SIZE);
@@ -131,6 +143,8 @@ protected:
         unprotect();
 
         TAllocator::free(c_start - pad_left, allocated_bytes());
+        THREAD_MEM_TRACKER_TRANSFER_FROM(c_end_of_storage - c_end_peak,
+                                         ExecEnv::GetInstance()->orphan_mem_tracker_raw());
     }
 
     template <typename... TAllocatorParams>
@@ -142,7 +156,11 @@ protected:
 
         unprotect();
 
+        THREAD_MEM_TRACKER_TRANSFER_TO(bytes - allocated_bytes(),
+                                       ExecEnv::GetInstance()->orphan_mem_tracker_raw());
+
         ptrdiff_t end_diff = c_end - c_start;
+        ptrdiff_t peak_diff = c_end_peak - c_start;
 
         c_start = reinterpret_cast<char*>(TAllocator::realloc(
                           c_start - pad_left, allocated_bytes(), bytes,
@@ -150,6 +168,7 @@ protected:
                   pad_left;
 
         c_end = c_start + end_diff;
+        c_end_peak = c_start + peak_diff;
         c_end_of_storage = c_start + bytes - pad_right - pad_left;
     }
 
@@ -158,7 +177,7 @@ protected:
     }
 
     bool is_allocated_from_stack() const {
-        constexpr size_t stack_threshold = TAllocator::getStackThreshold();
+        constexpr size_t stack_threshold = TAllocator::get_stack_threshold();
         return (stack_threshold > 0) && (allocated_bytes() <= stack_threshold);
     }
 
@@ -220,7 +239,10 @@ public:
         resize_assume_reserved(n);
     }
 
-    void resize_assume_reserved(const size_t n) { c_end = c_start + byte_size(n); }
+    void resize_assume_reserved(const size_t n) {
+        c_end = c_start + byte_size(n);
+        reset_peak();
+    }
 
     const char* raw_data() const { return c_start; }
 
@@ -231,6 +253,7 @@ public:
 
         memcpy(c_end, ptr, ELEMENT_SIZE);
         c_end += byte_size(1);
+        reset_peak();
     }
 
     void protect() {
@@ -283,6 +306,7 @@ public:
     PODArray(size_t n) {
         this->alloc_for_num_elements(n);
         this->c_end += this->byte_size(n);
+        this->reset_peak();
     }
 
     PODArray(size_t n, const T& x) {
@@ -334,7 +358,10 @@ public:
     const_iterator cend() const { return t_end(); }
 
     void* get_end_ptr() const { return this->c_end; }
-    void set_end_ptr(void* ptr) { this->c_end = (char*)ptr; }
+    void set_end_ptr(void* ptr) {
+        this->c_end = (char*)ptr;
+        this->reset_peak();
+    }
 
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
@@ -344,6 +371,7 @@ public:
             memset(this->c_end, 0, this->byte_size(n - old_size));
         }
         this->c_end = this->c_start + this->byte_size(n);
+        this->reset_peak();
     }
 
     void resize_fill(size_t n, const T& value) {
@@ -353,6 +381,7 @@ public:
             std::fill(t_end(), t_end() + n - old_size, value);
         }
         this->c_end = this->c_start + this->byte_size(n);
+        this->reset_peak();
     }
 
     template <typename U, typename... TAllocatorParams>
@@ -362,24 +391,28 @@ public:
 
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
+        this->reset_peak();
     }
 
     template <typename U, typename... TAllocatorParams>
     void add_num_element(U&& x, uint32_t num, TAllocatorParams&&... allocator_params) {
         if (num != 0) {
             const auto new_end = this->c_end + this->byte_size(num);
-            if (UNLIKELY( new_end > this->c_end_of_storage)) {
+            if (UNLIKELY(new_end > this->c_end_of_storage)) {
                 this->reserve(this->size() + num);
             }
             std::fill(t_end(), t_end() + num, x);
             this->c_end = new_end;
+            this->reset_peak();
         }
     }
 
     template <typename U, typename... TAllocatorParams>
-    void add_num_element_without_reserve(U&& x, uint32_t num, TAllocatorParams&&... allocator_params) {
+    void add_num_element_without_reserve(U&& x, uint32_t num,
+                                         TAllocatorParams&&... allocator_params) {
         std::fill(t_end(), t_end() + num, x);
         this->c_end += sizeof(T) * num;
+        this->reset_peak();
     }
 
     /**
@@ -390,6 +423,7 @@ public:
     void push_back_without_reserve(U&& x, TAllocatorParams&&... allocator_params) {
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
+        this->reset_peak();
     }
 
     /** This method doesn't allow to pass parameters for Allocator,
@@ -401,6 +435,7 @@ public:
 
         new (t_end()) T(std::forward<Args>(args)...);
         this->c_end += this->byte_size(1);
+        this->reset_peak();
     }
 
     void pop_back() { this->c_end -= this->byte_size(1); }
@@ -417,7 +452,20 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
+// `place` in IAggregateFunctionHelper::streaming_agg_serialize is initialized by placement new, in IAggregateFunctionHelper::create.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wuninitialized"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic pop
+#endif
         insert_assume_reserved(from_begin, from_end);
     }
 
@@ -431,6 +479,7 @@ public:
         memcpy_small_allow_read_write_overflow15(
                 this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     template <typename It1, typename It2>
@@ -447,6 +496,7 @@ public:
         memcpy(this->c_end - bytes_to_move, reinterpret_cast<const void*>(&*from_begin),
                bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     template <typename It1, typename It2>
@@ -454,6 +504,7 @@ public:
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
         memcpy(this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     void swap(PODArray& rhs) {
@@ -472,6 +523,11 @@ public:
             size_t heap_size = arr2.size();
             size_t heap_allocated = arr2.allocated_bytes();
 
+#ifdef USE_MEM_TRACKER
+            size_t stack_peak_used = arr1.c_end_peak - arr1.c_start;
+            size_t heap_peak_used = arr2.c_end_peak - arr2.c_start;
+#endif
+
             /// Keep track of the stack content we have to copy.
             char* stack_c_start = arr1.c_start;
 
@@ -479,12 +535,17 @@ public:
             arr1.c_start = arr2.c_start;
             arr1.c_end_of_storage = arr1.c_start + heap_allocated - arr1.pad_right;
             arr1.c_end = arr1.c_start + this->byte_size(heap_size);
+            arr1.c_end_peak = arr1.c_end;
+            THREAD_MEM_TRACKER_TRANSFER_FROM(arr1.c_end_peak - arr1.c_start - heap_peak_used,
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
             /// Allocate stack space for arr2.
             arr2.alloc(stack_allocated);
             /// Copy the stack content.
             memcpy(arr2.c_start, stack_c_start, this->byte_size(stack_size));
-            arr2.c_end = arr2.c_start + this->byte_size(stack_size);
+            arr2.c_end = arr2.c_end_peak = arr2.c_start + this->byte_size(stack_size);
+            THREAD_MEM_TRACKER_TRANSFER_FROM(arr2.c_end_peak - arr2.c_start - stack_peak_used,
+                                             ExecEnv::GetInstance()->orphan_mem_tracker_raw());
         };
 
         auto do_move = [this](PODArray& src, PODArray& dest) {
@@ -492,15 +553,21 @@ public:
                 dest.dealloc();
                 dest.alloc(src.allocated_bytes());
                 memcpy(dest.c_start, src.c_start, this->byte_size(src.size()));
-                dest.c_end = dest.c_start + (src.c_end - src.c_start);
+                dest.c_end = dest.c_end_peak = dest.c_start + (src.c_end - src.c_start);
+                THREAD_MEM_TRACKER_TRANSFER_FROM(dest.c_end_peak - dest.c_start,
+                                                 ExecEnv::GetInstance()->orphan_mem_tracker_raw());
 
+                THREAD_MEM_TRACKER_TRANSFER_FROM(src.c_end_of_storage - src.c_end_peak,
+                                                 ExecEnv::GetInstance()->orphan_mem_tracker_raw());
                 src.c_start = Base::null;
                 src.c_end = Base::null;
                 src.c_end_of_storage = Base::null;
+                src.c_end_peak = Base::null;
             } else {
                 std::swap(dest.c_start, src.c_start);
                 std::swap(dest.c_end, src.c_end);
                 std::swap(dest.c_end_of_storage, src.c_end_of_storage);
+                std::swap(dest.c_end_peak, src.c_end_peak);
             }
         };
 
@@ -537,6 +604,8 @@ public:
 
             this->c_end = this->c_start + this->byte_size(rhs_size);
             rhs.c_end = rhs.c_start + this->byte_size(lhs_size);
+            this->reset_peak();
+            rhs.reset_peak();
         } else if (this->is_allocated_from_stack() && !rhs.is_allocated_from_stack()) {
             swap_stack_heap(*this, rhs);
         } else if (!this->is_allocated_from_stack() && rhs.is_allocated_from_stack()) {
@@ -545,6 +614,7 @@ public:
             std::swap(this->c_start, rhs.c_start);
             std::swap(this->c_end, rhs.c_end);
             std::swap(this->c_end_of_storage, rhs.c_end_of_storage);
+            std::swap(this->c_end_peak, rhs.c_end_peak);
         }
     }
 
@@ -562,6 +632,7 @@ public:
         size_t bytes_to_copy = this->byte_size(required_capacity);
         memcpy(this->c_start, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end = this->c_start + bytes_to_copy;
+        this->reset_peak();
     }
 
     void assign(const PODArray& from) { assign(from.begin(), from.end()); }

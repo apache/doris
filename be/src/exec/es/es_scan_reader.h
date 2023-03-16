@@ -41,6 +41,7 @@ public:
     static constexpr const char* KEY_TERMINATE_AFTER = "limit";
     static constexpr const char* KEY_DOC_VALUES_MODE = "doc_values_mode";
     static constexpr const char* KEY_HTTP_SSL_ENABLED = "http_ssl_enabled";
+    static constexpr const char* KEY_QUERY_DSL = "query_dsl";
     ESScanReader(const std::string& target, const std::map<std::string, std::string>& props,
                  bool doc_value_mode);
     ~ESScanReader();

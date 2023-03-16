@@ -29,27 +29,25 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.TableTest;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
-import org.apache.doris.thrift.TRuntimeFilterMode;
 
-import com.google.common.collect.Lists;
-
+import com.google.common.collect.ImmutableList;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class RuntimeFilterGeneratorTest {
     private Analyzer analyzer;
@@ -62,8 +60,8 @@ public class RuntimeFilterGeneratorTest {
 
     @Before
     public void setUp() throws UserException {
-        Catalog catalog = Deencapsulation.newInstance(Catalog.class);
-        analyzer = new Analyzer(catalog, connectContext);
+        Env env = Deencapsulation.newInstance(Env.class);
+        analyzer = new Analyzer(env, connectContext);
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -76,29 +74,29 @@ public class RuntimeFilterGeneratorTest {
 
         TupleDescriptor lhsTupleDescriptor = new TupleDescriptor(new TupleId(0));
         lhsScanNode = new OlapScanNode(new PlanNodeId(0), lhsTupleDescriptor, "LEFT SCAN");
-        TableName lhsTableName = new TableName("default_cluster:test_db", "test_lhs_tbl");
+        TableName lhsTableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "default_cluster:test_db",
+                "test_lhs_tbl");
         SlotRef lhsExpr = new SlotRef(lhsTableName, "test_lhs_col");
         SlotDescriptor lhsSlotDescriptor = new SlotDescriptor(new SlotId(0), lhsTupleDescriptor);
-        Column k1 = new Column("test_lhs_col", PrimitiveType.BIGINT);
+        Column k1 = new Column("test_lhs_col", PrimitiveType.BIGINT, false);
         k1.setIsKey(true);
-        k1.setIsAllowNull(false);
         lhsSlotDescriptor.setColumn(k1);
         lhsExpr.setDesc(lhsSlotDescriptor);
-        Table lhsTable = new Table(0, "test_lhs_tbl", Table.TableType.OLAP, Lists.newArrayList(k1));
+        OlapTable lhsTable = TableTest.newOlapTable(0, "test_lhs_tbl", 0, ImmutableList.of(k1));
         BaseTableRef lhsTableRef = new BaseTableRef(tableRef, lhsTable, lhsTableName);
         lhsTableRef.analyze(analyzer);
 
         TupleDescriptor rhsTupleDescriptor = new TupleDescriptor(new TupleId(1));
         rhsScanNode = new OlapScanNode(new PlanNodeId(1), rhsTupleDescriptor, "RIGHT SCAN");
-        TableName rhsTableName = new TableName("default_cluster:test_db", "test_rhs_tbl");
+        TableName rhsTableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "default_cluster:test_db",
+                "test_rhs_tbl");
         SlotRef rhsExpr = new SlotRef(rhsTableName, "test_rhs_col");
         SlotDescriptor rhsSlotDescriptor = new SlotDescriptor(new SlotId(1), rhsTupleDescriptor);
-        Column k2 = new Column("test_rhs_col", PrimitiveType.INT);
+        Column k2 = new Column("test_rhs_col", PrimitiveType.INT, false);
         k2.setIsKey(true);
-        k2.setIsAllowNull(false);
         rhsSlotDescriptor.setColumn(k2);
         rhsExpr.setDesc(rhsSlotDescriptor);
-        Table rhsTable = new Table(0, "test_rhs_tbl", Table.TableType.OLAP, Lists.newArrayList(k2));
+        OlapTable rhsTable = TableTest.newOlapTable(0, "test_rhs_tbl", 0, ImmutableList.of(k2));
         BaseTableRef rhsTableRef = new BaseTableRef(tableRef, rhsTable, rhsTableName);
         rhsTableRef.analyze(analyzer);
 
@@ -106,10 +104,10 @@ public class RuntimeFilterGeneratorTest {
         BinaryPredicate eqJoinConjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, lhsExpr, rhsExpr);
         testJoinExprs.add(eqJoinConjunct);
 
-        hashJoinNode = new HashJoinNode(new PlanNodeId(2), lhsScanNode, rhsScanNode, tableRef, testJoinExprs
-                , new ArrayList<>());
-        testPlanFragment = new PlanFragment(new PlanFragmentId(0), hashJoinNode
-                , new DataPartition(TPartitionType.UNPARTITIONED));
+        hashJoinNode = new HashJoinNode(new PlanNodeId(2), lhsScanNode, rhsScanNode, tableRef, testJoinExprs,
+                new ArrayList<>());
+        testPlanFragment = new PlanFragment(new PlanFragmentId(0), hashJoinNode,
+                new DataPartition(TPartitionType.UNPARTITIONED));
         hashJoinNode.setFragment(testPlanFragment);
         lhsScanNode.setFragment(testPlanFragment);
         rhsScanNode.setFragment(testPlanFragment);
@@ -157,16 +155,16 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 4);
         Assert.assertEquals(hashJoinNode.getRuntimeFilters().size(), 4);
         Assert.assertEquals(lhsScanNode.getRuntimeFilters().size(), 4);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF003[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF003[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF003[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF003[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
 
         clearRuntimeFilterState();
         new Expectations() {
@@ -181,16 +179,16 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 4);
         Assert.assertEquals(hashJoinNode.getRuntimeFilters().size(), 4);
         Assert.assertEquals(lhsScanNode.getRuntimeFilters().size(), 4);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF003[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF003[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF003[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF003[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
 
         clearRuntimeFilterState();
         new Expectations() {
@@ -215,7 +213,7 @@ public class RuntimeFilterGeneratorTest {
         new Expectations() {
             {
                 ConnectContext.get().getSessionVariable().getRuntimeFilterType();
-                result = 16;
+                result = 32;
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
@@ -249,10 +247,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);
@@ -267,10 +265,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);
@@ -285,12 +283,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 2);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 2);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 2);
@@ -305,10 +303,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);
@@ -323,12 +321,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 2);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 2);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 2);
@@ -343,12 +341,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-                , "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                        ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-                , "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                        ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 2);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 2);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 2);
@@ -363,14 +361,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 3);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 3);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 3);
@@ -385,10 +383,10 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 1);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 1);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 1);
@@ -403,12 +401,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 2);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 2);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 2);
@@ -423,12 +421,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 2);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 2);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 2);
@@ -443,14 +441,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF002[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF002[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 3);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 3);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 3);
@@ -465,12 +463,12 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 2);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 2);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 2);
@@ -485,14 +483,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF002[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF002[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 3);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 3);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 3);
@@ -508,14 +506,14 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF002[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF002[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 3);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 3);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 3);
@@ -530,16 +528,16 @@ public class RuntimeFilterGeneratorTest {
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
-        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true)
-            , "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`" +
-                ", RF003[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
-        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false)
-            , "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`" +
-                ", RF003[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
+        Assert.assertEquals(hashJoinNode.getRuntimeFilterExplainString(true),
+                "RF000[in] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF001[bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF002[min_max] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`"
+                        + ", RF003[in_or_bloom] <- `default_cluster:test_db`.`test_rhs_tbl`.`test_rhs_col`\n");
+        Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false),
+                "RF000[in] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF001[bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF002[min_max] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`"
+                        + ", RF003[in_or_bloom] -> `default_cluster:test_db`.`test_lhs_tbl`.`test_lhs_col`\n");
         Assert.assertEquals(testPlanFragment.getTargetRuntimeFilterIds().size(), 4);
         Assert.assertEquals(testPlanFragment.getBuilderRuntimeFilterIds().size(), 4);
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().size(), 4);
@@ -565,7 +563,7 @@ public class RuntimeFilterGeneratorTest {
         new Expectations() {
             {
                 ConnectContext.get().getSessionVariable().getRuntimeFilterType();
-                result = 16;
+                result = 32;
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
@@ -625,15 +623,15 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(analyzer.getAssignedRuntimeFilter().get(0).toThrift().getBloomFilterSizeBytes(), 16777216);
 
         // Use ndv and fpp to calculate the minimum space required for bloom filter
-        Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000000, 0.05), 1048576);
-        Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000000, 0.1), 1048576);
-        Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000000, 0.3), 524288);
-        Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(10000000, 0.1), 8388608);
-        Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000, 0.1), 1024);
+        Assert.assertEquals(1048576, 1L
+                << RuntimeFilter.getMinLogSpaceForBloomFilter(1000000, 0.05));
+        Assert.assertEquals(1048576, 1L
+                << RuntimeFilter.getMinLogSpaceForBloomFilter(1000000, 0.1));
+        Assert.assertEquals(524288, 1L
+                << RuntimeFilter.getMinLogSpaceForBloomFilter(1000000, 0.3));
+        Assert.assertEquals(8388608, 1L
+                << RuntimeFilter.getMinLogSpaceForBloomFilter(10000000, 0.1));
+        Assert.assertEquals(1024, 1L
+                << RuntimeFilter.getMinLogSpaceForBloomFilter(1000, 0.1));
     }
 }

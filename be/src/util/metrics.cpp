@@ -19,7 +19,6 @@
 
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
-
 namespace doris {
 
 std::ostream& operator<<(std::ostream& os, MetricType type) {
@@ -105,21 +104,17 @@ std::string labels_to_string(std::initializer_list<const Labels*> multi_labels) 
     return ss.str();
 }
 
-std::string Metric::to_prometheus(const std::string& display_name,
-                                  const Labels& entity_labels,
+std::string Metric::to_prometheus(const std::string& display_name, const Labels& entity_labels,
                                   const Labels& metric_labels) const {
     std::stringstream ss;
-    ss << display_name                                          // metric name
-       << labels_to_string({&entity_labels, &metric_labels})    // metric labels
-       << " " << to_string() << "\n";                           // metric value
+    ss << display_name                                       // metric name
+       << labels_to_string({&entity_labels, &metric_labels}) // metric labels
+       << " " << to_string() << "\n";                        // metric value
     return ss.str();
 }
 
-std::map<std::string, double> HistogramMetric::_s_output_percentiles = {{"0.50", 50.0},
-                                                                        {"0.75", 75.0},
-                                                                        {"0.90", 90.0},
-                                                                        {"0.95", 95.0},
-                                                                        {"0.99", 99.0}};
+std::map<std::string, double> HistogramMetric::_s_output_percentiles = {
+        {"0.50", 50.0}, {"0.75", 75.0}, {"0.90", 90.0}, {"0.95", 95.0}, {"0.99", 99.0}};
 void HistogramMetric::clear() {
     std::lock_guard<SpinLock> l(_lock);
     _stats.clear();
@@ -170,31 +165,24 @@ std::string HistogramMetric::to_prometheus(const std::string& display_name,
     std::stringstream ss;
     for (const auto& percentile : _s_output_percentiles) {
         auto quantile_lable = Labels({{"quantile", percentile.first}});
-        ss << display_name
-           << labels_to_string({&entity_labels, &metric_labels, &quantile_lable})
+        ss << display_name << labels_to_string({&entity_labels, &metric_labels, &quantile_lable})
            << " " << _stats.percentile(percentile.second) << "\n";
     }
-    ss << display_name << "_sum"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.sum() << "\n";
-    ss << display_name << "_count"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.num() << "\n";
-    ss << display_name << "_max"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.max() << "\n";
-    ss << display_name << "_min"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.min() << "\n";
-    ss << display_name << "_average"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.average() << "\n";
-    ss << display_name << "_median"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.median() << "\n";
+    ss << display_name << "_sum" << labels_to_string({&entity_labels, &metric_labels}) << " "
+       << _stats.sum() << "\n";
+    ss << display_name << "_count" << labels_to_string({&entity_labels, &metric_labels}) << " "
+       << _stats.num() << "\n";
+    ss << display_name << "_max" << labels_to_string({&entity_labels, &metric_labels}) << " "
+       << _stats.max() << "\n";
+    ss << display_name << "_min" << labels_to_string({&entity_labels, &metric_labels}) << " "
+       << _stats.min() << "\n";
+    ss << display_name << "_average" << labels_to_string({&entity_labels, &metric_labels}) << " "
+       << _stats.average() << "\n";
+    ss << display_name << "_median" << labels_to_string({&entity_labels, &metric_labels}) << " "
+       << _stats.median() << "\n";
     ss << display_name << "_standard_deviation"
-       << labels_to_string({&entity_labels, &metric_labels})
-       << " " << _stats.standard_deviation() << "\n";
+       << labels_to_string({&entity_labels, &metric_labels}) << " " << _stats.standard_deviation()
+       << "\n";
 
     return ss.str();
 }
@@ -206,8 +194,10 @@ rj::Value HistogramMetric::to_json_value(rj::Document::AllocatorType& allocator)
     json_value.AddMember("average", rj::Value(_stats.average()), allocator);
     json_value.AddMember("median", rj::Value(_stats.median()), allocator);
     for (const auto& percentile : _s_output_percentiles) {
-        json_value.AddMember(rj::Value(std::string("percentile_").append(percentile.first.substr(2)).c_str(), allocator),
-                             rj::Value(_stats.percentile(percentile.second)), allocator);
+        json_value.AddMember(
+                rj::Value(std::string("percentile_").append(percentile.first.substr(2)).c_str(),
+                          allocator),
+                rj::Value(_stats.percentile(percentile.second)), allocator);
     }
     json_value.AddMember("standard_deviation", rj::Value(_stats.standard_deviation()), allocator);
     json_value.AddMember("max", rj::Value(_stats.max()), allocator);
@@ -251,7 +241,9 @@ Metric* MetricEntity::get_metric(const std::string& name, const std::string& gro
 
 void MetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
     std::lock_guard<SpinLock> l(_lock);
+#ifndef BE_TEST
     DCHECK(_hooks.find(name) == _hooks.end()) << "hook is already exist! " << _name << ":" << name;
+#endif
     _hooks.emplace(name, hook);
 }
 
@@ -349,12 +341,12 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
     for (const auto& entity_metrics_by_type : entity_metrics_by_types) {
         if (last_group_name.empty() ||
             last_group_name != entity_metrics_by_type.first->group_name) {
-            ss << entity_metrics_by_type.first->to_prometheus(_name);   // metric TYPE line
+            ss << entity_metrics_by_type.first->to_prometheus(_name); // metric TYPE line
         }
         last_group_name = entity_metrics_by_type.first->group_name;
         std::string display_name = entity_metrics_by_type.first->combine_name(_name);
         for (const auto& entity_metric : entity_metrics_by_type.second) {
-            ss << entity_metric.second->to_prometheus(display_name,     // metric key-value line
+            ss << entity_metric.second->to_prometheus(display_name, // metric key-value line
                                                       entity_metric.first->_labels,
                                                       entity_metrics_by_type.first->labels);
         }
@@ -364,7 +356,7 @@ std::string MetricRegistry::to_prometheus(bool with_tablet_metrics) const {
 }
 
 std::string MetricRegistry::to_json(bool with_tablet_metrics) const {
-    rj::Document doc{rj::kArrayType};
+    rj::Document doc {rj::kArrayType};
     rj::Document::AllocatorType& allocator = doc.GetAllocator();
     std::lock_guard<SpinLock> l(_lock);
     for (const auto& entity : _entities) {

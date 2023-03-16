@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#ifndef DORIS_UTIL_DEBUG_LEAK_ANNOTATIONS_H_
-#define DORIS_UTIL_DEBUG_LEAK_ANNOTATIONS_H_
+
+#pragma once
 
 // Ignore a single leaked object, given its pointer.
 // Does nothing if LeakSanitizer is not enabled.
@@ -80,5 +80,3 @@ public:
 
 } // namespace debug
 } // namespace doris
-
-#endif // DORIS_UTIL_DEBUG_LEAK_ANNOTATIONS_H_

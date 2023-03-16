@@ -19,6 +19,7 @@ package org.apache.doris.external.iceberg;
 
 
 import org.apache.doris.catalog.IcebergProperty;
+
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 

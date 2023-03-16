@@ -123,7 +123,7 @@ PCacheStatus ResultNode::update_sql_cache(const PUpdateCacheRequest* request,
 
 PCacheStatus ResultNode::update_partition_cache(const PUpdateCacheRequest* request,
                                                 bool& is_update_firstkey) {
-    PartitionKey first_key = kint64max;
+    PartitionKey first_key = std::numeric_limits<long>::max();
     if (_partition_list.size() == 0) {
         is_update_firstkey = true;
     } else {

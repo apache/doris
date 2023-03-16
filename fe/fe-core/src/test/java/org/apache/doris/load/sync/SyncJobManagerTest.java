@@ -21,11 +21,12 @@ import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob.JobState;
 import org.apache.doris.load.sync.SyncJob.SyncJobUpdateStateInfo;
@@ -36,7 +37,9 @@ import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -45,10 +48,6 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class SyncJobManagerTest {
     private static final Logger LOG = LogManager.getLogger(SyncJobManagerTest.class);
@@ -60,7 +59,9 @@ public class SyncJobManagerTest {
     @Mocked
     EditLog editLog;
     @Mocked
-    Catalog catalog;
+    Env env;
+    @Mocked
+    InternalCatalog catalog;
     @Mocked
     Database database;
     @Mocked
@@ -70,17 +71,21 @@ public class SyncJobManagerTest {
     public void setUp() throws DdlException {
         new Expectations() {
             {
-                catalog.getEditLog();
+                env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
                 minTimes = 0;
                 result = dbId;
-                Catalog.getCurrentCatalog();
-                result = catalog;
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
             }
         };
     }

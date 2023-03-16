@@ -53,8 +53,9 @@ public class FastByteArrayInputStream extends InputStream {
     }
 
     public final int read(byte[] b, int off, int len) {
-        if (pos >= count)
+        if (pos >= count) {
             return -1;
+        }
 
         if ((pos + len) > count) {
             len = (count - pos);

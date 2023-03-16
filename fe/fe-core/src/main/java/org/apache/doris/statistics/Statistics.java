@@ -17,57 +17,122 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.stats.StatsMathUtil;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
-import com.google.common.collect.Maps;
-
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 
-/**
- * There are the statistics of all of tables.
- * The @Statistics are mainly used to provide input for the Optimizer's cost model.
- *
- * @idToTableStats: <@Long tableId, @TableStats tableStats>
- * Each table will have corresponding @TableStats.
- * Those @TableStats are recorded in @idToTableStats form of MAP.
- * This facilitates the optimizer to quickly find the corresponding
- * @TableStats based on the table id.
- */
 public class Statistics {
 
-    private Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
+    private final double rowCount;
 
-    public void updateTableStats(long tableId, Map<String, String> statsNameToValue)
-            throws AnalysisException {
-        TableStats tableStats = idToTableStats.get(tableId);
-        if (tableStats == null) {
-            tableStats = new TableStats();
-            idToTableStats.put(tableId, tableStats);
-        }
-        tableStats.updateTableStats(statsNameToValue);
+    private final Map<Expression, ColumnStatistic> expressionToColumnStats;
+
+    private double computeSize;
+
+    @Deprecated
+    private double width;
+
+    @Deprecated
+    private double penalty;
+
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.width = another.width;
+        this.penalty = another.penalty;
     }
 
-    public void updateColumnStats(long tableId, String columnName, Type columnType,
-                                  Map<String, String> statsNameToValue)
-            throws AnalysisException {
-        TableStats tableStats = idToTableStats.get(tableId);
-        if (tableStats == null) {
-            tableStats = new TableStats();
-            idToTableStats.put(tableId, tableStats);
-        }
-        tableStats.updateColumnStats(columnName, columnType, statsNameToValue);
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this.rowCount = rowCount;
+        this.expressionToColumnStats = expressionToColumnStats;
     }
 
-    public TableStats getTableStats(long tableId) {
-        return idToTableStats.get(tableId);
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats, double width,
+            double penalty) {
+        this.rowCount = rowCount;
+        this.expressionToColumnStats = expressionToColumnStats;
+        this.width = width;
+        this.penalty = penalty;
     }
 
-    public Map<String, ColumnStats> getColumnStats(long tableId) {
-        TableStats tableStats = getTableStats(tableId);
-        if (tableStats == null) {
-            return null;
+    public ColumnStatistic findColumnStatistics(Expression expression) {
+        return expressionToColumnStats.get(expression);
+    }
+
+    public Map<Expression, ColumnStatistic> columnStatistics() {
+        return expressionToColumnStats;
+    }
+
+    public double getRowCount() {
+        return rowCount;
+    }
+
+    public Statistics withRowCount(double rowCount) {
+        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats), width, penalty);
+        statistics.fix(rowCount / StatsMathUtil.nonZeroDivisor(this.rowCount));
+        return statistics;
+    }
+
+    public void fix(double sel) {
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic columnStatistic = entry.getValue();
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+            columnStatisticBuilder.setNdv(Math.min(Math.ceil(columnStatistic.ndv * sel), rowCount));
+            columnStatisticBuilder.setNumNulls(Math.min(Math.ceil(columnStatistic.numNulls * sel), rowCount));
+            columnStatisticBuilder.setCount(Math.min(Math.ceil(columnStatistic.count * sel), rowCount));
+            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
-        return tableStats.getNameToColumnStats();
+    }
+
+    public Statistics withSel(double sel) {
+        sel = StatsMathUtil.minNonNaN(sel, 1);
+        return withRowCount(rowCount * sel);
+    }
+
+    public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
+        expressionToColumnStats.put(expression, columnStatistic);
+        return this;
+    }
+
+    public Statistics merge(Statistics statistics) {
+        expressionToColumnStats.putAll(statistics.expressionToColumnStats);
+        return this;
+    }
+
+    public double computeSize() {
+        if (computeSize <= 0) {
+            computeSize = Math.max(1, expressionToColumnStats.values().stream()
+                    .map(s -> s.dataSize).reduce(0D, Double::sum)
+            ) * rowCount;
+        }
+        return computeSize;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("rows=%.4f", rowCount);
+    }
+
+    public void setWidth(double width) {
+        this.width = width;
+    }
+
+    public void setPenalty(double penalty) {
+        this.penalty = penalty;
+    }
+
+    public double getWidth() {
+        return width;
+    }
+
+    public double getPenalty() {
+        return penalty;
+    }
+
+    public int getBENumber() {
+        return 1;
     }
 }

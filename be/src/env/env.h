@@ -5,27 +5,33 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
+
 #pragma once
 
+#include <list>
 #include <memory>
 #include <string>
 
 #include "common/status.h"
-#include "util/slice.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/olap_file.pb.h"
+#include "util/slice.h"
 
 namespace doris {
 
 class RandomAccessFile;
 class RandomRWFile;
 class WritableFile;
-class SequentialFile;
 class PosixEnv;
-class RemoteEnv;
+class StorageBackend;
 struct FilePathDesc;
 struct WritableFileOptions;
 struct RandomAccessFileOptions;
 struct RandomRWFileOptions;
+
+namespace io {
+class FileSystem;
+}
 
 class Env {
 public:
@@ -46,16 +52,6 @@ public:
     // system.  Sophisticated users may wish to provide their own Env
     // implementation instead of relying on this default environment.
     static Env* Default();
-    static Env* get_env(TStorageMedium::type storage_medium);
-
-    // Create a brand new sequentially-readable file with the specified name.
-    // On success, stores a pointer to the new file in *result and returns OK.
-    // On failure stores nullptr in *result and returns non-OK.  If the file does
-    // not exist, returns a non-OK status.
-    //
-    // The returned file will only be accessed by one thread at a time.
-    virtual Status new_sequential_file(const std::string& fname,
-                                       std::unique_ptr<SequentialFile>* result) = 0;
 
     // Create a brand new random access read-only file with the
     // specified name.  On success, stores a pointer to the new file in
@@ -176,9 +172,8 @@ public:
     virtual Status link_file(const std::string& /*old_path*/, const std::string& /*new_path*/) = 0;
 
     // get space info for local and remote system
-    virtual Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) = 0;
-
-    virtual bool is_remote_env() = 0;
+    virtual Status get_space_info(const std::string& path, int64_t* capacity,
+                                  int64_t* available) = 0;
 
     // Create directory of dir_path,
     // This function will create directory recursively,
@@ -188,31 +183,34 @@ public:
     //  Status::OK()      if create directory success or directory already exists
     virtual Status create_dirs(const std::string& dirname) = 0;
 
-    static Status init();
-
-    virtual Status init_conf() = 0;
-
 private:
     static std::shared_ptr<PosixEnv> _posix_env;
-    static std::shared_ptr<RemoteEnv> _remote_env;
 };
 
 struct FilePathDesc {
-    FilePathDesc(const std::string& path) {
-        filepath = path;
-    }
+    FilePathDesc(const std::string& path) { filepath = path; }
     FilePathDesc() {}
     TStorageMedium::type storage_medium = TStorageMedium::HDD;
     std::string filepath;
     std::string remote_path;
+    std::string storage_name;
+    io::FileSystem* file_system;
+
     std::string debug_string() const {
         std::stringstream ss;
-        ss << "local_path: " << filepath;
+        ss << "storage_medium: " << to_string(storage_medium) << ", local_path: " << filepath;
         if (!remote_path.empty()) {
-            ss << ", remote_path: " << remote_path;
+            ss << ", storage_name: " << storage_name << ", remote_path: " << remote_path;
         }
         return ss.str();
     }
+    // REMOTE_CACHE is the local cache path for remote path, if a data_dir is REMOTE_CACHE,
+    // it means the tablet in it will be set as a remote path.
+    static bool is_remote(TStorageMedium::type checked_storage_medium) {
+        return checked_storage_medium == TStorageMedium::S3 ||
+               checked_storage_medium == TStorageMedium::REMOTE_CACHE;
+    }
+    bool is_remote() const { return is_remote(storage_medium); }
 };
 
 class FilePathDescStream {
@@ -220,42 +218,43 @@ public:
     FilePathDescStream& operator<<(const FilePathDesc& val) {
         _filepath_stream << val.filepath;
         _storage_medium = val.storage_medium;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        _storage_name = val.storage_name;
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val.remote_path;
         }
         return *this;
     }
     FilePathDescStream& operator<<(const std::string& val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(uint64_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(int64_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(uint32_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
     }
     FilePathDescStream& operator<<(int32_t val) {
         _filepath_stream << val;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val;
         }
         return *this;
@@ -263,15 +262,18 @@ public:
     FilePathDesc path_desc() {
         FilePathDesc path_desc(_filepath_stream.str());
         path_desc.storage_medium = _storage_medium;
-        if (Env::get_env(_storage_medium)->is_remote_env()) {
+        if (FilePathDesc::is_remote(_storage_medium)) {
             path_desc.remote_path = _remote_path_stream.str();
         }
+        path_desc.storage_name = _storage_name;
         return path_desc;
     }
+
 private:
     TStorageMedium::type _storage_medium = TStorageMedium::HDD;
     std::stringstream _filepath_stream;
     std::stringstream _remote_path_stream;
+    std::string _storage_name;
 };
 
 struct RandomAccessFileOptions {
@@ -292,34 +294,6 @@ struct RandomRWFileOptions {
     bool sync_on_close = false;
     // See OpenMode for details.
     Env::OpenMode mode = Env::CREATE_OR_OPEN_WITH_TRUNCATE;
-};
-
-// A file abstraction for reading sequentially through a file
-class SequentialFile {
-public:
-    SequentialFile() {}
-    virtual ~SequentialFile() {}
-
-    // Read up to "result.size" bytes from the file.
-    // Sets "result.data" to the data that was read.
-    //
-    // If an error was encountered, returns a non-OK status
-    // and the contents of "result" are invalid.
-    //
-    // REQUIRES: External synchronization
-    virtual Status read(Slice* result) = 0;
-
-    // Skip "n" bytes from the file. This is guaranteed to be no
-    // slower that reading the same data, but may be faster.
-    //
-    // If end of file is reached, skipping will stop at the end of the
-    // file, and Skip will return OK.
-    //
-    // REQUIRES: External synchronization
-    virtual Status skip(uint64_t n) = 0;
-
-    // Returns the filename provided when the SequentialFile was constructed.
-    virtual const std::string& filename() const = 0;
 };
 
 class RandomAccessFile {
@@ -424,7 +398,7 @@ public:
     RandomRWFile() {}
     virtual ~RandomRWFile() {}
 
-    virtual Status read_at(uint64_t offset, const Slice* result) const = 0;
+    virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
     virtual Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const = 0;
 

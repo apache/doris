@@ -25,7 +25,6 @@
 
 #include "common/configbase.h"
 #include "util/cpu_info.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -50,15 +49,21 @@ TEST(CIDR, normal) {
 
 TEST(CIDR, contains) {
     CIDR cidr;
+    CIDR ip;
     EXPECT_TRUE(cidr.reset("192.168.17.0/16"));
-    EXPECT_TRUE(cidr.contains("192.168.88.99"));
-    EXPECT_FALSE(cidr.contains("192.2.88.99"));
+    ip.reset("192.168.88.99");
+    EXPECT_TRUE(cidr.contains(ip));
+    ip.reset("192.2.88.99");
+    EXPECT_FALSE(cidr.contains(ip));
+    ip.reset("192.168.88.99");
+    EXPECT_TRUE(cidr.contains(ip));
+    ip.reset("192.2.88.99");
+    EXPECT_FALSE(cidr.contains(ip));
+    EXPECT_TRUE(cidr.reset("1234:5678:9abc:def0:1234:5678:9abc:def0/124"));
+    ip.reset("1234:5678:9abc:def0:1234:5678:9abc:def1");
+    EXPECT_TRUE(cidr.contains(ip));
+    ip.reset("1234:5678:9abc:def0:1234:5678:9abc:deef");
+    EXPECT_FALSE(cidr.contains(ip));
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

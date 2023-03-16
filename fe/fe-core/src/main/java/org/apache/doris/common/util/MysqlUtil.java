@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,4 +77,3 @@ public class MysqlUtil {
         }
     }
 }
-

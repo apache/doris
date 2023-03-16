@@ -17,21 +17,20 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,12 +40,12 @@ import java.util.List;
 public class SparkRepositoryTest {
     private SparkRepository repository;
 
-    private final String DPP_LOCAL_MD5SUM = "b3cd0ae3a4121e2426532484442e90ec";
-    private final String SPARK_LOCAL_MD5SUM = "6d2b052ffbdf7082c019bd202432739c";
-    private final String DPP_VERSION = Config.spark_dpp_version;
-    private final String SPARK_LOAD_WORK_DIR = "hdfs://127.0.0.1/99999/user/doris/etl";
-    private final String DPP_NAME = SparkRepository.SPARK_DPP + ".jar";
-    private final String SPARK_NAME = SparkRepository.SPARK_2X + ".zip";
+    private static final String DPP_LOCAL_MD5SUM = "b3cd0ae3a4121e2426532484442e90ec";
+    private static final String SPARK_LOCAL_MD5SUM = "6d2b052ffbdf7082c019bd202432739c";
+    private static final String DPP_VERSION = Config.spark_dpp_version;
+    private static final String SPARK_LOAD_WORK_DIR = "hdfs://127.0.0.1/99999/user/doris/etl";
+    private static final String DPP_NAME = SparkRepository.SPARK_DPP + ".jar";
+    private static final String SPARK_NAME = SparkRepository.SPARK_2X + ".zip";
 
     private String remoteRepoPath;
     private String remoteArchivePath;
@@ -56,7 +55,7 @@ public class SparkRepositoryTest {
     private List<TBrokerFileStatus> files;
 
     @Mocked
-    Catalog catalog;
+    Env env;
     @Mocked
     BrokerUtil brokerUtil;
 
@@ -81,11 +80,15 @@ public class SparkRepositoryTest {
 
         new MockUp<BrokerUtil>() {
             @Mock
-            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
-                    throws UserException { return true; }
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
+                return true;
+            }
+
             @Mock
             void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
-                    throws UserException { fileStatuses.addAll(files); }
+                    throws UserException {
+                fileStatuses.addAll(files);
+            }
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
@@ -132,14 +135,19 @@ public class SparkRepositoryTest {
     public void testArchiveNotExists() {
         new MockUp<BrokerUtil>() {
             @Mock
-            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
-                    throws UserException { return false; }
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
+                return false;
+            }
+
             @Mock
-            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
+
             @Mock
-            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
@@ -189,20 +197,30 @@ public class SparkRepositoryTest {
     public void testLibraryMd5MissMatch() {
         new MockUp<BrokerUtil>() {
             @Mock
-            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
-                    throws UserException { return true; }
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
+                return true;
+            }
+
             @Mock
             void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
-                    throws UserException { fileStatuses.addAll(files); }
+                    throws UserException {
+                fileStatuses.addAll(files);
+            }
+
             @Mock
-            void deletePath(String path, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void deletePath(String path, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
+
             @Mock
-            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
+
             @Mock
-            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
         };
 
         // new md5dum of local library

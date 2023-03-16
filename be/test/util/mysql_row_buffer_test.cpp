@@ -25,7 +25,6 @@
 
 #include "env/env.h"
 #include "gutil/strings/util.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -120,8 +119,3 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

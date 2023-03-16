@@ -20,127 +20,178 @@
 # This script is used to run unit test of Doris Backend
 # Usage: $0 <options>
 #  Optional options:
-#     --clean      clean and build ut
-#     --run        build and run all ut
-#     --run xx     build and run specified ut
+#     --clean            clean and build ut
+#     --run              build and run all ut
+#     --run --filter=xx  build and run specified ut
+#     -j                 build parallel
+#     -h                 print this help message
 #
-# All BE tests must use "_test" as the file suffix, and use
-# ADD_BE_TEST() to declared in the corresponding CMakeLists.txt file.
+# All BE tests must use "_test" as the file suffix, and add the file
+# to be/test/CMakeLists.txt.
 #
 # GTest result xml files will be in "be/ut_build_ASAN/gtest_output/"
 #####################################################################
 
 set -eo pipefail
+set +o posix
 
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-export DORIS_HOME=${ROOT}
+export DORIS_HOME="${ROOT}"
 
-. ${DORIS_HOME}/env.sh
+. "${DORIS_HOME}/env.sh"
 
 # Check args
 usage() {
-  echo "
+    echo "
 Usage: $0 <options>
   Optional options:
-     --clean    clean and build ut
-     --run      build and run all ut
-     --run xx   build and run specified ut
-     -v         build and run all vectorized ut
-     -j         build parallel
+     --benchmark        build benchmark-tool
+     --clean            clean and build ut
+     --run              build and run all ut
+     --run --filter=xx  build and run specified ut
+     -j                 build parallel
+     -h                 print this help message
 
   Eg.
-    $0                          build ut
-    $0 --run                    build and run all ut
-    $0 --run test               build and run "test" ut
-    $0 --clean                  clean and build ut
-    $0 --clean --run            clean, build and run all ut
+    $0                                                              build tests
+    $0 --run                                                        build and run all tests
+    $0 --run --filter=*                                             also runs everything
+    $0 --run --filter=FooTest.*                                     runs everything in test suite FooTest
+    $0 --run --filter=*Null*:*Constructor*                          runs any test whose full name contains either 'Null' or 'Constructor'
+    $0 --run --filter=-*DeathTest.*                                 runs all non-death tests
+    $0 --run --filter=FooTest.*-FooTest.Bar                         runs everything in test suite FooTest except FooTest.Bar
+    $0 --run --filter=FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo   runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo
+    $0 --clean                                                      clean and build tests
+    $0 --clean --run                                                clean, build and run all tests
   "
-  exit 1
+    exit 1
 }
 
-OPTS=$(getopt \
-  -n $0 \
-  -o '' \
-  -l 'run' \
-  -l 'clean' \
-  -o 'j:' \
-  -o 'v' \
-  -- "$@")
-
-if [ $? != 0 ] ; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l benchmark,run,clean,filter: -- "$@")"; then
     usage
 fi
 
-eval set -- "$OPTS"
-
-PARALLEL=$[$(nproc)/5+1]
+eval set -- "${OPTS}"
 
 CLEAN=0
 RUN=0
-VECTORIZED_ONLY=0
-if [ $# != 1 ] ; then
-    while true; do 
+BUILD_BENCHMARK_TOOL='OFF'
+FILTER=""
+if [[ "$#" != 1 ]]; then
+    while true; do
         case "$1" in
-            --clean) CLEAN=1 ; shift ;;
-            --run) RUN=1 ; shift ;;
-            -v) VECTORIZED_ONLY=1 ; shift ;;
-            -j) PARALLEL=$2; shift 2 ;;
-            --) shift ;  break ;;
-            *) echo "Internal error" ; exit 1 ;;
+        --clean)
+            CLEAN=1
+            shift
+            ;;
+        --run)
+            RUN=1
+            shift
+            ;;
+        --benchmark)
+            BUILD_BENCHMARK_TOOL='ON'
+            shift
+            ;;
+        -f | --filter)
+            FILTER="--gtest_filter=$2"
+            shift 2
+            ;;
+        -j)
+            PARALLEL="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            usage
+            ;;
         esac
     done
 fi
 
-CMAKE_BUILD_TYPE=${BUILD_TYPE:-ASAN}
-CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
+if [[ -z "${PARALLEL}" ]]; then
+    PARALLEL="$(($(nproc) / 5 + 1))"
+fi
+
+CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
+CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
 echo "Get params:
-    PARALLEL            -- $PARALLEL
-    CLEAN               -- $CLEAN
+    PARALLEL            -- ${PARALLEL}
+    CLEAN               -- ${CLEAN}
 "
 echo "Build Backend UT"
 
-CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
-if [ ${CLEAN} -eq 1 ]; then
-    rm ${CMAKE_BUILD_DIR} -rf
-    rm ${DORIS_HOME}/be/output/ -rf
+CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+if [[ "${CLEAN}" -eq 1 ]]; then
+    pushd "${DORIS_HOME}/gensrc"
+    make clean
+    popd
+
+    rm -rf "${CMAKE_BUILD_DIR}"
+    rm -rf "${DORIS_HOME}/be/output"
 fi
 
-if [ ! -d ${CMAKE_BUILD_DIR} ]; then
-    mkdir -p ${CMAKE_BUILD_DIR}
+if [[ ! -d "${CMAKE_BUILD_DIR}" ]]; then
+    mkdir -p "${CMAKE_BUILD_DIR}"
 fi
 
-if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
-    GLIBC_COMPATIBILITY=ON
+if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
 fi
 
-# get specified ut file if set
-RUN_FILE=
-if [ $# == 1 ]; then
-    RUN_FILE=$1
-    echo "=== Run test: $RUN_FILE ==="
-else
-    # run all ut
-    echo "=== Running All tests ==="
+if [[ -z "${USE_LIBCPP}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
+fi
+
+if [[ -z "${USE_MEM_TRACKER}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_MEM_TRACKER='ON'
+    else
+        USE_MEM_TRACKER='OFF'
+    fi
+fi
+
+if [[ -z "${USE_DWARF}" ]]; then
+    USE_DWARF='OFF'
 fi
 
 MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
+echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
 
-cd ${CMAKE_BUILD_DIR}
-${CMAKE_CMD} -G "${GENERATOR}" \
+cd "${CMAKE_BUILD_DIR}"
+"${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
+    -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
+    -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
     -DWITH_MYSQL=OFF \
-    ${CMAKE_USE_CCACHE} ../
-${BUILD_SYSTEM} -j ${PARALLEL} $RUN_FILE
+    -DUSE_DWARF="${USE_DWARF}" \
+    -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
+    -DUSE_JEMALLOC=OFF \
+    -DSTRICT_MEMORY_USE=OFF \
+    -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+    ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+    "${DORIS_HOME}/be"
+"${BUILD_SYSTEM}" -j "${PARALLEL}"
 
-if [ ${RUN} -ne 1 ]; then
+if [[ "${RUN}" -ne 1 ]]; then
     echo "Finished"
     exit 0
 fi
@@ -149,55 +200,77 @@ echo "******************************"
 echo "   Running Backend Unit Test  "
 echo "******************************"
 
-cd ${DORIS_HOME}
-export DORIS_TEST_BINARY_DIR=${CMAKE_BUILD_DIR}
-export TERM=xterm
-export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
-export LOG_DIR=${DORIS_HOME}/log
-for i in `sed 's/ //g' $DORIS_HOME/conf/be.conf | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`; do
-    eval "export $i";
-done
+cd "${DORIS_HOME}"
+export DORIS_TEST_BINARY_DIR="${CMAKE_BUILD_DIR}"
+export TERM='xterm'
+export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
+export LOG_DIR="${DORIS_HOME}/log"
+while read -r variable; do
+    eval "export ${variable}"
+done < <(sed 's/ //g' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
 
-mkdir -p $LOG_DIR
-mkdir -p ${UDF_RUNTIME_DIR}
-rm -f ${UDF_RUNTIME_DIR}/*
+mkdir -p "${LOG_DIR}"
+mkdir -p "${UDF_RUNTIME_DIR}"
+rm -f "${UDF_RUNTIME_DIR}"/*
 
 # clean all gcda file
+while read -r gcda_file; do
+    rm "${gcda_file}"
+done < <(find "${DORIS_TEST_BINARY_DIR}" -name "*gcda")
 
-gcda_files=`find ${DORIS_TEST_BINARY_DIR} -name "*gcda"`
-for gcda_file in ${gcda_files[@]}
-do
-    rm $gcda_file
-done
+export DORIS_TEST_BINARY_DIR="${DORIS_TEST_BINARY_DIR}/test"
 
-export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
+jdk_version() {
+    local java_cmd="${1}"
+    local result
+    local IFS=$'\n'
+
+    if [[ -z "${java_cmd}" ]]; then
+        result=no_java
+        return 1
+    else
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
+    fi
+    echo "${result}"
+    return 0
+}
 
 # prepare gtest output dir
-GTEST_OUTPUT_DIR=${CMAKE_BUILD_DIR}/gtest_output
-rm -rf ${GTEST_OUTPUT_DIR} && mkdir ${GTEST_OUTPUT_DIR}
+GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"
+rm -rf "${GTEST_OUTPUT_DIR}"
+mkdir "${GTEST_OUTPUT_DIR}"
 
 # prepare util test_data
-if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
-    rm -rf ${DORIS_TEST_BINARY_DIR}/util/test_data
+mkdir -p "${DORIS_TEST_BINARY_DIR}/util"
+if [[ -d "${DORIS_TEST_BINARY_DIR}/util/test_data" ]]; then
+    rm -rf "${DORIS_TEST_BINARY_DIR}/util/test_data"
 fi
-cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
-cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
+cp -r "${DORIS_HOME}/be/test/util/test_data" "${DORIS_TEST_BINARY_DIR}/util"/
+
+# prepare ut temp dir
+UT_TMP_DIR="${DORIS_HOME}/ut_dir"
+rm -rf "${UT_TMP_DIR}"
+mkdir "${UT_TMP_DIR}"
+touch "${UT_TMP_DIR}/tmp_file"
+
+# set asan and ubsan env to generate core file
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
+export UBSAN_OPTIONS=print_stacktrace=1
 
 # find all executable test files
-
-if [ ${VECTORIZED_ONLY} -eq 1 ]; then
-    echo "Run Vectorized ut only"
-    export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/vec
+test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
+file_name="${test##*/}"
+if [[ -f "${test}" ]]; then
+    "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+    echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
+else
+    echo "unit test file: ${test} does not exist."
 fi
-
-test_files=`find ${DORIS_TEST_BINARY_DIR} -type f -perm -111 -name "*test"`
-
-for test in ${test_files[@]}
-do
-    file_name=${test##*/}
-    if [ -z $RUN_FILE ] || [ $file_name == $RUN_FILE ]; then
-        echo "=== Run $file_name ==="
-        $test --gtest_output=xml:${GTEST_OUTPUT_DIR}/${file_name}.xml
-    fi
-done
-echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"

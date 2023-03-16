@@ -66,7 +66,7 @@ public class JdkUtils {
      * Output: 13, 8
      */
     public static int getJavaVersionAsInteger(String javaVersionStr) {
-        String[] parts = javaVersionStr.split("\\.");
+        String[] parts = javaVersionStr.split("\\.|\\+");
         if (parts[0].equals("1")) {
             return Integer.valueOf(parts[1]);
         } else {

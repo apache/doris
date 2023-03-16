@@ -46,9 +46,7 @@
 
 using std::filesystem::path;
 using doris::DataDir;
-using doris::OLAP_SUCCESS;
 using doris::OlapMeta;
-using doris::OLAPStatus;
 using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
@@ -58,7 +56,6 @@ using doris::RandomAccessFile;
 using strings::Substitute;
 using doris::segment_v2::SegmentFooterPB;
 using doris::segment_v2::ColumnReader;
-using doris::segment_v2::BinaryPlainPageDecoder;
 using doris::segment_v2::PageHandle;
 using doris::segment_v2::PagePointer;
 using doris::segment_v2::ColumnReaderOptions;
@@ -97,8 +94,8 @@ std::string get_usage(const std::string& progname) {
 
 void show_meta() {
     TabletMeta tablet_meta;
-    OLAPStatus s = tablet_meta.create_from_file(FLAGS_pb_meta_path);
-    if (s != OLAP_SUCCESS) {
+    Status s = tablet_meta.create_from_file(FLAGS_pb_meta_path);
+    if (!s.ok()) {
         std::cout << "load pb meta file:" << FLAGS_pb_meta_path << " failed"
                   << ", status:" << s << std::endl;
         return;
@@ -114,9 +111,9 @@ void show_meta() {
 
 void get_meta(DataDir* data_dir) {
     std::string value;
-    OLAPStatus s =
+    Status s =
             TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
-    if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
+    if (s.is<doris::ErrorCode::META_KEY_NOT_FOUND>()) {
         std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << std::endl;
         return;
@@ -126,8 +123,8 @@ void get_meta(DataDir* data_dir) {
 
 void load_meta(DataDir* data_dir) {
     // load json tablet meta into meta
-    OLAPStatus s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
-    if (s != OLAP_SUCCESS) {
+    Status s = TabletMetaManager::load_json_meta(data_dir, FLAGS_json_meta_path);
+    if (!s.ok()) {
         std::cout << "load meta failed, status:" << s << std::endl;
         return;
     }
@@ -135,8 +132,8 @@ void load_meta(DataDir* data_dir) {
 }
 
 void delete_meta(DataDir* data_dir) {
-    OLAPStatus s = TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
-    if (s != OLAP_SUCCESS) {
+    Status s = TabletMetaManager::remove(data_dir, FLAGS_tablet_id, FLAGS_schema_hash);
+    if (!s.ok()) {
         std::cout << "delete tablet meta failed for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << ", status:" << s << std::endl;
         return;
@@ -154,13 +151,13 @@ Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     }
     doris::StorePath path;
     auto res = parse_root_path(root_path, &path);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         std::cout << "parse root path failed:" << root_path << std::endl;
         return Status::InternalError("parse root path failed");
     }
 
     std::unique_ptr<DataDir> p(
-            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium, path.remote_path));
+            new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
     if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
@@ -238,8 +235,8 @@ void batch_delete_meta(const std::string& tablet_file) {
             continue;
         }
 
-        OLAPStatus s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
-        if (s != OLAP_SUCCESS) {
+        Status s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
+        if (!s.ok()) {
             std::cout << "delete tablet meta failed for tablet_id:" << tablet_id
                       << ", schema_hash:" << schema_hash << ", status:" << s << std::endl;
             err_num++;
@@ -261,8 +258,7 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     RETURN_IF_ERROR(input_file->size(&file_size));
 
     if (file_size < 12) {
-        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < 12",
-                                                      file_name, file_size));
+        return Status::Corruption("Bad segment file {}: file size {} < 12", file_name, file_size);
     }
 
     uint8_t fixed_buf[12];
@@ -273,15 +269,14 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     const char* k_segment_magic = "D0R1";
     const uint32_t k_segment_magic_length = 4;
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(
-                strings::Substitute("Bad segment file $0: magic number not match", file_name));
+        return Status::Corruption("Bad segment file {}: magic number not match", file_name);
     }
 
     // read footer PB
     uint32_t footer_length = doris::decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
-        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
-                                                      file_name, file_size, 12 + footer_length));
+        return Status::Corruption("Bad segment file {}: file size {} < {}", file_name, file_size,
+                                  12 + footer_length);
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -292,15 +287,15 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
     uint32_t actual_checksum = doris::crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
-        return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2", file_name,
-                actual_checksum, expect_checksum));
+        return Status::Corruption(
+                "Bad segment file {}: footer checksum not match, actual={} vs expect={}", file_name,
+                actual_checksum, expect_checksum);
     }
 
     // deserialize footer PB
     if (!footer->ParseFromString(footer_buf)) {
-        return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: failed to parse SegmentFooterPB", file_name));
+        return Status::Corruption("Bad segment file {}: failed to parse SegmentFooterPB",
+                                  file_name);
     }
     return Status::OK();
 }

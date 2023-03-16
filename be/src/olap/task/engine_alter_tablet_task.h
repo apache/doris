@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H
+#pragma once
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/olap_define.h"
@@ -28,22 +27,30 @@ namespace doris {
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineAlterTabletTask : public EngineTask {
 public:
-    virtual OLAPStatus execute();
+    Status execute() override;
 
 public:
-    EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request, int64_t signature,
-                          const TTaskType::type task_type, vector<string>* error_msgs,
-                          const string& process_name);
-    ~EngineAlterTabletTask() {}
+    EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
+    ~EngineAlterTabletTask() = default;
 
 private:
     const TAlterTabletReqV2& _alter_tablet_req;
-    int64_t _signature;
-    const TTaskType::type _task_type;
-    vector<string>* _error_msgs;
-    const string& _process_name;
 
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
 
+class EngineAlterInvertedIndexTask : public EngineTask {
+public:
+    virtual Status execute();
+
+public:
+    EngineAlterInvertedIndexTask(const TAlterInvertedIndexReq& alter_inverted_index_request);
+    ~EngineAlterInvertedIndexTask() = default;
+
+private:
+    const TAlterInvertedIndexReq& _alter_inverted_index_req;
+
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+};
+
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_ALTER_TABLET_TASK_H

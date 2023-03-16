@@ -18,17 +18,17 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,29 +37,38 @@ public class ShowTableStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowTableStmt.class);
     private static final String NAME_COL_PREFIX = "Tables_in_";
     private static final String TYPE_COL = "Table_type";
-    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "tables");
+    private static final String STORAGE_FORMAT_COL = "StorageFormat";
+    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+            InfoSchemaDb.DATABASE_NAME, "tables");
     private String db;
+    private String catalog;
     private boolean isVerbose;
     private String pattern;
     private Expr where;
     private SelectStmt selectStmt;
 
-    public ShowTableStmt(String db, boolean isVerbose, String pattern) {
+    public ShowTableStmt(String db, String catalog, boolean isVerbose, String pattern) {
         this.db = db;
         this.isVerbose = isVerbose;
         this.pattern = pattern;
         this.where = null;
+        this.catalog = catalog;
     }
 
-    public ShowTableStmt(String db, boolean isVerbose, String pattern, Expr where) {
+    public ShowTableStmt(String db, String catalog, boolean isVerbose, String pattern, Expr where) {
         this.db = db;
         this.isVerbose = isVerbose;
         this.pattern = pattern;
         this.where = where;
+        this.catalog = catalog;
     }
 
     public String getDb() {
         return db;
+    }
+
+    public String getCatalog() {
+        return catalog;
     }
 
     public boolean isVerbose() {
@@ -79,6 +88,12 @@ public class ShowTableStmt extends ShowStmt {
             }
         } else {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
+        }
+        if (Strings.isNullOrEmpty(catalog)) {
+            catalog = analyzer.getDefaultCatalog();
+            if (Strings.isNullOrEmpty(catalog)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_CATALOG);
+            }
         }
 
         // we do not check db privs here. because user may not have any db privs,
@@ -112,7 +127,7 @@ public class ShowTableStmt extends ShowStmt {
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
 
-        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null);
+        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null, catalog);
 
         return selectStmt;
     }
@@ -126,7 +141,12 @@ public class ShowTableStmt extends ShowStmt {
         }
         sb.append(" TABLES");
         if (!Strings.isNullOrEmpty(db)) {
-            sb.append(" FROM ").append(db);
+            if (!Strings.isNullOrEmpty(catalog)) {
+                sb.append(" FROM ").append(catalog);
+                sb.append(".").append(ClusterNamespace.getNameFromFullName(db));
+            } else {
+                sb.append(" FROM ").append(db);
+            }
         }
         if (pattern != null) {
             sb.append(" LIKE '").append(pattern).append("'");
@@ -146,6 +166,7 @@ public class ShowTableStmt extends ShowStmt {
                 new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ScalarType.createVarchar(20)));
         if (isVerbose) {
             builder.addColumn(new Column(TYPE_COL, ScalarType.createVarchar(20)));
+            builder.addColumn(new Column(STORAGE_FORMAT_COL, ScalarType.createVarchar(20)));
         }
         return builder.build();
     }

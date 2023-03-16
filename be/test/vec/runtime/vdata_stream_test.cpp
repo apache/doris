@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "service/brpc.h"
+#include <gtest/gtest.h>
+
 #include "common/object_pool.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/service.h"
-#include "gtest/gtest.h"
 #include "runtime/exec_env.h"
+#include "service/brpc.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
-#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -45,9 +47,9 @@ public:
         st.to_protobuf(response->mutable_status());
         st = stream_mgr->transmit_block(request, &done);
         if (!st.ok()) {
-            LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
-                << ", fragment_instance_id=" << print_id(request->finst_id())
-                << ", node=" << request->node_id();
+            LOG(WARNING) << "transmit_block failed, message=" << st
+                         << ", fragment_instance_id=" << print_id(request->finst_id())
+                         << ", node=" << request->node_id();
         }
     }
 
@@ -112,7 +114,7 @@ TEST_F(VDataStreamTest, BasicTest) {
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_instance_mem_tracker();
+    runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
     runtime_stat.set_be_number(1);
     runtime_stat._exec_env = _object_pool.add(new ExecEnv);
@@ -128,12 +130,11 @@ TEST_F(VDataStreamTest, BasicTest) {
     TUniqueId uid;
     PlanNodeId nid = 1;
     int num_senders = 1;
-    int buffer_size = 1024 * 1024;
     RuntimeProfile profile("profile");
     bool is_merge = false;
     std::shared_ptr<QueryStatisticsRecvr> statistics = std::make_shared<QueryStatisticsRecvr>();
-    auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, buffer_size,
-                                       &profile, is_merge, statistics);
+    auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, &profile,
+                                       is_merge, statistics);
 
     // Test Sender
     int sender_id = 1;
@@ -156,8 +157,9 @@ TEST_F(VDataStreamTest, BasicTest) {
     }
     int per_channel_buffer_size = 1024 * 1024;
     bool send_query_statistics_with_every_batch = false;
-    VDataStreamSender sender(&_object_pool, sender_id, row_desc, tsink.stream_sink, dests,
-                             per_channel_buffer_size, send_query_statistics_with_every_batch);
+    VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
+                             dests, per_channel_buffer_size,
+                             send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
     sender.init(tsink);
     sender.prepare(&runtime_stat);
@@ -177,16 +179,10 @@ TEST_F(VDataStreamTest, BasicTest) {
     bool eos;
     recv->get_next(&block_2, &eos);
 
-    ASSERT_EQ(block_2.rows(), 1024);
+    EXPECT_EQ(block_2.rows(), 1024);
 
     Status exec_status;
     sender.close(&runtime_stat, exec_status);
     recv->close();
 }
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

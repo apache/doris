@@ -17,7 +17,7 @@
 
 package org.apache.doris.metric;
 
-// palo_fe_job {job="load", type="hadoop", state="total"} 
+// palo_fe_job {job="load", type="hadoop", state="total"}
 public class MetricLabel {
     private String key;
     private String value;

@@ -17,18 +17,15 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.ldap.LdapAuthenticate;
-import org.apache.doris.mysql.MysqlProto;
-import org.apache.doris.mysql.nio.NConnectContext;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,19 +42,23 @@ import java.util.concurrent.atomic.AtomicInteger;
 // TODO(zhaochun): We should consider if the number of local file connection can >= maximum connections later.
 public class ConnectScheduler {
     private static final Logger LOG = LogManager.getLogger(ConnectScheduler.class);
-    private int maxConnections;
-    private AtomicInteger numberConnection;
-    private AtomicInteger nextConnectionId;
-    private Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
-    private Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
-    private ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
+    private final int maxConnections;
+    private final AtomicInteger numberConnection;
+    private final AtomicInteger nextConnectionId;
+    private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
+    private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
+    private final ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
+
+    // valid trace id -> query id
+    private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
     // 2. Use a thread to poll maybe lose some accurate, but is enough to us.
-    private ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-            "Connect-Scheduler-Check-Timer", true);
+    private final ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+            "connect-scheduler-check-timer", true);
 
     public ConnectScheduler(int maxConnections) {
         this.maxConnections = maxConnections;
@@ -83,13 +84,7 @@ public class ConnectScheduler {
         if (context == null) {
             return false;
         }
-
         context.setConnectionId(nextConnectionId.getAndAdd(1));
-        // no necessary for nio.
-        if (context instanceof NConnectContext) {
-            return true;
-        }
-        executor.submit(new LoopHandler(context));
         return true;
     }
 
@@ -102,13 +97,7 @@ public class ConnectScheduler {
         // Check user
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
         AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-        if (ctx.getIsTempUser()) {
-            if (conns.incrementAndGet() > LdapAuthenticate.getMaxConn()) {
-                conns.decrementAndGet();
-                numberConnection.decrementAndGet();
-                return false;
-            }
-        } else if (conns.incrementAndGet() > ctx.getCatalog().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
             return false;
@@ -128,69 +117,44 @@ public class ConnectScheduler {
         }
     }
 
-    public ConnectContext getContext(long connectionId) {
+    public ConnectContext getContext(int connectionId) {
         return connectionMap.get(connectionId);
+    }
+
+    public void cancelQuery(String queryId) {
+        for (ConnectContext ctx : connectionMap.values()) {
+            TUniqueId qid = ctx.queryId();
+            if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
+                ctx.cancelQuery();
+                break;
+            }
+        }
     }
 
     public int getConnectionNum() {
         return numberConnection.get();
     }
 
-    public List<ConnectContext.ThreadInfo> listConnection(String user) {
+    public List<ConnectContext.ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getQualifiedUser().equals(user) &&
-                    !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                            PrivPredicate.GRANT)) {
+            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 continue;
             }
 
-            infos.add(ctx.toThreadInfo());
+            infos.add(ctx.toThreadInfo(isFull));
         }
         return infos;
     }
 
-    private class LoopHandler implements Runnable {
-        ConnectContext context;
+    public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
+        traceId2QueryId.put(traceId, queryId);
+    }
 
-        LoopHandler(ConnectContext context) {
-            this.context = context;
-        }
-
-        @Override
-        public void run() {
-            try {
-                // Set thread local info
-                context.setThreadLocalInfo();
-                context.setConnectScheduler(ConnectScheduler.this);
-                // authenticate check failed.
-                if (!MysqlProto.negotiate(context)) {
-                    return;
-                }
-
-                if (registerConnection(context)) {
-                    MysqlProto.sendResponsePacket(context);
-                } else {
-                    context.getState().setError(ErrorCode.ERR_USER_LIMIT_REACHED, "Reach limit of connections");
-                    MysqlProto.sendResponsePacket(context);
-                    return;
-                }
-
-                context.setStartTime();
-                ConnectProcessor processor = new ConnectProcessor(context);
-                processor.loop();
-            } catch (Exception e) {
-                // for unauthorized access such lvs probe request, may cause exception, just log it in debug level
-                if (context.getCurrentUserIdentity() != null) {
-                    LOG.warn("connect processor exception because ", e);
-                } else {
-                    LOG.debug("connect processor exception because ", e);
-                }
-            } finally {
-                unregisterConnection(context);
-                context.cleanup();
-            }
-        }
+    public String getQueryIdByTraceId(String traceId) {
+        TUniqueId queryId = traceId2QueryId.get(traceId);
+        return queryId == null ? "" : DebugUtil.printId(queryId);
     }
 }

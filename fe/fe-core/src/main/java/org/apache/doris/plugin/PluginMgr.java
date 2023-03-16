@@ -18,7 +18,7 @@
 package org.apache.doris.plugin;
 
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -32,7 +32,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,9 +46,9 @@ import java.util.Objects;
 import java.util.Set;
 
 public class PluginMgr implements Writable {
-    private final static Logger LOG = LogManager.getLogger(PluginMgr.class);
+    private static final Logger LOG = LogManager.getLogger(PluginMgr.class);
 
-    public final static String BUILTIN_PLUGIN_PREFIX = "__builtin_";
+    public static final String BUILTIN_PLUGIN_PREFIX = "__builtin_";
 
     private final Map<String, PluginLoader>[] plugins;
     // all dynamic plugins should have unique names,
@@ -122,17 +121,17 @@ public class PluginMgr implements Writable {
             if (checkDynamicPluginNameExist(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
-            
+
             // install plugin
             pluginLoader.install();
             pluginLoader.setStatus(PluginStatus.INSTALLED);
-            
+
             if (!addDynamicPluginNameIfAbsent(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
             plugins[info.getTypeId()].put(info.getName(), pluginLoader);
-            
-            Catalog.getCurrentCatalog().getEditLog().logInstallPlugin(info);
+
+            Env.getCurrentEnv().getEditLog().logInstallPlugin(info);
             LOG.info("install plugin {}", info.getName());
             return info;
         } catch (IOException | UserException e) {
@@ -281,7 +280,7 @@ public class PluginMgr implements Writable {
                     // plugin may not be loaded successfully
                     LOG.warn("failed to get plugin info for plugin: {}", entry.getKey(), e);
                 }
-                
+
                 r.add(entry.getKey());
                 r.add(pi != null ? pi.getType().name() : "UNKNOWN");
                 r.add(pi != null ? pi.getDescription() : "UNKNOWN");
@@ -296,7 +295,8 @@ public class PluginMgr implements Writable {
                 }
 
                 r.add(loader.getStatus().toString());
-                r.add(pi != null ? "{" + new PrintableMap<>(pi.getProperties(), "=", true, false, true).toString() + "}" : "UNKNOWN");
+                r.add(pi != null ? "{" + new PrintableMap<>(pi.getProperties(),
+                        "=", true, false, true) + "}" : "UNKNOWN");
                 rows.add(r);
             }
         }

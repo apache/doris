@@ -17,9 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -29,6 +28,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
 
 public class ShowFunctionsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
@@ -58,7 +59,9 @@ public class ShowFunctionsStmt extends ShowStmt {
         this.expr = expr;
     }
 
-    public String getDbName() { return dbName; }
+    public String getDbName() {
+        return dbName;
+    }
 
     public boolean getIsBuiltin() {
         return isBuiltin;
@@ -94,9 +97,9 @@ public class ShowFunctionsStmt extends ShowStmt {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
 
         if (expr != null) {

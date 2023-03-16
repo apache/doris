@@ -25,6 +25,7 @@
 #include "vec/common/aggregation_common.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 // #include <Interpreters/AggregationCommon.h>
 
 namespace doris::vectorized {
@@ -133,9 +134,39 @@ public:
     }
 
     template <typename Data>
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
+                                            Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return emplaceImpl(key_holder, hash_value, data);
+    }
+
+    template <typename Data, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(Data& data,
+                                                                                  size_t row,
+                                                                                  Arena& pool,
+                                                                                  Func&& f) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return lazy_emplace_impl(key_holder, data, std::forward<Func>(f));
+    }
+
+    template <typename Data, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t hash_value, size_t row, Arena& pool, Func&& f) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
+    }
+
+    template <typename Data>
     ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return find_key_impl(key_holder_get_key(key_holder), data);
+    }
+
+    template <typename Data>
+    ALWAYS_INLINE FindResult find_key_with_hash(Data& data, size_t hash_value, size_t row,
+                                                Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return find_key_impl(key_holder_get_key(key_holder), hash_value, data);
     }
 
     template <typename Data>
@@ -148,6 +179,26 @@ public:
     ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         data.prefetch(key_holder);
+    }
+
+    template <bool READ, typename Data>
+    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        data.template prefetch<READ>(key_holder);
+    }
+
+    template <bool READ, typename Data>
+    ALWAYS_INLINE void prefetch_by_hash(Data& data, size_t hash_value) {
+        data.template prefetch_by_hash<READ>(hash_value);
+    }
+
+    ALWAYS_INLINE auto get_key_holder(size_t row, Arena& pool) {
+        return static_cast<Derived&>(*this).get_key_holder(row, pool);
+    }
+
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, KeyHolder key_holder) {
+        return emplaceImpl(key_holder, hash_value, data);
     }
 
 protected:
@@ -207,6 +258,66 @@ protected:
             return EmplaceResult(inserted);
     }
 
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplaceImpl(KeyHolder& key_holder, size_t hash_value, Data& data) {
+        if constexpr (Cache::consecutive_keys_optimization) {
+            if (cache.found && cache.check(key_holder_get_key(key_holder))) {
+                if constexpr (has_mapped)
+                    return EmplaceResult(cache.value.second, cache.value.second, false);
+                else
+                    return EmplaceResult(false);
+            }
+        }
+
+        typename Data::LookupResult it;
+        bool inserted = false;
+        data.emplace(key_holder, it, hash_value, inserted);
+
+        [[maybe_unused]] Mapped* cached = nullptr;
+        if constexpr (has_mapped) cached = lookup_result_get_mapped(it);
+
+        if (inserted) {
+            if constexpr (has_mapped) {
+                new (lookup_result_get_mapped(it)) Mapped();
+            }
+        }
+
+        if constexpr (consecutive_keys_optimization) {
+            cache.found = true;
+            cache.empty = false;
+
+            if constexpr (has_mapped) {
+                cache.value.first = *lookup_result_get_key(it);
+                cache.value.second = *lookup_result_get_mapped(it);
+                cached = &cache.value.second;
+            } else {
+                cache.value = *lookup_result_get_key(it);
+            }
+        }
+
+        if constexpr (has_mapped)
+            return EmplaceResult(*lookup_result_get_mapped(it), *cached, inserted);
+        else
+            return EmplaceResult(inserted);
+    }
+
+    template <typename Data, typename KeyHolder, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
+            KeyHolder& key_holder, Data& data, Func&& f) {
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
+    template <typename Data, typename KeyHolder, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
+            KeyHolder& key_holder, size_t hash_value, Data& data, Func&& f) {
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+
+        return *lookup_result_get_mapped(it);
+    }
+
     template <typename Data, typename Key>
     ALWAYS_INLINE FindResult find_key_impl(Key key, Data& data) {
         if constexpr (Cache::consecutive_keys_optimization) {
@@ -219,6 +330,39 @@ protected:
         }
 
         auto it = data.find(key);
+
+        if constexpr (consecutive_keys_optimization) {
+            cache.found = it != nullptr;
+            cache.empty = false;
+
+            if constexpr (has_mapped) {
+                cache.value.first = key;
+                if (it) {
+                    cache.value.second = *lookup_result_get_mapped(it);
+                }
+            } else {
+                cache.value = key;
+            }
+        }
+
+        if constexpr (has_mapped)
+            return FindResult(it ? lookup_result_get_mapped(it) : nullptr, it != nullptr);
+        else
+            return FindResult(it != nullptr);
+    }
+
+    template <typename Data, typename Key>
+    ALWAYS_INLINE FindResult find_key_impl(Key key, size_t hash_value, Data& data) {
+        if constexpr (Cache::consecutive_keys_optimization) {
+            if (cache.check(key)) {
+                if constexpr (has_mapped)
+                    return FindResult(&cache.value.second, cache.found);
+                else
+                    return FindResult(cache.found);
+            }
+        }
+
+        auto it = data.find(key, hash_value);
 
         if constexpr (consecutive_keys_optimization) {
             cache.found = it != nullptr;
@@ -275,7 +419,7 @@ protected:
     /// Return the columns which actually contain the values of the keys.
     /// For a given key column, if it is nullable, we return its nested
     /// column. Otherwise we return the key column itself.
-    inline const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
+    const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
 
     /// Create a bitmap that indicates whether, for a particular row,
     /// a key column bears a null value or not.

@@ -18,6 +18,7 @@
 package org.apache.doris.common.io;
 
 import org.apache.doris.meta.MetaContext;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +52,7 @@ public class DeepCopy {
             out.close();
 
             DataInputStream in = new DataInputStream(byteArrayOutputStream.getInputStream());
-            
+
             Method readMethod = c.getDeclaredMethod(READ_FIELDS_METHOD_NAME, DataInput.class);
             readMethod.invoke(dest, in);
             in.close();

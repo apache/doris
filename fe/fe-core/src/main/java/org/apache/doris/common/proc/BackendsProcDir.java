@@ -18,7 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.alter.DecommissionType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -35,7 +35,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,7 +51,8 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
+            .add("HeartbeatFailureCounter").add("NodeRole")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -78,18 +78,18 @@ public class BackendsProcDir implements ProcDirInterface {
         }
         return result;
     }
-   
+
     /**
      * get backends of cluster
      * @param clusterName
      * @return
-     */ 
+     */
     public static List<List<String>> getClusterBackendInfos(String clusterName) {
-        final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
+        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
         List<Long> backendIds;
         if (!Strings.isNullOrEmpty(clusterName)) {
-            final Cluster cluster = Catalog.getCurrentCatalog().getCluster(clusterName);
+            final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
             // root not in any cluster
             if (null == cluster) {
                 return backendInfos;
@@ -112,14 +112,18 @@ public class BackendsProcDir implements ProcDirInterface {
             }
 
             watch.start();
-            Integer tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            Integer tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
             watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));
             backendInfo.add(backend.getOwnerClusterName());
-            backendInfo.add(backend.getHost());
+            backendInfo.add(backend.getIp());
             if (Strings.isNullOrEmpty(clusterName)) {
-                backendInfo.add(NetUtils.getHostnameByIp(backend.getHost()));
+                if (backend.getHostName() != null) {
+                    backendInfo.add(backend.getHostName());
+                } else {
+                    backendInfo.add(NetUtils.getHostnameByIp(backend.getIp()));
+                }
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));
@@ -164,14 +168,26 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
-            // tag
-            backendInfo.add(backend.getTag().toString());
+
+            // remote used capacity
+            long remoteUsedB = backend.getRemoteUsedCapacityB();
+            Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteUsedB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
+                    + totalRemoteUsedCapacity.second);
+
+            // tags
+            backendInfo.add(backend.getTagMapString());
             // err msg
             backendInfo.add(backend.getHeartbeatErrMsg());
             // version
             backendInfo.add(backend.getVersion());
             // status
             backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
+            // heartbeat failure counter
+            backendInfo.add(backend.getHeartbeatFailureCounter());
+
+            // node role, show the value only when backend is alive.
+            backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
 
             comparableBackendInfos.add(backendInfo);
         }
@@ -191,7 +207,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfos.add(oneInfo);
         }
-        
+
         return backendInfos;
     }
 
@@ -222,5 +238,3 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
 }
-
-

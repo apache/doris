@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.common.util;
 
 import org.apache.doris.blockrule.SqlBlockRule;
@@ -30,9 +29,10 @@ public class SqlBlockUtil {
     public static final String STRING_DEFAULT = "NULL";
     public static final String LONG_DEFAULT = "0";
     public static final Long LONG_ZERO = 0L;
+    public static final Long LONG_MINUS_ONE = -1L;
 
 
-    public static void checkSqlAndSqlHashSetBoth(String sql, String sqlHash) throws AnalysisException{
+    public static void checkSqlAndSqlHashSetBoth(String sql, String sqlHash) throws AnalysisException {
         if (!STRING_DEFAULT.equals(sql) && !STRING_DEFAULT.equals(sqlHash)) {
             throw new AnalysisException("Only sql or sqlHash can be configured");
         }
@@ -40,7 +40,7 @@ public class SqlBlockUtil {
 
     // check (sql or sqlHash) and (limitations: partitioNum, tabletNum, cardinality) are not set both
     public static void checkSqlAndLimitationsSetBoth(String sql, String sqlHash,
-                                                     String partitionNumString, String tabletNumString, String cardinalityString) throws AnalysisException {
+            String partitionNumString, String tabletNumString, String cardinalityString) throws AnalysisException {
         if ((!STRING_DEFAULT.equals(sql) || !STRING_DEFAULT.equals(sqlHash))
                 && !isSqlBlockLimitationsEmpty(partitionNumString, tabletNumString, cardinalityString)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
@@ -50,7 +50,7 @@ public class SqlBlockUtil {
     // 1. check (sql or sqlHash) and (limitations: partitioNum, tabletNum, cardinality) are not set both
     // 2. check any of limitations is set while sql or sqlHash is not set
     public static void checkPropertiesValidate(String sql, String sqlHash,
-                                        String partitionNumString, String tabletNumString, String cardinalityString)  throws AnalysisException {
+            String partitionNumString, String tabletNumString, String cardinalityString)  throws AnalysisException {
         if (((!STRING_DEFAULT.equals(sql) || !STRING_DEFAULT.equals(sqlHash))
                 && !isSqlBlockLimitationsEmpty(partitionNumString, tabletNumString, cardinalityString))
                 || ((STRING_DEFAULT.equals(sql) && STRING_DEFAULT.equals(sqlHash))
@@ -60,8 +60,10 @@ public class SqlBlockUtil {
     }
 
     // check at least one of the (limitations: partitioNum, tabletNum, cardinality) is not empty
-    public static Boolean isSqlBlockLimitationsEmpty(String partitionNumString, String tabletNumString, String cardinalityString) {
-        return StringUtils.isEmpty(partitionNumString) && StringUtils.isEmpty(tabletNumString) && StringUtils.isEmpty(cardinalityString);
+    public static Boolean isSqlBlockLimitationsEmpty(String partitionNumString,
+            String tabletNumString, String cardinalityString) {
+        return StringUtils.isEmpty(partitionNumString)
+                && StringUtils.isEmpty(tabletNumString) && StringUtils.isEmpty(cardinalityString);
     }
 
     public static Boolean isSqlBlockLimitationsDefault(Long partitionNum, Long tabletNum, Long cardinality) {
@@ -73,27 +75,32 @@ public class SqlBlockUtil {
     }
 
     // alter operation not allowed to change other properties that not set
-    public static void checkAlterValidate(SqlBlockRule sqlBlockRule, SqlBlockRule originRule) throws AnalysisException {
+    public static void checkAlterValidate(SqlBlockRule sqlBlockRule) throws AnalysisException {
         if (!STRING_DEFAULT.equals(sqlBlockRule.getSql())) {
-            if (!STRING_DEFAULT.equals(originRule.getSqlHash()) && StringUtils.isNotEmpty(originRule.getSqlHash())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())
+                    && StringUtils.isNotEmpty(sqlBlockRule.getSqlHash())) {
                 throw new AnalysisException("Only sql or sqlHash can be configured");
-            } else if (!isSqlBlockLimitationsDefault(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())
-                    &&!isSqlBlockLimitationsNull(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())) {
+            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
+                    && !isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
         } else if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {
-            if (!STRING_DEFAULT.equals(originRule.getSql()) && StringUtils.isNotEmpty(originRule.getSql())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSql()) && StringUtils.isNotEmpty(sqlBlockRule.getSql())) {
                 throw new AnalysisException("Only sql or sqlHash can be configured");
-            } else if (!isSqlBlockLimitationsDefault(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())
-                    && !isSqlBlockLimitationsNull(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())) {
+            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
+                    && !isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
-        } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
-            if (!STRING_DEFAULT.equals(originRule.getSql()) || !STRING_DEFAULT.equals(originRule.getSqlHash())) {
+        } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(),
+                sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSql()) || !STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
         }
     }
 
 }
-

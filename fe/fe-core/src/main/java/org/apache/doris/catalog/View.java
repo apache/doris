@@ -30,7 +30,6 @@ import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -86,7 +85,7 @@ public class View extends Table {
     private boolean isLocalView;
 
     // Set if this View is from a WITH clause with column labels.
-    private List<String> colLabels_;
+    private List<String> colLabels;
 
     // Used for read from image
     public View() {
@@ -107,7 +106,7 @@ public class View extends Table {
         super(-1, alias, TableType.VIEW, null);
         this.isLocalView = true;
         this.queryStmt = queryStmt;
-        colLabels_ = colLabels;
+        this.colLabels = colLabels;
     }
 
     public boolean isLocalView() {
@@ -179,8 +178,8 @@ public class View extends Table {
         }
         // Make sure the view definition parses to a query statement.
         if (!(node instanceof QueryStmt)) {
-            throw new UserException(String.format("View definition of %s " +
-                    "is not a query statement", name));
+            throw new UserException(String.format("View definition of %s "
+                    + "is not a query statement", name));
         }
         queryStmtRef = new SoftReference<QueryStmt>((QueryStmt) node);
         return (QueryStmt) node;
@@ -189,7 +188,9 @@ public class View extends Table {
     /**
      * Returns the column labels the user specified in the WITH-clause.
      */
-    public List<String> getOriginalColLabels() { return colLabels_; }
+    public List<String> getOriginalColLabels() {
+        return colLabels;
+    }
 
     /**
      * Returns the explicit column labels for this view, or null if they need to be derived
@@ -198,17 +199,19 @@ public class View extends Table {
      */
     public List<String> getColLabels() {
         QueryStmt stmt = getQueryStmt();
-        if (colLabels_ == null) return null;
-        if (colLabels_.size() >= stmt.getColLabels().size()) {
-            return colLabels_;
+        if (colLabels == null) {
+            return null;
         }
-        List<String> explicitColLabels = Lists.newArrayList(colLabels_);
-        explicitColLabels.addAll(stmt.getColLabels().subList(colLabels_.size(), stmt.getColLabels().size()));
+        if (colLabels.size() >= stmt.getColLabels().size()) {
+            return colLabels;
+        }
+        List<String> explicitColLabels = Lists.newArrayList(colLabels);
+        explicitColLabels.addAll(stmt.getColLabels().subList(colLabels.size(), stmt.getColLabels().size()));
         return explicitColLabels;
     }
 
     public boolean hasColLabels() {
-        return colLabels_ != null;
+        return colLabels != null;
     }
 
     // Get the md5 of signature string of this view.
@@ -239,8 +242,8 @@ public class View extends Table {
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog){
-        id = catalog.getNextId();
+    public void resetIdsForRestore(Env env) {
+        id = env.getNextId();
     }
 
     @Override

@@ -26,19 +26,6 @@
 #include "gen_cpp/version.h"
 #include "util/cpu_info.h"
 
-#define PRECISION 2
-#define KILOBYTE (1024)
-#define MEGABYTE (1024 * 1024)
-#define GIGABYTE (1024 * 1024 * 1024)
-
-#define SECOND (1000)
-#define MINUTE (1000 * 60)
-#define HOUR (1000 * 60 * 60)
-
-#define THOUSAND (1000)
-#define MILLION (THOUSAND * 1000)
-#define BILLION (MILLION * 1000)
-
 namespace doris {
 
 std::string print_plan_node_type(const TPlanNodeType::type& type) {
@@ -55,10 +42,32 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 std::string get_build_version(bool compact) {
     std::stringstream ss;
     ss << DORIS_BUILD_VERSION
+#if defined(__x86_64__) || defined(_M_X64)
+#ifdef __AVX2__
+       << "(AVX2)"
+#else
+       << "(SSE4.2)"
+#endif
+#elif defined(__aarch64__)
+       << "(AArch64)"
+#endif
 #ifdef NDEBUG
        << " RELEASE"
 #else
        << " DEBUG"
+#if defined(ADDRESS_SANITIZER)
+       << " with ASAN"
+#elif defined(LEAK_SANITIZER)
+       << " with LSAN"
+#elif defined(THREAD_SANITIZER)
+       << " with TSAN"
+#elif defined(UNDEFINED_BEHAVIOR_SANITIZER)
+       << " with UBSAN"
+#elif defined(MEMORY_SANITIZER)
+       << " with MSAN"
+#elif defined(BLACKLIST_SANITIZER)
+       << " with BLSAN"
+#endif
 #endif
        << " (build " << DORIS_BUILD_HASH << ")";
 

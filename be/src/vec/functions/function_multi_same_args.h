@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "udf/udf.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function_helpers.h"
@@ -52,4 +54,4 @@ public:
         return Status::OK();
     }
 };
-};
+}; // namespace doris::vectorized

@@ -38,7 +38,7 @@ BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_
                   .ok());
 
     REGISTER_HOOK_METRIC(broker_count, [this]() {
-        std::lock_guard<std::mutex> l(_mutex);
+        // std::lock_guard<std::mutex> l(_mutex);
         return _broker_set.size();
     });
 }
@@ -75,8 +75,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
         BrokerServiceConnection client(_exec_env->broker_client_cache(), addr,
                                        config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
-            LOG(WARNING) << "Create broker client failed. broker=" << addr
-                         << ", status=" << status.get_error_msg();
+            LOG(WARNING) << "Create broker client failed. broker=" << addr << ", status=" << status;
             return;
         }
 
@@ -86,7 +85,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Create broker client failed. broker=" << addr
-                             << ", status=" << status.get_error_msg();
+                             << ", status=" << status;
                 return;
             }
             client->ping(response, request);
@@ -108,7 +107,7 @@ void BrokerMgr::ping_worker() {
         for (auto& addr : addresses) {
             ping(addr);
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(5)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(5)));
 }
 
 } // namespace doris

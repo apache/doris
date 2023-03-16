@@ -21,9 +21,8 @@
 #include <string>
 
 #include "common/logging.h"
-#include "env/env.h"
 #include "gutil/strings/substitute.h"
-#include "olap/fs/block_manager.h"
+#include "io/fs/file_writer.h"
 #include "olap/page_cache.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -36,27 +35,19 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min_space_saving,
+Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
     size_t uncompressed_size = Slice::compute_total_size(body);
-    if (codec != nullptr && uncompressed_size > 0) {
-        size_t max_compressed_size = codec->max_compressed_len(uncompressed_size);
-        if (max_compressed_size) {
-            faststring buf;
-            buf.resize(max_compressed_size);
-            Slice compressed_slice(buf);
-            RETURN_IF_ERROR(codec->compress(body, &compressed_slice));
-            buf.resize(compressed_slice.get_size());
-    
-            double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
-            // return compressed body only when it saves more than min_space_saving
-            if (space_saving > 0 && space_saving >= min_space_saving) {
-                // shrink the buf to fit the len size to avoid taking
-                // up the memory of the size MAX_COMPRESSED_SIZE
-                buf.shrink_to_fit();
-                *compressed_body = buf.build();
-                return Status::OK();
-            }
+    if (codec != nullptr && !codec->exceed_max_compress_len(uncompressed_size)) {
+        faststring buf;
+        RETURN_IF_ERROR(codec->compress(body, uncompressed_size, &buf));
+        double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
+        // return compressed body only when it saves more than min_space_saving
+        if (space_saving > 0 && space_saving >= min_space_saving) {
+            // shrink the buf to fit the len size to avoid taking
+            // up the memory of the size MAX_COMPRESSED_SIZE
+            *compressed_body = buf.build();
+            return Status::OK();
         }
     }
     // otherwise, do not compress
@@ -65,7 +56,7 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min
     return Status::OK();
 }
 
-Status PageIO::write_page(fs::WritableBlock* wblock, const std::vector<Slice>& body,
+Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body,
                           const PageFooterPB& footer, PagePointer* result) {
     // sanity check of page footer
     CHECK(footer.has_type()) << "type must be set";
@@ -101,11 +92,11 @@ Status PageIO::write_page(fs::WritableBlock* wblock, const std::vector<Slice>& b
     encode_fixed32_le(checksum_buf, checksum);
     page.emplace_back(checksum_buf, sizeof(uint32_t));
 
-    uint64_t offset = wblock->bytes_appended();
-    RETURN_IF_ERROR(wblock->appendv(&page[0], page.size()));
+    uint64_t offset = writer->bytes_appended();
+    RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
 
     result->offset = offset;
-    result->size = wblock->bytes_appended() - offset;
+    result->size = writer->bytes_appended() - offset;
     return Status::OK();
 }
 
@@ -116,8 +107,10 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath, opts.page_pointer.offset);
-    if (opts.use_page_cache && cache->is_cache_available(opts.type) && cache->lookup(cache_key, &cache_handle, opts.type)) {
+    StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
+                                         opts.page_pointer.offset);
+    if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
+        cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         opts.stats->cached_pages_num++;
@@ -135,7 +128,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     // every page contains 4 bytes footer length and 4 bytes checksum
     const uint32_t page_size = opts.page_pointer.size;
     if (page_size < 8) {
-        return Status::Corruption(strings::Substitute("Bad page: too small size ($0)", page_size));
+        return Status::Corruption("Bad page: too small size ({})", page_size);
     }
 
     // hold compressed page at first, reset to decompressed page later
@@ -143,7 +136,10 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     Slice page_slice(page.get(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
-        RETURN_IF_ERROR(opts.rblock->read(opts.page_pointer.offset, page_slice));
+        size_t bytes_read = 0;
+        RETURN_IF_ERROR(opts.file_reader->read_at(opts.page_pointer.offset, page_slice, opts.io_ctx,
+                                                  &bytes_read));
+        DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
     }
 
@@ -151,8 +147,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
-            return Status::Corruption(strings::Substitute(
-                    "Bad page: checksum mismatch (actual=$0 vs expect=$1)", actual, expect));
+            return Status::Corruption("Bad page: checksum mismatch (actual={} vs expect={})",
+                                      actual, expect);
         }
     }
 
@@ -178,9 +174,9 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         Slice decompressed_body(decompressed_page.get(), footer->uncompressed_size());
         RETURN_IF_ERROR(opts.codec->decompress(compressed_body, &decompressed_body));
         if (decompressed_body.size != footer->uncompressed_size()) {
-            return Status::Corruption(strings::Substitute(
-                    "Bad page: record uncompressed size=$0 vs real decompressed size=$1",
-                    footer->uncompressed_size(), decompressed_body.size));
+            return Status::Corruption(
+                    "Bad page: record uncompressed size={} vs real decompressed size={}",
+                    footer->uncompressed_size(), decompressed_body.size);
         }
         // append footer and footer size
         memcpy(decompressed_body.data + decompressed_body.size, page_slice.data + body_size,
@@ -191,6 +187,15 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         opts.stats->uncompressed_bytes_read += page_slice.size;
     } else {
         opts.stats->uncompressed_bytes_read += body_size;
+    }
+
+    if (opts.pre_decode && opts.encoding_info) {
+        auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
+        if (pre_decoder) {
+            RETURN_IF_ERROR(pre_decoder->decode(
+                    &page, &page_slice,
+                    footer->data_page_footer().nullmap_size() + footer_size + 4));
+        }
     }
 
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);

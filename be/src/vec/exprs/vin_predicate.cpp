@@ -19,8 +19,8 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "exprs/create_predicate_function.h"
-
 #include "vec/columns/column_set.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -30,41 +30,33 @@
 namespace doris::vectorized {
 
 VInPredicate::VInPredicate(const TExprNode& node)
-        : VExpr(node),
-          _is_not_in(node.in_predicate.is_not_in),
-          _is_prepare(false) {}
+        : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
-    if (_is_prepare) {
-        return Status::OK();
-    }
     if (_children.size() < 1) {
         return Status::InternalError("no Function operator in.");
     }
 
     _expr_name =
             fmt::format("({} {} set)", _children[0]->expr_name(), _is_not_in ? "not_in" : "in");
-    _is_prepare = true;
 
-    DCHECK(_children.size() > 1);
+    DCHECK(_children.size() >= 1);
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        auto column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
+        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
     }
 
-    // contruct the proper function_name
+    // construct the proper function_name
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,
                                                                argument_template, _data_type);
     if (_function == nullptr) {
-        return Status::NotSupported(
-                fmt::format("Function {} is not implemented", real_function_name));
+        return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
 
     VExpr::register_function_context(state, context);
@@ -89,7 +81,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
-        _children[i]->execute(context, block, &column_id);
+        RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
     }
     // call function
@@ -104,6 +96,19 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
 
 const std::string& VInPredicate::expr_name() const {
     return _expr_name;
+}
+
+std::string VInPredicate::debug_string() const {
+    std::stringstream out;
+    out << "InPredicate(" << children()[0]->debug_string() << " " << _is_not_in << ",[";
+    int num_children = children().size();
+
+    for (int i = 1; i < num_children; ++i) {
+        out << (i == 1 ? "" : " ") << children()[i]->debug_string();
+    }
+
+    out << "])";
+    return out.str();
 }
 
 } // namespace doris::vectorized

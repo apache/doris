@@ -20,25 +20,117 @@
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/common/string_ref.h"
 namespace doris::vectorized {
 
 VMysqlScanNode::VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : MysqlScanNode(pool, tnode, descs) {}
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _table_name(tnode.mysql_scan_node.table_name),
+          _tuple_id(tnode.mysql_scan_node.tuple_id),
+          _columns(tnode.mysql_scan_node.columns),
+          _filters(tnode.mysql_scan_node.filters),
+          _tuple_desc(nullptr),
+          _slot_num(0) {}
 
-VMysqlScanNode::~VMysqlScanNode() {}
+Status VMysqlScanNode::prepare(RuntimeState* state) {
+    VLOG_CRITICAL << "VMysqlScanNode::Prepare";
+
+    if (_is_init) {
+        return Status::OK();
+    }
+
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    RETURN_IF_ERROR(ScanNode::prepare(state));
+    // get tuple desc
+    _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+
+    if (nullptr == _tuple_desc) {
+        return Status::InternalError("Failed to get tuple descriptor.");
+    }
+
+    _slot_num = _tuple_desc->slots().size();
+    // get mysql info
+    const MySQLTableDescriptor* mysql_table =
+            static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
+
+    if (nullptr == mysql_table) {
+        return Status::InternalError("mysql table pointer is nullptr.");
+    }
+
+    _my_param.host = mysql_table->host();
+    _my_param.port = mysql_table->port();
+    _my_param.user = mysql_table->user();
+    _my_param.passwd = mysql_table->passwd();
+    _my_param.db = mysql_table->mysql_db();
+    _my_param.charset = mysql_table->charset();
+    // new one scanner
+    _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
+
+    if (_mysql_scanner.get() == nullptr) {
+        return Status::InternalError("new a mysql scanner failed.");
+    }
+
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+
+    if (_text_converter.get() == nullptr) {
+        return Status::InternalError("new a text convertor failed.");
+    }
+
+    _is_init = true;
+
+    return Status::OK();
+}
+
+Status VMysqlScanNode::open(RuntimeState* state) {
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    VLOG_CRITICAL << "MysqlScanNode::Open";
+
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
+
+    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(_mysql_scanner->open());
+    RETURN_IF_ERROR(_mysql_scanner->query(_table_name, _columns, _filters, _limit));
+
+    // check materialize slot num
+    int materialize_num = 0;
+
+    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
+        if (_tuple_desc->slots()[i]->is_materialized()) {
+            materialize_num++;
+        }
+    }
+
+    if (_mysql_scanner->field_num() != materialize_num) {
+        return Status::InternalError("input and output not equal.");
+    }
+
+    return Status::OK();
+}
 
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    if (state == nullptr || block == nullptr || eos == nullptr) {
+        return Status::InternalError("input is nullptr");
+    }
+    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VMysqlScanNode::get_next");
     VLOG_CRITICAL << "VMysqlScanNode::GetNext";
-    if (state == NULL || block == NULL || eos == NULL)
-        return Status::InternalError("input is NULL pointer");
-    if (!_is_init) return Status::InternalError("used before initialize.");
-    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
+
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     DCHECK(block->rows() == 0);
@@ -46,6 +138,7 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     bool mysql_eos = false;
 
     do {
+        columns.resize(_slot_num);
         for (int i = 0; i < _slot_num; ++i) {
             if (mem_reuse) {
                 columns[i] = std::move(*block->get_by_position(i).column).mutate();
@@ -60,8 +153,8 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                 break;
             }
 
-            char** data = NULL;
-            unsigned long* length = NULL;
+            char** data = nullptr;
+            unsigned long* length = nullptr;
             RETURN_IF_ERROR(_mysql_scanner->get_next_row(&data, &length, &mysql_eos));
 
             if (mysql_eos) {
@@ -81,10 +174,9 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
                                 reinterpret_cast<vectorized::ColumnNullable*>(columns[i].get());
                         nullable_column->insert_data(nullptr, 0);
                     } else {
-                        std::stringstream ss;
-                        ss << "nonnull column contains NULL. table=" << _table_name
-                           << ", column=" << slot_desc->col_name();
-                        return Status::InternalError(ss.str());
+                        return Status::InternalError(
+                                "nonnull column contains NULL. table={}, column={}", _table_name,
+                                slot_desc->col_name());
                     }
                 } else {
                     RETURN_IF_ERROR(
@@ -119,6 +211,30 @@ Status VMysqlScanNode::write_text_column(char* value, int value_length, SlotDesc
            << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
+    return Status::OK();
+}
+
+Status VMysqlScanNode::close(RuntimeState* state) {
+    if (is_closed()) {
+        return Status::OK();
+    }
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+
+    return ExecNode::close(state);
+}
+
+void VMysqlScanNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << "VMysqlScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
+    *out << ")" << std::endl;
+
+    for (int i = 0; i < _children.size(); ++i) {
+        _children[i]->debug_string(indentation_level + 1, out);
+    }
+}
+
+Status VMysqlScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 } // namespace doris::vectorized

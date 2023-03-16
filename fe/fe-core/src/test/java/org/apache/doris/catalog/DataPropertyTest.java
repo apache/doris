@@ -19,22 +19,24 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TStorageMedium;
+
 import org.junit.Assert;
 import org.junit.Test;
 
 public class DataPropertyTest {
 
     @Test
-    public void tesCooldownTimeMs() throws Exception {
+    public void testCooldownTimeMs() throws Exception {
         Config.default_storage_medium = "ssd";
-        DataProperty dataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
+        DataProperty dataProperty = new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM);
         Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
 
         dataProperty = new DataProperty(TStorageMedium.SSD);
         Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
 
-        dataProperty = new DataProperty(TStorageMedium.SSD, System.currentTimeMillis() + 24 * 3600 * 1000L);
-        Assert.assertEquals(System.currentTimeMillis() + 24 * 3600 * 1000L, dataProperty.getCooldownTimeMs());
+        long storageCooldownTimeMs = System.currentTimeMillis() + 24 * 3600 * 1000L;
+        dataProperty = new DataProperty(TStorageMedium.SSD, storageCooldownTimeMs, "");
+        Assert.assertEquals(storageCooldownTimeMs, dataProperty.getCooldownTimeMs());
 
         dataProperty = new DataProperty(TStorageMedium.HDD);
         Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());

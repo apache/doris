@@ -17,22 +17,15 @@
 
 package org.apache.doris.deploy.impl;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.deploy.DeployManager;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.List;
-import java.util.Map;
-
 import io.fabric8.kubernetes.api.model.EndpointAddress;
 import io.fabric8.kubernetes.api.model.EndpointPort;
 import io.fabric8.kubernetes.api.model.EndpointSubset;
@@ -41,18 +34,27 @@ import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.DefaultKubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
 
 public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
-    
+
     public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
-    // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Palo, such as Frontends, Backends, ...
+    public static final String ENV_DOMAIN_LTD = "DOMAIN_LTD";
+    public static final String DEFAULT_APP_NAMESPACE = "default";
+    public static final String DEFAULT_DOMAIN_LTD = "svc.cluster.local";
+    // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Doris, such as Frontends, Backends, ...
     // and each service has a name in k8s.
     public static final String ENV_FE_SERVICE = "FE_SERVICE";
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
-    
+    public static final String ENV_CN_SERVICE = "CN_SERVICE";
+
     // we arbitrarily set all broker name as what ENV_BROKER_NAME specified.
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
@@ -63,42 +65,50 @@ public class K8sDeployManager extends DeployManager {
     // corresponding to the environment variable ENV_APP_NAMESPACE.
     // App represents a Palo cluster in K8s, and has a namespace, and default namespace is 'default'
     private String appNamespace;
+    private String domainLTD;
     private KubernetesClient client = null;
 
     // =======for test only==========
     public static final String K8S_CA_CERT_FILE = "cce-ca.pem";
     public static final String K8S_CLIENT_CERT_FILE = "cce-admin.pem";
     public static final String K8S_CLIENT_KEY_FILE = "cce-admin-key.pem";
-    
+
     public static final String TEST_MASTER_URL = "https://127.0.0.1:1111/";
     public static final String TEST_NAMESPACE = "default";
     public static final String TEST_SERVICENAME = "palo-fe";
     // =======for test only==========
 
-    public K8sDeployManager(Catalog catalog, long intervalMs) {
-        super(catalog, intervalMs);
-        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
+    public K8sDeployManager(Env env, long intervalMs) {
+        super(env, intervalMs);
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE, ENV_CN_SERVICE);
     }
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         // namespace
         appNamespace = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
 
         if (Strings.isNullOrEmpty(appNamespace)) {
-            LOG.error("failed to init namespace: " + ENV_APP_NAMESPACE);
-            System.exit(-1);
+            appNamespace = DEFAULT_APP_NAMESPACE;
         }
 
-        LOG.info("get namespace: {}", appNamespace);
+        LOG.info("use namespace: {}", appNamespace);
+
+        domainLTD = Strings.nullToEmpty(System.getenv(ENV_DOMAIN_LTD));
+
+        if (Strings.isNullOrEmpty(domainLTD)) {
+            domainLTD = DEFAULT_DOMAIN_LTD;
+        }
+
+        LOG.info("use domainLTD: {}", domainLTD);
     }
 
     @Override
-    protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
+    protected List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
         // 1. get namespace and port name
         String portName = null;
         if (groupName.equals(electableFeServiceGroup)) {
@@ -109,6 +119,8 @@ public class K8sDeployManager extends DeployManager {
             portName = BE_PORT;
         } else if (groupName.equals(brokerServiceGroup)) {
             portName = BROKER_PORT;
+        } else if (groupName.equals(cnServiceGroup)) {
+            portName = BE_PORT;
         } else {
             LOG.warn("unknown service group name: {}", groupName);
             return null;
@@ -122,7 +134,7 @@ public class K8sDeployManager extends DeployManager {
             endpoints = endpoints(appNamespace, groupName);
         } catch (Exception e) {
             LOG.warn("encounter exception when get endpoint from namespace {}, service: {}",
-                     appNamespace, groupName, e);
+                    appNamespace, groupName, e);
             return null;
         }
         if (endpoints == null) {
@@ -132,7 +144,7 @@ public class K8sDeployManager extends DeployManager {
         }
 
         // 3. get host port
-        List<Pair<String, Integer>> result = Lists.newArrayList();
+        List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         List<EndpointSubset> subsets = endpoints.getSubsets();
         for (EndpointSubset subset : subsets) {
             Integer port = -1;
@@ -150,7 +162,8 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(Pair.create(eaddr.getIp(), port));
+                result.add(new SystemInfoService.HostInfo(eaddr.getIp(), getDomainName(eaddr.getHostname(), groupName),
+                        port));
             }
         }
 
@@ -158,9 +171,21 @@ public class K8sDeployManager extends DeployManager {
         return result;
     }
 
+    private String getDomainName(String hostName, String serviceName) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(hostName);
+        builder.append(".");
+        builder.append(serviceName);
+        builder.append(".");
+        builder.append(appNamespace);
+        builder.append(".");
+        builder.append(domainLTD);
+        return builder.toString();
+    }
+
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
+        List<SystemInfoService.HostInfo> hostPorts = getGroupHostInfos(brokerServiceGroup);
         if (hostPorts == null) {
             return null;
         }
@@ -170,7 +195,7 @@ public class K8sDeployManager extends DeployManager {
             System.exit(-1);
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from k8s: {}", brokers);
         return brokers;
@@ -184,7 +209,7 @@ public class K8sDeployManager extends DeployManager {
         if (client != null) {
             return client;
         }
-        
+
         try {
             if (Config.with_k8s_certs) {
                 // for test only

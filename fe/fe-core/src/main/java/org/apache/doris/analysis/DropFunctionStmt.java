@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -26,19 +26,30 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 public class DropFunctionStmt extends DdlStmt {
+    private final boolean ifExists;
     private final FunctionName functionName;
     private final FunctionArgsDef argsDef;
 
     // set after analyzed
     private FunctionSearchDesc function;
 
-    public DropFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef) {
+    public DropFunctionStmt(boolean ifExists, FunctionName functionName, FunctionArgsDef argsDef) {
+        this.ifExists = ifExists;
         this.functionName = functionName;
         this.argsDef = argsDef;
     }
 
-    public FunctionName getFunctionName() { return functionName; }
-    public FunctionSearchDesc getFunction() { return function; }
+    public boolean isIfExists() {
+        return ifExists;
+    }
+
+    public FunctionName getFunctionName() {
+        return functionName;
+    }
+
+    public FunctionSearchDesc getFunction() {
+        return function;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -48,7 +59,7 @@ public class DropFunctionStmt extends DdlStmt {
         functionName.analyze(analyzer);
 
         // check operation privilege
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
@@ -64,7 +75,7 @@ public class DropFunctionStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
-    @Override 
+    @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }

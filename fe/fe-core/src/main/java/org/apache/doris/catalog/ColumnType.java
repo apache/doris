@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+
+import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -94,6 +94,12 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
@@ -109,10 +115,49 @@ public abstract class ColumnType {
 
         schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.DECIMAL32.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.DECIMAL64.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.DECIMAL128.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.DECIMAL32.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL32.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL32.ordinal()][PrimitiveType.DECIMALV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL32.ordinal()][PrimitiveType.DECIMAL64.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL32.ordinal()][PrimitiveType.DECIMAL128.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.DECIMAL64.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL64.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL64.ordinal()][PrimitiveType.DECIMAL32.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL64.ordinal()][PrimitiveType.DECIMALV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL64.ordinal()][PrimitiveType.DECIMAL128.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.DECIMAL128.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL128.ordinal()][PrimitiveType.STRING.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL128.ordinal()][PrimitiveType.DECIMAL32.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL128.ordinal()][PrimitiveType.DECIMAL64.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMAL128.ordinal()][PrimitiveType.DECIMALV2.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATE.ordinal()] = true;
-
         schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
+
+        schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+
+        // we should support schema change between different precision
+        schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+
+        // Currently, we do not support schema change between complex types with subtypes.
+        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.STRUCT.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.MAP.ordinal()] = false;
     }
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
@@ -134,6 +179,7 @@ public abstract class ColumnType {
             ArrayType arrayType = (ArrayType) type;
             Text.writeString(out, arrayType.getPrimitiveType().name());
             write(out, arrayType.getItemType());
+            out.writeBoolean(arrayType.getContainsNull());
         }
     }
 
@@ -141,17 +187,15 @@ public abstract class ColumnType {
         PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
         if (primitiveType == PrimitiveType.ARRAY) {
             Type itermType = read(in);
-            return ArrayType.create(itermType);
+            boolean containsNull = in.readBoolean();
+            return ArrayType.create(itermType, containsNull);
         } else {
             int scale = in.readInt();
             int precision = in.readInt();
             int len = in.readInt();
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                // Useless, just for back compatible
-                in.readBoolean();
-            }
+            // Useless, just for back compatible
+            in.readBoolean();
             return ScalarType.createType(primitiveType, len, precision, scale);
         }
     }
 }
-

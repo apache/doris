@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/OrderByElement.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -34,18 +37,18 @@ public class OrderByElement {
     // Represents the NULLs ordering specified: true when "NULLS FIRST", false when
     // "NULLS LAST", and null if not specified.
     private final Boolean nullsFirstParam;
-    
+
     public OrderByElement(Expr expr, boolean isAsc, Boolean nullsFirstParam) {
         super();
         this.expr = expr;
         this.isAsc = isAsc;
         this.nullsFirstParam = nullsFirstParam;
     }
-    
+
     public void setExpr(Expr e) {
         this.expr = e;
     }
-    
+
     public Expr getExpr() {
         return expr;
     }
@@ -53,15 +56,17 @@ public class OrderByElement {
     public boolean getIsAsc() {
         return isAsc;
     }
-    
+
     public Boolean getNullsFirstParam() {
         return nullsFirstParam;
     }
+
     public OrderByElement clone() {
         OrderByElement clone = new OrderByElement(
                 expr.clone(), isAsc, nullsFirstParam);
         return clone;
     }
+
     /**
      * Returns a new list of OrderByElements with the same (cloned) expressions but the
      * ordering direction reversed (asc becomes desc, nulls first becomes nulls last, etc.)
@@ -72,20 +77,21 @@ public class OrderByElement {
         for (int i = 0; i < src.size(); ++i) {
             OrderByElement element = src.get(i);
             OrderByElement reverseElement =
-                new OrderByElement(element.getExpr().clone(), !element.isAsc,
-                       Boolean.valueOf(!nullsFirst(element.nullsFirstParam, element.isAsc)));
+                    new OrderByElement(element.getExpr().clone(), !element.isAsc,
+                            !nullsFirst(element.nullsFirstParam, element.isAsc));
             result.add(reverseElement);
         }
 
         return result;
     }
+
     /**
      * Extracts the order-by exprs from the list of order-by elements and returns them.
      */
     public static List<Expr> getOrderByExprs(List<OrderByElement> src) {
         List<Expr> result = Lists.newArrayListWithCapacity(src.size());
 
-        for (OrderByElement element: src) {
+        for (OrderByElement element : src) {
             result.add(element.getExpr());
         }
 
@@ -101,13 +107,14 @@ public class OrderByElement {
             ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
         ArrayList<OrderByElement> result = Lists.newArrayListWithCapacity(src.size());
 
-        for (OrderByElement element: src) {
+        for (OrderByElement element : src) {
             result.add(new OrderByElement(element.getExpr().substitute(smap, analyzer, false),
                     element.isAsc, element.nullsFirstParam));
         }
 
         return result;
     }
+
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(expr.toSql());
@@ -130,6 +137,22 @@ public class OrderByElement {
         return strBuilder.toString();
     }
 
+    public String toDigest() {
+        StringBuilder strBuilder = new StringBuilder();
+        strBuilder.append(expr.toDigest());
+        strBuilder.append(isAsc ? " ASC" : " DESC");
+        if (nullsFirstParam != null) {
+            if (isAsc && nullsFirstParam) {
+                // If ascending, nulls are last by default, so only add if nulls first.
+                strBuilder.append(" NULLS FIRST");
+            } else if (!isAsc && !nullsFirstParam) {
+                // If descending, nulls are first by default, so only add if nulls last.
+                strBuilder.append(" NULLS LAST");
+            }
+        }
+        return strBuilder.toString();
+    }
+
     @Override
     public String toString() {
         return toSql();
@@ -145,9 +168,10 @@ public class OrderByElement {
             return false;
         }
 
-        OrderByElement o = (OrderByElement)obj;
+        OrderByElement o = (OrderByElement) obj;
         return expr.equals(o.expr) && isAsc == o.isAsc  && nullsFirstParam == o.nullsFirstParam;
     }
+
     /**
      * Compute nullsFirst.
      *

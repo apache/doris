@@ -23,6 +23,7 @@ option java_package = "org.apache.doris.proto";
 
 import "olap_common.proto";
 import "types.proto";
+import "segment_v2.proto";
 
 message ZoneMap {
     required bytes min = 1;
@@ -31,14 +32,18 @@ message ZoneMap {
 }
 
 enum RowsetTypePB {
-    ALPHA_ROWSET = 0; // doris原有的列存格式
-    BETA_ROWSET  = 1; // 新列存
+    ALPHA_ROWSET = 0; // doris original column storage format
+    BETA_ROWSET  = 1; // new column storage format
 }
 
 enum RowsetStatePB {
-    PREPARED = 0; // 表示正在写入Rowset
-    COMMITTED = 1; // 表示rowset 写入完成，但是用户还不可见；这个状态下的rowset，BE不能自行判断是否删除，必须由FE的指令
-    VISIBLE = 2; // 表示rowset 已经对用户可见
+    // Rowset is being written
+    PREPARED = 0;
+    // Rowset writting is completed, but the user is not yet visible
+    // For rowset in this state, BE cannot determine whether to delete it by itself, it must be instructed by FE
+    COMMITTED = 1;
+    // Rowset is already visible to the user
+    VISIBLE = 2;
 }
 
 // indicate whether date between segments of a rowset is overlappinng
@@ -46,6 +51,11 @@ enum SegmentsOverlapPB {
     OVERLAP_UNKNOWN = 0;    // this enum is added since Doris v0.11, so previous rowset's segment is unknown
     OVERLAPPING = 1;
     NONOVERLAPPING = 2;
+}
+
+message KeyBoundsPB {
+    required bytes min_key = 1;
+    required bytes max_key = 2;
 }
 
 message RowsetMetaPB {
@@ -88,25 +98,33 @@ message RowsetMetaPB {
     optional int64 num_segments = 22;
     // rowset id definition, it will replace required rowset id 
     optional string rowset_id_v2 = 23;
-    // spare field id for future use
-    optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
+    // resource id
+    optional string resource_id = 24;
+    // used to be oldest write time: earliest write time
+    reserved 25;
+    // latest write time
+    optional int64 newest_write_timestamp = 26 [default = -1];
+    // the encoded segment min/max key of segments in this rowset,
+    // only used in unique key data model with primary_key_index support.
+    repeated KeyBoundsPB segments_key_bounds = 27;
+    // tablet meta pb, for compaction
+    optional TabletSchemaPB tablet_schema = 28;
+    // alpha_rowset_extra_meta_pb is deleted
+    reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
-message AlphaRowsetExtraMetaPB {
-    repeated SegmentGroupPB segment_groups = 1;
+// kv value for reclaiming remote rowset
+message RemoteRowsetGcPB {
+    required string resource_id = 1;
+    required int64 tablet_id = 2;
+    required int64 num_segments = 3;
 }
 
-message SegmentGroupPB {
-    required int32 segment_group_id = 1;
-    required int32 num_segments = 2;
-    required int64 index_size = 3;
-    required int64 data_size = 4;
-    required int64 num_rows = 5;
-    repeated ZoneMap zone_maps = 6;
-    optional bool empty = 7;
-    optional PUniqueId load_id = 8;
+// kv value for reclaiming all remote rowsets of tablet
+message RemoteTabletGcPB {
+    repeated string resource_ids = 1;
 }
 
 enum DataFileType {
@@ -121,7 +139,7 @@ enum KeysType {
 }
 
 message DeletePredicatePB {
-    required int32 version = 1;
+    required int32 version = 1; // This field is useless, but could not removed, not depend on it
     repeated string sub_predicates = 2;
     repeated InPredicatePB in_predicates = 3;
 }
@@ -142,6 +160,7 @@ enum AlterTabletState {
 enum AlterTabletType {
     SCHEMA_CHANGE = 1;
     ROLLUP = 2;
+    MIGRATION = 3;
 }
 
 message AlterTabletPB {
@@ -164,12 +183,27 @@ message ColumnPB {
     optional int32 length = 10; // ColumnMessage.length
     optional int32 index_length = 11; // ColumnMessage.index_length
     optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
-    optional int32 referenced_column_id = 13; //   
-    optional string referenced_column = 14; // ColumnMessage.referenced_column?
+    optional int32 referenced_column_id = 13; // deprecated
+    optional string referenced_column = 14; // deprecated
     optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
+}
+
+enum IndexType {
+    BITMAP = 0;
+    INVERTED = 1;
+    BLOOMFILTER = 2;
+    NGRAM_BF = 3;
+}
+
+message TabletIndexPB {
+    optional int64 index_id = 1;
+    optional string index_name = 2;
+    optional IndexType index_type = 3;
+    repeated int32 col_unique_id = 4;
+    map<string, string> properties = 5;
 }
 
 enum SortType {
@@ -190,6 +224,13 @@ message TabletSchemaPB {
     optional int32 sequence_col_idx = 10 [default= -1];
     optional SortType sort_type = 11;
     optional int32 sort_col_num = 12;
+    optional segment_v2.CompressionTypePB compression_type = 13 [default=LZ4F];
+    optional int32 schema_version = 14;
+    optional bool disable_auto_compaction = 15 [default=false];
+    repeated TabletIndexPB index = 16;
+    optional bool store_row_column = 17 [default=false]; // store tuplerow oriented column
+    optional bool is_dynamic_schema = 18 [default=false];
+    optional int32 version_col_idx = 19 [default = -1];
 }
 
 enum TabletStatePB {
@@ -209,6 +250,18 @@ enum StorageMediumPB {
     HDD = 0;
     SSD = 1;
     S3 = 2;
+    REMOTE_CACHE = 99;
+}
+
+message S3StorageParamPB {
+    optional string s3_endpoint = 1;
+    optional string s3_region = 2;
+    optional string s3_ak = 3;
+    optional string s3_sk = 4;
+    optional int32 s3_max_conn = 5 [default = 50];
+    optional int32 s3_request_timeout_ms = 6 [default = 3000];
+    optional int32 s3_conn_timeout_ms = 7 [default = 1000];
+    optional string root_path = 8;
 }
 
 message TabletMetaPB {
@@ -235,24 +288,28 @@ message TabletMetaPB {
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
-    optional StorageMediumPB storage_medium = 19 [default = HDD];
-}
-
-message OLAPIndexHeaderMessage {
-    required int32 start_version = 1;
-    required int32 end_version = 2;
-    required int64 cumulative_version_hash = 3;
-
-    required uint32 segment = 4;
-    required uint32 num_rows_per_block = 5;
-    optional bool null_supported = 6;
-    optional bool delete_flag = 7;
-}
-
-message OLAPDataHeaderMessage {
-    required uint32 segment = 2;
+    // optional StorageMediumPB storage_medium = 19 [default = HDD];
+    // optional string remote_storage_name = 20;
+    optional int64 replica_id = 21 [default = 0];
+    // 22 used to be string storage_policy = 22;
+    reserved 22;
+    optional DeleteBitmapPB delete_bitmap = 23;
+    // Use primary key index to speed up tabel unique key model
+    optional bool enable_unique_key_merge_on_write = 24 [default = false];
+    optional int64 storage_policy_id = 25;
+    optional PUniqueId cooldown_meta_id = 26;
+    optional int64 local_data_size = 27;
+    optional int64 remote_data_size = 28;
 }
 
 message OLAPRawDeltaHeaderMessage {
     required int32 schema_hash = 2;
+}
+
+message DeleteBitmapPB {
+    repeated string rowset_ids = 1;
+    repeated uint32 segment_ids = 2;
+    repeated int64 versions = 3;
+    // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
+    repeated bytes segment_delete_bitmaps = 4;
 }

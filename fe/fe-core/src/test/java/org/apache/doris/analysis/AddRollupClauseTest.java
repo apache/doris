@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -70,7 +69,7 @@ public class AddRollupClauseTest {
 
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws AnalysisException {
-        AddRollupClause clause = new AddRollupClause("testRollup", 
+        AddRollupClause clause = new AddRollupClause("testRollup",
                                         Lists.newArrayList("col1", "col1"), null, null, null);
         clause.analyze(analyzer);
         Assert.fail("No exception throws.");

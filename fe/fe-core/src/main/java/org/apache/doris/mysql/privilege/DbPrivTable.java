@@ -17,15 +17,12 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * DbPrivTable saves all database level privs
@@ -34,20 +31,23 @@ public class DbPrivTable extends PrivTable {
     private static final Logger LOG = LogManager.getLogger(DbPrivTable.class);
 
     /*
-     * Return first priv which match the user@host on db.* The returned priv will be
+     * Return first priv which match the user@host on ctl.db.* The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String db, PrivBitSet savedPrivs) {
+    public void getPrivs(String ctl, String db, PrivBitSet savedPrivs) {
         DbPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
 
-            if (!dbPrivEntry.match(currentUser, true)) {
+            // check catalog
+            if (!dbPrivEntry.isAnyCtl() && !dbPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
             }
 
             // check db
-            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db)) {
+            // dbPrivEntry.getDbPattern() is always constructed by string as of form: 'default_cluster:xxx_db'
+            if (!dbPrivEntry.isAnyDb() && !dbPrivEntry.getDbPattern().match(db) && !dbPrivEntry.getDbPattern()
+                    .match(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db))) {
                 continue;
             }
 
@@ -61,29 +61,20 @@ public class DbPrivTable extends PrivTable {
         savedPrivs.or(matchedEntry.getPrivSet());
     }
 
-    /*
-     * Check if user@host has specified privilege on any database
-     */
-    public boolean hasPriv(String host, String user, PrivPredicate wanted) {
+    public boolean hasPrivsOfCatalog(String ctl) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
-            // check host
-            if (!dbPrivEntry.isAnyHost() && !dbPrivEntry.getHostPattern().match(host)) {
-                continue;
-            }
-            // check user
-            if (!dbPrivEntry.isAnyUser() && !dbPrivEntry.getUserPattern().match(user)) {
-                continue;
-            }
-            // check priv
-            if (dbPrivEntry.privSet.satisfy(wanted)) {
+
+            // check catalog
+            Preconditions.checkState(!dbPrivEntry.isAnyCtl());
+            if (dbPrivEntry.getCtlPattern().match(ctl)) {
                 return true;
             }
         }
         return false;
     }
 
-    public boolean hasClusterPriv(ConnectContext ctx, String clusterName) {
+    public boolean hasClusterPriv(String clusterName) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
             if (dbPrivEntry.getOrigDb().startsWith(clusterName)) {
@@ -91,16 +82,5 @@ public class DbPrivTable extends PrivTable {
             }
         }
         return false;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = DbPrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 }

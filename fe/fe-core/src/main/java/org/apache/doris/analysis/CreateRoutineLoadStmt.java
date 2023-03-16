@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -37,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -98,7 +97,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
     public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
-    public static final String FORMAT = "format";// the value is csv or json, default is csv
+    public static final String FORMAT = "format"; // the value is csv or json, default is csv
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
@@ -113,10 +112,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
     public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
     public static final String KAFKA_ORIGIN_DEFAULT_OFFSETS = "kafka_origin_default_offsets";
-    
+
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+    public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
@@ -134,6 +134,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
+            .add(LOAD_TO_SINGLE_TABLET)
             .build();
 
     private final LabelName labelName;
@@ -157,6 +158,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int sendBatchParallelism = 1;
+    private boolean loadToSingleTablet = false;
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -170,6 +172,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
+    private String comment = "";
+
     private LoadTask.MergeType mergeType;
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
@@ -182,7 +186,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
-                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType) {
+                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
+                                 String comment) {
         this.labelName = labelName;
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
@@ -190,6 +195,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = new RoutineLoadDataSourceProperties(this.typeName, dataSourceProperties, false);
         this.mergeType = mergeType;
+        if (comment != null) {
+            this.comment = comment;
+        }
     }
 
     public String getName() {
@@ -238,6 +246,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+    }
+
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
     }
 
     public boolean isStrictMode() {
@@ -296,6 +308,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return this.dataSourceProperties.isOffsetsForTimes();
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -324,7 +340,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
@@ -332,7 +348,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
         }
         if (mergeType != LoadTask.MergeType.APPEND
-                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign()) ) {
+                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign())) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
     }
@@ -411,18 +427,19 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
 
-        desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
+        desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(
+                jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
                 Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
                 DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
-        
+
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
                 MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
-        
+
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
                 MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
-        
+
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
                 MAX_BATCH_ROWS_PROPERTY + " should > 200000");
@@ -436,10 +453,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
                 RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
-        
+
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
                 ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
                 SEND_BATCH_PARALLELISM + " should > 0")).intValue();
+        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
+                RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
+                LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
@@ -452,8 +472,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 format = ""; // if it's not json, then it's mean csv and set empty
             } else if (format.equalsIgnoreCase("json")) {
                 format = "json";
-                jsonPaths = jobProperties.get(JSONPATHS);
-                jsonRoot = jobProperties.get(JSONROOT);
+                jsonPaths = jobProperties.getOrDefault(JSONPATHS, "");
+                jsonRoot = jobProperties.getOrDefault(JSONROOT, "");
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
                 numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
                 fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));

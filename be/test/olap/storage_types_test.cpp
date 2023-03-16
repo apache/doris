@@ -20,7 +20,6 @@
 #include "olap/field.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -33,38 +32,34 @@ public:
 
 template <FieldType field_type>
 void common_test(typename TypeTraits<field_type>::CppType src_val) {
-    TypeInfo* type = get_scalar_type_info(field_type);
+    const auto* type = get_scalar_type_info<field_type>();
 
-    ASSERT_EQ(field_type, type->type());
-    ASSERT_EQ(sizeof(src_val), type->size());
+    EXPECT_EQ(field_type, type->type());
+    EXPECT_EQ(sizeof(src_val), type->size());
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
-        ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
+        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
         typename TypeTraits<field_type>::CppType dst_val;
         type->direct_copy((char*)&dst_val, (char*)&src_val);
-        ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
+        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     // test min
     {
         typename TypeTraits<field_type>::CppType dst_val;
         type->set_to_min((char*)&dst_val);
 
-        ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
+        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
     }
     // test max
     {
         typename TypeTraits<field_type>::CppType dst_val;
         type->set_to_max((char*)&dst_val);
         // NOTE: bool input is true, this will return 0
-        ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) <= 0);
+        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) <= 0);
     }
 }
 
@@ -72,25 +67,22 @@ template <FieldType fieldType>
 void test_char(Slice src_val) {
     Field* field = FieldFactory::create_by_type(fieldType);
     field->_length = src_val.size;
-    const TypeInfo* type = field->type_info();
+    const auto* type = field->type_info();
 
-    ASSERT_EQ(field->type(), fieldType);
-    ASSERT_EQ(sizeof(src_val), type->size());
+    EXPECT_EQ(field->type(), fieldType);
+    EXPECT_EQ(sizeof(src_val), type->size());
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
-        ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
+        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
         type->direct_copy((char*)&dst_val, (char*)&src_val);
-        ASSERT_TRUE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
+        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     // test min
     {
@@ -98,8 +90,7 @@ void test_char(Slice src_val) {
         Slice dst_val(buf, sizeof(buf));
         field->set_to_min((char*)&dst_val);
 
-        ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
+        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
     }
     // test max
     {
@@ -107,8 +98,7 @@ void test_char(Slice src_val) {
         Slice dst_val(buf, sizeof(buf));
         field->set_to_max((char*)&dst_val);
 
-        ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) < 0);
+        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) < 0);
     }
     delete field;
 }
@@ -126,7 +116,7 @@ void common_test<OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
 TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_BOOL>(true);
     common_test<OLAP_FIELD_TYPE_TINYINT>(112);
-    common_test<OLAP_FIELD_TYPE_SMALLINT>(54321);
+    common_test<OLAP_FIELD_TYPE_SMALLINT>(static_cast<short>(54321));
     common_test<OLAP_FIELD_TYPE_INT>(-123454321);
     common_test<OLAP_FIELD_TYPE_UNSIGNED_INT>(1234543212L);
     common_test<OLAP_FIELD_TYPE_BIGINT>(123454321123456789L);
@@ -139,6 +129,8 @@ TEST(TypesTest, copy_and_equal) {
 
     common_test<OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);
     common_test<OLAP_FIELD_TYPE_DATETIME>(19880201010203L);
+
+    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 9) | (2 << 5) | 1);
 
     Slice slice("12345abcde");
     common_test<OLAP_FIELD_TYPE_CHAR>(slice);
@@ -155,25 +147,22 @@ void common_test_array(CollectionValue src_val) {
     TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
     list_column.add_sub_column(item_column);
 
-    auto* array_type = dynamic_cast<ArrayTypeInfo*>(get_type_info(&list_column));
-
-    ASSERT_EQ(item_type, array_type->item_type_info()->type());
+    auto array_type = get_type_info(&list_column);
+    ASSERT_EQ(item_type,
+              dynamic_cast<const ArrayTypeInfo*>(array_type.get())->item_type_info()->type());
 
     { // test deep copy
         CollectionValue dst_val;
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
+        MemPool pool;
         array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
-        ASSERT_TRUE(array_type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
+        EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }
     { // test direct copy
         bool null_signs[50];
         uint8_t data[50];
         CollectionValue dst_val(data, sizeof(null_signs), null_signs);
         array_type->direct_copy((char*)&dst_val, (char*)&src_val);
-        ASSERT_TRUE(array_type->equal((char*)&src_val, (char*)&dst_val));
-        ASSERT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
+        EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }
 }
 
@@ -213,6 +202,10 @@ TEST(ArrayTypeTest, copy_and_equal) {
                               (2008 << 9) | (2 << 5) | 1};
     common_test_array<OLAP_FIELD_TYPE_DATE>(CollectionValue(date_array, 3, null_signs));
 
+    uint32_t date_v2_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
+                                 (2008 << 9) | (2 << 5) | 1};
+    common_test_array<OLAP_FIELD_TYPE_DATEV2>(CollectionValue(date_v2_array, 3, null_signs));
+
     int64_t datetime_array[3] = {19880201010203L, 19980201010203L, 20080204010203L};
     common_test_array<OLAP_FIELD_TYPE_DATETIME>(CollectionValue(datetime_array, 3, null_signs));
 
@@ -222,8 +215,3 @@ TEST(ArrayTypeTest, copy_and_equal) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

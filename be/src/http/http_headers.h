@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_HEADERS_H
-#define DORIS_BE_SRC_COMMON_UTIL_HTTP_HEADERS_H
+#pragma once
 
 #include <string>
 
@@ -102,5 +101,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

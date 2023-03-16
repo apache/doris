@@ -17,7 +17,7 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -26,7 +26,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.Maps;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,7 +33,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -47,22 +45,22 @@ public class ClusterAction extends RestBaseController {
 
     // Returns mysql and http connection information for the cluster.
     // {
-    //		"mysql":[
-    //			""
-    //		],
-    //		"http":[
-    //			""
-    //		]
-    //	}
+    //   "mysql":[
+    //     ""
+    //   ],
+    //   "http":[
+    //     ""
+    //   ]
+    // }
     @RequestMapping(path = "/cluster_info/conn_info", method = RequestMethod.GET)
     public Object clusterInfo(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         Map<String, List<String>> result = Maps.newHashMap();
-        List<String> frontends = Catalog.getCurrentCatalog().getFrontends(null)
+        List<String> frontends = Env.getCurrentEnv().getFrontends(null)
                 .stream().filter(Frontend::isAlive)
-                .map(Frontend::getHost)
+                .map(Frontend::getIp)
                 .collect(Collectors.toList());
 
         result.put("mysql", frontends.stream().map(ip -> ip + ":" + Config.query_port).collect(Collectors.toList()));

@@ -24,8 +24,6 @@
 #include <cstdio>
 #include <string>
 
-#include "util/logging.h"
-
 namespace doris {
 
 std::string space[] = {"", "   ", "\t\t\t", "\n\n\n", "\v\v\v", "\f\f\f", "\r\r\r"};
@@ -443,7 +441,6 @@ TEST(StringToFloat, Basic) {
     std::string double_max = boost::lexical_cast<std::string>(std::numeric_limits<double>::max());
     test_float_value<double>(double_min, StringParser::PARSE_SUCCESS);
     test_float_value<double>(double_max, StringParser::PARSE_SUCCESS);
-
     // Non-finite values
     test_all_float_variants("INFinity", StringParser::PARSE_SUCCESS);
     test_all_float_variants("infinity", StringParser::PARSE_SUCCESS);
@@ -453,8 +450,8 @@ TEST(StringToFloat, Basic) {
     test_float_value_is_nan<double>("nan", StringParser::PARSE_SUCCESS);
     test_float_value_is_nan<float>("NaN", StringParser::PARSE_SUCCESS);
     test_float_value_is_nan<double>("NaN", StringParser::PARSE_SUCCESS);
-    test_float_value_is_nan<float>("nana", StringParser::PARSE_SUCCESS);
-    test_float_value_is_nan<double>("nana", StringParser::PARSE_SUCCESS);
+    test_float_value_is_nan<float>("nana", StringParser::PARSE_FAILURE);
+    test_float_value_is_nan<double>("nana", StringParser::PARSE_FAILURE);
     test_float_value_is_nan<float>("naN", StringParser::PARSE_SUCCESS);
     test_float_value_is_nan<double>("naN", StringParser::PARSE_SUCCESS);
 
@@ -535,14 +532,3 @@ TEST(StringToFloat, BruteForce) {
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

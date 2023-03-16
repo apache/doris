@@ -17,12 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,6 +36,7 @@ import java.util.Comparator;
 public class Replica implements Writable {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
+    public static final IdComparator<Replica> ID_COMPARATOR = new IdComparator<Replica>();
 
     public enum ReplicaState {
         NORMAL,
@@ -46,17 +46,19 @@ public class Replica implements Writable {
         SCHEMA_CHANGE,
         CLONE,
         ALTER, // replica is under rollup or schema change
-        DECOMMISSION; // replica is ready to be deleted
+        DECOMMISSION, // replica is ready to be deleted
+        COMPACTION_TOO_SLOW; // replica version count is too large
+
 
         public boolean canLoad() {
-            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER;
+            return this == NORMAL || this == SCHEMA_CHANGE || this == ALTER || this == COMPACTION_TOO_SLOW;
         }
 
         public boolean canQuery() {
             return this == NORMAL || this == SCHEMA_CHANGE;
         }
     }
-    
+
     public enum ReplicaStatus {
         OK, // health
         DEAD, // backend is not available
@@ -65,7 +67,7 @@ public class Replica implements Writable {
         SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
         BAD // replica is broken.
     }
-    
+
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "backendId")
@@ -73,11 +75,14 @@ public class Replica implements Writable {
     // the version could be queried
     @SerializedName(value = "version")
     private volatile long version;
+    @Deprecated
     @SerializedName(value = "versionHash")
-    private long versionHash;
+    private long versionHash = 0L;
     private int schemaHash = -1;
     @SerializedName(value = "dataSize")
     private volatile long dataSize = 0;
+    @SerializedName(value = "remoteDataSize")
+    private volatile long remoteDataSize = 0;
     @SerializedName(value = "rowCount")
     private volatile long rowCount = 0;
     @SerializedName(value = "state")
@@ -86,6 +91,7 @@ public class Replica implements Writable {
     // the last load failed version
     @SerializedName(value = "lastFailedVersion")
     private long lastFailedVersion = -1L;
+    @Deprecated
     @SerializedName(value = "lastFailedVersionHash")
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
@@ -93,15 +99,19 @@ public class Replica implements Writable {
     // the last load successful version
     @SerializedName(value = "lastSuccessVersion")
     private long lastSuccessVersion = -1L;
+    @Deprecated
     @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
-	private volatile long versionCount = -1;
+    private volatile long versionCount = -1;
 
     private long pathHash = -1;
 
     // bad means this Replica is unrecoverable, and we will delete it
     private boolean bad = false;
+
+    private TUniqueId cooldownMetaId;
+    private long cooldownTerm = -1;
 
     /*
      * If set to true, with means this replica need to be repaired. explicitly.
@@ -110,7 +120,7 @@ public class Replica implements Writable {
      * So this replica need a further repair.
      * If we do not do this, this replica will be treated as version stale, and will be removed,
      * so that the balance task is failed, which is unexpected.
-     * 
+     *
      * furtherRepairSetTime set alone with needFurtherRepair.
      * This is an insurance, in case that further repair task always fail. If 20 min passed
      * since we set needFurtherRepair to true, the 'needFurtherRepair' will be set to false.
@@ -125,54 +135,47 @@ public class Replica implements Writable {
 
     public Replica() {
     }
-    
+
     // for rollup
     // the new replica's version is -1 and last failed version is -1
     public Replica(long replicaId, long backendId, int schemaHash, ReplicaState state) {
-        this(replicaId, backendId, -1, 0, schemaHash, 0L, 0L, state, -1, 0, -1, 0);
-    }
-    
-    // for create tablet and restore
-    public Replica(long replicaId, long backendId, ReplicaState state, long version, long versionHash, int schemaHash) {
-        this(replicaId, backendId, version, versionHash, schemaHash, 0L, 0L, state, -1L, 0L, version, versionHash);
+        this(replicaId, backendId, -1, schemaHash, 0L, 0L, 0L, state, -1, -1);
     }
 
-    public Replica(long replicaId, long backendId, long version, long versionHash, int schemaHash,
-                       long dataSize, long rowCount, ReplicaState state, 
-                       long lastFailedVersion, long lastFailedVersionHash,
-                       long lastSuccessVersion, long lastSuccessVersionHash) {
+    // for create tablet and restore
+    public Replica(long replicaId, long backendId, ReplicaState state, long version, int schemaHash) {
+        this(replicaId, backendId, version, schemaHash, 0L, 0L, 0L, state, -1L, version);
+    }
+
+    public Replica(long replicaId, long backendId, long version, int schemaHash,
+                       long dataSize, long remoteDataSize, long rowCount, ReplicaState state,
+                       long lastFailedVersion,
+                       long lastSuccessVersion) {
         this.id = replicaId;
         this.backendId = backendId;
         this.version = version;
-        this.versionHash = versionHash;
         this.schemaHash = schemaHash;
 
         this.dataSize = dataSize;
+        this.remoteDataSize = remoteDataSize;
         this.rowCount = rowCount;
         this.state = state;
         if (this.state == null) {
             this.state = ReplicaState.NORMAL;
         }
         this.lastFailedVersion = lastFailedVersion;
-        this.lastFailedVersionHash = lastFailedVersionHash;
         if (this.lastFailedVersion > 0) {
             this.lastFailedTimestamp = System.currentTimeMillis();
         }
         if (lastSuccessVersion < this.version) {
             this.lastSuccessVersion = this.version;
-            this.lastSuccessVersionHash = this.versionHash;
         } else {
             this.lastSuccessVersion = lastSuccessVersion;
-            this.lastSuccessVersionHash = lastSuccessVersionHash;
         }
     }
-    
+
     public long getVersion() {
         return this.version;
-    }
-    
-    public long getVersionHash() {
-        return this.versionHash;
     }
 
     public int getSchemaHash() {
@@ -191,9 +194,13 @@ public class Replica implements Writable {
     public long getBackendId() {
         return this.backendId;
     }
-    
+
     public long getDataSize() {
         return dataSize;
+    }
+
+    public long getRemoteDataSize() {
+        return remoteDataSize;
     }
 
     public long getRowCount() {
@@ -203,21 +210,13 @@ public class Replica implements Writable {
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
-    
-    public long getLastFailedVersionHash() {
-        return lastFailedVersionHash;
-    }
-    
+
     public long getLastFailedTimestamp() {
         return lastFailedTimestamp;
     }
-    
+
     public long getLastSuccessVersion() {
         return lastSuccessVersion;
-    }
-    
-    public long getLastSuccessVersionHash() {
-        return lastSuccessVersionHash;
     }
 
     public long getPathHash() {
@@ -240,6 +239,22 @@ public class Replica implements Writable {
         return true;
     }
 
+    public TUniqueId getCooldownMetaId() {
+        return cooldownMetaId;
+    }
+
+    public void setCooldownMetaId(TUniqueId cooldownMetaId) {
+        this.cooldownMetaId = cooldownMetaId;
+    }
+
+    public long getCooldownTerm() {
+        return cooldownTerm;
+    }
+
+    public void setCooldownTerm(long cooldownTerm) {
+        this.cooldownTerm = cooldownTerm;
+    }
+
     public boolean needFurtherRepair() {
         if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
             return true;
@@ -252,82 +267,70 @@ public class Replica implements Writable {
         this.furtherRepairSetTime = System.currentTimeMillis();
     }
 
-    // only update data size and row num
+    // for compatibility
     public synchronized void updateStat(long dataSize, long rowNum) {
         this.dataSize = dataSize;
         this.rowCount = rowNum;
     }
 
-    public synchronized void updateVersionInfo(long newVersion, long newVersionHash, long newDataSize, long newRowCount) {
-        updateReplicaInfo(newVersion, newVersionHash, this.lastFailedVersion, this.lastFailedVersionHash, 
-                this.lastSuccessVersion, this.lastSuccessVersionHash, newDataSize, newRowCount);
+    public synchronized void updateStat(long dataSize, long remoteDataSize, long rowNum, long versionCount) {
+        this.dataSize = dataSize;
+        this.remoteDataSize = remoteDataSize;
+        this.rowCount = rowNum;
+        this.versionCount = versionCount;
     }
-    
-    public synchronized void updateVersionInfo(long newVersion, long newVersionHash, 
-            long lastFailedVersion, long lastFailedVersionHash, 
-            long lastSuccessVersion, long lastSuccessVersionHash) {
-        updateReplicaInfo(newVersion, newVersionHash, lastFailedVersion, lastFailedVersionHash, 
-                lastSuccessVersion, lastSuccessVersionHash, dataSize, rowCount);
+
+    public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,
+                                               long newRowCount) {
+        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRemoteDataSize,
+                newRowCount);
     }
-    
-    public void updateVersionInfoForRecovery(
-            long newVersion, long newVersionHash,
-            long lastFailedVersion, long lastFailedVersionHash,
-            long lastSuccessVersion, long lastSuccessVersionHash) {
 
-        LOG.warn("update replica {} on backend {}'s version for recovery. version: {}-{}:{}-{}."
-                + " last failed version: {}-{}:{}-{}, last success version: {}-{}:{}-{}",
-                this.id, this.backendId, this.version, this.versionHash, newVersion, newVersionHash,
-                this.lastFailedVersion, this.lastFailedVersionHash, lastFailedVersion, lastFailedVersionHash,
-                this.lastSuccessVersion, this.lastSuccessVersionHash, lastSuccessVersion, lastSuccessVersionHash);
-
-        this.version = newVersion;
-        this.versionHash = newVersionHash;
-        this.lastFailedVersion = lastFailedVersion;
-        this.lastFailedVersionHash = lastFailedVersionHash;
-        this.lastSuccessVersion = lastSuccessVersion;
-        this.lastSuccessVersionHash = lastSuccessVersionHash;
+    public synchronized void updateVersionWithFailedInfo(
+            long newVersion, long lastFailedVersion, long lastSuccessVersion) {
+        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, remoteDataSize, rowCount);
     }
 
     /* last failed version:  LFV
      * last success version: LSV
      * version:              V
-     * 
+     *
      * Case 1:
      *      If LFV > LSV, set LSV back to V, which indicates that version between LSV and LFV is invalid.
      *      Clone task will clone the version between LSV and LFV
-     *      
+     *
      * Case 2:
      *      LFV changed, set LSV back to V. This is just same as Case 1. Cause LFV must large than LSV.
-     * 
+     *
      * Case 3:
      *      LFV remains unchanged, just update LSV, and then check if it falls into Case 1.
-     *      
+     *
      * Case 4:
      *      V is larger or equal to LFV, reset LFV. And if V is less than LSV, just set V to LSV. This may
      *      happen when a clone task finished and report version V, but the LSV is already larger than V,
      *      And we know that version between V and LSV is valid, so move V forward to LSV.
-     *    
+     *
      * Case 5:
      *      This is a bug case, I don't know why, may be some previous version introduce it. It looks like
      *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
-     *      We just reset the LFV(hash) to recovery this replica. 
+     *      We just reset the LFV(hash) to recovery this replica.
      */
-    private void updateReplicaInfo(long newVersion, long newVersionHash, 
-            long lastFailedVersion, long lastFailedVersionHash, 
-            long lastSuccessVersion, long lastSuccessVersionHash, 
-            long newDataSize, long newRowCount) {
+    private void updateReplicaInfo(long newVersion,
+            long lastFailedVersion, long lastSuccessVersion,
+            long newDataSize, long newRemoteDataSize, long newRowCount) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("before update: {}", this.toString());
         }
 
         if (newVersion < this.version) {
             // This case means that replica meta version has been updated by ReportHandler before
-            // For example, the publish version daemon has already sent some publish verison tasks to one be to publish version 2, 3, 4, 5, 6,
-            // and the be finish all publish version tasks, the be's replica version is 6 now, but publish version daemon need to wait
+            // For example, the publish version daemon has already sent some publish version tasks
+            // to one be to publish version 2, 3, 4, 5, 6, and the be finish all publish version tasks,
+            // the be's replica version is 6 now, but publish version daemon need to wait
             // for other be to finish most of publish version tasks to update replica version in fe.
-            // At the moment, the replica version in fe is 4, when ReportHandler sync tablet, it find reported replica version in be is 6 and then
-            // set version to 6 for replica in fe. And then publish version daemon try to finish txn, and use visible version(5)
+            // At the moment, the replica version in fe is 4, when ReportHandler sync tablet,
+            // it find reported replica version in be is 6 and then set version to 6 for replica in fe.
+            // And then publish version daemon try to finish txn, and use visible version(5)
             // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
             if (LOG.isDebugEnabled()) {
                 LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
@@ -337,51 +340,45 @@ public class Replica implements Writable {
         }
 
         this.version = newVersion;
-        this.versionHash = newVersionHash;
         this.dataSize = newDataSize;
+        this.remoteDataSize = newRemoteDataSize;
         this.rowCount = newRowCount;
 
         // just check it
         if (lastSuccessVersion <= this.version) {
             lastSuccessVersion = this.version;
-            lastSuccessVersionHash = this.versionHash;
         }
 
         // case 1:
         if (this.lastSuccessVersion <= this.lastFailedVersion) {
             this.lastSuccessVersion = this.version;
-            this.lastSuccessVersionHash = this.versionHash;
         }
-        
+
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.debug("current version {} is larger than last failed version {}, "
-                        + "last failed version hash {}, maybe a fatal error or be report version, print a stack here ", 
-                    this.version, lastFailedVersion, lastFailedVersionHash, new Exception());
+                        + "maybe a fatal error or be report version, print a stack here ",
+                    this.version, lastFailedVersion, new Exception());
         }
-        
+
         if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
             if (lastFailedVersion > this.lastFailedVersion) {
                 this.lastFailedVersion = lastFailedVersion;
-                this.lastFailedVersionHash = lastFailedVersionHash;
                 this.lastFailedTimestamp = System.currentTimeMillis();
             }
 
             this.lastSuccessVersion = this.version;
-            this.lastSuccessVersionHash = this.versionHash;
         } else {
             // Case 3:
             if (lastSuccessVersion >= this.lastSuccessVersion) {
                 this.lastSuccessVersion = lastSuccessVersion;
-                this.lastSuccessVersionHash = lastSuccessVersionHash;
             }
             if (lastFailedVersion >= this.lastSuccessVersion) {
                 this.lastSuccessVersion = this.version;
-                this.lastSuccessVersionHash = this.versionHash;
             }
         }
-        
+
         // Case 4:
         if (this.version >= this.lastFailedVersion) {
             this.lastFailedVersion = -1;
@@ -389,7 +386,6 @@ public class Replica implements Writable {
             this.lastFailedTimestamp = -1;
             if (this.version < this.lastSuccessVersion) {
                 this.version = this.lastSuccessVersion;
-                this.versionHash = this.lastSuccessVersionHash;
             }
         }
 
@@ -397,78 +393,79 @@ public class Replica implements Writable {
             LOG.debug("after update {}", this.toString());
         }
     }
-    
-    public synchronized void updateLastFailedVersion(long lastFailedVersion, long lastFailedVersionHash) {
-        updateReplicaInfo(this.version, this.versionHash, lastFailedVersion, lastFailedVersionHash, 
-                this.lastSuccessVersion, this.lastSuccessVersionHash, dataSize, rowCount);
+
+    public synchronized void updateLastFailedVersion(long lastFailedVersion) {
+        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, remoteDataSize, rowCount);
     }
 
     /*
      * Check whether the replica's version catch up with the expected version.
-     * If ignoreAlter is true, and state is ALTER, and replica's version is PARTITION_INIT_VERSION, just return true, ignore the version.
-     *      This is for the case that when altering table, the newly created replica's version is PARTITION_INIT_VERSION,
+     * If ignoreAlter is true, and state is ALTER, and replica's version is
+     *  PARTITION_INIT_VERSION, just return true, ignore the version.
+     *      This is for the case that when altering table,
+     *      the newly created replica's version is PARTITION_INIT_VERSION,
      *      but we need to treat it as a "normal" replica which version is supposed to be "catch-up".
      *      But if state is ALTER but version larger than PARTITION_INIT_VERSION, which means this replica
      *      is already updated by load process, so we need to consider its version.
      */
-    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash, boolean ignoreAlter) {
-        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION
-                && versionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+    public boolean checkVersionCatchUp(long expectedVersion, boolean ignoreAlter) {
+        if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
             return true;
         }
-        
-        if (expectedVersion == Partition.PARTITION_INIT_VERSION
-                && expectedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+
+        if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
             // no data is loaded into this replica, just return true
             return true;
         }
 
         if (this.version < expectedVersion) {
-            LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
-                      expectedVersion, expectedVersionHash, this);
+            LOG.debug("replica version does not catch up with version: {}. replica: {}",
+                      expectedVersion, this);
             return false;
         }
         return true;
     }
 
+    public void setLastFailedVersion(long lastFailedVersion) {
+        this.lastFailedVersion = lastFailedVersion;
+    }
+
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
     }
-    
+
     public ReplicaState getState() {
         return this.state;
     }
 
+    public boolean tooSlow() {
+        return state == ReplicaState.COMPACTION_TOO_SLOW;
+    }
+
     public long getVersionCount() {
-		return versionCount;
-	}
+        return versionCount;
+    }
 
     public void setVersionCount(long versionCount) {
-		this.versionCount = versionCount;
-	}
-    
+        this.versionCount = versionCount;
+    }
+
     @Override
     public String toString() {
-        StringBuffer strBuffer = new StringBuffer("[replicaId=");
+        StringBuilder strBuffer = new StringBuilder("[replicaId=");
         strBuffer.append(id);
         strBuffer.append(", BackendId=");
         strBuffer.append(backendId);
         strBuffer.append(", version=");
         strBuffer.append(version);
-        strBuffer.append(", versionHash=");
-        strBuffer.append(versionHash);
         strBuffer.append(", dataSize=");
         strBuffer.append(dataSize);
         strBuffer.append(", rowCount=");
         strBuffer.append(rowCount);
         strBuffer.append(", lastFailedVersion=");
         strBuffer.append(lastFailedVersion);
-        strBuffer.append(", lastFailedVersionHash=");
-        strBuffer.append(lastFailedVersionHash);
         strBuffer.append(", lastSuccessVersion=");
         strBuffer.append(lastSuccessVersion);
-        strBuffer.append(", lastSuccessVersionHash=");
-        strBuffer.append(lastSuccessVersionHash);
         strBuffer.append(", lastFailedTimestamp=");
         strBuffer.append(lastFailedTimestamp);
         strBuffer.append(", schemaHash=");
@@ -488,13 +485,13 @@ public class Replica implements Writable {
         out.writeLong(dataSize);
         out.writeLong(rowCount);
         Text.writeString(out, state.name());
-        
+
         out.writeLong(lastFailedVersion);
         out.writeLong(lastFailedVersionHash);
         out.writeLong(lastSuccessVersion);
         out.writeLong(lastSuccessVersionHash);
     }
-     
+
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();
@@ -503,20 +500,18 @@ public class Replica implements Writable {
         dataSize = in.readLong();
         rowCount = in.readLong();
         state = ReplicaState.valueOf(Text.readString(in));
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-            lastFailedVersion = in.readLong();
-            lastFailedVersionHash = in.readLong();
-            lastSuccessVersion = in.readLong();
-            lastSuccessVersionHash = in.readLong();
-        }
+        lastFailedVersion = in.readLong();
+        lastFailedVersionHash = in.readLong();
+        lastSuccessVersion = in.readLong();
+        lastSuccessVersionHash = in.readLong();
     }
-    
+
     public static Replica read(DataInput in) throws IOException {
         Replica replica = new Replica();
         replica.readFields(in);
         return replica;
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -525,19 +520,16 @@ public class Replica implements Writable {
         if (!(obj instanceof Replica)) {
             return false;
         }
-        
+
         Replica replica = (Replica) obj;
-        return (id == replica.id) 
-                && (backendId == replica.backendId) 
+        return (id == replica.id)
+                && (backendId == replica.backendId)
                 && (version == replica.version)
-                && (versionHash == replica.versionHash)
                 && (dataSize == replica.dataSize)
-                && (rowCount == replica.rowCount) 
+                && (rowCount == replica.rowCount)
                 && (state.equals(replica.state))
                 && (lastFailedVersion == replica.lastFailedVersion)
-                && (lastFailedVersionHash == replica.lastFailedVersionHash)
-                && (lastSuccessVersion == replica.lastSuccessVersion)
-                && (lastSuccessVersionHash == replica.lastSuccessVersionHash);
+                && (lastSuccessVersion == replica.lastSuccessVersion);
     }
 
     private static class VersionComparator<T extends Replica> implements Comparator<T> {
@@ -552,6 +544,22 @@ public class Replica implements Writable {
                 return 0;
             } else {
                 return -1;
+            }
+        }
+    }
+
+    private static class IdComparator<T extends Replica> implements Comparator<T> {
+        public IdComparator() {
+        }
+
+        @Override
+        public int compare(T replica1, T replica2) {
+            if (replica1.getId() < replica2.getId()) {
+                return -1;
+            } else if (replica1.getId() == replica2.getId()) {
+                return 0;
+            } else {
+                return 1;
             }
         }
     }

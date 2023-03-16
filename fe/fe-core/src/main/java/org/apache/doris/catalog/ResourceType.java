@@ -100,8 +100,9 @@ public enum ResourceType {
                 return HDD_READ_MBPS;
             case TRESOURCE_HDD_WRITE_MBPS:
                 return HDD_WRITE_MBPS;
+            default:
+                return null;
         }
-        return null;
     }
 
     @Override

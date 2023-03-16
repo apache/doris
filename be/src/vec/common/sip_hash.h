@@ -198,6 +198,12 @@ public:
         finalize();
         return v0 ^ v1 ^ v2 ^ v3;
     }
+
+    template <typename T>
+    ALWAYS_INLINE void get128(T& dst) {
+        static_assert(sizeof(T) == 16);
+        get128(reinterpret_cast<char*>(&dst));
+    }
 };
 
 #undef ROTL

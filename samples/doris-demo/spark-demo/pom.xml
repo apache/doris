@@ -37,8 +37,8 @@ under the License.
         <!-- doris spark -->
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>doris-spark</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
+            <artifactId>spark-doris-connector-2.3_2.11</artifactId>
+            <version>1.0.1</version>
         </dependency>
         <!-- spark -->
         <dependency>

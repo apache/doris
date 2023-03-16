@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 
 import org.apache.logging.log4j.LogManager;
@@ -30,15 +30,17 @@ import org.apache.logging.log4j.Logger;
 public class BaseTableRef extends TableRef {
     private static final Logger LOG = LogManager.getLogger(BaseTableRef.class);
 
-    private Table table;
+    private TableIf table;
 
-    public BaseTableRef(TableRef ref, Table table, TableName tableName) {
+    public BaseTableRef(TableRef ref, TableIf table, TableName tableName) {
         super(ref);
         this.table = table;
         this.name = tableName;
         // Set implicit aliases if no explicit one was given.
-        if (hasExplicitAlias()) return;
-        aliases_ = new String[] { name.toString(), tableName.getNoClusterString(), tableName.getTbl() };
+        if (hasExplicitAlias()) {
+            return;
+        }
+        aliases = tableName.tableAliases();
     }
 
     protected BaseTableRef(BaseTableRef other) {
@@ -68,10 +70,11 @@ public class BaseTableRef extends TableRef {
         name.analyze(analyzer);
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true;  // true that we have assigned desc
+        analyzeTableSnapshot(analyzer);
         analyzeLateralViewRef(analyzer);
         analyzeJoin(analyzer);
         analyzeSortHints();
         analyzeHints();
+        analyzeSample();
     }
 }
-

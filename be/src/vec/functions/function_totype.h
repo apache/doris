@@ -67,7 +67,7 @@ private:
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
                         size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if constexpr (std::is_integer(Impl::TYPE_INDEX)) {
+        if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
             if (auto* col = check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -86,9 +86,9 @@ private:
             }
         }
 
-        return Status::RuntimeError(
-                fmt::format("Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(), get_name()));
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
     template <typename T, std::enable_if_t<!std::is_same_v<T, DataTypeString>, T>* = nullptr>
     Status execute_impl(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -102,7 +102,7 @@ private:
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
-        } else if constexpr (std::is_integer(Impl::TYPE_INDEX)) {
+        } else if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
             if (const auto* col =
                         check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
@@ -119,9 +119,9 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(
-                fmt::format("Illegal column {} of argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(), get_name()));
+        return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                    block.get_by_position(arguments[0]).column->get_name(),
+                                    get_name());
     }
 };
 
@@ -177,7 +177,7 @@ public:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -240,7 +240,7 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 
     template <typename ReturnDataType,
@@ -262,13 +262,14 @@ private:
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
 // func(type,type) -> nullable(type)
-template <typename LeftDataType, typename RightDataType,
-          template <typename, typename> typename Impl, typename Name>
+template <typename LeftDataType, typename RightDataType, typename ResultDateType,
+          typename ReturnType, template <typename, typename, typename, typename> typename Impl,
+          typename Name>
 class FunctionBinaryToNullType : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -276,7 +277,8 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
+        using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
+                                             ReturnType>::ResultDataType;
         return make_nullable(std::make_shared<ResultDataType>());
     }
 
@@ -291,13 +293,17 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
-        using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
+        using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
+                                             ReturnType>::ResultDataType;
 
         using T0 = typename LeftDataType::FieldType;
         using T1 = typename RightDataType::FieldType;
@@ -320,14 +326,14 @@ public:
 
         if (auto col_left = check_and_get_column<ColVecLeft>(argument_columns[0].get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(argument_columns[1].get())) {
-                Impl<LeftDataType, RightDataType>::vector_vector(
+                Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_vector(
                         col_left->get_data(), col_right->get_data(), vec_res, null_map->get_data());
                 block.get_by_position(result).column =
                         ColumnNullable::create(std::move(col_res), std::move(null_map));
                 return Status::OK();
             }
         }
-        return Status::RuntimeError(fmt::format("unimplements function {}", get_name()));
+        return Status::RuntimeError("unimplements function {}", get_name());
     }
 };
 
@@ -356,9 +362,12 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                argument_columns[i] = nullable->get_nested_column_ptr();
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
                 VectorizedUtils::update_null_map(null_map->get_data(),
                                                  nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
 
@@ -377,10 +386,10 @@ public:
         if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
             auto& res_data = res->get_chars();
             auto& res_offsets = res->get_offsets();
-            Impl::vector_vector(ldata, loffsets, rdata, roffsets, res_data, res_offsets,
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data, res_offsets,
                                 null_map->get_data());
         } else {
-            Impl::vector_vector(ldata, loffsets, rdata, roffsets, res->get_data(),
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
                                 null_map->get_data());
         }
 
@@ -414,8 +423,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        auto col_ptr =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& col_ptr = block.get_by_position(arguments[0]).column;
 
         auto res = Impl::ColumnType::create();
         if (const ColumnString* col = check_and_get_column<ColumnString>(col_ptr.get())) {
@@ -425,9 +433,9 @@ public:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name()));
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
         }
         return Status::OK();
     }

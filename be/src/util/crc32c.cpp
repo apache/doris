@@ -19,8 +19,10 @@
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c.cc
 
 #include "util/crc32c.h"
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__)
 #include <nmmintrin.h>
+#elif defined(__aarch64__)
+#include <sse2neon.h>
 #endif
 #include "util/coding.h"
 
@@ -191,7 +193,7 @@ static inline uint64_t LE_LOAD64(const uint8_t* p) {
 }
 #endif
 
-static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
+[[maybe_unused]] static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
     uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
     *p += 4;
     *l = table3_[c & 0xff] ^ table2_[(c >> 8) & 0xff] ^ table1_[(c >> 16) & 0xff] ^
@@ -204,9 +206,8 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const** p) {
 }
 
 static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
-#ifndef __SSE4_2__
-    Slow_CRC32(l, p);
-#elif defined(__LP64__) || defined(_WIN64)
+#if defined(__SSE4_2__) || defined(__aarch64__)
+#if (defined(__LP64__) || defined(_WIN64)) && !defined(__aarch64__)
     *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
     *p += 8;
 #else
@@ -214,6 +215,9 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const** p) {
     *p += 4;
     *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
     *p += 4;
+#endif
+#else
+    Slow_CRC32(l, p);
 #endif
 }
 
@@ -224,7 +228,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
     uint64_t l = crc ^ 0xffffffffu;
 
 // Align n to (1 << m) byte boundary
-#define ALIGN(n, m) ((n + ((1 << m) - 1)) & ~((1 << m) - 1))
+#define CRC_ALIGN(n, m) ((n + ((1 << m) - 1)) & ~((1 << m) - 1))
 
 #define STEP1                      \
     do {                           \
@@ -235,7 +239,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
     // Point x at first 16-byte aligned byte in string.  This might be
     // just past the end of the string.
     const uintptr_t pval = reinterpret_cast<uintptr_t>(p);
-    const uint8_t* x = reinterpret_cast<const uint8_t*>(ALIGN(pval, 4));
+    const uint8_t* x = reinterpret_cast<const uint8_t*>(CRC_ALIGN(pval, 4));
     if (x <= e) {
         // Process bytes until finished or p is 16-byte aligned
         while (p != x) {
@@ -256,12 +260,12 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
         STEP1;
     }
 #undef STEP1
-#undef ALIGN
+#undef CRC_ALIGN
     return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
     return ExtendImpl<Fast_CRC32>(crc, buf, size);
 #else
     return ExtendImpl<Slow_CRC32>(crc, buf, size);

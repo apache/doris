@@ -25,7 +25,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
-
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +38,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
     private StorageType storageType;
     private Map<String, String> properties;
 
-    public StorageBackend(String storageName, String location, StorageType storageType, Map<String, String> properties) {
+    public StorageBackend(String storageName, String location,
+            StorageType storageType, Map<String, String> properties) {
         this.name = storageName;
         this.location = location;
         this.storageType = storageType;
@@ -85,7 +85,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         if (this.storageType != StorageType.BROKER && StringUtils.isEmpty(name)) {
             name = this.storageType.name();
         }
-        if (this.storageType != StorageType.BROKER && this.storageType != StorageType.S3) {
+        if (this.storageType != StorageType.BROKER && this.storageType != StorageType.S3
+                && this.storageType != StorageType.HDFS) {
             throw new NotImplementedException(this.storageType.toString() + " is not support now.");
         }
         FeNameFormat.checkCommonName("repository", name);
@@ -111,9 +112,11 @@ public class StorageBackend extends StorageDesc implements ParseNode {
     public enum StorageType {
         BROKER("Doris Broker"),
         S3("Amazon S3 Simple Storage Service"),
-        // the following is not used currently
         HDFS("Hadoop Distributed File System"),
-        LOCAL("Local file system");
+        LOCAL("Local file system"),
+        OFS("Tencent CHDFS"),
+        JFS("Juicefs"),
+        STREAM("Stream load pipe");
 
         private final String description;
 
@@ -132,6 +135,10 @@ public class StorageBackend extends StorageDesc implements ParseNode {
                     return TStorageBackendType.S3;
                 case HDFS:
                     return TStorageBackendType.HDFS;
+                case OFS:
+                    return TStorageBackendType.OFS;
+                case JFS:
+                    return TStorageBackendType.JFS;
                 case LOCAL:
                     return TStorageBackendType.LOCAL;
                 default:

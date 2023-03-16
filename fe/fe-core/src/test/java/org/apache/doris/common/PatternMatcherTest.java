@@ -104,25 +104,25 @@ public class PatternMatcherTest {
     }
 
     @Test
-    public void testAbnormal(){
+    public void testAbnormal() {
         try {
-            PatternMatcher matcher = PatternMatcher.createMysqlPattern("^abc", false);
+            PatternMatcher.createMysqlPattern("^abc", false);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             System.out.println(e.getMessage());
         }
 
         try {
-            PatternMatcher matcher = PatternMatcher.createMysqlPattern("\\\\(abc", false);
+            PatternMatcher.createMysqlPattern("\\\\(abc", false);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             System.out.println(e.getMessage());
         }
 
         try {
-            PatternMatcher matcher = PatternMatcher.createMysqlPattern("\\*abc", false);
+            PatternMatcher.createMysqlPattern("\\*abc", false);
             Assert.fail();
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             System.out.println(e.getMessage());
         }
     }

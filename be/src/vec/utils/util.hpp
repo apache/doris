@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #include <thrift/protocol/TJSONProtocol.h>
 
 #include <boost/shared_ptr.hpp>
@@ -23,6 +24,7 @@
 #include "runtime/descriptors.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 class VectorizedUtils {
@@ -32,12 +34,32 @@ public:
         return create_columns_with_type_and_name(row_desc);
     }
 
-    static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
+    static ColumnsWithTypeAndName create_columns_with_type_and_name(
+            const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
+                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                    continue;
+                }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name());
+            }
+        }
+        return columns_with_type_and_name;
+    }
+
+    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
+                                                     bool ignore_trivial_slot = true) {
+        ColumnsWithTypeAndName columns_with_type_and_name;
+        for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                    continue;
+                }
+                columns_with_type_and_name.emplace_back(
+                        slot_desc->get_data_type_ptr()->create_column(),
+                        slot_desc->get_data_type_ptr(), slot_desc->col_name());
             }
         }
         return columns_with_type_and_name;
@@ -47,8 +69,9 @@ public:
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
-        for (size_t i = 0; i < size; ++i)
+        for (size_t i = 0; i < size; ++i) {
             l[i] |= r[i];
+        }
     }
 
     static DataTypes get_data_types(const RowDescriptor& row_desc) {
@@ -60,7 +83,37 @@ public:
         }
         return data_types;
     }
+
+    static VExpr* dfs_peel_conjunct(RuntimeState* state, VExprContext* context, VExpr* expr,
+                                    int& leaf_index, std::function<bool(int)> checker) {
+        static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
+
+        if (is_leaf(expr)) {
+            if (checker(leaf_index++)) {
+                expr->close(state, context, context->get_function_state_scope());
+                return nullptr;
+            }
+            return expr;
+        } else {
+            VExpr* left_child =
+                    dfs_peel_conjunct(state, context, expr->children()[0], leaf_index, checker);
+            VExpr* right_child =
+                    dfs_peel_conjunct(state, context, expr->children()[1], leaf_index, checker);
+
+            if (left_child != nullptr && right_child != nullptr) {
+                expr->set_children({left_child, right_child});
+                return expr;
+            } else {
+                // here only close the and expr self, do not close the child
+                expr->set_children({});
+                expr->close(state, context, context->get_function_state_scope());
+            }
+
+            return left_child != nullptr ? left_child : right_child;
+        }
+    }
 };
+
 } // namespace doris::vectorized
 
 namespace apache::thrift {
@@ -76,4 +129,5 @@ ThriftStruct from_json_string(const std::string& json_val) {
     ts.read(&protocol);
     return ts;
 }
+
 } // namespace apache::thrift

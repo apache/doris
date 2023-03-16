@@ -21,14 +21,15 @@
 #pragma once
 
 #include <cmath>
+#include <type_traits>
 
+#include "olap/decimal12.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
-#include "olap/decimal12.h"
 
 namespace doris::vectorized {
 
@@ -71,6 +72,7 @@ private:
     friend class COWHelper<ColumnVectorHelper, Self>;
 
 public:
+    using value_type = T;
     using Container = DecimalPaddedPODArray<T>;
 
 private:
@@ -95,26 +97,27 @@ public:
     void resize(size_t n) override { data.resize(n); }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(static_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override {
-        const Self& src_vec = assert_cast<const Self&>(src);
-        data.reserve(size() + (indices_end - indices_begin));
-        for (auto x = indices_begin; x != indices_end; ++x) {
-            data.push_back_without_reserve(src_vec.get_element(*x));
+        auto origin_size = size();
+        auto new_size = indices_end - indices_begin;
+        data.resize(origin_size + new_size);
+        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+
+        for (int i = 0; i < new_size; ++i) {
+            data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = *(int64_t*)(cur_ptr);
-            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
-            DecimalV2Value decimal_val(int_value, frac_value);
-            this->insert_data(reinterpret_cast<char*>(&decimal_val), 0);
-        }
+    void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
+
+    void insert_many_raw_data(const char* pos, size_t num) override {
+        size_t old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, pos, num * sizeof(T));
     }
 
     void insert_data(const char* pos, size_t /*length*/) override;
@@ -134,7 +137,29 @@ public:
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
+
+    virtual size_t get_max_row_byte_size() const override;
+
+    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                               size_t max_row_byte_size) const override;
+
+    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                             const uint8_t* null_map,
+                                             size_t max_row_byte_size) const override;
+
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
@@ -158,21 +183,39 @@ public:
     void clear() override { data.clear(); }
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
+
+    size_t filter(const IColumn::Filter& filter) override;
+
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
 
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
+
+    TypeIndex get_data_type() const override { return TypeId<T>::value; }
 
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
         return this->template scatter_impl<Self>(num_columns, selector);
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
@@ -191,13 +234,26 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = static_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
+
+    UInt32 get_scale() const { return scale; }
+
+    T get_scale_multiplier() const;
+    T get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
+    T get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
 
 protected:
     Container data;
@@ -221,6 +277,22 @@ protected:
     }
 };
 
+template <typename>
+class ColumnVector;
+
+template <typename T, bool is_decimal = false>
+struct ColumnVectorOrDecimalT {
+    using Col = ColumnVector<T>;
+};
+
+template <typename T>
+struct ColumnVectorOrDecimalT<T, true> {
+    using Col = ColumnDecimal<T>;
+};
+
+template <typename T>
+using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
+
 template <typename T>
 template <typename Type>
 ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
@@ -237,9 +309,5 @@ ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size
 
     return res;
 }
-
-using ColumnDecimal32 = ColumnDecimal<Decimal32>;
-using ColumnDecimal64 = ColumnDecimal<Decimal64>;
-using ColumnDecimal128 = ColumnDecimal<Decimal128>;
 
 } // namespace doris::vectorized

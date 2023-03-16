@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "olap/iterators.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
@@ -32,25 +33,25 @@ namespace vectorized {
 class Block;
 }
 
-class RowBlock;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 class RowsetReader {
 public:
-    virtual ~RowsetReader() {}
+    virtual ~RowsetReader() = default;
 
     // reader init
-    virtual OLAPStatus init(RowsetReaderContext* read_context) = 0;
+    virtual Status init(RowsetReaderContext* read_context) = 0;
 
-    // read next block data into *block.
-    // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      OLAP_ERR_DATA_EOF and set *block to null when there is no more block.
-    //      Others when error happens.
-    virtual OLAPStatus next_block(RowBlock** block) = 0;
+    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
+                                         std::vector<RowwiseIteratorUPtr>* out_iters,
+                                         bool use_cache = false) = 0;
+    virtual void reset_read_options() = 0;
 
-    virtual OLAPStatus next_block(vectorized::Block* block) = 0;
+    virtual Status next_block(vectorized::Block* block) = 0;
+
+    virtual Status next_block_view(vectorized::BlockView* block_view) = 0;
+    virtual bool support_return_data_by_ref() { return false; }
 
     virtual bool delete_flag() = 0;
 
@@ -61,6 +62,17 @@ public:
     virtual int64_t filtered_rows() = 0;
 
     virtual RowsetTypePB type() const = 0;
+
+    virtual int64_t newest_write_timestamp() = 0;
+    virtual Status current_block_row_locations(std::vector<RowLocation>* locations) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual bool update_profile(RuntimeProfile* profile) = 0;
 };
 
 } // namespace doris

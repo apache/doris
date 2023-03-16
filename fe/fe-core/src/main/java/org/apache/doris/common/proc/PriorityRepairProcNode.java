@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.common.AnalysisException;
 
@@ -37,7 +37,7 @@ public class PriorityRepairProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        TabletChecker tabletChecker = Catalog.getCurrentCatalog().getTabletChecker();
+        TabletChecker tabletChecker = Env.getCurrentEnv().getTabletChecker();
         result.setRows(tabletChecker.getPriosInfo());
 
         return result;

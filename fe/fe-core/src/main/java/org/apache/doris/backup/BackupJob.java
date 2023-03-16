@@ -21,8 +21,8 @@ import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -32,10 +32,9 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.task.AgentBatchTask;
@@ -57,7 +56,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -93,7 +91,6 @@ public class BackupJob extends AbstractJob {
 
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
-//    private BackupContent content = BackupContent.ALL;
 
     private BackupJobState state;
 
@@ -123,8 +120,8 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Catalog catalog, long repoId) {
-        super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
+                     BackupContent content, Env env, long repoId) {
+        super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
@@ -159,13 +156,14 @@ public class BackupJob extends AbstractJob {
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
-        
+
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTaskStatus().getErrorMsgs()));
             // snapshot task could not finish if status_code is OLAP_ERR_VERSION_ALREADY_MERGED,
             // so cancel this job
             if (request.getTaskStatus().getStatusCode() == TStatusCode.OLAP_ERR_VERSION_ALREADY_MERGED) {
-                status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED, "make snapshot failed, version already merged");
+                status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED,
+                        "make snapshot failed, version already merged");
                 cancelInternal();
             }
             return false;
@@ -182,7 +180,7 @@ public class BackupJob extends AbstractJob {
                 task.getIndexId(), task.getTabletId(), task.getBackendId(),
                 task.getSchemaHash(), request.getSnapshotPath(),
                 request.getSnapshotFiles());
-        
+
         snapshotInfos.put(task.getTabletId(), info);
         taskProgress.remove(task.getTabletId());
         Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
@@ -286,14 +284,14 @@ public class BackupJob extends AbstractJob {
 
         // get repo if not set
         if (repo == null) {
-            repo = catalog.getBackupHandler().getRepoMgr().getRepo(repoId);
+            repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
             if (repo == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to get repository: " + repoId);
                 cancelInternal();
                 return;
             }
         }
-        
+
         LOG.debug("run backup job: {}", this);
 
         // run job base on current state
@@ -347,14 +345,14 @@ public class BackupJob extends AbstractJob {
     }
 
     private void prepareAndSendSnapshotTask() {
-        Database db = catalog.getDbNullable(dbId);
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
         }
 
         // generate job id
-        jobId = catalog.getNextId();
+        jobId = env.getNextId();
         unfinishedTaskIds.clear();
         taskProgress.clear();
         taskErrMsg.clear();
@@ -366,7 +364,7 @@ public class BackupJob extends AbstractJob {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
             }
-            switch (tbl.getType()){
+            switch (tbl.getType()) {
                 case OLAP:
                     checkOlapTable((OlapTable) tbl, tableRef);
                     if (getContent() == BackupContent.ALL) {
@@ -379,7 +377,7 @@ public class BackupJob extends AbstractJob {
                     OdbcTable odbcTable = (OdbcTable) tbl;
                     if (odbcTable.getOdbcCatalogResourceName() != null) {
                         String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
-                        Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
+                        Resource resource = Env.getCurrentEnv().getResourceMgr()
                                 .getResource(odbcResourceName);
                         if (resource == null) {
                             status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
@@ -430,7 +428,8 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef, AgentBatchTask batchTask) {
+    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable,
+            TableRef backupTableRef, AgentBatchTask batchTask) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -459,32 +458,30 @@ public class BackupJob extends AbstractJob {
             // snapshot partitions
             for (Partition partition : partitions) {
                 long visibleVersion = partition.getVisibleVersion();
-                long visibleVersionHash = partition.getVisibleVersionHash();
                 List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
                 for (MaterializedIndex index : indexes) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
-                        Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
+                        Replica replica = chooseReplica(tablet, visibleVersion);
                         if (replica == null) {
                             status = new Status(ErrCode.COMMON_ERROR,
                                     "failed to choose replica to make snapshot for tablet " + tablet.getId()
-                                            + ". visible version: " + visibleVersion
-                                            + ", visible version hash: " + visibleVersionHash);
+                                            + ". visible version: " + visibleVersion);
                             return;
                         }
                         SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                                 jobId, dbId, olapTable.getId(), partition.getId(),
                                 index.getId(), tablet.getId(),
-                                visibleVersion, visibleVersionHash,
+                                visibleVersion,
                                 schemaHash, timeoutMs, false /* not restore task */);
                         batchTask.addTask(task);
                         unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                     }
                 }
 
-                LOG.info("snapshot for partition {}, version: {}, version hash: {}",
-                        partition.getId(), visibleVersion, visibleVersionHash);
+                LOG.info("snapshot for partition {}, version: {}",
+                        partition.getId(), visibleVersion);
             }
         } finally {
             olapTable.readUnlock();
@@ -510,6 +507,8 @@ public class BackupJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
                         return;
                     }
+
+                    removeUnsupportProperties(copiedTbl);
                     copiedTables.add(copiedTbl);
                 } else if (table.getType() == TableType.VIEW) {
                     View view = (View) table;
@@ -528,7 +527,7 @@ public class BackupJob extends AbstractJob {
                     }
                     copiedTables.add(copiedOdbcTable);
                     if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
-                        Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
+                        Resource resource = Env.getCurrentEnv().getResourceMgr()
                                 .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
                         Resource copiedResource = resource.clone();
                         if (copiedResource == null) {
@@ -546,6 +545,11 @@ public class BackupJob extends AbstractJob {
         backupMeta = new BackupMeta(copiedTables, copiedResources);
     }
 
+    private void removeUnsupportProperties(OlapTable tbl) {
+        // We cannot support the colocate attribute because the colocate information is not backed up
+        // synchronously when backing up.
+        tbl.setColocateGroup(null);
+    }
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
@@ -553,7 +557,7 @@ public class BackupJob extends AbstractJob {
             state = BackupJobState.UPLOAD_SNAPSHOT;
 
             // log
-            catalog.getEditLog().logBackupJob(this);
+            env.getEditLog().logBackupJob(this);
             LOG.info("finished to make snapshots. {}", this);
             return;
         }
@@ -584,13 +588,13 @@ public class BackupJob extends AbstractJob {
             LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
 
             List<FsBroker> brokers = Lists.newArrayList();
-            Status st = repo.getBrokerAddress(beId, catalog, brokers);
+            Status st = repo.getBrokerAddress(beId, env, brokers);
             if (!st.ok()) {
                 status = st;
                 return;
             }
             Preconditions.checkState(brokers.size() == 1);
-            
+
             // allot tasks
             int index = 0;
             for (int batch = 0; batch < batchNum; batch++) {
@@ -606,7 +610,7 @@ public class BackupJob extends AbstractJob {
                     }
                     srcToDest.put(src, dest);
                 }
-                long signature = catalog.getNextId();
+                long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType());
                 batchTask.addTask(task);
@@ -632,7 +636,7 @@ public class BackupJob extends AbstractJob {
             state = BackupJobState.SAVE_META;
 
             // log
-            catalog.getEditLog().logBackupJob(this);
+            env.getEditLog().logBackupJob(this);
             LOG.info("finished uploading snapshots. {}", this);
             return;
         }
@@ -652,10 +656,10 @@ public class BackupJob extends AbstractJob {
             File jobDir = new File(localJobDirPath.toString());
             if (jobDir.exists()) {
                 // if dir exists, delete it first
-                Files.walk(localJobDirPath,
-                           FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                Files.walk(localJobDirPath, FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
+                        .map(Path::toFile).forEach(File::delete);
             }
-            if (!jobDir.mkdir()) {
+            if (!jobDir.mkdirs()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create tmp dir: " + localJobDirPath);
                 return;
             }
@@ -671,7 +675,8 @@ public class BackupJob extends AbstractJob {
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
             // 3. save job info file
-            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, getContent(), backupMeta, snapshotInfos);
+            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
+                    getContent(), backupMeta, snapshotInfos);
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
@@ -697,7 +702,7 @@ public class BackupJob extends AbstractJob {
         snapshotInfos.clear();
 
         // log
-        catalog.getEditLog().logBackupJob(this);
+        env.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
                  localMetaInfoFilePath, localJobInfoFilePath, this);
     }
@@ -733,7 +738,7 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.FINISHED;
 
         // log
-        catalog.getEditLog().logBackupJob(this);
+        env.getEditLog().logBackupJob(this);
         LOG.info("job is finished. {}", this);
     }
 
@@ -762,17 +767,17 @@ public class BackupJob extends AbstractJob {
      * Choose a replica order by replica id.
      * This is to expect to choose the same replica at each backup job.
      */
-    private Replica chooseReplica(Tablet tablet, long visibleVersion, long visibleVersionHash) {
+    private Replica chooseReplica(Tablet tablet, long visibleVersion) {
         List<Long> replicaIds = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             replicaIds.add(replica.getId());
         }
-        
+
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
             if (replica.getLastFailedVersion() < 0 && (replica.getVersion() > visibleVersion
-                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash))) {
+                    || (replica.getVersion() == visibleVersion))) {
                 return replica;
             }
         }
@@ -803,8 +808,8 @@ public class BackupJob extends AbstractJob {
             try {
                 File jobDir = new File(localJobDirPath.toString());
                 if (jobDir.exists()) {
-                    Files.walk(localJobDirPath,
-                               FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                    Files.walk(localJobDirPath, FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder())
+                            .map(Path::toFile).forEach(File::delete);
                 }
             } catch (Exception e) {
                 LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());
@@ -818,10 +823,10 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.CANCELLED;
 
         // log
-        catalog.getEditLog().logBackupJob(this);
+        env.getEditLog().logBackupJob(this);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
-    
+
     public List<String> getInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
@@ -952,10 +957,6 @@ public class BackupJob extends AbstractJob {
         if (in.readBoolean()) {
             localJobInfoFilePath = Text.readString(in);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_95) {
-            return;
-        }
         // read properties
         size = in.readInt();
         for (int i = 0; i < size; i++) {
@@ -972,4 +973,3 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
-

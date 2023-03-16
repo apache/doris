@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/DataPartition.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -29,7 +32,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,9 +60,9 @@ public class DataPartition {
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
         Preconditions.checkState(!exprs.isEmpty());
-        Preconditions.checkState(
-          type == TPartitionType.HASH_PARTITIONED || type == TPartitionType.RANGE_PARTITIONED
-                  || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
+        Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
+                || type == TPartitionType.RANGE_PARTITIONED
+                || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
     }
@@ -69,10 +71,9 @@ public class DataPartition {
         List<Expr> list = Expr.trySubstituteList(partitionExprs, smap, analyzer, false);
         partitionExprs = ImmutableList.copyOf(list);
     }
-    
+
     public DataPartition(TPartitionType type) {
-        Preconditions.checkState(
-          type == TPartitionType.UNPARTITIONED || type == TPartitionType.RANDOM);
+        Preconditions.checkState(type == TPartitionType.UNPARTITIONED || type == TPartitionType.RANDOM);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
     }

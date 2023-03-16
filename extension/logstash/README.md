@@ -23,6 +23,6 @@ under the License.
 
 2. How to use
 
-	`http://doris.incubator.apache.org/master/en/extending-doris/logstash.html`
-	`http://doris.incubator.apache.org/master/zh-CN/extending-doris/logstash.html`
+   `https://doris.apache.org/zh-CN/docs/dev/ecosystem/logstash`
+   `https://doris.apache.org/docs/dev/ecosystem/logstash`
 

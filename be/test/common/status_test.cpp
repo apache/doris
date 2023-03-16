@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "gen_cpp/Types_types.h"
-#include "util/logging.h"
 
 namespace doris {
 
@@ -29,54 +28,48 @@ class StatusTest : public testing::Test {};
 TEST_F(StatusTest, OK) {
     // default
     Status st;
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ("", st.get_error_msg());
-    ASSERT_EQ("OK", st.to_string());
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.to_string().find("[OK]") != std::string::npos);
     // copy
     {
         Status other = st;
-        ASSERT_TRUE(other.ok());
+        EXPECT_TRUE(other.ok());
     }
     // move assign
     st = Status();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // move construct
     {
         Status other = std::move(st);
-        ASSERT_TRUE(other.ok());
+        EXPECT_TRUE(other.ok());
     }
 }
 
 TEST_F(StatusTest, Error) {
     // default
     Status st = Status::InternalError("123");
-    ASSERT_FALSE(st.ok());
-    ASSERT_EQ("123", st.get_error_msg());
-    ASSERT_EQ("Internal error: 123", st.to_string());
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+    EXPECT_TRUE(st.to_string().find("123") != std::string::npos);
     // copy
     {
         Status other = st;
-        ASSERT_FALSE(other.ok());
-        ASSERT_EQ("123", st.get_error_msg());
+        EXPECT_FALSE(other.ok());
+        EXPECT_TRUE(other.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+        EXPECT_TRUE(other.to_string().find("123") != std::string::npos);
     }
     // move assign
     st = Status::InternalError("456");
-    ASSERT_FALSE(st.ok());
-    ASSERT_EQ("456", st.get_error_msg());
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+    EXPECT_TRUE(st.to_string().find("456") != std::string::npos);
     // move construct
     {
         Status other = std::move(st);
-        ASSERT_FALSE(other.ok());
-        ASSERT_EQ("456", other.get_error_msg());
-        ASSERT_EQ("Internal error: 456", other.to_string());
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ("OK", st.to_string());
+        EXPECT_FALSE(other.ok());
+        EXPECT_TRUE(other.to_string().find("[INTERNAL_ERROR]") != std::string::npos);
+        EXPECT_TRUE(other.to_string().find("456") != std::string::npos);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

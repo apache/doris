@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
@@ -36,9 +36,10 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -81,6 +82,10 @@ public class LoadStmt extends DdlStmt {
     public static final String TIMEZONE = "timezone";
     public static final String LOAD_PARALLELISM = "load_parallelism";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+    public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+    // temp property, just make regression test happy.
+    // should remove when Config.enable_new_load_scan_node is set to true by default.
+    public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";
 
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -89,8 +94,8 @@ public class LoadStmt extends DdlStmt {
 
     // mini load params
     public static final String KEY_IN_PARAM_COLUMNS = "columns";
-    public static final String KEY_IN_PARAM_SET= "set";
-    public static final String KEY_IN_PARAM_HLL= "hll";
+    public static final String KEY_IN_PARAM_SET = "set";
+    public static final String KEY_IN_PARAM_HLL = "hll";
     public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
@@ -114,6 +119,11 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
+    public static final String KEY_SKIP_LINES = "skip_lines";
+    public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+
+    public static final String KEY_COMMENT = "comment";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -122,9 +132,13 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
+    private boolean isMysqlLoad = false;
+
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
-    public final static ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
+    private String comment;
+
+    public static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
             .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
                 @Override
                 public @Nullable Long apply(@Nullable String s) {
@@ -173,10 +187,50 @@ public class LoadStmt extends DdlStmt {
                     return s;
                 }
             })
+            .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(USE_NEW_LOAD_SCAN_NODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(KEY_SKIP_LINES, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(KEY_TRIM_DOUBLE_QUOTES, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
             .build();
 
+    public LoadStmt(DataDescription dataDescription, Map<String, String> properties, String comment) {
+        this.label = new LabelName();
+        this.dataDescriptions = Lists.newArrayList(dataDescription);
+        this.brokerDesc = null;
+        this.cluster = null;
+        this.resourceDesc = null;
+        this.properties = properties;
+        this.user = null;
+        this.isMysqlLoad = true;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
+    }
+
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
+                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
@@ -184,10 +238,15 @@ public class LoadStmt extends DdlStmt {
         this.resourceDesc = null;
         this.properties = properties;
         this.user = null;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    ResourceDesc resourceDesc, Map<String, String> properties) {
+                    ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = null;
@@ -195,6 +254,11 @@ public class LoadStmt extends DdlStmt {
         this.resourceDesc = resourceDesc;
         this.properties = properties;
         this.user = null;
+        if (comment != null) {
+            this.comment = comment;
+        } else {
+            this.comment = "";
+        }
     }
 
     public LabelName getLabel() {
@@ -312,7 +376,9 @@ public class LoadStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        label.analyze(analyzer);
+        if (!isMysqlLoad) {
+            label.analyze(analyzer);
+        }
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
         }
@@ -321,17 +387,19 @@ public class LoadStmt extends DdlStmt {
         // case 2: one hive table, one data description
         boolean isLoadFromTable = false;
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc == null && resourceDesc == null) {
+            if (brokerDesc == null && resourceDesc == null && !isMysqlLoad) {
                 dataDescription.setIsHadoopLoad(true);
             }
-            dataDescription.analyze(label.getDbName());
+            String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
+            dataDescription.analyze(fullDbName);
 
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(label.getDbName());
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && table.getKeysType() != KeysType.UNIQUE_KEYS) {
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
+                    && table.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
@@ -340,9 +408,9 @@ public class LoadStmt extends DdlStmt {
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     dataDescription.getFilePaths().set(i,
-                        brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
+                            brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
                     dataDescription.getFilePaths().set(i,
-                        ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                            ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
                 }
             }
         }
@@ -355,15 +423,33 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
+        // mysql load only have one data desc.
+        if (isMysqlLoad && !dataDescriptions.get(0).isClientLocal()) {
+            for (String path : dataDescriptions.get(0).getFilePaths()) {
+                if (Config.mysql_load_server_secure_path.isEmpty()) {
+                    throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
+                            + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
+                } else {
+                    File file = new File(path);
+                    try {
+                        if (!(file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path))) {
+                            throw new AnalysisException("Local file should be under the secure path of FE.");
+                        }
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                    if (!file.exists()) {
+                        throw new AnalysisException("File: " + path + " is not exists.");
+                    }
+                }
+            }
+        }
+
         if (resourceDesc != null) {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
-            // TODO(wyb): spark-load
-            if (!Config.enable_spark_load) {
-                throw new AnalysisException("Spark Load is coming soon");
-            }
             // check resource usage privilege
-            if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                                                                          resourceDesc.getName(),
                                                                          PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
@@ -372,6 +458,8 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
+        } else if (isMysqlLoad) {
+            etlJobType = EtlJobType.LOCAL_FILE;
         } else {
             // if cluster is null, use default hadoop cluster
             // if cluster is not null, use this hadoop cluster
@@ -385,6 +473,10 @@ public class LoadStmt extends DdlStmt {
         }
 
         user = ConnectContext.get().getQualifiedUser();
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -433,5 +525,13 @@ public class LoadStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public RedirectStatus getRedirectStatus() {
+        if (isMysqlLoad) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

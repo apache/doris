@@ -17,14 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -69,9 +71,11 @@ public class CancelAlterTableStmt extends CancelStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         dbTableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName());
 
         // check access
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
                                                                 dbTableName.getTbl(),
                                                                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL ALTER TABLE",
@@ -87,8 +91,8 @@ public class CancelAlterTableStmt extends CancelStmt {
         stringBuilder.append("CANCEL ALTER " + this.alterType);
         stringBuilder.append(" FROM " + dbTableName.toSql());
         if (!CollectionUtils.isEmpty(alterJobIdList)) {
-            stringBuilder.append(" (")
-            .append(String.join(",",alterJobIdList.stream().map(String::valueOf).collect(Collectors.toList())));
+            stringBuilder.append(" (").append(String.join(",", alterJobIdList.stream()
+                    .map(String::valueOf).collect(Collectors.toList())));
             stringBuilder.append(")");
         }
         return stringBuilder.toString();

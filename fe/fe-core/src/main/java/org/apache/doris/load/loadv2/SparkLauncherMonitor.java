@@ -20,7 +20,6 @@ package org.apache.doris.load.loadv2;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
-
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.logging.log4j.LogManager;
@@ -141,13 +140,14 @@ public class SparkLauncherMonitor {
                             }
                         }
 
-                        LOG.debug("spark appId that handle get is {}, state: {}", handle.getAppId(), handle.getState().toString());
+                        LOG.debug("spark appId that handle get is {}, state: {}",
+                                handle.getAppId(), handle.getState().toString());
                         switch (newState) {
                             case UNKNOWN:
                             case CONNECTED:
                             case SUBMITTED:
-                                // If the app stays in the UNKNOWN/CONNECTED/SUBMITTED state for more than submitTimeoutMs
-                                // stop monitoring and kill the process
+                                // If the app stays in the UNKNOWN/CONNECTED/SUBMITTED state
+                                // for more than submitTimeoutMs stop monitoring and kill the process
                                 if (System.currentTimeMillis() - startTime > submitTimeoutMs) {
                                     isStop = true;
                                     handle.kill();
@@ -171,10 +171,8 @@ public class SparkLauncherMonitor {
                             default:
                                 Preconditions.checkState(false, "wrong spark app state");
                         }
-                    }
-                    // parse other values
-                    else if (line.contains(QUEUE) || line.contains(START_TIME) || line.contains(FINAL_STATUS) ||
-                            line.contains(URL) || line.contains(USER)) {
+                    } else if (line.contains(QUEUE) || line.contains(START_TIME) || line.contains(FINAL_STATUS)
+                            || line.contains(URL) || line.contains(USER)) { // parse other values
                         String value = getValue(line);
                         if (!Strings.isNullOrEmpty(value)) {
                             try {

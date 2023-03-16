@@ -18,18 +18,26 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.elasticsearch.EsShardPartitions;
 import org.apache.doris.external.elasticsearch.EsShardRouting;
 import org.apache.doris.external.elasticsearch.EsTablePartitions;
+import org.apache.doris.external.elasticsearch.QueryBuilders;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
+import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.planner.external.FederationBackendPolicy;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -41,39 +49,51 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
+import lombok.SneakyThrows;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
+/**
+ * ScanNode for Elasticsearch.
+ **/
 public class EsScanNode extends ScanNode {
 
     private static final Logger LOG = LogManager.getLogger(EsScanNode.class);
 
     private final Random random = new Random(System.currentTimeMillis());
     private Multimap<String, Backend> backendMap;
-    private List<Backend> backendList;
     private EsTablePartitions esTablePartitions;
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
-
-    boolean isFinalized = false;
+    private QueryBuilder queryBuilder;
+    private boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName);
-        table = (EsTable) (desc.getTable());
+        this(id, desc, planNodeName, false);
+    }
+
+    /**
+     * For multicatalog es.
+     **/
+    public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean esExternalTable) {
+        super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
+        if (esExternalTable) {
+            EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
+            table = externalTable.getEsTable();
+        } else {
+            table = (EsTable) (desc.getTable());
+        }
         esTablePartitions = table.getEsTablePartitions();
     }
 
@@ -81,8 +101,13 @@ public class EsScanNode extends ScanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         computeColumnFilter();
-        assignBackends();
         computeStats(analyzer);
+        buildQuery();
+    }
+
+    public void init() throws UserException {
+        computeColumnFilter();
+        buildQuery();
     }
 
     @Override
@@ -110,13 +135,27 @@ public class EsScanNode extends ScanNode {
         isFinalized = true;
     }
 
+    @Override
+    public void finalizeForNereids() throws UserException {
+        if (isFinalized) {
+            return;
+        }
+
+        try {
+            shardScanRanges = getShardLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+
+        isFinalized = true;
+    }
+
     /**
      * return whether can use the doc_values scan
      * 0 and 1 are returned to facilitate Doris BE processing
      *
-     * @param desc            the fields needs to read from ES
+     * @param desc the fields needs to read from ES
      * @param docValueContext the mapping for docvalues fields from origin field to doc_value fields
-     * @return
      */
     private int useDocValueScan(TupleDescriptor desc, Map<String, String> docValueContext) {
         ArrayList<SlotDescriptor> slotDescriptors = desc.getSlots();
@@ -124,7 +163,7 @@ public class EsScanNode extends ScanNode {
         for (SlotDescriptor slotDescriptor : slotDescriptors) {
             selectedFields.add(slotDescriptor.getColumn().getName());
         }
-        if (selectedFields.size() > table.maxDocValueFields()) {
+        if (selectedFields.size() > table.getMaxDocValueFields()) {
             return 0;
         }
         Set<String> docValueFields = docValueContext.keySet();
@@ -138,49 +177,39 @@ public class EsScanNode extends ScanNode {
         return useDocValue ? 1 : 0;
     }
 
+    @SneakyThrows
     @Override
     protected void toThrift(TPlanNode msg) {
-        if (EsTable.TRANSPORT_HTTP.equals(table.getTransport())) {
-            msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
-        } else {
-            msg.node_type = TPlanNodeType.ES_SCAN_NODE;
-        }
+        msg.node_type = TPlanNodeType.ES_HTTP_SCAN_NODE;
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsTable.USER, table.getUserName());
-        properties.put(EsTable.PASSWORD, table.getPasswd());
-        properties.put(EsTable.HTTP_SSL_ENABLED, String.valueOf(table.isHttpSslEnabled()));
-        TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
-        esScanNode.setProperties(properties);
-        if (table.isDocValueScanEnable()) {
-            esScanNode.setDocvalueContext(table.docValueContext());
-            properties.put(EsTable.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
+        if (table.getUserName() != null) {
+            properties.put(EsResource.USER, table.getUserName());
         }
-        if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
+        if (table.getPasswd() != null) {
+            properties.put(EsResource.PASSWORD, table.getPasswd());
+        }
+        properties.put(EsResource.HTTP_SSL_ENABLED, String.valueOf(table.isHttpSslEnabled()));
+        TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
+        if (table.isEnableDocValueScan()) {
+            esScanNode.setDocvalueContext(table.docValueContext());
+            properties.put(EsResource.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
+        }
+        properties.put(EsResource.QUERY_DSL, queryBuilder.toJson());
+        if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
+        esScanNode.setProperties(properties);
         msg.es_scan_node = esScanNode;
-    }
-
-    private void assignBackends() throws UserException {
-        backendMap = HashMultimap.create();
-        backendList = Lists.newArrayList();
-        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                backendMap.put(be.getHost(), be);
-                backendList.add(be);
-            }
-        }
-        if (backendMap.isEmpty()) {
-            throw new UserException("No Alive backends");
-        }
     }
 
     // only do partition(es index level) prune
     private List<TScanRangeLocations> getShardLocations() throws UserException {
-        // has to get partition info from es state not from table because the partition info is generated from es cluster state dynamically
+        // has to get partition info from es state not from table because the partition
+        // info is generated from es cluster state dynamically
         if (esTablePartitions == null) {
             if (table.getLastMetaDataSyncException() != null) {
-                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: " + table.getLastMetaDataSyncException().getLocalizedMessage());
+                throw new UserException("fetch es table [" + table.getName() + "] metadata failure: "
+                        + table.getLastMetaDataSyncException().getLocalizedMessage());
             }
             throw new UserException("EsTable metadata has not been synced, Try it later");
         }
@@ -200,46 +229,28 @@ public class EsScanNode extends ScanNode {
             }
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("partition prune finished, unpartitioned index [{}], "
-                            + "partitioned index [{}]",
-                    String.join(",", unPartitionedIndices),
-                    String.join(",", partitionedIndices));
+            LOG.debug("partition prune finished, unpartitioned index [{}], " + "partitioned index [{}]",
+                    String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
-        int size = backendList.size();
-        int beIndex = random.nextInt(size);
         List<TScanRangeLocations> result = Lists.newArrayList();
         for (EsShardPartitions indexState : selectedIndex) {
             for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
                 // get backends
-                Set<Backend> colocatedBes = Sets.newHashSet();
-                int numBe = Math.min(3, size);
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
+                List<String> preLocations = new ArrayList<>();
                 for (EsShardRouting item : shardRouting) {
-                    shardAllocations.add(EsTable.TRANSPORT_HTTP.equals(table.getTransport()) ? item.getHttpAddress() : item.getAddress());
+                    shardAllocations.add(item.getHttpAddress());
+                    preLocations.add(item.getHttpAddress().getHostname());
                 }
 
-                Collections.shuffle(shardAllocations, random);
-                for (TNetworkAddress address : shardAllocations) {
-                    colocatedBes.addAll(backendMap.get(address.getHostname()));
-                }
-                boolean usingRandomBackend = colocatedBes.size() == 0;
-                List<Backend> candidateBeList = Lists.newArrayList();
-                if (usingRandomBackend) {
-                    for (int i = 0; i < numBe; ++i) {
-                        candidateBeList.add(backendList.get(beIndex++ % size));
-                    }
-                } else {
-                    candidateBeList.addAll(colocatedBes);
-                    Collections.shuffle(candidateBeList);
-                }
-
-                // Locations
+                FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
+                backendPolicy.init(preLocations);
                 TScanRangeLocations locations = new TScanRangeLocations();
-                for (int i = 0; i < numBe && i < candidateBeList.size(); ++i) {
+                for (int i = 0; i < backendPolicy.numBackends(); ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
-                    Backend be = candidateBeList.get(i);
+                    Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
-                    location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+                    location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
                     locations.addToLocations(location);
                 }
 
@@ -247,7 +258,9 @@ public class EsScanNode extends ScanNode {
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
                 esScanRange.setIndex(shardRouting.get(0).getIndexName());
-                esScanRange.setType(table.getMappingType());
+                if (table.getType() != null) {
+                    esScanRange.setType(table.getMappingType());
+                }
                 esScanRange.setShardId(shardRouting.get(0).getShardId());
                 // Scan range
                 TScanRange scanRange = new TScanRange();
@@ -274,21 +287,19 @@ public class EsScanNode extends ScanNode {
      * with one or more indices some indices could be pruned by using partition info
      * in index settings currently only support range partition setting
      *
-     * @param partitionInfo
-     * @return
-     * @throws AnalysisException
+     * @param partitionInfo partitionInfo
      */
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
         if (partitionInfo == null) {
             return null;
         }
-        PartitionPruner partitionPruner = null;
+        PartitionPruner partitionPruner;
         switch (partitionInfo.getType()) {
             case RANGE: {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 Map<Long, PartitionItem> keyRangeById = rangePartitionInfo.getIdToItem(false);
-                partitionPruner = new RangePartitionPruner(keyRangeById, rangePartitionInfo.getPartitionColumns(),
-                        columnFilters);
+                partitionPruner = new RangePartitionPrunerV2(keyRangeById, rangePartitionInfo.getPartitionColumns(),
+                        columnNameToRange);
                 return partitionPruner.prune();
             }
             case UNPARTITIONED: {
@@ -314,22 +325,42 @@ public class EsScanNode extends ScanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(
-                    getExplainString(conjuncts)).append("\n");
-            // reserved for later using: LOCAL_PREDICATES is processed by Doris EsScanNode
-            output.append(prefix).append("LOCAL_PREDICATES: ").append(" ").append("\n");
-            // reserved for later using: REMOTE_PREDICATES is processed by remote ES Cluster
-            output.append(prefix).append("REMOTE_PREDICATES: ").append(" ").append("\n");
-            // reserved for later using: translate predicates to ES queryDSL
-            output.append(prefix).append("ES_QUERY_DSL: ").append(" ").append("\n");
-        } else {
-            output.append(prefix).append("ES_QUERY_DSL: ").append("{\"match_all\": {}}").append("\n");
+            output.append(prefix).append("LOCAL_PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
         }
+        output.append(prefix).append("REMOTE_PREDICATES: ").append(queryBuilder.toJson()).append("\n");
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
-        output.append(prefix)
-                .append(String.format("ES index/type: %s/%s", indexName, typeName))
-                .append("\n");
+        output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
         return output.toString();
+    }
+
+    private void buildQuery() {
+        if (conjuncts.isEmpty()) {
+            queryBuilder = QueryBuilders.matchAllQuery();
+        } else {
+            // col -> col.keyword
+            Map<String, String> fieldsContext = new HashMap<>();
+            if (table.isEnableKeywordSniff() && !table.fieldsContext().isEmpty()) {
+                fieldsContext = table.fieldsContext();
+            }
+            boolean hasFilter = false;
+            BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
+            List<Expr> notPushDownList = new ArrayList<>();
+            for (Expr expr : conjuncts) {
+                QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
+                        BuilderOptions.builder().likePushDown(table.isLikePushDown())
+                                .needCompatDateFields(table.needCompatDateFields()).build());
+                if (queryBuilder != null) {
+                    hasFilter = true;
+                    boolQueryBuilder.must(queryBuilder);
+                }
+            }
+            if (!hasFilter) {
+                queryBuilder = QueryBuilders.matchAllQuery();
+            } else {
+                queryBuilder = boolQueryBuilder;
+            }
+            conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
+        }
     }
 }

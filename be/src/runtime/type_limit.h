@@ -15,29 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_TYPE_LIMIT_H
-#define DORIS_BE_RUNTIME_TYPE_LIMIT_H
+#pragma once
 
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 template <typename T>
 struct type_limit {
-    static T min() {
-        return std::numeric_limits<T>::lowest();
-    }
-    static T max() {
-        return std::numeric_limits<T>::max();
-    }
+    static T min() { return std::numeric_limits<T>::lowest(); }
+    static T max() { return std::numeric_limits<T>::max(); }
 };
 
 template <>
-struct type_limit<StringValue> {
-    static StringValue min() { return StringValue::min_string_val(); }
-    static StringValue max() { return StringValue::max_string_val(); }
+struct type_limit<StringRef> {
+    static StringRef min() { return StringRef::min_string_val(); }
+    static StringRef max() { return StringRef::max_string_val(); }
 };
 
 template <>
@@ -52,6 +47,34 @@ struct type_limit<DateTimeValue> {
     static DateTimeValue max() { return DateTimeValue::datetime_max_value(); }
 };
 
-} // namespace doris
+template <>
+struct type_limit<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
+    static doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> min() {
+        uint32_t min = doris::vectorized::MIN_DATE_V2;
+        return binary_cast<uint32_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(min);
+    }
+    static doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> max() {
+        uint32_t max = doris::vectorized::MAX_DATE_V2;
+        return binary_cast<uint32_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(max);
+    }
+};
 
-#endif
+template <>
+struct type_limit<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
+    static doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> min() {
+        uint64_t min = doris::vectorized::MIN_DATETIME_V2;
+        return binary_cast<uint64_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
+                min);
+    }
+    static doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> max() {
+        uint64_t max = doris::vectorized::MAX_DATETIME_V2;
+        return binary_cast<uint64_t,
+                           doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
+                max);
+    }
+};
+
+} // namespace doris

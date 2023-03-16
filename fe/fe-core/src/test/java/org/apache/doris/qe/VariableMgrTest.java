@@ -23,8 +23,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -56,7 +55,7 @@ public class VariableMgrTest {
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     @Test
@@ -65,6 +64,7 @@ public class VariableMgrTest {
         long originExecMemLimit = var.getMaxExecMemByte();
         boolean originEnableProfile = var.enableProfile();
         long originQueryTimeOut = var.getQueryTimeoutS();
+        final int originInsertTimeout = var.getInsertTimeoutS();
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
         Assert.assertTrue(rows.size() > 5);
@@ -77,6 +77,8 @@ public class VariableMgrTest {
                 Assert.assertEquals(String.valueOf(originQueryTimeOut), row.get(1));
             } else if (row.get(0).equalsIgnoreCase("sql_mode")) {
                 Assert.assertEquals("", row.get(1));
+            } else if (row.get(0).equalsIgnoreCase("insert_timeout")) {
+                Assert.assertEquals(String.valueOf(originInsertTimeout), row.get(1));
             }
         }
 
@@ -163,6 +165,8 @@ public class VariableMgrTest {
         SetExecutor executor = new SetExecutor(ctx, stmt);
         executor.execute();
         Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
+        // the session var is also changed.
+        Assert.assertEquals(5678, ctx.getSessionVariable().getMaxExecMemByte());
 
         Config.edit_log_roll_num = 100;
         stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=7890", ctx);
@@ -171,17 +175,20 @@ public class VariableMgrTest {
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
 
         // Get currentCatalog first
-        Catalog currentCatalog = Catalog.getCurrentCatalog();
+        Env currentEnv = Env.getCurrentEnv();
         // Save real ckptThreadId
-        long ckptThreadId = currentCatalog.getCheckpointer().getId();
+        long ckptThreadId = currentEnv.getCheckpointer().getId();
         try {
             // set checkpointThreadId to current thread id, so that when do checkpoint manually here,
             // the Catalog.isCheckpointThread() will return true.
-            Deencapsulation.setField(Catalog.class, "checkpointThreadId", Thread.currentThread().getId());
-            currentCatalog.getCheckpointer().doCheckpoint();
+            Deencapsulation.setField(Env.class, "checkpointThreadId", Thread.currentThread().getId());
+            currentEnv.getCheckpointer().doCheckpoint();
+        } catch (Throwable e) {
+            e.printStackTrace();
+            Assert.fail(e.getMessage());
         } finally {
             // Restore the ckptThreadId
-            Deencapsulation.setField(Catalog.class, "checkpointThreadId", ckptThreadId);
+            Deencapsulation.setField(Env.class, "checkpointThreadId", ckptThreadId);
         }
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
     }
@@ -223,13 +230,18 @@ public class VariableMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testReadOnly() throws AnalysisException, DdlException {
-        SysVariableDesc desc = new SysVariableDesc("version_comment");
-
+    public void testReadOnly() throws DdlException {
         // Set global variable
         SetVar setVar = new SetVar(SetType.SESSION, "version_comment", null);
         VariableMgr.setVar(null, setVar);
         Assert.fail("No exception throws.");
     }
-}
 
+    @Test
+    public void testVariableCallback() throws Exception {
+        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set session_context='trace_id:123'", ctx);
+        SetExecutor executor = new SetExecutor(ctx, stmt);
+        executor.execute();
+        Assert.assertEquals("123", ctx.traceId());
+    }
+}

@@ -30,7 +30,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.annotations.SerializedName;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -50,19 +49,19 @@ import java.util.Set;
 
 /*
  * This unit test provides examples about how to make a class serializable.
- * 
+ *
  *    "OrigClassA" is a class includes user-defined class "InnerClassA".
  *    And "InnerClassA" includes some collections which contain another user-defined class "InnerClassB".
- *    
+ *
  *    And there are 2 other classes "OriginClassADifferentMembers" and "OriginClassADifferentMemberName".
  *    "OriginClassADifferentMembers" shows how to add/remove members of a serializable class.
  *    "OriginClassADifferentMemberName" shows how to modify members' name of a serializable class.
- *    
+ *
  *    Every fields which need to be serialized should be with annotation @SerializedName.
  *    @SerializedName has 2 attributes:
  *      1. value(required): the name of this field in Json string.
  *      2. alternate(optional): if we want to use new name for a field and its value in annotation, use alternate.
- *    
+ *
  */
 public class GsonSerializationTest {
     private static String fileName = "./GsonSerializationTest";
@@ -109,10 +108,10 @@ public class GsonSerializationTest {
         public InnerClassA(int flag) {
             list1.add("string1");
             list1.add("string2");
-            
+
             map1.put(1L, "value1");
             map1.put(2L, "value2");
-            
+
             map2.put(1, new InnerClassB(1));
             map2.put(2, new InnerClassB(2));
 
@@ -153,7 +152,7 @@ public class GsonSerializationTest {
 
             this.hashBasedTable.put(1L, "col1", 1L);
             this.hashBasedTable.put(2L, "col2", 2L);
-            
+
             this.arrayListMultimap.put(1L, "value1");
             this.arrayListMultimap.put(1L, "value2");
 
@@ -230,7 +229,7 @@ public class GsonSerializationTest {
             return GsonUtils.GSON.fromJson(json, OriginClassADifferentMemberName.class);
         }
     }
-    
+
     @After
     public void tearDown() {
         File file = new File(fileName);
@@ -273,7 +272,7 @@ public class GsonSerializationTest {
         Assert.assertEquals(0, readClassA.classA1.map2.get(1).ignoreField);
         Assert.assertEquals(0, readClassA.classA1.map2.get(2).ignoreField);
         Assert.assertEquals(Sets.newHashSet("set1", "set2"), readClassA.classA1.set1);
-        
+
         Table<Long, String, Long> hashBasedTable = readClassA.classA1.map2.get(1).hashBasedTable;
         Assert.assertEquals("HashBasedTable", hashBasedTable.getClass().getSimpleName());
         Multimap<Long, String> hashMultimap = readClassA.classA1.map2.get(1).hashMultimap;

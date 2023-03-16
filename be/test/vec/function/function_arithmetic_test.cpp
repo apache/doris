@@ -21,7 +21,6 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "runtime/tuple_row.h"
 #include "util/url_coding.h"
 #include "vec/core/field.h"
 
@@ -117,9 +116,3 @@ TEST(function_arithmetic_test, bitxor_test) {
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

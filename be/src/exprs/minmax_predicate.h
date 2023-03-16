@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/object_pool.h"
-#include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
 
 namespace doris {
@@ -26,6 +25,7 @@ namespace doris {
 class MinMaxFuncBase {
 public:
     virtual void insert(const void* data) = 0;
+    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
     virtual bool find(void* data) = 0;
     virtual bool is_empty() = 0;
     virtual void* get_max() = 0;
@@ -34,16 +34,28 @@ public:
     virtual Status assign(void* min_data, void* max_data) = 0;
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
+    virtual ~MinMaxFuncBase() = default;
 };
 
 template <class T>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
-    ~MinMaxNumFunc() = default;
-    virtual void insert(const void* data) {
-        if (data == nullptr) return;
-        const T val_data = *reinterpret_cast<const T*>(data);
+    ~MinMaxNumFunc() override = default;
+
+    void insert(const void* data) override {
+        if (data == nullptr) {
+            return;
+        }
+
+        T val_data;
+        if constexpr (std::is_same_v<T, DateTimeValue>) {
+            reinterpret_cast<const vectorized::VecDateTimeValue*>(data)->convert_vec_dt_to_dt(
+                    &val_data);
+        } else {
+            val_data = *reinterpret_cast<const T*>(data);
+        }
+
         if (_empty) {
             _min = val_data;
             _max = val_data;
@@ -57,29 +69,45 @@ public:
         }
     }
 
-    virtual bool find(void* data) {
+    void insert_fixed_len(const char* data, const int* offsets, int number) override {
+        if (!number) {
+            return;
+        }
+        if (_empty) {
+            _min = *((T*)data + offsets[0]);
+            _max = *((T*)data + offsets[0]);
+        }
+        for (int i = _empty; i < number; i++) {
+            _min = std::min(_min, *((T*)data + offsets[i]));
+            _max = std::max(_max, *((T*)data + offsets[i]));
+        }
+        _empty = false;
+    }
+
+    bool find(void* data) override {
         if (data == nullptr) {
             return false;
         }
+
         T val_data = *reinterpret_cast<T*>(data);
         return val_data >= _min && val_data <= _max;
     }
 
-    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) {
-        if constexpr (std::is_same_v<T, StringValue>) {
+    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
+        if constexpr (std::is_same_v<T, StringRef>) {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
 
             if (other_minmax->_min < _min) {
                 auto& other_min = other_minmax->_min;
-                auto str = pool->add(new std::string(other_min.ptr, other_min.len));
-                _min.ptr = str->data();
-                _min.len = str->length();
+                auto str = pool->add(new std::string(other_min.data, other_min.size));
+                _min.data = str->data();
+                _min.size = str->length();
             }
             if (other_minmax->_max > _max) {
                 auto& other_max = other_minmax->_max;
-                auto str = pool->add(new std::string(other_max.ptr, other_max.len));
-                _max.ptr = str->data();
-                _max.len = str->length();
+                auto str = pool->add(new std::string(other_max.data, other_max.size));
+                _max.data = str->data();
+                _max.size = str->length();
             }
         } else {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
@@ -94,13 +122,13 @@ public:
         return Status::OK();
     }
 
-    virtual bool is_empty() { return _empty; }
+    bool is_empty() override { return _empty; }
 
-    virtual void* get_max() { return &_max; }
+    void* get_max() override { return &_max; }
 
-    virtual void* get_min() { return &_min; }
+    void* get_min() override { return &_min; }
 
-    virtual Status assign(void* min_data, void* max_data) {
+    Status assign(void* min_data, void* max_data) override {
         _min = *(T*)min_data;
         _max = *(T*)max_data;
         return Status::OK();
@@ -113,4 +141,4 @@ private:
     bool _empty = true;
 };
 
-}
+} // namespace doris

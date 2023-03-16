@@ -60,7 +60,7 @@ public enum ByteSizeUnit {
     KB {
         @Override
         public long toBytes(long size) {
-            return x(size, C1 / C0, MAX / (C1 / C0));
+            return multiply(size, C1 / C0, MAX / (C1 / C0));
         }
 
         @Override
@@ -91,12 +91,12 @@ public enum ByteSizeUnit {
     MB {
         @Override
         public long toBytes(long size) {
-            return x(size, C2 / C0, MAX / (C2 / C0));
+            return multiply(size, C2 / C0, MAX / (C2 / C0));
         }
 
         @Override
         public long toKB(long size) {
-            return x(size, C2 / C1, MAX / (C2 / C1));
+            return multiply(size, C2 / C1, MAX / (C2 / C1));
         }
 
         @Override
@@ -122,17 +122,17 @@ public enum ByteSizeUnit {
     GB {
         @Override
         public long toBytes(long size) {
-            return x(size, C3 / C0, MAX / (C3 / C0));
+            return multiply(size, C3 / C0, MAX / (C3 / C0));
         }
 
         @Override
         public long toKB(long size) {
-            return x(size, C3 / C1, MAX / (C3 / C1));
+            return multiply(size, C3 / C1, MAX / (C3 / C1));
         }
 
         @Override
         public long toMB(long size) {
-            return x(size, C3 / C2, MAX / (C3 / C2));
+            return multiply(size, C3 / C2, MAX / (C3 / C2));
         }
 
         @Override
@@ -153,22 +153,22 @@ public enum ByteSizeUnit {
     TB {
         @Override
         public long toBytes(long size) {
-            return x(size, C4 / C0, MAX / (C4 / C0));
+            return multiply(size, C4 / C0, MAX / (C4 / C0));
         }
 
         @Override
         public long toKB(long size) {
-            return x(size, C4 / C1, MAX / (C4 / C1));
+            return multiply(size, C4 / C1, MAX / (C4 / C1));
         }
 
         @Override
         public long toMB(long size) {
-            return x(size, C4 / C2, MAX / (C4 / C2));
+            return multiply(size, C4 / C2, MAX / (C4 / C2));
         }
 
         @Override
         public long toGB(long size) {
-            return x(size, C4 / C3, MAX / (C4 / C3));
+            return multiply(size, C4 / C3, MAX / (C4 / C3));
         }
 
         @Override
@@ -184,27 +184,27 @@ public enum ByteSizeUnit {
     PB {
         @Override
         public long toBytes(long size) {
-            return x(size, C5 / C0, MAX / (C5 / C0));
+            return multiply(size, C5 / C0, MAX / (C5 / C0));
         }
 
         @Override
         public long toKB(long size) {
-            return x(size, C5 / C1, MAX / (C5 / C1));
+            return multiply(size, C5 / C1, MAX / (C5 / C1));
         }
 
         @Override
         public long toMB(long size) {
-            return x(size, C5 / C2, MAX / (C5 / C2));
+            return multiply(size, C5 / C2, MAX / (C5 / C2));
         }
 
         @Override
         public long toGB(long size) {
-            return x(size, C5 / C3, MAX / (C5 / C3));
+            return multiply(size, C5 / C3, MAX / (C5 / C3));
         }
 
         @Override
         public long toTB(long size) {
-            return x(size, C5 / C4, MAX / (C5 / C4));
+            return multiply(size, C5 / C4, MAX / (C5 / C4));
         }
 
         @Override
@@ -233,9 +233,13 @@ public enum ByteSizeUnit {
      * Scale d by m, checking for overflow.
      * This has a short name to make above code more readable.
      */
-    static long x(long d, long m, long over) {
-        if (d > over) return Long.MAX_VALUE;
-        if (d < -over) return Long.MIN_VALUE;
+    static long multiply(long d, long m, long over) {
+        if (d > over) {
+            return Long.MAX_VALUE;
+        }
+        if (d < -over) {
+            return Long.MIN_VALUE;
+        }
         return d * m;
     }
 

@@ -44,8 +44,8 @@ public class PropertiesSet<T extends PropertySchema.SchemaGroup> {
 
     @SuppressWarnings("unchecked")
     public <U> U get(PropertySchema<U> prop) throws NoSuchElementException {
-        return properties.containsKey(prop.getName()) ?
-                (U) properties.get(prop.getName()) : prop.getDefaultValue().get();
+        return properties.containsKey(prop.getName())
+                ? (U) properties.get(prop.getName()) : prop.getDefaultValue().get();
     }
 
     public List<PropertySchema> getModifiedSchemas() {

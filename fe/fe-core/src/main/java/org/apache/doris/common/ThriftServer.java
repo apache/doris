@@ -17,10 +17,10 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TProcessor;
@@ -92,29 +92,40 @@ public class ThriftServer {
 
     private void createSimpleServer() throws TTransportException {
         TServer.Args args = new TServer.Args(new TServerSocket(port)).protocolFactory(
-          new TBinaryProtocol.Factory()).processor(processor);
+                new TBinaryProtocol.Factory()).processor(processor);
         server = new TSimpleServer(args);
     }
 
     private void createThreadedServer() throws TTransportException {
-        TThreadedSelectorServer.Args args =
-          new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
-            new TBinaryProtocol.Factory()).processor(processor);
-        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
+        TThreadedSelectorServer.Args args = new TThreadedSelectorServer.Args(
+                new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
+                        new TBinaryProtocol.Factory()).processor(processor);
+        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
+                Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         args.executorService(threadPoolExecutor);
         server = new TThreadedSelectorServer(args);
     }
 
     private void createThreadPoolServer() throws TTransportException {
-        TServerSocket.ServerSocketTransportArgs socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
-            .bindAddr(new InetSocketAddress(port))
-            .clientTimeout(Config.thrift_client_timeout_ms)
-            .backlog(Config.thrift_backlog_num);
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
+
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                .bindAddr(new InetSocketAddress("::0", port))
+                .clientTimeout(Config.thrift_client_timeout_ms)
+                .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                .clientTimeout(Config.thrift_client_timeout_ms)
+                .backlog(Config.thrift_backlog_num);
+        }
 
         TThreadPoolServer.Args serverArgs =
-          new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
-            new TBinaryProtocol.Factory()).processor(processor);
-        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
+                new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
+                        new TBinaryProtocol.Factory()).processor(processor);
+        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
+                Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         serverArgs.executorService(threadPoolExecutor);
         server = new TThreadPoolServer(serverArgs);
     }
@@ -139,12 +150,7 @@ public class ThriftServer {
         ThriftServerEventProcessor eventProcessor = new ThriftServerEventProcessor(this);
         server.setServerEventHandler(eventProcessor);
 
-        serverThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                server.serve();
-            }
-        });
+        serverThread = new Thread(() -> server.serve());
         serverThread.setDaemon(true);
         serverThread.start();
     }

@@ -20,7 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.loadv2.dpp.DppResult;
+import org.apache.doris.sparkdpp.DppResult;
 import org.apache.doris.thrift.TEtlState;
 
 import com.google.common.base.Strings;
@@ -34,7 +34,7 @@ import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
     public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
-    
+
     private TEtlState state;
     private String trackingUrl;
     private Map<String, String> stats;
@@ -147,22 +147,22 @@ public class EtlStatus implements Writable {
 
     @Override
     public String toString() {
-        return "EtlStatus{" +
-                "state=" + state +
-                ", trackingUrl='" + trackingUrl + '\'' +
-                ", stats=" + stats +
-                ", counters=" + counters +
-                ", fileMap=" + fileMap +
-                ", progress=" + progress +
-                ", failMsg='" + failMsg + '\'' +
-                ", dppResult='" + dppResult + '\'' +
-                '}';
+        return "EtlStatus{"
+                + "state=" + state
+                + ", trackingUrl='" + trackingUrl + '\''
+                + ", stats=" + stats
+                + ", counters=" + counters
+                + ", fileMap=" + fileMap
+                + ", progress=" + progress
+                + ", failMsg='" + failMsg + '\''
+                + ", dppResult='" + dppResult + '\''
+                + '}';
     }
 
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, state.name());
         Text.writeString(out, trackingUrl);
-        
+
         int statsCount = (stats == null) ? 0 : stats.size();
         out.writeInt(statsCount);
         for (Map.Entry<String, String> entry : stats.entrySet()) {
@@ -177,6 +177,7 @@ public class EtlStatus implements Writable {
             Text.writeString(out, entry.getValue());
         }
     }
+
     public void readFields(DataInput in) throws IOException {
         state = TEtlState.valueOf(Text.readString(in));
         trackingUrl = Text.readString(in);
@@ -195,18 +196,18 @@ public class EtlStatus implements Writable {
             counters.put(key, value);
         }
     }
-    
+
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof EtlStatus)) {
             return false;
         }
-        
+
         EtlStatus etlTaskStatus = (EtlStatus) obj;
-        
+
         // Check stats
         if (etlTaskStatus.stats == null) {
             return false;
@@ -223,7 +224,7 @@ public class EtlStatus implements Writable {
                 return false;
             }
         }
-        
+
         // Check counters
         if (etlTaskStatus.counters == null) {
             return false;
@@ -240,7 +241,7 @@ public class EtlStatus implements Writable {
                 return false;
             }
         }
-        
+
         return state.equals(etlTaskStatus.state) && trackingUrl.equals(etlTaskStatus.trackingUrl);
     }
 }

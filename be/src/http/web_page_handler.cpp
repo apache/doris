@@ -64,7 +64,8 @@ void WebPageHandler::register_template_page(const std::string& path, const strin
                                             bool is_on_nav_bar) {
     // Relative path which will be used to find .mustache file in _www_path
     std::string render_path = (path == "/") ? "/home" : path;
-    auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
+    auto wrapped_cb = [callback, render_path, this](const ArgumentMap& args,
+                                                    std::stringstream* output) {
         EasyJson ej;
         callback(args, &ej);
         render(render_path, ej, true /* is_styled */, output);
@@ -128,7 +129,7 @@ static const std::string kMainTemplate = R"(
     <meta charset='utf-8'/>
     <link href='/Bootstrap-3.3.7/css/bootstrap.min.css' rel='stylesheet' media='screen' />
     <link href='/Bootstrap-3.3.7/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
-    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js'></script>
+    <script src='/jQuery-3.6.0/jquery-3.6.0.min.js'></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap.min.js' defer></script>
     <script src='/Bootstrap-3.3.7/js/bootstrap-table.min.js' defer></script>
     <script src='/doris.js' defer></script>

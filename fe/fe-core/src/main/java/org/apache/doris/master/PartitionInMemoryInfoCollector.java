@@ -17,15 +17,16 @@
 
 package org.apache.doris.master;
 
-import com.google.common.collect.ImmutableSet;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,12 +46,12 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
     }
 
     private void updatePartitionInMemoryInfo() {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        TabletInvertedIndex tabletInvertedIndex = catalog.getTabletInvertedIndex();
+        Env env = Env.getCurrentEnv();
+        TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         ImmutableSet.Builder builder = ImmutableSet.builder();
-        List<Long> dbIdList = catalog.getDbIds();
+        List<Long> dbIdList = env.getInternalCatalog().getDbIds();
         for (Long dbId : dbIdList) {
-            Database db = catalog.getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;
@@ -78,7 +79,8 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                     }
                 }
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update database[{}] partition in memory info, partitionInMemoryCount : {}.", db.getFullName(), partitionInMemoryCount);
+                    LOG.debug("Update database[{}] partition in memory info, partitionInMemoryCount : {}.",
+                            db.getFullName(), partitionInMemoryCount);
                 }
             } catch (Exception e) {
                 LOG.warn("Update database[" + db.getFullName() + "] partition in memory info failed", e);

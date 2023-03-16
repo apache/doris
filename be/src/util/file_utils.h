@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_UTIL_FILE_UTILS_H
-#define DORIS_BE_UTIL_FILE_UTILS_H
+#pragma once
 
 #include <functional>
 #include <string>
@@ -53,8 +52,6 @@ public:
     static Status create_dir(const std::string& dir_path, Env* env);
 
     // Delete file recursively.
-    static Status remove_all(const std::string& dir_path, TStorageMedium::type store);
-
     static Status remove_all(const std::string& dir_path);
 
     static Status remove(const std::string& path);
@@ -71,7 +68,7 @@ public:
                                   std::set<std::string>* files, Env* env);
 
     // Get the number of children belong to the specified directory, this
-    // funciton also exclude '.' and '..'.
+    // function also exclude '.' and '..'.
     // Return OK with *count is set to the count, if execute successful.
     static Status get_children_count(Env* env, const std::string& dir, int64_t* count);
 
@@ -99,6 +96,8 @@ public:
     // calc md5sum of a local file
     static Status md5sum(const std::string& file, std::string* md5sum);
 
+    static Status mtime(const std::string& file, time_t* m_time);
+
     // check path(file or directory) exist with default env
     static bool check_exist(const std::string& path);
 
@@ -112,5 +111,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

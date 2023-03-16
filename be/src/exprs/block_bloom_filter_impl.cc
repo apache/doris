@@ -15,13 +15,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.cc
+// and modified by Doris
 
 #ifdef __aarch64__
-#include "util/sse2neon.h"
-#else //__aarch64__
+#include <sse2neon.h>
+#else
 #include <emmintrin.h>
 #include <mm_malloc.h>
 #endif
+
+#include <butil/iobuf.h>
 
 #include <algorithm>
 #include <climits>
@@ -57,8 +62,8 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
     // Since we use 32 bits in the arguments of Insert() and Find(), _log_num_buckets
     // must be limited.
     if (_log_num_buckets > 32) {
-        return Status::InvalidArgument(
-                fmt::format("Bloom filter too large. log_space_bytes: {}", log_space_bytes));
+        return Status::InvalidArgument("Bloom filter too large. log_space_bytes: {}",
+                                       log_space_bytes);
     }
     // Don't use _log_num_buckets if it will lead to undefined behavior by a shift
     // that is too large.
@@ -66,8 +71,12 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
 
     const size_t alloc_size = directory_size();
     close(); // Ensure that any previously allocated memory for directory_ is released.
-    _mem_holder.reset(new char[alloc_size]);
-    _directory = (Bucket*)_mem_holder.get();
+    DCHECK(_directory == nullptr);
+    int rc = posix_memalign((void**)&_directory, 32, alloc_size);
+    if (rc != 0) {
+        return Status::InternalError("block_bloom_filter alloc fail");
+    }
+
     _hash_seed = hash_seed;
     return Status::OK();
 }
@@ -80,23 +89,33 @@ Status BlockBloomFilter::init(const int log_space_bytes, uint32_t hash_seed) {
     return Status::OK();
 }
 
-Status BlockBloomFilter::init_from_directory(int log_space_bytes, const Slice& directory,
-                                             bool always_false, uint32_t hash_seed) {
+Status BlockBloomFilter::init_from_directory(int log_space_bytes,
+                                             butil::IOBufAsZeroCopyInputStream* data,
+                                             const size_t data_size, bool always_false,
+                                             uint32_t hash_seed) {
     RETURN_IF_ERROR(init_internal(log_space_bytes, hash_seed));
     DCHECK(_directory);
 
-    if (directory_size() != directory.size) {
+    if (directory_size() != data_size) {
         return Status::InvalidArgument(fmt::format(
                 "Mismatch in BlockBloomFilter source directory size {} and expected size {}",
-                directory.size, directory_size()));
+                data_size, directory_size()));
     }
-    memcpy(_directory, directory.data, directory.size);
+    int size = 0;
+    char* tmp;
+    const void** ptr = (const void**)&tmp;
+    char* data_ptr = reinterpret_cast<char*>(_directory);
+    while (data->Next(ptr, &size)) {
+        memcpy(data_ptr, *ptr, size);
+        data_ptr += size;
+    }
     _always_false = always_false;
     return Status::OK();
 }
 
 void BlockBloomFilter::close() {
     if (_directory != nullptr) {
+        free(_directory);
         _directory = nullptr;
     }
 }
@@ -112,16 +131,10 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
         new_bucket[i] = 1U << new_bucket[i];
     }
     for (int i = 0; i < 2; ++i) {
-#ifdef __aarch64__
-        uint8x16_t new_bucket_neon = vreinterpretq_u8_u32(vld1q_u32(new_bucket + 4 * i));
-        uint8x16_t* existing_bucket = reinterpret_cast<uint8x16_t*>(&_directory[bucket_idx][4 * i]);
-        *existing_bucket = vorrq_u8(*existing_bucket, new_bucket_neon);
-#else
         __m128i new_bucket_sse = _mm_load_si128(reinterpret_cast<__m128i*>(new_bucket + 4 * i));
         __m128i* existing_bucket =
                 reinterpret_cast<__m128i*>(&DCHECK_NOTNULL(_directory)[bucket_idx][4 * i]);
         *existing_bucket = _mm_or_si128(*existing_bucket, new_bucket_sse);
-#endif
     }
 }
 
@@ -181,7 +194,7 @@ void BlockBloomFilter::or_equal_array_internal(size_t n, const uint8_t* __restri
 Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in,
                                         uint8_t* __restrict__ out) {
     if ((n % kBucketByteSize) != 0) {
-        return Status::InvalidArgument(fmt::format("Input size {} not a multiple of 32-bytes", n));
+        return Status::InvalidArgument("Input size {} not a multiple of 32-bytes", n);
     }
 
     or_equal_array_internal(n, in, out);
@@ -191,7 +204,7 @@ Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in
 
 void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
                                               uint8_t* __restrict__ out) {
-#ifdef __SSE4_2__
+#if defined(__SSE4_2__) || defined(__aarch64__)
     // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
     // written in a way that is very friendly to auto-vectorization. Instead, we manually
     // vectorize, increasing the speed by up to 56x.
@@ -230,17 +243,16 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
         return Status::OK();
     }
     if (directory_size() != other.directory_size()) {
-        return Status::InvalidArgument(
-                fmt::format("Directory size don't match. this: {}, other: {}", directory_size(),
-                            other.directory_size()));
+        return Status::InvalidArgument("Directory size don't match. this: {}, other: {}",
+                                       directory_size(), other.directory_size());
     }
     if (other.always_false()) {
         // Nothing to do.
         return Status::OK();
     }
 
-    or_equal_array_internal(directory_size(), reinterpret_cast<const uint8*>(other._directory),
-                            reinterpret_cast<uint8*>(_directory));
+    or_equal_array_internal(directory_size(), reinterpret_cast<const uint8_t*>(other._directory),
+                            reinterpret_cast<uint8_t*>(_directory));
 
     _always_false = false;
     return Status::OK();

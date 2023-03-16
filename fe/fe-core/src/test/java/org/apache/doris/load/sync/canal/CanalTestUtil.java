@@ -84,7 +84,7 @@ public class CanalTestUtil {
 
     public static Message fetchMessage(long id, boolean isRaw, int batchSize, String binlogFile, long offset, String schemaName, String tableName) {
         List<CanalEntry.Entry> entries = Lists.newArrayList();
-        for (int i = 0 ; i < batchSize; i++) {
+        for (int i = 0; i < batchSize; i++) {
             entries.add(buildEntry(binlogFile, offset++, 1024, schemaName, tableName));
         }
         return new Message(id, isRaw, entries);

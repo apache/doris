@@ -21,14 +21,12 @@
 #include <utility>
 #include <vector>
 
-#include "agent/status.h"
+#include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
-
-using namespace std;
 
 namespace doris {
 
@@ -39,21 +37,19 @@ class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask {
 public:
-    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
-                        int64_t signature, AgentStatus* res_status);
+    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos);
     virtual ~EngineBatchLoadTask();
 
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 private:
-    // The initial function of pusher
-    virtual AgentStatus _init();
+    virtual Status _init();
 
     // The process of push data to olap engine
     //
     // Output parameters:
     // * tablet_infos: The info of pushed tablet after push data
-    virtual AgentStatus _process();
+    virtual Status _process();
 
     // Delete data of specified tablet according to delete conditions,
     // once delete_data command submit success, deleted data is not visible,
@@ -62,21 +58,19 @@ private:
     // @param [in] request specify tablet and delete conditions
     // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
-    // @return OLAP_SUCCESS if submit delete_data success
-    virtual OLAPStatus _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
+    // @return OK if submit delete_data success
+    virtual Status _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
 
-    AgentStatus _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
-    OLAPStatus _push(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
+    Status _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
+    Status _push(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
 
     bool _is_init = false;
     TPushReq& _push_req;
     std::vector<TTabletInfo>* _tablet_infos;
-    int64_t _signature;
-    AgentStatus _download_status;
-    AgentStatus* _res_status;
     std::string _remote_file_path;
     std::string _local_file_path;
-}; // class Pusher
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+}; // class EngineBatchLoadTask
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H

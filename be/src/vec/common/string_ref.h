@@ -15,19 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/StringRef.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/base/base/StringRef.h
 // and modified by Doris
 
 #pragma once
 
+#include <climits>
 #include <functional>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
-#include "udf/udf.h"
+#include "util/cpu_info.h"
+#include "util/hash_util.hpp"
+#include "util/slice.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -38,35 +43,20 @@
 #if defined(__SSE4_2__)
 #include <nmmintrin.h>
 #include <smmintrin.h>
+
+#include "util/sse_util.hpp"
 #endif
 
-/// The thing to avoid creating strings to find substrings in the hash table.
-struct StringRef {
-    const char* data = nullptr;
-    size_t size = 0;
+#if defined(__aarch64__)
+#include <sse2neon.h>
+#endif
 
-    StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
-    StringRef(const unsigned char* data_, size_t size_)
-            : data(reinterpret_cast<const char*>(data_)), size(size_) {}
-    StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
-    StringRef() = default;
+namespace doris {
 
-    std::string to_string() const { return std::string(data, size); }
+/// unnamed namespace packaging simd-style equality compare functions.
+namespace {
 
-    explicit operator std::string() const { return to_string(); }
-
-    StringVal to_string_val() {
-        return StringVal(reinterpret_cast<uint8_t*>(const_cast<char*>(data)), size);
-    }
-
-    static StringRef from_string_val(StringVal sv) {
-        return StringRef(reinterpret_cast<char*>(sv.ptr), sv.len);
-    }
-};
-
-using StringRefs = std::vector<StringRef>;
-
-#if defined(__SSE2__)
+#if defined(__SSE2__) || defined(__aarch64__)
 
 /** Compare strings for equality.
   * The approach is controversial and does not win in all cases.
@@ -98,112 +88,231 @@ inline bool compareSSE2x4(const char* p1, const char* p2) {
 }
 
 inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
+    /** The order of branches and the trick with overlapping comparisons
+      * are the same as in memcpy implementation.
+      * See the comments in
+      * https://github.com/ClickHouse/ClickHouse/blob/master/base/glibc-compatibility/memcpy/memcpy.h
+      */
+
+    if (size <= 16) {
+        if (size >= 8) {
+            /// Chunks of [8,16] bytes.
+            return unaligned_load<uint64_t>(p1) == unaligned_load<uint64_t>(p2) &&
+                   unaligned_load<uint64_t>(p1 + size - 8) ==
+                           unaligned_load<uint64_t>(p2 + size - 8);
+        } else if (size >= 4) {
+            /// Chunks of [4,7] bytes.
+            return unaligned_load<uint32_t>(p1) == unaligned_load<uint32_t>(p2) &&
+                   unaligned_load<uint32_t>(p1 + size - 4) ==
+                           unaligned_load<uint32_t>(p2 + size - 4);
+        } else if (size >= 2) {
+            /// Chunks of [2,3] bytes.
+            return unaligned_load<uint16_t>(p1) == unaligned_load<uint16_t>(p2) &&
+                   unaligned_load<uint16_t>(p1 + size - 2) ==
+                           unaligned_load<uint16_t>(p2 + size - 2);
+        } else if (size >= 1) {
+            /// A single byte.
+            return *p1 == *p2;
+        }
+        return true;
+    }
+
     while (size >= 64) {
         if (compareSSE2x4(p1, p2)) {
             p1 += 64;
             p2 += 64;
             size -= 64;
-        } else
+        } else {
             return false;
+        }
     }
 
-    switch ((size % 64) / 16) {
+    switch (size / 16) {
     case 3:
-        if (!compareSSE2(p1 + 32, p2 + 32)) return false;
+        if (!compareSSE2(p1 + 32, p2 + 32)) {
+            return false;
+        }
         [[fallthrough]];
     case 2:
-        if (!compareSSE2(p1 + 16, p2 + 16)) return false;
-        [[fallthrough]];
-    case 1:
-        if (!compareSSE2(p1, p2)) return false;
-        [[fallthrough]];
-    case 0:
-        break;
-    }
-
-    p1 += (size % 64) / 16 * 16;
-    p2 += (size % 64) / 16 * 16;
-
-    switch (size % 16) {
-    case 15:
-        if (p1[14] != p2[14]) return false;
-        [[fallthrough]];
-    case 14:
-        if (p1[13] != p2[13]) return false;
-        [[fallthrough]];
-    case 13:
-        if (p1[12] != p2[12]) return false;
-        [[fallthrough]];
-    case 12:
-        if (unaligned_load<uint32_t>(p1 + 8) == unaligned_load<uint32_t>(p2 + 8))
-            goto l8;
-        else
+        if (!compareSSE2(p1 + 16, p2 + 16)) {
             return false;
-    case 11:
-        if (p1[10] != p2[10]) return false;
+        }
         [[fallthrough]];
-    case 10:
-        if (p1[9] != p2[9]) return false;
-        [[fallthrough]];
-    case 9:
-        if (p1[8] != p2[8]) return false;
-    l8:
-        [[fallthrough]];
-    case 8:
-        return unaligned_load<uint64_t>(p1) == unaligned_load<uint64_t>(p2);
-    case 7:
-        if (p1[6] != p2[6]) return false;
-        [[fallthrough]];
-    case 6:
-        if (p1[5] != p2[5]) return false;
-        [[fallthrough]];
-    case 5:
-        if (p1[4] != p2[4]) return false;
-        [[fallthrough]];
-    case 4:
-        return unaligned_load<uint32_t>(p1) == unaligned_load<uint32_t>(p2);
-    case 3:
-        if (p1[2] != p2[2]) return false;
-        [[fallthrough]];
-    case 2:
-        return unaligned_load<uint16_t>(p1) == unaligned_load<uint16_t>(p2);
     case 1:
-        if (p1[0] != p2[0]) return false;
-        [[fallthrough]];
-    case 0:
-        break;
+        if (!compareSSE2(p1, p2)) {
+            return false;
+        }
     }
 
-    return true;
+    return compareSSE2(p1 + size - 16, p2 + size - 16);
 }
 
 #endif
 
-inline bool operator==(StringRef lhs, StringRef rhs) {
-    if (lhs.size != rhs.size) return false;
+// Compare two strings using sse4.2 intrinsics if they are available. This code assumes
+// that the trivial cases are already handled (i.e. one string is empty).
+// Returns:
+//   < 0 if s1 < s2
+//   0 if s1 == s2
+//   > 0 if s1 > s2
+// The SSE code path is just under 2x faster than the non-sse code path.
+//   - s1/n1: ptr/len for the first string
+//   - s2/n2: ptr/len for the second string
+//   - len: min(n1, n2) - this can be more cheaply passed in by the caller
+inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2, int64_t len) {
+    DCHECK_EQ(len, std::min(n1, n2));
+#ifdef __SSE4_2__
+    while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
+        __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
+        __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
+        int chars_match = _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
+                                       sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
+        if (chars_match != sse_util::CHARS_PER_128_BIT_REGISTER) {
+            return (unsigned char)s1[chars_match] - (unsigned char)s2[chars_match];
+        }
+        len -= sse_util::CHARS_PER_128_BIT_REGISTER;
+        s1 += sse_util::CHARS_PER_128_BIT_REGISTER;
+        s2 += sse_util::CHARS_PER_128_BIT_REGISTER;
+    }
+#endif
+    unsigned char u1, u2;
+    while (len-- > 0) {
+        u1 = (unsigned char)*s1++;
+        u2 = (unsigned char)*s2++;
+        if (u1 != u2) {
+            return u1 - u2;
+        }
+        if (u1 == '\0') {
+            return n1 - n2;
+        }
+    }
 
-    if (lhs.size == 0) return true;
+    return n1 - n2;
+}
 
+} // unnamed namespace
+
+/// The thing to avoid creating strings to find substrings in the hash table.
+/// User should make sure data source is const.
+/// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
+struct StringRef {
+    // FIXME: opening member accessing really damages.
+    const char* data = nullptr;
+    size_t size = 0;
+
+    StringRef() = default;
+    StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
+    StringRef(const unsigned char* data_, size_t size_)
+            : StringRef(reinterpret_cast<const char*>(data_), size_) {}
+
+    StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
+    explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
+
+    std::string to_string() const { return std::string(data, size); }
+    std::string debug_string() const { return to_string(); }
+    std::string_view to_string_view() const { return std::string_view(data, size); }
+    Slice to_slice() const { return doris::Slice(data, size); }
+
+    // this is just for show, e.g. print data to error log, to avoid print large string.
+    std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
+
+    explicit operator std::string() const { return to_string(); }
+    operator std::string_view() const { return std::string_view {data, size}; }
+
+    StringRef substring(int start_pos, int new_len) const {
+        return StringRef(data + start_pos, (new_len < 0) ? (size - start_pos) : new_len);
+    }
+
+    StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
+
+    // Trims leading and trailing spaces.
+    StringRef trim() const;
+
+    bool empty() const { return size == 0; }
+
+    // support for type_limit
+    static constexpr char MIN_CHAR = 0;
+    static constexpr char MAX_CHAR = char(
+            UCHAR_MAX); // We will convert char to uchar and compare, so we define max_char to unsigned char max.
+    static StringRef min_string_val();
+    static StringRef max_string_val();
+
+    bool start_with(const StringRef& search_string) const;
+    bool end_with(const StringRef& search_string) const;
+
+    // Byte-by-byte comparison. Returns:
+    // this < other: -1
+    // this == other: 0
+    // this > other: 1
+    int compare(const StringRef& other) const {
+        int l = std::min(size, other.size);
+
+        if (l == 0) {
+            if (size == other.size) {
+                return 0;
+            } else if (size == 0) {
+                return -1;
+            } else {
+                DCHECK_EQ(other.size, 0);
+                return 1;
+            }
+        }
+
+        return string_compare(this->data, this->size, other.data, other.size, l);
+    }
+
+    void replace(const char* ptr, int len) {
+        this->data = ptr;
+        this->size = len;
+    }
+
+    // Find the first position char of appear, return -1 if not found
+    size_t find_first_of(char c) const;
+
+    // ==
+    bool eq(const StringRef& other) const {
+        if (this->size != other.size) {
+            return false;
+        }
 #if defined(__SSE2__)
-    return memequalSSE2Wide(lhs.data, rhs.data, lhs.size);
-#else
-    return 0 == memcmp(lhs.data, rhs.data, lhs.size);
+        return memequalSSE2Wide(this->data, other.data, this->size);
 #endif
+        return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;
+    }
+
+    bool operator==(const StringRef& other) const { return eq(other); }
+    // !=
+    bool ne(const StringRef& other) const { return !eq(other); }
+    // <=
+    bool le(const StringRef& other) const { return compare(other) <= 0; }
+    // >=
+    bool ge(const StringRef& other) const { return compare(other) >= 0; }
+    // <
+    bool lt(const StringRef& other) const { return compare(other) < 0; }
+    // >
+    bool gt(const StringRef& other) const { return compare(other) > 0; }
+
+    bool operator!=(const StringRef& other) const { return ne(other); }
+
+    bool operator<=(const StringRef& other) const { return le(other); }
+
+    bool operator>=(const StringRef& other) const { return ge(other); }
+
+    bool operator<(const StringRef& other) const { return lt(other); }
+
+    bool operator>(const StringRef& other) const { return gt(other); }
+
+    struct Comparator {
+        bool operator()(const StringRef& a, const StringRef& b) const { return a.compare(b) < 0; }
+    };
+}; // class StringRef
+
+// This function must be called 'hash_value' to be picked up by boost.
+inline std::size_t hash_value(const StringRef& v) {
+    return HashUtil::hash(v.data, v.size, 0);
 }
 
-inline bool operator!=(StringRef lhs, StringRef rhs) {
-    return !(lhs == rhs);
-}
-
-inline bool operator<(StringRef lhs, StringRef rhs) {
-    int cmp = memcmp(lhs.data, rhs.data, std::min(lhs.size, rhs.size));
-    return cmp < 0 || (cmp == 0 && lhs.size < rhs.size);
-}
-
-inline bool operator>(StringRef lhs, StringRef rhs) {
-    int cmp = memcmp(lhs.data, rhs.data, std::min(lhs.size, rhs.size));
-    return cmp > 0 || (cmp == 0 && lhs.size > rhs.size);
-}
+using StringRefs = std::vector<StringRef>;
 
 /** Hash functions.
   * You can use either CityHash64,
@@ -217,7 +326,7 @@ struct StringRefHash64 {
     size_t operator()(StringRef x) const { return util_hash::CityHash64(x.data, x.size); }
 };
 
-#if defined(__SSE4_2__)
+#if defined(__SSE4_2__) || defined(__aarch64__)
 
 /// Parts are taken from CityHash.
 
@@ -266,11 +375,13 @@ inline size_t hash_less_than16(const char* data, size_t size) {
 }
 
 struct CRC32Hash {
-    size_t operator()(StringRef x) const {
+    size_t operator()(const StringRef& x) const {
         const char* pos = x.data;
         size_t size = x.size;
 
-        if (size == 0) return 0;
+        if (size == 0) {
+            return 0;
+        }
 
         if (size < 8) {
             return hash_less_than8(x.data, x.size);
@@ -306,31 +417,21 @@ struct CRC32Hash {
 
 struct StringRefHash : StringRefHash64 {};
 
-#endif
+#endif // end of hash functions
 
-namespace std {
-template <>
-struct hash<StringRef> : public StringRefHash {};
-} // namespace std
+inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
+    return os << str.to_string();
+}
+} // namespace doris
 
 namespace ZeroTraits {
-inline bool check(const StringRef& x) {
+inline bool check(const doris::StringRef& x) {
     return 0 == x.size;
 }
-inline void set(StringRef& x) {
+inline void set(doris::StringRef& x) {
     x.size = 0;
 }
 } // namespace ZeroTraits
 
-inline bool operator==(StringRef lhs, const char* rhs) {
-    for (size_t pos = 0; pos < lhs.size; ++pos)
-        if (!rhs[pos] || lhs.data[pos] != rhs[pos]) return false;
-
-    return true;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
-    if (str.data) os.write(str.data, str.size);
-
-    return os;
-}
+template <>
+struct std::hash<doris::StringRef> : public doris::StringRefHash {};

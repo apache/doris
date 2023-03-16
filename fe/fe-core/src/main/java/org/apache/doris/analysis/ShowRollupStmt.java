@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -67,6 +68,8 @@ public class ShowRollupStmt extends ShowStmt {
             tbl.setDb(db);
         }
         tbl.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
     }
 
     @Override
@@ -85,7 +88,7 @@ public class ShowRollupStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_NO_SYNC;

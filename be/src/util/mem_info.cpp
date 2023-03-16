@@ -14,8 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/mem-info.cc
+// and modified by Doris
 
-#include "util/mem_info.h"
+#include "mem_info.h"
+
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +34,8 @@
 
 #include "common/config.h"
 #include "gutil/strings/split.h"
+#include "olap/page_cache.h"
+#include "olap/segment_loader.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -37,37 +46,185 @@ namespace doris {
 bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
-size_t MemInfo::_s_current_mem = 0;
+std::string MemInfo::_s_mem_limit_str = "";
+int64_t MemInfo::_s_soft_mem_limit = -1;
+std::string MemInfo::_s_soft_mem_limit_str = "";
 
-void MemInfo::init() {
-    // Read from /proc/meminfo
+int64_t MemInfo::_s_allocator_cache_mem = 0;
+std::string MemInfo::_s_allocator_cache_mem_str = "";
+int64_t MemInfo::_s_virtual_memory_used = 0;
+int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
+std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
+
+static std::unordered_map<std::string, int64_t> _mem_info_bytes;
+int64_t MemInfo::_s_sys_mem_available = -1;
+std::string MemInfo::_s_sys_mem_available_str = "";
+int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
+int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
+int64_t MemInfo::_s_process_minor_gc_size = -1;
+int64_t MemInfo::_s_process_full_gc_size = -1;
+
+void MemInfo::refresh_allocator_mem() {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    uint64_t epoch = 0;
+    size_t sz = sizeof(epoch);
+    jemallctl("epoch", &epoch, &sz, &epoch, sz);
+
+    // https://jemalloc.net/jemalloc.3.html
+    _s_allocator_cache_mem =
+            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL)) +
+            get_je_metrics("stats.metadata");
+    _s_allocator_cache_mem_str =
+            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
+    _s_virtual_memory_used = get_je_metrics("stats.mapped");
+#else
+    _s_allocator_cache_mem = get_tc_metrics("tcmalloc.pageheap_free_bytes") +
+                             get_tc_metrics("tcmalloc.central_cache_free_bytes") +
+                             get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
+                             get_tc_metrics("tcmalloc.thread_cache_free_bytes");
+    _s_allocator_cache_mem_str =
+            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
+    _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
+                             get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
+#endif
+}
+
+void MemInfo::process_cache_gc(int64_t& freed_mem) {
+    // TODO, free more cache, and should free a certain percentage of capacity, not all.
+    int32_t min_free_size = 33554432; // 32M
+    if (ChunkAllocator::instance()->mem_consumption() > min_free_size) {
+        freed_mem += ChunkAllocator::instance()->mem_consumption();
+        ChunkAllocator::instance()->clear();
+    }
+
+    if (StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE) >
+        min_free_size) {
+        freed_mem +=
+                StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+        StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    }
+}
+
+// step1: free all cache
+// step2: free top overcommit query, if enable query memroy overcommit
+// TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
+bool MemInfo::process_minor_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t freed_mem = 0;
+    std::string vm_rss_str = PerfCounters::get_vm_rss_str();
+    std::string mem_available_str = MemInfo::sys_mem_available_str();
+
+    Defer defer {[&]() {
+        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+                                 watch.elapsed_time() / 1000);
+    }};
+
+    MemInfo::process_cache_gc(freed_mem);
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
+
+    // TODO add freed_mem
+    SegmentLoader::instance()->prune();
+
+    if (config::enable_query_memroy_overcommit) {
+        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+                _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
+    }
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
+    return false;
+}
+
+// step1: free all cache
+// step2: free top memory query
+// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step4: free top memory load
+bool MemInfo::process_full_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t freed_mem = 0;
+    std::string vm_rss_str = PerfCounters::get_vm_rss_str();
+    std::string mem_available_str = MemInfo::sys_mem_available_str();
+
+    Defer defer {[&]() {
+        LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+                                 watch.elapsed_time() / 1000);
+    }};
+
+    MemInfo::process_cache_gc(freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+
+    if (SegmentLoader::instance()->segment_cache_get_usage_ratio() > 0.1) {
+        freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
+        LOG(INFO) << "prune all " << SegmentLoader::instance()->segment_cache_get_usage()
+                  << " entries in segment cache.";
+        SegmentLoader::instance()->prune_all();
+        if (freed_mem > _s_process_full_gc_size) {
+            return true;
+        }
+    }
+
+    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
+                                                          vm_rss_str, mem_available_str);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    if (config::enable_query_memroy_overcommit) {
+        freed_mem += MemTrackerLimiter::free_top_overcommit_load(
+                _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
+        if (freed_mem > _s_process_full_gc_size) {
+            return true;
+        }
+    }
+    freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
+                                                         vm_rss_str, mem_available_str);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    return false;
+}
+
+#ifndef __APPLE__
+void MemInfo::refresh_proc_meminfo() {
     std::ifstream meminfo("/proc/meminfo", std::ios::in);
     std::string line;
 
     while (meminfo.good() && !meminfo.eof()) {
         getline(meminfo, line);
         std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
-
-        // We expect lines such as, e.g., 'MemTotal: 16129508 kB'
-        if (fields.size() < 3) {
-            continue;
-        }
-
-        if (fields[0].compare("MemTotal:") != 0) {
-            continue;
-        }
+        if (fields.size() < 2) continue;
+        std::string key = fields[0].substr(0, fields[0].size() - 1);
 
         StringParser::ParseResult result;
-        int64_t mem_total_kb =
+        int64_t mem_value =
                 StringParser::string_to_int<int64_t>(fields[1].data(), fields[1].size(), &result);
 
         if (result == StringParser::PARSE_SUCCESS) {
-            // Entries in /proc/meminfo are in KB.
-            _s_physical_mem = mem_total_kb * 1024L;
+            if (fields.size() == 2) {
+                _mem_info_bytes[key] = mem_value;
+            } else if (fields[2].compare("kB") == 0) {
+                _mem_info_bytes[key] = mem_value * 1024L;
+            }
         }
-
-        break;
     }
+    if (meminfo.is_open()) meminfo.close();
+
+    if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
+        _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
+        _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
+    }
+}
+
+void MemInfo::init() {
+    refresh_proc_meminfo();
+    _s_physical_mem = _mem_info_bytes["MemTotal"];
 
     int64_t cgroup_mem_limit = 0;
     Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
@@ -75,20 +232,105 @@ void MemInfo::init() {
         _s_physical_mem = std::min(_s_physical_mem, cgroup_mem_limit);
     }
 
-    if (meminfo.is_open()) {
-        meminfo.close();
-    }
-
     if (_s_physical_mem == -1) {
         LOG(WARNING) << "Could not determine amount of physical memory on this machine.";
     }
 
     bool is_percent = true;
-    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    if (config::mem_limit == "auto") {
+        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
+    } else {
+        _s_mem_limit =
+                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+        if (_s_mem_limit <= 0) {
+            LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
+        }
+        if (_s_mem_limit > _s_physical_mem) {
+            LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
+                         << " exceeds physical memory of "
+                         << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+                         << ". Using physical memory instead";
+            _s_mem_limit = _s_physical_mem;
+        }
+    }
+    _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
+    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
+
+    _s_process_minor_gc_size =
+            ParseUtil::parse_mem_spec(config::process_minor_gc_size, -1, _s_mem_limit, &is_percent);
+    _s_process_full_gc_size =
+            ParseUtil::parse_mem_spec(config::process_full_gc_size, -1, _s_mem_limit, &is_percent);
+
+    std::string line;
+    int64_t _s_vm_min_free_kbytes = 0;
+    std::ifstream vminfo("/proc/sys/vm/min_free_kbytes", std::ios::in);
+    if (vminfo.good() && !vminfo.eof()) {
+        getline(vminfo, line);
+        boost::algorithm::trim(line);
+        StringParser::ParseResult result;
+        int64_t mem_value = StringParser::string_to_int<int64_t>(line.data(), line.size(), &result);
+
+        if (result == StringParser::PARSE_SUCCESS) {
+            _s_vm_min_free_kbytes = mem_value * 1024L;
+        }
+    }
+    if (vminfo.is_open()) vminfo.close();
+
+    // Redhat 4.x OS, `/proc/meminfo` has no `MemAvailable`.
+    if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
+        // MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))
+        // LowWaterMark = /proc/sys/vm/min_free_kbytes
+        // Ref:
+        // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
+        // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
+        //
+        // available_low_water_mark = p1 - p2
+        // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
+        // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
+        //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
+        int64_t p1 = std::min<int64_t>(
+                std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
+                config::max_sys_mem_available_low_water_mark_bytes);
+        int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
+        _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
+        _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
+    }
+
+    LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+              << ", Mem Limit: " << _s_mem_limit_str
+              << ", origin config value: " << config::mem_limit
+              << ", System Mem Available Min Reserve: "
+              << PrettyPrinter::print(_s_sys_mem_available_low_water_mark, TUnit::BYTES)
+              << ", Vm Min Free KBytes: "
+              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES);
+    _s_initialized = true;
+}
+#else
+void MemInfo::refresh_proc_meminfo() {}
+
+void MemInfo::init() {
+    size_t size = sizeof(_s_physical_mem);
+    if (sysctlbyname("hw.memsize", &_s_physical_mem, &size, nullptr, 0) != 0) {
+        LOG(WARNING) << "Could not determine amount of physical memory on this machine.";
+        _s_physical_mem = -1;
+    }
+
+    if (config::mem_limit == "auto") {
+        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
+    } else {
+        bool is_percent = true;
+        _s_mem_limit =
+                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    }
+    _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
+    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;
 }
+#endif
 
 std::string MemInfo::debug_string() {
     DCHECK(_s_initialized);
@@ -97,7 +339,6 @@ std::string MemInfo::debug_string() {
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "Current Usage: " << PrettyPrinter::print(_s_current_mem, TUnit::BYTES) << std::endl;
     stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();
 }

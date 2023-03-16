@@ -17,15 +17,13 @@
 
 package org.apache.doris.httpv2.rest;
 
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -51,13 +49,13 @@ import org.apache.doris.thrift.TTabletVersionInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-
+import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -69,7 +67,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -81,7 +78,8 @@ import javax.servlet.http.HttpServletResponse;
 public class TableQueryPlanAction extends RestBaseController {
     public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan", method = {RequestMethod.GET, RequestMethod.POST})
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_query_plan",
+            method = {RequestMethod.GET, RequestMethod.POST})
     public Object query_plan(
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
@@ -93,18 +91,15 @@ public class TableQueryPlanAction extends RestBaseController {
         String postContent = HttpUtil.getBody(request);
         try {
             // may be these common validate logic should be moved to one base class
-            String sql;
             if (Strings.isNullOrEmpty(postContent)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
-            JSONObject jsonObject;
-            try {
-                jsonObject = new JSONObject(postContent);
-            } catch (JSONException e) {
-                return ResponseEntityBuilder.badRequest("malformed json: " + e.getMessage());
+            JSONObject jsonObject = (JSONObject) JSONValue.parse(postContent);
+            if (jsonObject == null) {
+                return ResponseEntityBuilder.badRequest("malformed json: " + postContent);
             }
 
-            sql = jsonObject.optString("sql");
+            String sql = (String) jsonObject.get("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
@@ -116,7 +111,7 @@ public class TableQueryPlanAction extends RestBaseController {
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
-                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
                 table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -131,6 +126,9 @@ public class TableQueryPlanAction extends RestBaseController {
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic
             resultMap.put("status", e.getCode().code());
+            resultMap.put("exception", e.getMessage());
+        } catch (Exception e) {
+            resultMap.put("status", "1");
             resultMap.put("exception", e.getMessage());
         }
         return ResponseEntityBuilder.ok(resultMap);
@@ -163,29 +161,34 @@ public class TableQueryPlanAction extends RestBaseController {
         StatementBase query = stmtExecutor.getParsedStmt();
         // only process select semantic
         if (!(query instanceof SelectStmt)) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement needed, but found [" + sql + " ]");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "Select statement needed, but found [" + sql + " ]");
         }
         SelectStmt stmt = (SelectStmt) query;
         // just only process sql like `select * from table where <predicate>`, only support executing scan semantic
         if (stmt.hasAggInfo() || stmt.hasAnalyticInfo()
                 || stmt.hasOrderByClause() || stmt.hasOffset() || stmt.hasLimit() || stmt.isExplain()) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "only support single table filter-prune-scan, but found [ " + sql + "]");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "only support single table filter-prune-scan, but found [ " + sql + "]");
         }
         // process only one table by one http query
         List<TableRef> fromTables = stmt.getTableRefs();
         if (fromTables.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must have only one table");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "Select statement must have only one table");
         }
 
         TableRef fromTable = fromTables.get(0);
         if (fromTable instanceof InlineViewRef) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "Select statement must not embed another statement");
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "Select statement must not embed another statement");
         }
         // check consistent http requested resource with sql referenced
         // if consistent in this way, can avoid check privilege
         TableName tableAndDb = fromTables.get(0).getName();
         if (!(tableAndDb.getDb().equals(requestDb) && tableAndDb.getTbl().equals(requestTable))) {
-            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "requested database and table must consistent with sql: request [ "
+            throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
+                    "requested database and table must consistent with sql: request [ "
                     + requestDb + "." + requestTable + "]" + "and sql [" + tableAndDb.toString() + "]");
         }
 
@@ -195,13 +198,15 @@ public class TableQueryPlanAction extends RestBaseController {
         // in this way, just retrieve only one scannode
         List<ScanNode> scanNodes = planner.getScanNodes();
         if (scanNodes.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "Planner should plan just only one ScanNode but found [ " + scanNodes.size() + "]");
+            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    "Planner should plan just only one ScanNode but found [ " + scanNodes.size() + "]");
         }
         List<TScanRangeLocations> scanRangeLocations = scanNodes.get(0).getScanRangeLocations(0);
         // acquire the PlanFragment which the executable template
         List<PlanFragment> fragments = planner.getFragments();
         if (fragments.size() != 1) {
-            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "Planner should plan just only one PlanFragment but found [ " + fragments.size() + "]");
+            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    "Planner should plan just only one PlanFragment but found [ " + fragments.size() + "]");
         }
 
         TQueryPlanInfo tQueryPlanInfo = new TQueryPlanInfo();
@@ -221,26 +226,28 @@ public class TableQueryPlanAction extends RestBaseController {
         UUID uuid = UUID.randomUUID();
         tQueryPlanInfo.query_id = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 
-        Map<Long, TTabletVersionInfo> tablet_info = new HashMap<>();
+        Map<Long, TTabletVersionInfo> tabletInfo = new HashMap<>();
         // acquire resolved tablet distribution
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, node.versionHash, node.schemaHash));
+            tabletInfo.put(tablet, new TTabletVersionInfo(tablet, node.version, 0L /*version hash*/, node.schemaHash));
         });
-        tQueryPlanInfo.tablet_info = tablet_info;
+        tQueryPlanInfo.tablet_info = tabletInfo;
 
         // serialize TQueryPlanInfo and encode plan with Base64 to string in order to translate by json format
-        TSerializer serializer = new TSerializer();
-        String opaqued_query_plan;
+        TSerializer serializer;
+        String opaquedQueryPlan;
         try {
-            byte[] query_plan_stream = serializer.serialize(tQueryPlanInfo);
-            opaqued_query_plan = Base64.getEncoder().encodeToString(query_plan_stream);
+            serializer = new TSerializer();
+            byte[] queryPlanStream = serializer.serialize(tQueryPlanInfo);
+            opaquedQueryPlan = Base64.getEncoder().encodeToString(queryPlanStream);
         } catch (TException e) {
-            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "TSerializer failed to serialize PlanFragment, reason [ " + e.getMessage() + " ]");
+            throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    "TSerializer failed to serialize PlanFragment, reason [ " + e.getMessage() + " ]");
         }
         result.put("partitions", tabletRoutings);
-        result.put("opaqued_query_plan", opaqued_query_plan);
+        result.put("opaqued_query_plan", opaquedQueryPlan);
         result.put("status", 200);
     }
 
@@ -255,8 +262,7 @@ public class TableQueryPlanAction extends RestBaseController {
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;
-            Node tabletRouting = new Node(Long.parseLong(scanRange.version),
-                    Long.parseLong(scanRange.version_hash), Integer.parseInt(scanRange.schema_hash));
+            Node tabletRouting = new Node(Long.parseLong(scanRange.version), 0 /* schema hash is not used */);
             for (TNetworkAddress address : scanRange.hosts) {
                 tabletRouting.addRouting(address.hostname + ":" + address.port);
             }
@@ -270,12 +276,10 @@ public class TableQueryPlanAction extends RestBaseController {
         // ["host1:port1", "host2:port2", "host3:port3"]
         public List<String> routings = new ArrayList<>();
         public long version;
-        public long versionHash;
         public int schemaHash;
 
-        public Node(long version, long versionHash, int schemaHash) {
+        public Node(long version, int schemaHash) {
             this.version = version;
-            this.versionHash = versionHash;
             this.schemaHash = schemaHash;
         }
 

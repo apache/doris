@@ -22,7 +22,6 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // HelpCategory is category of help information.
-// This can
 public class HelpCategory implements HelpObjectIface {
     private static final String PARENT = "parent";
     private static final String URL = "url";

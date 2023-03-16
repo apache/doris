@@ -27,10 +27,9 @@
 #include "gen_cpp/Data_types.h"
 #include "gen_cpp/Types_types.h"
 #include "util/hash_util.hpp"
-#include "util/monotime.h"
 #include "util/thrift_server.h"
 
-// TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
+// TCompactProtocol requires some #defines to work right.  They also define UNLIKELY
 // so we need to undef this.
 // TODO: is there a better include to use?
 #ifdef UNLIKELY
@@ -111,7 +110,7 @@ Status wait_for_server(const std::string& host, int port, int num_retries, int r
         VLOG_QUERY << "Waiting " << retry_interval_ms << "ms for Thrift server at " << host << ":"
                    << port << " to come up, failed attempt " << retry_count << " of "
                    << num_retries;
-        SleepFor(MonoDelta::FromMilliseconds(retry_interval_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_interval_ms));
     }
 
     return Status::InternalError("Server did not come up");

@@ -18,12 +18,9 @@
 #include "runtime/result_queue_mgr.h"
 
 #include "common/config.h"
-#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
-#include "util/arrow/row_batch.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -34,7 +31,7 @@ ResultQueueMgr::ResultQueueMgr() {
     // Each BlockingQueue has a limited size (default 20, by config::max_memory_sink_batch_count),
     // it's not needed to count the actual size of all BlockingQueue.
     REGISTER_HOOK_METRIC(result_block_queue_count, [this]() {
-        std::lock_guard<std::mutex> l(_lock);
+        // std::lock_guard<std::mutex> l(_lock);
         return _fragment_queue_map.size();
     });
 }

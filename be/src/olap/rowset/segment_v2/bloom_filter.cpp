@@ -21,33 +21,44 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
-#include "olap/serialize.h"
+#include "olap/rowset/segment_v2/ngram_bloom_filter.h"
 #include "olap/utils.h"
 
 namespace doris {
 namespace segment_v2 {
 
-Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf) {
+Status BloomFilter::create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf,
+                           size_t bf_size) {
     if (algorithm == BLOCK_BLOOM_FILTER) {
         bf->reset(new BlockSplitBloomFilter());
+    } else if (algorithm == NGRAM_BLOOM_FILTER) {
+        bf->reset(new NGramBloomFilter(bf_size));
     } else {
-        return Status::InternalError(
-                strings::Substitute("invalid bloom filter algorithm:$0", algorithm));
+        return Status::InternalError("invalid bloom filter algorithm:{}", algorithm);
     }
     return Status::OK();
+}
+
+uint32_t BloomFilter::used_bits(uint64_t value) {
+    // counting leading zero, builtin function, this will generate BSR(Bit Scan Reverse)
+    // instruction for X86
+    if (value == 0) {
+        return 0;
+    }
+    return 64 - __builtin_clzll(value);
 }
 
 uint32_t BloomFilter::optimal_bit_num(uint64_t n, double fpp) {
     // ref parquet bloom_filter branch(BlockSplitBloomFilter.java)
     uint32_t num_bits = -8 * (double)n / log(1 - pow(fpp, 1.0 / 8));
     uint32_t max_bits = MAXIMUM_BYTES << 3;
-    if (num_bits > max_bits || num_bits < 0) {
+    if (num_bits > max_bits) {
         num_bits = max_bits;
     }
 
     // Get closest power of 2 if bits is not power of 2.
     if ((num_bits & (num_bits - 1)) != 0) {
-        num_bits = 1 << ser::used_bits(num_bits);
+        num_bits = 1 << used_bits(num_bits);
     }
     if (num_bits < MINIMUM_BYTES << 3) {
         num_bits = MINIMUM_BYTES << 3;

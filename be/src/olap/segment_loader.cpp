@@ -18,6 +18,7 @@
 #include "olap/segment_loader.h"
 
 #include "olap/rowset/rowset.h"
+#include "olap/tablet_schema.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -30,11 +31,9 @@ void SegmentLoader::create_global_instance(size_t capacity) {
     _s_instance = &instance;
 }
 
-SegmentLoader::SegmentLoader(size_t capacity)
-        : _mem_tracker(MemTracker::CreateTracker(capacity, "SegmentLoader", nullptr, true, true,
-                                                 MemTrackerLevel::OVERVIEW)) {
+SegmentLoader::SegmentLoader(size_t capacity) {
     _cache = std::unique_ptr<Cache>(
-            new_typed_lru_cache("SegmentCache", capacity, LRUCacheType::NUMBER, _mem_tracker));
+            new_lru_cache("SegmentMetaCache", capacity, LRUCacheType::NUMBER));
 }
 
 bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle) {
@@ -54,17 +53,22 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
         delete cache_value;
     };
 
+    int64_t meta_mem_usage = 0;
+    for (auto segment : value.segments) {
+        meta_mem_usage += segment->meta_mem_usage();
+    }
+
     auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentLoader::CacheValue),
-                                     deleter, CachePriority::NORMAL);
+                                     deleter, CachePriority::NORMAL, meta_mem_usage);
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
-OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                        SegmentCacheHandle* cache_handle, bool use_cache) {
+Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
+                                    SegmentCacheHandle* cache_handle, bool use_cache) {
     SegmentLoader::CacheKey cache_key(rowset->rowset_id());
     if (_lookup(cache_key, cache_handle)) {
         cache_handle->owned = false;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     cache_handle->owned = !use_cache;
 
@@ -80,10 +84,10 @@ OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         cache_handle->segments = std::move(segments);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus SegmentLoader::prune() {
+Status SegmentLoader::prune() {
     const int64_t curtime = UnixMillis();
     auto pred = [curtime](const void* value) -> bool {
         SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*)value;
@@ -93,10 +97,11 @@ OLAPStatus SegmentLoader::prune() {
 
     MonotonicStopWatch watch;
     watch.start();
-    int64_t prune_num = _cache->prune_if(pred);
+    // Prune cache in lazy mode to save cpu and minimize the time holding write lock
+    int64_t prune_num = _cache->prune_if(pred, true);
     LOG(INFO) << "prune " << prune_num
               << " entries in segment cache. cost(ms): " << watch.elapsed_time() / 1000 / 1000;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

@@ -36,7 +36,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /*
  * TagManager maintains 2 indexes:
  *      one is from tag to resource.
- *      one is from resource to tags 
+ *      one is from resource to tags
  * The caller can get a set of resources based on a given set of Tags
  */
 public class TagManager implements Writable {

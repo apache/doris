@@ -14,28 +14,26 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/types.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_TYPES_H
-#define DORIS_BE_RUNTIME_TYPES_H
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "common/config.h"
-#include "gen_cpp/Types_types.h" // for TPrimitiveType
-#include "gen_cpp/types.pb.h"    // for PTypeDesc
-#include "olap/hll.h"
-#include "runtime/collection_value.h"
-#include "runtime/primitive_type.h"
-#include "thrift/protocol/TDebugProtocol.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/types.pb.h"
+#include "olap/olap_define.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris {
+
+extern const int HLL_COLUMN_DEFAULT_LEN;
+
+struct TPrimitiveType;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
@@ -44,29 +42,32 @@ struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
-    static const int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
-    static const int MAX_STRING_LENGTH = OLAP_STRING_MAX_LENGTH;
-    static const int MAX_CHAR_LENGTH = 255;
-    static const int MAX_CHAR_INLINE_LENGTH = 128;
+    static constexpr int MAX_VARCHAR_LENGTH = 65535;
+    static constexpr int MAX_CHAR_LENGTH = 255;
+    static constexpr int MAX_CHAR_INLINE_LENGTH = 128;
 
     /// Only set if type == TYPE_DECIMAL
     int precision;
     int scale;
 
     /// Must be kept in sync with FE's max precision/scale.
-    static const int MAX_PRECISION = 38;
-    static const int MAX_SCALE = MAX_PRECISION;
+    static constexpr int MAX_PRECISION = 38;
+    static constexpr int MAX_SCALE = MAX_PRECISION;
 
     /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
-    static const int MAX_DECIMAL4_PRECISION = 9;
+    static constexpr int MAX_DECIMAL4_PRECISION = 9;
     /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
-    static const int MAX_DECIMAL8_PRECISION = 18;
+    static constexpr int MAX_DECIMAL8_PRECISION = 18;
 
-    /// Empty for scalar types
+    // Empty for scalar types
     std::vector<TypeDescriptor> children;
 
-    /// Only set if type == TYPE_STRUCT. The field name of each child.
+    // Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
+
+    // Used for complex types only.
+    // Whether subtypes of a complex type is nullable
+    std::vector<bool> contains_nulls;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
@@ -75,6 +76,9 @@ struct TypeDescriptor {
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
+        } else if (type == TYPE_DATETIMEV2) {
+            precision = 18;
+            scale = 6;
         }
     }
 
@@ -99,7 +103,7 @@ struct TypeDescriptor {
     static TypeDescriptor create_string_type() {
         TypeDescriptor ret;
         ret.type = TYPE_STRING;
-        ret.len = MAX_STRING_LENGTH;
+        ret.len = config::string_type_length_soft_limit_bytes;
         return ret;
     }
 
@@ -162,169 +166,46 @@ struct TypeDescriptor {
 
     void to_protobuf(PTypeDesc* ptype) const;
 
-    inline bool is_string_type() const {
+    bool is_integer_type() const {
+        return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT ||
+               type == TYPE_BIGINT;
+    }
+
+    bool is_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
-               type == TYPE_OBJECT || type == TYPE_STRING;
+               type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
-    inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
+    bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    inline bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
+    bool is_date_v2_type() const { return type == TYPE_DATEV2; }
+    bool is_datetime_v2_type() const { return type == TYPE_DATETIMEV2; }
 
-    inline bool is_datetime_type() const { return type == TYPE_DATETIME; }
+    bool is_decimal_v2_type() const { return type == TYPE_DECIMALV2; }
 
-    inline bool is_var_len_string_type() const {
+    bool is_decimal_v3_type() const {
+        return (type == TYPE_DECIMAL32) || (type == TYPE_DECIMAL64) || (type == TYPE_DECIMAL128I);
+    }
+
+    bool is_datetime_type() const { return type == TYPE_DATETIME; }
+
+    bool is_var_len_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR ||
-               type == TYPE_OBJECT || type == TYPE_STRING;
+               type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
-    inline bool is_complex_type() const {
-        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
+    bool is_complex_type() const {
+        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP ||
+               type == TYPE_VARIANT;
     }
 
-    inline bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
+    bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
-    /// Returns the byte size of this type.  Returns 0 for variable length types.
-    inline int get_byte_size() const {
-        switch (type) {
-        case TYPE_ARRAY:
-        case TYPE_MAP:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_OBJECT:
-        case TYPE_STRING:
-            return 0;
+    bool is_array_type() const { return type == TYPE_ARRAY; }
 
-        case TYPE_NULL:
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            return 1;
+    bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
-        case TYPE_SMALLINT:
-            return 2;
-
-        case TYPE_INT:
-        case TYPE_FLOAT:
-            return 4;
-
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-            return 8;
-
-        case TYPE_LARGEINT:
-        case TYPE_DATETIME:
-        case TYPE_DATE:
-        case TYPE_DECIMALV2:
-            return 16;
-
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-        }
-        return 0;
-    }
-
-    /// Returns the size of a slot for this type.
-    inline int get_slot_size() const {
-        switch (type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_OBJECT:
-        case TYPE_STRING:
-            return sizeof(StringValue);
-
-        case TYPE_NULL:
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            return 1;
-
-        case TYPE_SMALLINT:
-            return 2;
-
-        case TYPE_INT:
-        case TYPE_FLOAT:
-            return 4;
-
-        case TYPE_BIGINT:
-        case TYPE_DOUBLE:
-        case TYPE_TIME:
-            return 8;
-
-        case TYPE_LARGEINT:
-            return sizeof(__int128);
-
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            // This is the size of the slot, the actual size of the data is 12.
-            return sizeof(DateTimeValue);
-
-        case TYPE_DECIMALV2:
-            return 16;
-
-        case TYPE_ARRAY:
-            return sizeof(CollectionValue);
-
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-        }
-        // For llvm complain
-        return -1;
-    }
-
-    inline doris::vectorized::DataTypePtr get_data_type_ptr() const {
-        switch (type) {
-        case TYPE_BOOLEAN:
-            return std::make_shared<vectorized::DataTypeUInt8>();
-
-        case TYPE_TINYINT:
-            return std::make_shared<vectorized::DataTypeInt8>();
-
-        case TYPE_SMALLINT:
-            return std::make_shared<vectorized::DataTypeInt16>();
-
-        case TYPE_INT:
-            return std::make_shared<vectorized::DataTypeInt32>();
-
-        case TYPE_FLOAT:
-            return std::make_shared<vectorized::DataTypeFloat32>();
-
-        case TYPE_BIGINT:
-            return std::make_shared<vectorized::DataTypeInt64>();
-
-        case TYPE_LARGEINT:
-            return std::make_shared<vectorized::DataTypeInt128>();
-        case TYPE_DATE:
-            return std::make_shared<vectorized::DataTypeDate>();
-        case TYPE_DATETIME:
-            return std::make_shared<vectorized::DataTypeDateTime>();
-        case TYPE_TIME:
-        case TYPE_DOUBLE:
-            return std::make_shared<vectorized::DataTypeFloat64>();
-
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            return std::make_shared<vectorized::DataTypeString>();
-        case TYPE_HLL:
-            return std::make_shared<vectorized::DataTypeHLL>();
-        case TYPE_OBJECT:
-            return std::make_shared<vectorized::DataTypeBitMap>();
-
-        case TYPE_DECIMALV2:
-            return std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
-        // Just Mock A NULL Type in Vec Exec Engine
-        case TYPE_NULL:
-            return std::make_shared<vectorized::DataTypeUInt8>();
-
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-        }
-        // For llvm complain
-        return nullptr;
-    }
+    bool is_variant_type() const { return type == TYPE_VARIANT; }
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);
@@ -338,6 +219,12 @@ struct TypeDescriptor {
     }
 
     std::string debug_string() const;
+
+    // use to array type and map type add sub type
+    void add_sub_type(TypeDescriptor sub_type, bool is_nullable = true);
+
+    // use to struct type add sub type
+    void add_sub_type(TypeDescriptor sub_type, std::string field_name, bool is_nullable = true);
 
 private:
     /// Used to create a possibly nested type from the flattened Thrift representation.
@@ -355,6 +242,6 @@ private:
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
-} // namespace doris
+TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int scale = 0);
 
-#endif
+} // namespace doris

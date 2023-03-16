@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SelectListItem.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -59,7 +62,7 @@ public class SelectListItem {
     }
 
     // select list item corresponding to "[[db.]tbl.]*"
-    static public SelectListItem createStarItem(TableName tblName) {
+    public static SelectListItem createStarItem(TableName tblName) {
         return new SelectListItem(tblName);
     }
 
@@ -74,7 +77,11 @@ public class SelectListItem {
     public Expr getExpr() {
         return expr;
     }
-    public void setExpr(Expr expr) { this.expr = expr; }
+
+    public void setExpr(Expr expr) {
+        this.expr = expr;
+    }
+
     public String getAlias() {
         return alias;
     }
@@ -87,6 +94,21 @@ public class SelectListItem {
                 aliasSql = "`" + alias + "`";
             }
             return expr.toSql() + ((aliasSql == null) ? "" : " " + aliasSql);
+        } else if (tblName != null) {
+            return tblName.toString() + ".*";
+        } else {
+            return "*";
+        }
+    }
+
+    public String toDigest() {
+        if (!isStar) {
+            Preconditions.checkNotNull(expr);
+            String aliasSql = null;
+            if (alias != null) {
+                aliasSql = "`" + alias + "`";
+            }
+            return expr.toDigest() + ((aliasSql == null) ? "" : " " + aliasSql);
         } else if (tblName != null) {
             return tblName.toString() + ".*";
         } else {
@@ -110,4 +132,7 @@ public class SelectListItem {
         return expr.toColumnLabel();
     }
 
+    public void setAlias(String alias) {
+        this.alias = alias;
+    }
 }

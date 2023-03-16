@@ -14,23 +14,27 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/threadpool.cc
+// and modified by Doris
 
 #include "util/threadpool.h"
 
 #include <cstdint>
 #include <limits>
 #include <ostream>
+#include <thread>
 
 #include "common/logging.h"
 #include "gutil/macros.h"
 #include "gutil/map-util.h"
 #include "gutil/strings/substitute.h"
-#include "gutil/sysinfo.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/scoped_cleanup.h"
 #include "util/thread.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using std::string;
 using strings::Substitute;
@@ -39,7 +43,7 @@ class FunctionRunnable : public Runnable {
 public:
     explicit FunctionRunnable(std::function<void()> func) : _func(std::move(func)) {}
 
-    void run() OVERRIDE { _func(); }
+    void run() override { _func(); }
 
 private:
     std::function<void()> _func;
@@ -48,9 +52,9 @@ private:
 ThreadPoolBuilder::ThreadPoolBuilder(string name)
         : _name(std::move(name)),
           _min_threads(0),
-          _max_threads(base::NumCPUs()),
+          _max_threads(std::thread::hardware_concurrency()),
           _max_queue_size(std::numeric_limits<int>::max()),
-          _idle_timeout(MonoDelta::FromMilliseconds(500)) {}
+          _idle_timeout(std::chrono::milliseconds(500)) {}
 
 ThreadPoolBuilder& ThreadPoolBuilder::set_min_threads(int min_threads) {
     CHECK_GE(min_threads, 0);
@@ -69,27 +73,15 @@ ThreadPoolBuilder& ThreadPoolBuilder::set_max_queue_size(int max_queue_size) {
     return *this;
 }
 
-ThreadPoolBuilder& ThreadPoolBuilder::set_idle_timeout(const MonoDelta& idle_timeout) {
-    _idle_timeout = idle_timeout;
-    return *this;
-}
-
-Status ThreadPoolBuilder::build(std::unique_ptr<ThreadPool>* pool) const {
-    pool->reset(new ThreadPool(*this));
-    RETURN_IF_ERROR((*pool)->init());
-    return Status::OK();
-}
-
-ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency)
+ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode,
+                                 int max_concurrency)
         : _mode(mode),
           _pool(pool),
           _state(State::IDLE),
-          _not_running_cond(&pool->_lock),
           _active_threads(0),
           _max_concurrency(max_concurrency),
           _num_submitted_tasks(0),
           _num_unsubmitted_tasks(0) {
-
     if (max_concurrency == 1 && mode != ThreadPool::ExecutionMode::SERIAL) {
         _mode = ThreadPool::ExecutionMode::SERIAL;
     }
@@ -109,7 +101,7 @@ Status ThreadPoolToken::submit_func(std::function<void()> f) {
 }
 
 void ThreadPoolToken::shutdown() {
-    MutexLock unique_lock(&(_pool->_lock));
+    std::unique_lock<std::mutex> l(_pool->_lock);
     _pool->check_not_pool_thread_unlocked();
 
     // Clear the queue under the lock, but defer the releasing of the tasks
@@ -147,13 +139,11 @@ void ThreadPoolToken::shutdown() {
             break;
         }
         transition(State::QUIESCING);
-        FALLTHROUGH_INTENDED;
+        [[fallthrough]];
     case State::QUIESCING:
         // The token is already quiescing. Just wait for a worker thread to
         // switch it to QUIESCED.
-        while (state() != State::QUIESCED) {
-            _not_running_cond.wait();
-        }
+        _not_running_cond.wait(l, [this]() { return state() == State::QUIESCED; });
         break;
     default:
         break;
@@ -161,26 +151,9 @@ void ThreadPoolToken::shutdown() {
 }
 
 void ThreadPoolToken::wait() {
-    MutexLock unique_lock(&(_pool->_lock));
+    std::unique_lock<std::mutex> l(_pool->_lock);
     _pool->check_not_pool_thread_unlocked();
-    while (is_active()) {
-        _not_running_cond.wait();
-    }
-}
-
-bool ThreadPoolToken::wait_until(const MonoTime& until) {
-    MutexLock unique_lock(&(_pool->_lock));
-    _pool->check_not_pool_thread_unlocked();
-    while (is_active()) {
-        if (!_not_running_cond.wait_until(until)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool ThreadPoolToken::wait_for(const MonoDelta& delta) {
-    return wait_until(MonoTime::Now() + delta);
+    _not_running_cond.wait(l, [this]() { return !is_active(); });
 }
 
 void ThreadPoolToken::transition(State new_state) {
@@ -249,8 +222,9 @@ const char* ThreadPoolToken::state_to_string(State s) {
 }
 
 bool ThreadPoolToken::need_dispatch() {
-    return _state == ThreadPoolToken::State::IDLE 
-        || (_mode == ThreadPool::ExecutionMode::CONCURRENT && _num_submitted_tasks < _max_concurrency);
+    return _state == ThreadPoolToken::State::IDLE ||
+           (_mode == ThreadPool::ExecutionMode::CONCURRENT &&
+            _num_submitted_tasks < _max_concurrency);
 }
 
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
@@ -260,8 +234,6 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
           _max_queue_size(builder._max_queue_size),
           _idle_timeout(builder._idle_timeout),
           _pool_status(Status::Uninitialized("The pool was not initialized.")),
-          _idle_cond(&_lock),
-          _no_threads_cond(&_lock),
           _num_threads(0),
           _num_threads_pending_start(0),
           _active_threads(0),
@@ -276,8 +248,8 @@ ThreadPool::~ThreadPool() {
 }
 
 Status ThreadPool::init() {
-    if (!_pool_status.is_uninitialized()) {
-        return Status::NotSupported("The thread pool is already initialized");
+    if (!_pool_status.is<UNINITIALIZED>()) {
+        return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();
     _num_threads_pending_start = _min_threads;
@@ -293,14 +265,14 @@ Status ThreadPool::init() {
 
 void ThreadPool::shutdown() {
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    MutexLock unique_lock(&_lock);
+    std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
 
     // Note: this is the same error seen at submission if the pool is at
     // capacity, so clients can't tell them apart. This isn't really a practical
     // concern though because shutting down a pool typically requires clients to
     // be quiesced first, so there's no danger of a client getting confused.
-    _pool_status = Status::ServiceUnavailable("The pool has been shut down.");
+    _pool_status = Status::ServiceUnavailable("The thread pool {} has been shut down.", _name);
 
     // Clear the various queues under the lock, but defer the releasing
     // of the tasks outside the lock, in case there are concurrent threads
@@ -339,9 +311,8 @@ void ThreadPool::shutdown() {
         _idle_threads.front().not_empty.notify_one();
         _idle_threads.pop_front();
     }
-    while (_num_threads + _num_threads_pending_start > 0) {
-        _no_threads_cond.wait();
-    }
+
+    _no_threads_cond.wait(l, [this]() { return _num_threads + _num_threads_pending_start == 0; });
 
     // All the threads have exited. Check the state of each token.
     for (auto* t : _tokens) {
@@ -351,14 +322,14 @@ void ThreadPool::shutdown() {
 }
 
 std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int max_concurrency) {
-    MutexLock unique_lock(&_lock);
+    std::lock_guard<std::mutex> l(_lock);
     std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode, max_concurrency));
     InsertOrDie(&_tokens, t.get());
     return t;
 }
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
-    MutexLock unique_lock(&_lock);
+    std::lock_guard<std::mutex> l(_lock);
     CHECK(!t->is_active()) << strings::Substitute("Token with state $0 may not be released",
                                                   ThreadPoolToken::state_to_string(t->state()));
     CHECK_EQ(1, _tokens.erase(t));
@@ -374,25 +345,26 @@ Status ThreadPool::submit_func(std::function<void()> f) {
 
 Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token) {
     DCHECK(token);
-    MonoTime submit_time = MonoTime::Now();
+    std::chrono::time_point<std::chrono::system_clock> submit_time =
+            std::chrono::system_clock::now();
 
-    MutexLock unique_lock(&_lock);
+    std::unique_lock<std::mutex> l(_lock);
     if (PREDICT_FALSE(!_pool_status.ok())) {
         return _pool_status;
     }
 
     if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
-        return Status::ServiceUnavailable("Thread pool token was shut down");
+        return Status::ServiceUnavailable("Thread pool({}) token was shut down", _name);
     }
 
     // Size limit check.
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
-        return Status::ServiceUnavailable(strings::Substitute(
-                "Thread pool is at capacity ($0/$1 tasks running, $2/$3 tasks queued)",
+        return Status::ServiceUnavailable(
+                "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)", _name,
                 _num_threads + _num_threads_pending_start, _max_threads, _total_queued_tasks,
-                _max_queue_size));
+                _max_queue_size);
     }
 
     // Should we create another thread?
@@ -432,12 +404,12 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     token->_entries.emplace_back(std::move(task));
     // When we need to execute the task in the token, we submit the token object to the queue.
     // There are currently two places where tokens will be submitted to the queue:
-    // 1. When submitting a new task, if the token is still in the IDLE state, 
+    // 1. When submitting a new task, if the token is still in the IDLE state,
     //    or the concurrency of the token has not reached the online level, it will be added to the queue.
     // 2. When the dispatch thread finishes executing a task:
     //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
     //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
-    //       then submitted to the queue. 
+    //       then submitted to the queue.
     if (token->need_dispatch()) {
         _queue.emplace_back(token);
         ++token->_num_submitted_tasks;
@@ -459,12 +431,12 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
         _idle_threads.front().not_empty.notify_one();
         _idle_threads.pop_front();
     }
-    unique_lock.unlock();
+    l.unlock();
 
     if (need_a_thread) {
         Status status = create_thread();
         if (!status.ok()) {
-            unique_lock.lock();
+            l.lock();
             _num_threads_pending_start--;
             if (_num_threads + _num_threads_pending_start == 0) {
                 // If we have no threads, we can't do any work.
@@ -472,7 +444,8 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
             }
             // If we failed to create a thread, but there are still some other
             // worker threads, log a warning message and continue.
-            LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+            LOG(WARNING) << "Thread pool " << _name
+                         << " failed to create thread: " << status.to_string();
         }
     }
 
@@ -480,38 +453,21 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
 }
 
 void ThreadPool::wait() {
-    MutexLock unique_lock(&_lock);
+    std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
-    while (_total_queued_tasks > 0 || _active_threads > 0) {
-        _idle_cond.wait();
-    }
-}
-
-bool ThreadPool::wait_until(const MonoTime& until) {
-    MutexLock unique_lock(&_lock);
-    check_not_pool_thread_unlocked();
-    while (_total_queued_tasks > 0 || _active_threads > 0) {
-        if (!_idle_cond.wait_until(until)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool ThreadPool::wait_for(const MonoDelta& delta) {
-    return wait_until(MonoTime::Now() + delta);
+    _idle_cond.wait(l, [this]() { return _total_queued_tasks == 0 && _active_threads == 0; });
 }
 
 void ThreadPool::dispatch_thread() {
+    std::unique_lock<std::mutex> l(_lock);
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    MutexLock unique_lock(&_lock);
     InsertOrDie(&_threads, Thread::current_thread());
     DCHECK_GT(_num_threads_pending_start, 0);
     _num_threads++;
     _num_threads_pending_start--;
 
     // Owned by this worker thread and added/removed from _idle_threads as needed.
-    IdleThread me(&_lock);
+    IdleThread me;
 
     while (true) {
         // Note: Status::Aborted() is used to indicate normal shutdown.
@@ -537,7 +493,7 @@ void ThreadPool::dispatch_thread() {
                     _idle_threads.erase(_idle_threads.iterator_to(me));
                 }
             });
-            if (!me.not_empty.wait_for(_idle_timeout)) {
+            if (me.not_empty.wait_for(l, _idle_timeout) == std::cv_status::timeout) {
                 // After much investigation, it appears that pthread condition variables have
                 // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
                 // another thread did in fact signal. Apparently after a timeout there is some
@@ -545,9 +501,12 @@ void ThreadPool::dispatch_thread() {
                 // protecting the state, signal, and release again before we get the mutex. So,
                 // we'll recheck the empty queue case regardless.
                 if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
-                        VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
-                                << _idle_timeout.ToMilliseconds() << "ms of idle time.";
-                        break;
+                    VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
+                                << std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           _idle_timeout)
+                                           .count()
+                                << "ms of idle time.";
+                    break;
                 }
             }
             continue;
@@ -564,7 +523,7 @@ void ThreadPool::dispatch_thread() {
         --_total_queued_tasks;
         ++_active_threads;
 
-        unique_lock.unlock();
+        l.unlock();
 
         // Execute the task
         task.runnable->run();
@@ -576,7 +535,7 @@ void ThreadPool::dispatch_thread() {
         // In the worst case, the destructor might even try to do something
         // with this threadpool, and produce a deadlock.
         task.runnable.reset();
-        unique_lock.lock();
+        l.lock();
 
         // Possible states:
         // 1. The token was shut down while we ran its task. Transition to QUIESCED.
@@ -587,19 +546,26 @@ void ThreadPool::dispatch_thread() {
                state == ThreadPoolToken::State::QUIESCING);
         --token->_active_threads;
         --token->_num_submitted_tasks;
+
+        // handle shutdown && idle
         if (token->_active_threads == 0) {
             if (state == ThreadPoolToken::State::QUIESCING) {
                 DCHECK(token->_entries.empty());
                 token->transition(ThreadPoolToken::State::QUIESCED);
             } else if (token->_entries.empty()) {
                 token->transition(ThreadPoolToken::State::IDLE);
-            } else if (token->mode() == ExecutionMode::SERIAL) {
-                _queue.emplace_back(token);
-                ++token->_num_submitted_tasks;
-                --token->_num_unsubmitted_tasks;
             }
-        } else if (token->mode() == ExecutionMode::CONCURRENT && token->_num_submitted_tasks < token->_max_concurrency
-                && token->_num_unsubmitted_tasks > 0) {
+        }
+
+        // We decrease _num_submitted_tasks holding lock, so the following DCHECK works.
+        DCHECK(token->_num_submitted_tasks < token->_max_concurrency);
+
+        // If token->state is running and there are unsubmitted tasks in the token, we put
+        // the token back.
+        if (token->_num_unsubmitted_tasks > 0 && state == ThreadPoolToken::State::RUNNING) {
+            // SERIAL: if _entries is not empty, then num_unsubmitted_tasks must be greater than 0.
+            // CONCURRENT: we have to check _num_unsubmitted_tasks because there may be at least 2
+            // threads are running for the token.
             _queue.emplace_back(token);
             ++token->_num_submitted_tasks;
             --token->_num_unsubmitted_tasks;
@@ -613,7 +579,7 @@ void ThreadPool::dispatch_thread() {
     // It's important that we hold the lock between exiting the loop and dropping
     // _num_threads. Otherwise it's possible someone else could come along here
     // and add a new task just as the last running thread is about to exit.
-    CHECK(unique_lock.own_lock());
+    CHECK(l.owns_lock());
 
     CHECK_EQ(_threads.erase(Thread::current_thread()), 1);
     _num_threads--;
@@ -643,12 +609,11 @@ void ThreadPool::check_not_pool_thread_unlocked() {
 }
 
 Status ThreadPool::set_min_threads(int min_threads) {
-    MutexLock unique_lock(&_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (min_threads > _max_threads) {
         // min threads can not be set greater than max threads
-        return Status::InternalError("set thread pool min_threads failed");
+        return Status::InternalError("set thread pool {} min_threads failed", _name);
     }
-
     _min_threads = min_threads;
     if (min_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = min_threads - _num_threads - _num_threads_pending_start;
@@ -657,7 +622,8 @@ Status ThreadPool::set_min_threads(int min_threads) {
             Status status = create_thread();
             if (!status.ok()) {
                 _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+                LOG(WARNING) << "Thread pool " << _name
+                             << " failed to create thread: " << status.to_string();
                 return status;
             }
         }
@@ -666,10 +632,10 @@ Status ThreadPool::set_min_threads(int min_threads) {
 }
 
 Status ThreadPool::set_max_threads(int max_threads) {
-    MutexLock unique_lock(&_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (_min_threads > max_threads) {
         // max threads can not be set less than min threads
-        return Status::InternalError("set thread pool max_threads failed");
+        return Status::InternalError("set thread pool {} max_threads failed", _name);
     }
 
     _max_threads = max_threads;
@@ -681,7 +647,8 @@ Status ThreadPool::set_max_threads(int max_threads) {
             Status status = create_thread();
             if (!status.ok()) {
                 _num_threads_pending_start--;
-                LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+                LOG(WARNING) << "Thread pool " << _name
+                             << " failed to create thread: " << status.to_string();
                 return status;
             }
         }

@@ -14,9 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/DataSink.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
@@ -32,7 +36,7 @@ import org.apache.doris.thrift.TExplainLevel;
  */
 public abstract class DataSink {
     // Fragment that this DataSink belongs to. Set by the PlanFragment enclosing this sink.
-    protected PlanFragment fragment_;
+    protected PlanFragment fragment;
 
     /**
      * Return an explain string for the DataSink. Each line of the explain will be prefixed
@@ -45,8 +49,13 @@ public abstract class DataSink {
 
     protected abstract TDataSink toThrift();
 
-    public void setFragment(PlanFragment fragment) { fragment_ = fragment; }
-    public PlanFragment getFragment() { return fragment_; }
+    public void setFragment(PlanFragment fragment) {
+        this.fragment = fragment;
+    }
+
+    public PlanFragment getFragment() {
+        return fragment;
+    }
 
     public abstract PlanNodeId getExchNodeId();
 
@@ -56,7 +65,9 @@ public abstract class DataSink {
         if (table instanceof MysqlTable) {
             return new MysqlTableSink((MysqlTable) table);
         } else if (table instanceof OdbcTable) {
-            return new OdbcTableSink((OdbcTable)table);
+            return new OdbcTableSink((OdbcTable) table);
+        } else if (table instanceof JdbcTable) {
+            return new JdbcTableSink((JdbcTable) table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }

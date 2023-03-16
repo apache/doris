@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
-#define DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
+#pragma once
 
 #include <cassert>
 #include <cstdio>
@@ -33,9 +32,6 @@
 #include "runtime/cache/cache_utils.h"
 #include "runtime/cache/result_node.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 
 namespace doris {
 
@@ -79,8 +75,8 @@ private:
 class ResultCache {
 public:
     ResultCache(int32 max_size, int32 elasticity_size) {
-        _max_size = max_size * 1024 * 1024;
-        _elasticity_size = elasticity_size * 1024 * 1024;
+        _max_size = static_cast<size_t>(max_size) * 1024 * 1024;
+        _elasticity_size = static_cast<size_t>(elasticity_size) * 1024 * 1024;
         _cache_size = 0;
         _node_count = 0;
         _partition_count = 0;
@@ -118,4 +114,3 @@ private:
 };
 
 } // namespace doris
-#endif

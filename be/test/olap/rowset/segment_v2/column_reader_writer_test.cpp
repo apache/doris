@@ -19,23 +19,27 @@
 
 #include <iostream>
 
-#include "common/logging.h"
 #include "env/env.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/column_block.h"
 #include "olap/decimal12.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/file_utils.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 using std::string;
 
@@ -46,25 +50,25 @@ static const std::string TEST_DIR = "./ut_dir/column_reader_writer_test";
 
 class ColumnReaderWriterTest : public testing::Test {
 public:
-    ColumnReaderWriterTest() : _tracker(new MemTracker()), _pool(_tracker.get()) {}
-    virtual ~ColumnReaderWriterTest() {}
+    ColumnReaderWriterTest() : _pool() {}
+    ~ColumnReaderWriterTest() override = default;
 
 protected:
     void SetUp() override {
+        config::disable_storage_page_cache = true;
         if (FileUtils::check_exist(TEST_DIR)) {
-            ASSERT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
+            EXPECT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
         }
-        ASSERT_TRUE(FileUtils::create_dir(TEST_DIR).ok());
+        EXPECT_TRUE(FileUtils::create_dir(TEST_DIR).ok());
     }
 
     void TearDown() override {
         if (FileUtils::check_exist(TEST_DIR)) {
-            ASSERT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
+            EXPECT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
         }
     }
 
 private:
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
 };
 
@@ -78,11 +82,11 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 
     // write data
     std::string fname = TEST_DIR + "/" + test_name;
+    auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(fname);
-        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
-        ASSERT_TRUE(st.ok()) << st.get_error_msg();
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(fname, &file_writer);
+        EXPECT_TRUE(st.ok()) << st;
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -106,56 +110,50 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             column = create_char_key(1);
         }
         std::unique_ptr<ColumnWriter> writer;
-        ColumnWriter::create(writer_opts, &column, wblock.get(), &writer);
+        ColumnWriter::create(writer_opts, &column, file_writer.get(), &writer);
         st = writer->init();
-        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(st.ok()) << st.to_string();
 
         for (int i = 0; i < num_rows; ++i) {
             st = writer->append(BitmapTest(src_is_null, i), src + i);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
         }
 
-        ASSERT_TRUE(writer->finish().ok());
-        ASSERT_TRUE(writer->write_data().ok());
-        ASSERT_TRUE(writer->write_ordinal_index().ok());
-        ASSERT_TRUE(writer->write_zone_map().ok());
+        EXPECT_TRUE(writer->finish().ok());
+        EXPECT_TRUE(writer->write_data().ok());
+        EXPECT_TRUE(writer->write_ordinal_index().ok());
+        EXPECT_TRUE(writer->write_zone_map().ok());
 
         // close the file
-        ASSERT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
     }
-    const TypeInfo* type_info = get_scalar_type_info(type);
+    auto type_info = get_scalar_type_info(type);
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(fs->open_file(fname, &file_reader, nullptr), Status::OK());
     // read and check
     {
         // sequence read
         {
             ColumnReaderOptions reader_opts;
-            FilePathDesc path_desc;
-            path_desc.filepath = fname;
             std::unique_ptr<ColumnReader> reader;
-            auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
-            ASSERT_TRUE(st.ok());
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
+            EXPECT_TRUE(st.ok());
 
             ColumnIterator* iter = nullptr;
             st = reader->new_iterator(&iter);
-            ASSERT_TRUE(st.ok());
-            std::unique_ptr<fs::ReadableBlock> rblock;
-            fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
-            block_manager->open_block(path_desc, &rblock);
+            EXPECT_TRUE(st.ok());
 
-            ASSERT_TRUE(st.ok());
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.rblock = rblock.get();
-            iter_opts.mem_tracker = std::make_shared<MemTracker>();
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
 
             st = iter->seek_to_first();
-            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_TRUE(st.ok()) << st.to_string();
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -166,17 +164,17 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
                 st = iter->next_batch(&rows_read, &dst);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    EXPECT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
-                            ASSERT_EQ(src_slice[idx].to_string(),
+                            EXPECT_EQ(src_slice[idx].to_string(),
                                       reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                                     << "j:" << j;
                         } else {
-                            ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
+                            EXPECT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                         }
                     }
                     idx++;
@@ -190,30 +188,23 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 
         {
             ColumnReaderOptions reader_opts;
-            FilePathDesc path_desc;
-            path_desc.filepath = fname;
             std::unique_ptr<ColumnReader> reader;
-            auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
-            ASSERT_TRUE(st.ok());
+            auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
+            EXPECT_TRUE(st.ok());
 
             ColumnIterator* iter = nullptr;
             st = reader->new_iterator(&iter);
-            ASSERT_TRUE(st.ok());
-            std::unique_ptr<fs::ReadableBlock> rblock;
-            fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
-            block_manager->open_block(path_desc, &rblock);
+            EXPECT_TRUE(st.ok());
 
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
             ColumnIteratorOptions iter_opts;
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
-            iter_opts.rblock = rblock.get();
-            iter_opts.mem_tracker = std::make_shared<MemTracker>();
+            iter_opts.file_reader = file_reader.get();
             st = iter->init(iter_opts);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -221,23 +212,23 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
 
                 int idx = rowid;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
 
                 st = iter->next_batch(&rows_read, &dst);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    EXPECT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
-                            ASSERT_EQ(src_slice[idx].to_string(),
+                            EXPECT_EQ(src_slice[idx].to_string(),
                                       reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                         } else {
-                            ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
+                            EXPECT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                         }
                     }
                     idx++;
@@ -264,11 +255,11 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
 
     // write data
     std::string fname = TEST_DIR + "/" + test_name;
+    auto fs = io::global_local_filesystem();
     {
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts(fname);
-        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
-        ASSERT_TRUE(st.ok()) << st.get_error_msg();
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(fname, &file_writer);
+        EXPECT_TRUE(st.ok()) << st;
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -292,60 +283,54 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         child_meta->set_is_nullable(true);
 
         std::unique_ptr<ColumnWriter> writer;
-        ColumnWriter::create(writer_opts, &list_column, wblock.get(), &writer);
+        ColumnWriter::create(writer_opts, &list_column, file_writer.get(), &writer);
         st = writer->init();
-        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(st.ok()) << st.to_string();
 
         for (int i = 0; i < num_rows; ++i) {
             st = writer->append(BitmapTest(src_is_null, i), src + i);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
         }
 
         st = writer->finish();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         st = writer->write_data();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         st = writer->write_ordinal_index();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         // close the file
-        ASSERT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(file_writer->close().ok());
     }
-    TypeInfo* type_info = get_type_info(&meta);
-
+    auto type_info = get_type_info(&meta);
+    io::FileReaderSPtr file_reader;
+    ASSERT_EQ(fs->open_file(fname, &file_reader, nullptr), Status::OK());
     // read and check
     {
         ColumnReaderOptions reader_opts;
-        FilePathDesc path_desc;
-        path_desc.filepath = fname;
         std::unique_ptr<ColumnReader> reader;
-        auto st = ColumnReader::create(reader_opts, meta, num_rows, path_desc, &reader);
-        ASSERT_TRUE(st.ok());
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
+        EXPECT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
-        ASSERT_TRUE(st.ok());
-        std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
-        st = block_manager->open_block(path_desc, &rblock);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
+
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
-        iter_opts.rblock = rblock.get();
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
+        iter_opts.file_reader = file_reader.get();
         st = iter->init(iter_opts);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         // sequence read
         {
             st = iter->seek_to_first();
-            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_TRUE(st.ok()) << st.to_string();
 
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, field, &cvb);
+            ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -354,11 +339,11 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
                 st = iter->next_batch(&rows_read, &dst);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    EXPECT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
-                        ASSERT_TRUE(type_info->equal(&src[idx], col.cell_ptr(j)));
+                        EXPECT_TRUE(type_info->equal(&src[idx], col.cell_ptr(j)));
                     }
                     ++idx;
                 }
@@ -369,27 +354,26 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         }
         // seek read
         {
-            MemTracker tracker;
-            MemPool pool(&tracker);
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, field, &cvb);
+            ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
 
                 int idx = rowid;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
 
                 st = iter->next_batch(&rows_read, &dst);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    EXPECT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
-                        ASSERT_TRUE(type_info->equal(&src[idx], col.cell_ptr(j)));
+                        EXPECT_TRUE(type_info->equal(&src[idx], col.cell_ptr(j)));
                     }
                     ++idx;
                 }
@@ -462,84 +446,78 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
 template <FieldType type>
 void test_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    TypeInfo* type_info = get_type_info(type);
+    const auto* scalar_type_info = get_scalar_type_info<type>();
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
         DefaultValueColumnIterator iter(tablet_column.has_default_value(),
                                         tablet_column.default_value(), tablet_column.is_nullable(),
-                                        type_info, tablet_column.length());
+                                        create_static_type_info_ptr(scalar_type_info),
+                                        tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         auto st = iter.init(iter_opts);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         // sequence read
         {
             st = iter.seek_to_first();
-            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_TRUE(st.ok()) << st.to_string();
 
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
+            ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
-            int idx = 0;
             size_t rows_read = 1024;
             ColumnBlockView dst(&col);
             bool has_null;
             st = iter.next_batch(&rows_read, &dst, &has_null);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
             for (int j = 0; j < rows_read; ++j) {
                 if (type == OLAP_FIELD_TYPE_CHAR) {
-                    ASSERT_EQ(*(string*)result,
+                    EXPECT_EQ(*(string*)result,
                               reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                             << "j:" << j;
                 } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
                            type == OLAP_FIELD_TYPE_OBJECT) {
-                    ASSERT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
+                    EXPECT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                             << "j:" << j;
                 } else {
                     ;
-                    ASSERT_EQ(*(Type*)result, *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
+                    EXPECT_EQ(*(Type*)result, *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
                 }
-                idx++;
             }
         }
 
         {
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool pool(tracker.get());
+            MemPool pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
+            ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
             for (int rowid = 0; rowid < 2048; rowid += 128) {
                 st = iter.seek_to_ordinal(rowid);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
 
-                int idx = rowid;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
                 bool has_null;
                 st = iter.next_batch(&rows_read, &dst, &has_null);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     if (type == OLAP_FIELD_TYPE_CHAR) {
-                        ASSERT_EQ(*(string*)result,
+                        EXPECT_EQ(*(string*)result,
                                   reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                                 << "j:" << j;
                     } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
                                type == OLAP_FIELD_TYPE_OBJECT) {
-                        ASSERT_EQ(value,
+                        EXPECT_EQ(value,
                                   reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                     } else {
-                        ASSERT_EQ(*(Type*)result,
+                        EXPECT_EQ(*(Type*)result,
                                   *(reinterpret_cast<const Type*>(col.cell_ptr(j))));
                     }
-                    idx++;
                 }
             }
         }
@@ -574,22 +552,22 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
 template <FieldType type>
 void test_v_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    TypeInfo* type_info = get_type_info(type);
+    const auto* scalar_type_info = get_scalar_type_info<type>();
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
         DefaultValueColumnIterator iter(tablet_column.has_default_value(),
                                         tablet_column.default_value(), tablet_column.is_nullable(),
-                                        type_info, tablet_column.length());
+                                        create_static_type_info_ptr(scalar_type_info),
+                                        tablet_column.precision(), tablet_column.frac());
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         auto st = iter.init(iter_opts);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         // sequence read
         {
             st = iter.seek_to_first();
-            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_TRUE(st.ok()) << st.to_string();
 
             vectorized::MutableColumnPtr mcp = create_vectorized_column_ptr(type);
 
@@ -597,35 +575,35 @@ void test_v_read_default_value(string value, void* result) {
             bool has_null;
             st = iter.next_batch(&rows_read, mcp, &has_null);
 
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
             for (int j = 0; j < rows_read; ++j) {
                 if (type == OLAP_FIELD_TYPE_CHAR) {
                 } else if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_HLL ||
                            type == OLAP_FIELD_TYPE_OBJECT) {
                 } else if (type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME) {
                     StringRef sr = mcp->get_data_at(j);
-                    ASSERT_EQ(sr.size, sizeof(vectorized::Int64));
+                    EXPECT_EQ(sr.size, sizeof(vectorized::Int64));
 
                     auto x = unaligned_load<vectorized::Int64>(sr.data);
                     auto value = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(x);
                     char buf[64] = {};
                     value.to_string(buf);
                     int ret = strcmp(buf, (char*)result);
-                    ASSERT_EQ(ret, 0);
+                    EXPECT_EQ(ret, 0);
                 } else if (type == OLAP_FIELD_TYPE_DECIMAL) {
                     StringRef sr = mcp->get_data_at(j);
-                    ASSERT_EQ(sr.size, sizeof(vectorized::Int128));
+                    EXPECT_EQ(sr.size, sizeof(vectorized::Int128));
 
                     DecimalV2Value v1(unaligned_load<vectorized::Int128>(sr.data));
                     decimal12_t* v2 = (decimal12_t*)result;
 
-                    ASSERT_EQ(v2->integer, v1.int_value());
-                    ASSERT_EQ(v2->fraction, v1.frac_value());
+                    EXPECT_EQ(v2->integer, v1.int_value());
+                    EXPECT_EQ(v2->fraction, v1.frac_value());
                 } else {
                     StringRef sr = mcp->get_data_at(j);
-                    ASSERT_EQ(sr.size, sizeof(Type));
+                    EXPECT_EQ(sr.size, sizeof(Type));
                     int ret = memcmp(sr.data, result, sr.size);
-                    ASSERT_EQ(ret, 0);
+                    EXPECT_EQ(ret, 0);
                 }
             }
         }
@@ -821,11 +799,29 @@ TEST_F(ColumnReaderWriterTest, test_v_default_value) {
     test_v_read_default_value<OLAP_FIELD_TYPE_DECIMAL>(v_decimal, &decimal);
 }
 
+TEST_F(ColumnReaderWriterTest, test_single_empty_array) {
+    size_t num_array = 1;
+    std::unique_ptr<uint8_t[]> array_is_null(new uint8_t[BitmapSize(num_array)]());
+    CollectionValue array(0);
+    test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
+            &array, array_is_null.get(), num_array, "test_single_empty_array");
+}
+
+TEST_F(ColumnReaderWriterTest, test_mixed_empty_arrays) {
+    size_t num_array = 3;
+    std::unique_ptr<uint8_t[]> array_is_null(new uint8_t[BitmapSize(num_array)]());
+    std::unique_ptr<CollectionValue[]> collection_values(new CollectionValue[num_array]);
+    int data[] = {1, 2, 3};
+    for (int i = 0; i < num_array; ++i) {
+        if (i % 2 == 1) {
+            new (&collection_values[i]) CollectionValue(0);
+        } else {
+            new (&collection_values[i]) CollectionValue(&data, 3, false, nullptr);
+        }
+    }
+    test_array_nullable_data<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE, BIT_SHUFFLE>(
+            collection_values.get(), array_is_null.get(), num_array, "test_mixed_empty_arrays");
+}
+
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

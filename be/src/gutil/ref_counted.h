@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef BASE_MEMORY_REF_COUNTED_H_
-#define BASE_MEMORY_REF_COUNTED_H_
+#pragma once
 
 #include <cassert>
 #include <cstddef>
@@ -79,7 +78,7 @@ private:
 //   };
 //
 // You should always make your destructor private, to avoid any code deleting
-// the object accidently while there are references to it.
+// the object accidentally while there are references to it.
 template <class T>
 class RefCounted : public subtle::RefCountedBase {
 public:
@@ -95,9 +94,6 @@ public:
 
 protected:
     ~RefCounted() {}
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(RefCounted<T>);
 };
 
 // Forward declaration.
@@ -342,5 +338,3 @@ template <class T>
 struct ScopedRefPtrHashFunctor {
     size_t operator()(const scoped_refptr<T>& p) const { return reinterpret_cast<size_t>(p.get()); }
 };
-
-#endif // BASE_MEMORY_REF_COUNTED_H_

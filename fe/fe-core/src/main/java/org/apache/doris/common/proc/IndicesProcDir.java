@@ -105,14 +105,14 @@ public class IndicesProcDir implements ProcDirInterface {
         if (Strings.isNullOrEmpty(indexIdStr)) {
             throw new AnalysisException("Index id is null");
         }
-        
+
         long indexId;
         try {
             indexId = Long.valueOf(indexIdStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid index id format: " + indexIdStr);
         }
-        
+
         olapTable.readLock();
         try {
             MaterializedIndex materializedIndex = partition.getIndex(indexId);

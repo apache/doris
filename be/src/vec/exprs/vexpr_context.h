@@ -27,12 +27,12 @@ class VExpr;
 class VExprContext {
 public:
     VExprContext(VExpr* expr);
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   const std::shared_ptr<MemTracker>& tracker);
-    Status open(RuntimeState* state);
+    ~VExprContext();
+    [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
+    [[nodiscard]] Status open(RuntimeState* state);
     void close(RuntimeState* state);
-    Status clone(RuntimeState* state, VExprContext** new_ctx);
-    Status execute(Block* block, int* result_column_id);
+    [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
+    [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
     VExpr* root() { return _root; }
     void set_root(VExpr* expr) { _root = expr; }
@@ -41,29 +41,35 @@ public:
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
-    int register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
-                      const std::vector<FunctionContext::TypeDesc>& arg_types,
-                      int varargs_buffer_size);
+    int register_function_context(RuntimeState* state, const doris::TypeDescriptor& return_type,
+                                  const std::vector<doris::TypeDescriptor>& arg_types);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
-    /// register_func(). This should only be called by VExprs.
+    /// register_function_context(). This should only be called by VExprs.
     FunctionContext* fn_context(int i) {
         DCHECK_GE(i, 0);
         DCHECK_LT(i, _fn_contexts.size());
-        return _fn_contexts[i];
+        return _fn_contexts[i].get();
     }
 
-    static Status filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep);
-    static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                               int column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
+                                             int column_to_keep);
+    [[nodiscard]] static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr,
+                                             Block* block, int column_to_keep);
 
     static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
                                                       const Block&, Status&);
 
-    int get_last_result_column_id() {
+    int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;
     }
+
+    FunctionContext::FunctionStateScope get_function_state_scope() const {
+        return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+    }
+
+    void clone_fn_contexts(VExprContext* other);
 
 private:
     friend class VExpr;
@@ -81,11 +87,11 @@ private:
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.
-    std::vector<FunctionContext*> _fn_contexts;
-
-    /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
-    std::unique_ptr<MemPool> _pool;
+    std::vector<std::unique_ptr<FunctionContext>> _fn_contexts;
 
     int _last_result_column_id;
+
+    /// The depth of expression-tree.
+    int _depth_num = 0;
 };
 } // namespace doris::vectorized

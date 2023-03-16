@@ -25,10 +25,20 @@
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/core/names.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
+    bool is_nullable = false;                                                            \
+    bool is_datev2 = false;                                                              \
+    for (auto it : arguments) {                                                          \
+        is_nullable = is_nullable || it.type->is_nullable();                             \
+        is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() || \
+                    WhichDataType(remove_nullable(it.type)).is_date_time_v2();           \
+    }                                                                                    \
+    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
+                                     : std::make_shared<TYPE>();
 
 class Field;
 
@@ -95,11 +105,6 @@ protected:
       */
     virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
 
-    /** True if function can be called on default arguments (include Nullable's) and won't throw.
-      * Counterexample: modulo(0, 0)
-      */
-    virtual bool can_be_executed_on_default_arguments() const { return true; }
-
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
                                             const ColumnNumbers& args, size_t result,
@@ -131,7 +136,7 @@ public:
 
     /// Override this when function need to store state in the `FunctionContext`, or do some
     /// preparation work according to information from `FunctionContext`.
-    virtual Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    virtual Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 
@@ -149,6 +154,8 @@ public:
     }
 
     virtual bool is_stateful() const { return false; }
+
+    virtual bool can_fast_execute() const { return false; }
 
     /** Should we evaluate this function while constant folding, if arguments are constants?
       * Usually this is true. Notable counterexample is function 'sleep'.
@@ -291,15 +298,10 @@ public:
                // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
                (return_type->is_nullable() && func_return_type->is_nullable() &&
                 is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
-               (is_date_or_datetime(
-                        return_type->is_nullable()
-                                ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                : return_type) &&
-                is_date_or_datetime(get_return_type(arguments)->is_nullable()
-                                            ? ((DataTypeNullable*)get_return_type(arguments).get())
-                                                      ->get_nested_type()
-                                            : get_return_type(arguments))))
-                << " with " << return_type->get_name() << " and " << func_return_type->get_name();
+               is_date_or_datetime_or_decimal(return_type, func_return_type) ||
+               is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))
+                << " for function '" << this->get_name() << "' with " << return_type->get_name()
+                << " and " << func_return_type->get_name();
 
         return build_impl(arguments, return_type);
     }
@@ -365,6 +367,11 @@ protected:
 private:
     DataTypePtr get_return_type_without_low_cardinality(
             const ColumnsWithTypeAndName& arguments) const;
+
+    bool is_date_or_datetime_or_decimal(const DataTypePtr& return_type,
+                                        const DataTypePtr& func_return_type) const;
+    bool is_array_nested_type_date_or_datetime_or_decimal(
+            const DataTypePtr& return_type, const DataTypePtr& func_return_type) const;
 };
 
 /// Previous function interface.
@@ -386,7 +393,6 @@ public:
     bool use_default_implementation_for_constants() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
-    bool can_be_executed_on_default_arguments() const override { return true; }
     bool can_be_executed_on_low_cardinality_dictionary() const override {
         return is_deterministic_in_scope_of_query();
     }
@@ -407,7 +413,7 @@ public:
         __builtin_unreachable();
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 
@@ -460,9 +466,6 @@ protected:
     ColumnNumbers get_arguments_that_are_always_constant() const final {
         return function->get_arguments_that_are_always_constant();
     }
-    bool can_be_executed_on_default_arguments() const override {
-        return function->can_be_executed_on_default_arguments();
-    }
 
 private:
     std::shared_ptr<IFunction> function;
@@ -487,8 +490,8 @@ public:
         return std::make_shared<DefaultExecutable>(function);
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return function->prepare(context, scope);
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        return function->open(context, scope);
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -508,6 +511,12 @@ public:
     }
 
     bool is_deterministic() const override { return function->is_deterministic(); }
+
+    bool can_fast_execute() const override {
+        auto function_name = function->get_name();
+        return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
+               function_name == "gt" || function_name == "le" || function_name == "ge";
+    }
 
     bool is_deterministic_in_scope_of_query() const override {
         return function->is_deterministic_in_scope_of_query();

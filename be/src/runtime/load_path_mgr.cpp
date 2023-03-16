@@ -32,6 +32,7 @@
 #include "util/file_utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
@@ -53,22 +54,22 @@ LoadPathMgr::~LoadPathMgr() {
 Status LoadPathMgr::init() {
     _path_vec.clear();
     for (auto& path : _exec_env->store_paths()) {
-        _path_vec.push_back(path.path + MINI_PREFIX);
+        _path_vec.push_back(path.path + "/" + MINI_PREFIX);
     }
     LOG(INFO) << "Load path configured to [" << boost::join(_path_vec, ",") << "]";
 
     // error log is saved in first root path
-    _error_log_dir = _exec_env->store_paths()[0].path + ERROR_LOG_PREFIX;
+    _error_log_dir = _exec_env->store_paths()[0].path + "/" + ERROR_LOG_PREFIX;
     // check and make dir
     RETURN_IF_ERROR(FileUtils::create_dir(_error_log_dir));
 
     _idx = 0;
-    _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
+    _reserved_hours = std::max<int64_t>(config::load_data_reserve_hours, 1L);
     RETURN_IF_ERROR(Thread::create(
             "LoadPathMgr", "clean_expired_temp_path",
             [this]() {
                 // TODO(zc): add this thread to cgroup for control resource it use
-                while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(3600))) {
+                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(3600))) {
                     this->clean();
                 }
             },
@@ -98,8 +99,7 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
             *prefix = path;
             return Status::OK();
         } else {
-            LOG(WARNING) << "create dir failed:" << path
-                         << ", error msg:" << status.get_error_msg();
+            LOG(WARNING) << "create dir failed:" << path << ", error msg:" << status;
         }
     }
 
@@ -179,7 +179,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
     std::vector<std::string> dbs;
     Status status = FileUtils::list_files(env, path, &dbs);
     // path may not exist
-    if (!status.ok() && !status.is_not_found()) {
+    if (!status.ok() && !status.is<NOT_FOUND>()) {
         LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
         return;
     }

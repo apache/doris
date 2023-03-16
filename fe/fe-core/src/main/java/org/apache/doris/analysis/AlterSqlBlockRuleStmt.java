@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -33,6 +33,8 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Map;
 
 public class AlterSqlBlockRuleStmt extends DdlStmt {
+
+    public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
 
     private final String ruleName;
 
@@ -61,7 +63,7 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         // check properties
@@ -71,16 +73,21 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     private void setProperties(Map<String, String> properties) throws AnalysisException {
         this.sql = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET);
-        this.sqlHash = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET);
+        this.sqlHash = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY,
+                CreateSqlBlockRuleStmt.STRING_NOT_SET);
         String partitionNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(CreateSqlBlockRuleStmt.SCANNED_CARDINALITY);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
-        SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
-        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null, CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
-        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, 0L, null, CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
-        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null, CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
+        SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash,
+                partitionNumString, tabletNumString, cardinalityString);
+        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, LONG_NOT_SET, null,
+                CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
+        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, LONG_NOT_SET, null,
+                CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
+        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, LONG_NOT_SET, null,
+                CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
         // allow null, represents no modification
         String globalStr = properties.get(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY);
         this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;

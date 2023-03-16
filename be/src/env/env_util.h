@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
 
 #include <memory>
@@ -45,7 +46,7 @@ Status write_string_to_file(Env* env, const Slice& data, const std::string& fnam
 Status write_string_to_file_sync(Env* env, const Slice& data, const std::string& fname);
 
 // A utility routine: read contents of named file into *data
-Status read_file_to_string(Env* env, const std::string& fname, faststring* data);
+Status read_file_to_string(Env* env, const std::string& fname, std::string* data);
 
 } // namespace env_util
 } // namespace doris

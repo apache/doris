@@ -17,32 +17,47 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-// only the following 3 formats are allowed
-// db.tbl
-// *.*
-// db.*
-public class TablePattern implements Writable {
+/**
+ * Three-segment-format: catalog.database.table. If the lower segment is specific,
+ * the higher segment can't be a wildcard. The following examples are not allowed:
+ * "ctl1.*.table1", "*.*.table2", "*.db1.*", ...
+ */
+public class TablePattern implements Writable, GsonPostProcessable {
+    @SerializedName(value = "ctl")
+    private String ctl;
+    @SerializedName(value = "db")
     private String db;
+    @SerializedName(value = "tbl")
     private String tbl;
     boolean isAnalyzed = false;
 
     public static TablePattern ALL;
+
     static {
-        ALL = new TablePattern("*", "*");
+        ALL = new TablePattern("*", "*", "*");
         try {
             ALL.analyze("");
         } catch (AnalysisException e) {
@@ -53,9 +68,21 @@ public class TablePattern implements Writable {
     private TablePattern() {
     }
 
-    public TablePattern(String db, String tbl) {
+    public TablePattern(String ctl, String db, String tbl) {
+        this.ctl = Strings.isNullOrEmpty(ctl) ? "*" : ctl;
         this.db = Strings.isNullOrEmpty(db) ? "*" : db;
         this.tbl = Strings.isNullOrEmpty(tbl) ? "*" : tbl;
+    }
+
+    public TablePattern(String db, String tbl) {
+        this.ctl = null;
+        this.db = Strings.isNullOrEmpty(db) ? "*" : db;
+        this.tbl = Strings.isNullOrEmpty(tbl) ? "*" : tbl;
+    }
+
+    public String getQualifiedCtl() {
+        Preconditions.checkState(isAnalyzed);
+        return ctl;
     }
 
     public String getQualifiedDb() {
@@ -66,24 +93,40 @@ public class TablePattern implements Writable {
     public String getTbl() {
         return tbl;
     }
-    
+
     public PrivLevel getPrivLevel() {
         Preconditions.checkState(isAnalyzed);
-        if (db.equals("*")) {
+        if (ctl.equals("*")) {
             return PrivLevel.GLOBAL;
-        } else if (!tbl.equals("*")) {
-            return PrivLevel.TABLE;
-        } else {
+        } else if (db.equals("*")) {
+            return PrivLevel.CATALOG;
+        } else if (tbl.equals("*")) {
             return PrivLevel.DATABASE;
+        } else {
+            return PrivLevel.TABLE;
         }
     }
 
-    public void analyze(String clusterName) throws AnalysisException {
+    public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (ctl == null) {
+            analyze(analyzer.getDefaultCatalog(), analyzer.getClusterName());
+        } else {
+            analyze(analyzer.getClusterName());
+        }
+    }
+
+    private void analyze(String catalogName, String clusterName) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
-        if (db.equals("*") && !tbl.equals("*")) {
+        this.ctl = Strings.isNullOrEmpty(catalogName) ? InternalCatalog.INTERNAL_CATALOG_NAME : catalogName;
+        if ((!tbl.equals("*") && (db.equals("*") || ctl.equals("*")))
+                || (!db.equals("*") && ctl.equals("*"))) {
             throw new AnalysisException("Do not support format: " + toString());
+        }
+
+        if (!ctl.equals("*")) {
+            FeNameFormat.checkCatalogName(ctl);
         }
 
         if (!db.equals("*")) {
@@ -97,9 +140,21 @@ public class TablePattern implements Writable {
         isAnalyzed = true;
     }
 
+    public void analyze(String clusterName) throws AnalysisException {
+        analyze(ctl, clusterName);
+    }
+
     public static TablePattern read(DataInput in) throws IOException {
-        TablePattern tablePattern = new TablePattern();
-        tablePattern.readFields(in);
+        TablePattern tablePattern;
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
+            tablePattern = GsonUtils.GSON.fromJson(Text.readString(in), TablePattern.class);
+        } else {
+            String ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+            String db = Text.readString(in);
+            String tbl = Text.readString(in);
+            tablePattern = new TablePattern(ctl, db, tbl);
+        }
+        tablePattern.isAnalyzed = true;
         return tablePattern;
     }
 
@@ -109,34 +164,30 @@ public class TablePattern implements Writable {
             return false;
         }
         TablePattern other = (TablePattern) obj;
-        return db.equals(other.getQualifiedDb()) && tbl.equals(other.getTbl());
+        return ctl.equals(other.getQualifiedCtl()) && db.equals(other.getQualifiedDb()) && tbl.equals(other.getTbl());
     }
 
     @Override
     public int hashCode() {
-        int result = 17;
-        result = 31 * result + db.hashCode();
-        result = 31 * result + tbl.hashCode();
-        return result;
+        return Stream.of(ctl, db, tbl).filter(Objects::nonNull)
+                .map(String::hashCode)
+                .reduce(17, (acc, h) -> 31 * acc + h);
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(db).append(".").append(tbl);
-        return sb.toString();
+        return Stream.of(ctl, db, tbl).filter(Objects::nonNull).collect(Collectors.joining("."));
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Preconditions.checkState(isAnalyzed);
-        Text.writeString(out, db);
-        Text.writeString(out, tbl);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        db = Text.readString(in);
-        tbl = Text.readString(in);
+    @Override
+    public void gsonPostProcess() throws IOException {
         isAnalyzed = true;
     }
 }

@@ -26,9 +26,9 @@
 // but don't require including the dangerous netinet/in.h.
 //
 // Buffer routines will copy to and from buffers without causing
-// a bus error when the architecture requires differnt byte alignments
-#ifndef UTIL_ENDIAN_ENDIAN_H_
-#define UTIL_ENDIAN_ENDIAN_H_
+// a bus error when the architecture requires different byte alignments
+
+#pragma once
 
 #include <assert.h>
 
@@ -176,7 +176,7 @@ public:
     // The caller needs to guarantee that 1 <= len <= 8.
     static uint64 Load64VariableLength(const void* const p, int len) {
         assert(len >= 1 && len <= 8);
-        const char* const buf = static_cast<const char* const>(p);
+        const char* const buf = static_cast<const char*>(p);
         uint64 val = 0;
         --len;
         do {
@@ -356,5 +356,3 @@ public:
 
 // Network byte order is big-endian
 typedef BigEndian NetworkByteOrder;
-
-#endif // UTIL_ENDIAN_ENDIAN_H_

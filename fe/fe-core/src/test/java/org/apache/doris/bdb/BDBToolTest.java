@@ -32,7 +32,6 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.OperationStatus;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -74,8 +73,7 @@ public class BDBToolTest {
             }
 
             // write something
-            ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 10, 11, 12, 13, 14,
-                    15);
+            ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(1, 2, 3, 4, 5, 6, 7, 8, 0, 10, 11, 0, 12, 14);
             JournalEntity entity = new JournalEntity();
             entity.setOpCode(OperationType.OP_ADD_REPLICA);
             entity.setData(info);
@@ -135,7 +133,7 @@ public class BDBToolTest {
         BDBTool tool = new BDBTool(path, options);
         Assert.assertTrue(tool.run());
     }
-    
+
     @Test
     public void testDbStat() {
         // wrong db name

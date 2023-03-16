@@ -15,46 +15,75 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
-#define DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
+#pragma once
 
 #include <stdint.h>
 
 #include <roaring/roaring.hh>
 
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/wrapper_field.h"
 
 namespace doris {
-
-class VectorizedRowBatch;
 
 class NullPredicate : public ColumnPredicate {
 public:
     NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
 
-    virtual void evaluate(VectorizedRowBatch* batch) const override;
+    PredicateType type() const override;
 
-    void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
+    Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
+                    roaring::Roaring* roaring) const override;
 
-    void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;
+    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
+                      uint16_t size) const override;
 
-    void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;
-
-    virtual Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-                            uint32_t num_rows, roaring::Roaring* roaring) const override;
-
-    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
-
-    void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override;
 
-    void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
+    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
+    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (_is_null) {
+            return statistic.first->is_null();
+        } else {
+            return !statistic.second->is_null();
+        }
+    }
+
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        // evaluate_del only use for delete condition to filter page, need use delete condition origin value,
+        // when opposite==true, origin value 'is null'->'is not null' and 'is not null'->'is null',
+        // so when _is_null==true, need check 'is not null' and _is_null==false, need check 'is null'
+        if (_is_null) {
+            return !statistic.first->is_null() && !statistic.second->is_null();
+        } else {
+            return statistic.first->is_null() && statistic.second->is_null();
+        }
+    }
+
+    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        if (_is_null) {
+            return bf->test_bytes(nullptr, 0);
+        } else {
+            LOG(FATAL) << "Bloom filter is not supported by predicate type: is_null=" << _is_null;
+            return true;
+        }
+    }
+
+    bool can_do_bloom_filter() const override { return _is_null; }
+
+    void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
+
 private:
+    std::string _debug_string() const override {
+        std::string info = "NullPredicate(" + std::string(_is_null ? "is_null" : "not_null") + ")";
+        return info;
+    }
+
     bool _is_null; //true for null, false for not null
 };
 
 } //namespace doris
-
-#endif //DORIS_BE_SRC_OLAP_NULL_PREDICATE_H

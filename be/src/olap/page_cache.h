@@ -21,11 +21,10 @@
 #include <string>
 #include <utility>
 
-#include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
-#include "olap/lru_cache.h"
 #include "gen_cpp/segment_v2.pb.h" // for cache allocation
-#include "runtime/mem_tracker.h"
-
+#include "gutil/macros.h"          // for DISALLOW_COPY_AND_ASSIGN
+#include "olap/lru_cache.h"
+#include "runtime/memory/mem_tracker.h"
 
 namespace doris {
 
@@ -55,14 +54,17 @@ public:
         }
     };
 
+    static constexpr uint32_t kDefaultNumShards = 16;
+
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, int32_t index_cache_percentage);
+    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
+                                    uint32_t num_shards = kDefaultNumShards);
 
     // Return global instance.
     // Client should call create_global_cache before.
     static StoragePageCache* instance() { return _s_instance; }
 
-    StoragePageCache(size_t capacity, int32_t index_cache_percentage);
+    StoragePageCache(size_t capacity, int32_t index_cache_percentage, uint32_t num_shards);
 
     // Lookup the given page in the cache.
     //
@@ -89,6 +91,12 @@ public:
         return _get_page_cache(page_type) != nullptr;
     }
 
+    void prune(segment_v2::PageTypePB page_type);
+
+    int64_t get_page_cache_mem_consumption(segment_v2::PageTypePB page_type) {
+        return _get_page_cache(page_type)->mem_consumption();
+    }
+
 private:
     StoragePageCache();
     static StoragePageCache* _s_instance;
@@ -97,13 +105,11 @@ private:
     std::unique_ptr<Cache> _data_page_cache = nullptr;
     std::unique_ptr<Cache> _index_page_cache = nullptr;
 
-    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
-
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
-        switch (page_type)
-        {
-        case segment_v2::DATA_PAGE:
+        switch (page_type) {
+        case segment_v2::DATA_PAGE: {
             return _data_page_cache.get();
+        }
         case segment_v2::INDEX_PAGE:
             return _index_page_cache.get();
         default:

@@ -20,35 +20,59 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class RoleManager implements Writable {
-    private Map<String, PaloRole> roles = Maps.newHashMap();
+    private static final Logger LOG = LogManager.getLogger(RoleManager.class);
+    //prefix of each user default role
+    public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
+
+    // Concurrency control is delegated by Auth, so not concurrentMap
+    @SerializedName(value = "roles")
+    private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
-        roles.put(PaloRole.OPERATOR.getRoleName(), PaloRole.OPERATOR);
-        roles.put(PaloRole.ADMIN.getRoleName(), PaloRole.ADMIN);
+        roles.put(
+                Role.OPERATOR.getRoleName(), Role.OPERATOR);
+        roles.put(
+                Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
-    public PaloRole getRole(String role) {
-        return roles.get(role);
+    public Role getRole(String name) {
+        return roles.get(name);
     }
 
-    public PaloRole addRole(PaloRole newRole, boolean errOnExist) throws DdlException {
-        PaloRole existingRole = roles.get(newRole.getRoleName());
+    public Role addOrMergeRole(Role newRole, boolean errOnExist) throws DdlException {
+        Role existingRole = roles.get(newRole.getRoleName());
         if (existingRole != null) {
             if (errOnExist) {
                 throw new DdlException("Role " + newRole + " already exists");
@@ -74,154 +98,140 @@ public class RoleManager implements Writable {
         roles.remove(qualifiedRole);
     }
 
-    public PaloRole revokePrivs(String role, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
+    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
             throws DdlException {
-        PaloRole existingRole = roles.get(role);
+        Role existingRole = roles.get(name);
+        if (existingRole == null) {
+            if (errOnNonExist) {
+                throw new DdlException("Role " + name + " does not exist");
+            }
+            return null;
+        }
+        existingRole.revokePrivs(tblPattern, privs, errOnNonExist);
+        return existingRole;
+    }
+
+    public Role revokePrivs(String role, ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
+            throws DdlException {
+        Role existingRole = roles.get(role);
         if (existingRole == null) {
             if (errOnNonExist) {
                 throw new DdlException("Role " + role + " does not exist");
             }
             return null;
         }
-
-        Map<TablePattern, PrivBitSet> map = existingRole.getTblPatternToPrivs();
-        PrivBitSet existingPriv = map.get(tblPattern);
-        if (existingPriv == null) {
-            if (errOnNonExist) {
-                throw new DdlException(tblPattern + " does not exist in role " + role);
-            }
-            return null;
-        }
-
-        existingPriv.remove(privs);
+        existingRole.revokePrivs(resourcePattern, privs, errOnNonExist);
         return existingRole;
-    }
-
-    public PaloRole revokePrivs(String role, ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
-            throws DdlException {
-        PaloRole existingRole = roles.get(role);
-        if (existingRole == null) {
-            if (errOnNonExist) {
-                throw new DdlException("Role " + role + " does not exist");
-            }
-            return null;
-        }
-
-        Map<ResourcePattern, PrivBitSet> map = existingRole.getResourcePatternToPrivs();
-        PrivBitSet existingPriv = map.get(resourcePattern);
-        if (existingPriv == null) {
-            if (errOnNonExist) {
-                throw new DdlException(resourcePattern + " does not exist in role " + role);
-            }
-            return null;
-        }
-
-        existingPriv.remove(privs);
-        return existingRole;
-    }
-
-    public void dropUser(UserIdentity userIdentity) {
-        for (PaloRole role : roles.values()) {
-            role.dropUser(userIdentity);
-        }
     }
 
     public void getRoleInfo(List<List<String>> results) {
-        for (PaloRole role : roles.values()) {
+        for (Role role : roles.values()) {
+            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
+                if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().showUserDefaultRole) {
+                    continue;
+                }
+            }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
-            info.add(Joiner.on(", ").join(role.getUsers()));
-            
-            // global
-            boolean hasGlobal = false;
-            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.GLOBAL) {
-                    hasGlobal = true;
-                    info.add(entry.getValue().toString());
-                    // global priv should only has one
-                    break;
-                }
-            }
-            if (!hasGlobal) {
-                info.add(FeConstants.null_string);
-            }
-
-            // db
-            List<String> tmp = Lists.newArrayList();
-            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.DATABASE) {
-                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
-                }
-            }
-            if (tmp.isEmpty()) {
-                info.add(FeConstants.null_string);
-            } else {
-                info.add(Joiner.on("; ").join(tmp));
-            }
-            
-            
-            // tbl
-            tmp.clear();
-            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.TABLE) {
-                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
-                }
-            }
-            if (tmp.isEmpty()) {
-                info.add(FeConstants.null_string);
-            } else {
-                info.add(Joiner.on("; ").join(tmp));
-            }
-
-            // resource
-            tmp.clear();
-            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
-                if (entry.getKey().getPrivLevel() == PrivLevel.RESOURCE) {
-                    tmp.add(entry.getKey().toString() + ": " + entry.getValue().toString());
-                }
-            }
-            if (tmp.isEmpty()) {
-                info.add(FeConstants.null_string);
-            } else {
-                info.add(Joiner.on("; ").join(tmp));
-            }
-
+            info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
+            Map<PrivLevel, String> infoMap =
+                    Stream.concat(
+                            role.getTblPatternToPrivs().entrySet().stream()
+                                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
+                                    .stream(),
+                            role.getResourcePatternToPrivs().entrySet().stream()
+                                    .collect(Collectors.groupingBy(entry -> entry.getKey().getPrivLevel())).entrySet()
+                                    .stream()
+                    ).collect(Collectors.toMap(Entry::getKey, entry -> {
+                                if (entry.getKey() == PrivLevel.GLOBAL) {
+                                    return entry.getValue().stream().findFirst().map(priv -> priv.getValue().toString())
+                                            .orElse(FeConstants.null_string);
+                                } else {
+                                    return entry.getValue().stream()
+                                            .map(priv -> priv.getKey() + ": " + priv.getValue())
+                                            .collect(Collectors.joining("; "));
+                                }
+                            }, (s1, s2) -> s1 + " " + s2
+                    ));
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+                    .forEach(level -> {
+                        String infoItem = infoMap.get(level);
+                        if (Strings.isNullOrEmpty(infoItem)) {
+                            infoItem = FeConstants.null_string;
+                        }
+                        info.add(infoItem);
+                    });
             results.add(info);
         }
     }
 
-    public static RoleManager read(DataInput in) throws IOException {
-        RoleManager roleManager = new RoleManager();
-        roleManager.readFields(in);
-        return roleManager;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // minus 2 to ignore ADMIN and OPERATOR role
-        out.writeInt(roles.size() - 2);
-        for (PaloRole role : roles.values()) {
-            if (role == PaloRole.ADMIN || role == PaloRole.OPERATOR) {
-                continue;
-            }
-            role.write(out);
+    public Role createDefaultRole(UserIdentity userIdent) throws DdlException {
+        String userDefaultRoleName = getUserDefaultRoleName(userIdent);
+        if (roles.containsKey(userDefaultRoleName)) {
+            return roles.get(userDefaultRoleName);
         }
+        // grant read privs to database information_schema
+        TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+        try {
+            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+        Role role = new Role(userDefaultRoleName, tblPattern,
+                PrivBitSet.of(Privilege.SELECT_PRIV));
+        roles.put(role.getRoleName(), role);
+        return role;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            PaloRole role = PaloRole.read(in);
-            roles.put(role.getRoleName(), role);
+    public Role removeDefaultRole(UserIdentity userIdent) {
+        return roles.remove(getUserDefaultRoleName(userIdent));
+    }
+
+    public String getUserDefaultRoleName(UserIdentity userIdentity) {
+        return userIdentity.toDefaultRoleName();
+    }
+
+    public Map<String, Role> getRoles() {
+        return roles;
+    }
+
+    public void rectifyPrivs() {
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            entry.getValue().rectifyPrivs();
         }
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("Roles: ");
-        for (PaloRole role : roles.values()) {
+        for (Role role : roles.values()) {
             sb.append(role).append("\n");
         }
         return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static RoleManager read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
+            RoleManager roleManager = new RoleManager();
+            roleManager.readFields(in);
+            return roleManager;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, RoleManager.class);
+        }
+    }
+
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            Role role = Role.read(in);
+            roles.put(role.getRoleName(), role);
+        }
     }
 }

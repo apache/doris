@@ -21,11 +21,9 @@
 
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
-#include "olap/column_block.h"
+#include "io/fs/file_reader.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -39,10 +37,11 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const FilePathDesc& path_desc, const BitmapIndexPB* bitmap_index_meta)
-            : _path_desc(path_desc), _bitmap_index_meta(bitmap_index_meta) {
-        _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
-    }
+    explicit BitmapIndexReader(io::FileReaderSPtr file_reader,
+                               const BitmapIndexPB* bitmap_index_meta)
+            : _file_reader(std::move(file_reader)),
+              _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
+              _bitmap_index_meta(bitmap_index_meta) {}
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
@@ -51,13 +50,13 @@ public:
 
     int64_t bitmap_nums() { return _bitmap_column_reader->num_values(); }
 
-    const TypeInfo* type_info() { return _typeinfo; }
+    const TypeInfo* type_info() { return _type_info; }
 
 private:
     friend class BitmapIndexIterator;
 
-    FilePathDesc _path_desc;
-    const TypeInfo* _typeinfo;
+    io::FileReaderSPtr _file_reader;
+    const TypeInfo* _type_info;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
@@ -70,9 +69,7 @@ public:
             : _reader(reader),
               _dict_column_iter(reader->_dict_column_reader.get()),
               _bitmap_column_iter(reader->_bitmap_column_reader.get()),
-              _current_rowid(0),
-              _tracker(new MemTracker()),
-              _pool(new MemPool(_tracker.get())) {}
+              _current_rowid(0) {}
 
     bool has_null_bitmap() const { return _reader->_has_null; }
 
@@ -100,17 +97,15 @@ public:
     // Read and union all bitmaps in range [from, to) into `result`
     Status read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result);
 
-    inline rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
+    rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
 
-    inline rowid_t current_ordinal() const { return _current_rowid; }
+    rowid_t current_ordinal() const { return _current_rowid; }
 
 private:
     BitmapIndexReader* _reader;
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
     rowid_t _current_rowid;
-    std::shared_ptr<MemTracker> _tracker;
-    std::unique_ptr<MemPool> _pool;
 };
 
 } // namespace segment_v2

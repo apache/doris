@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/string_value.hpp"
-
 #include <gtest/gtest.h>
 
 #include <string>
 
 #include "util/cpu_info.h"
+#include "vec/common/string_ref.h"
 
 using std::string;
 
 namespace doris {
 
-StringValue FromStdString(const string& str) {
+StringRef FromStdString(const string& str) {
     char* ptr = const_cast<char*>(str.c_str());
     int len = str.size();
-    return StringValue(ptr, len);
+    return StringRef(ptr, len);
 }
 
-TEST(StringValueTest, TestCompare) {
+TEST(StringRefTest, TestCompare) {
     std::string empty_str = "";
     std::string str1_str = "abc";
     std::string str2_str = "abcdef";
@@ -42,7 +41,7 @@ TEST(StringValueTest, TestCompare) {
     const int NUM_STRINGS = 4;
 
     // Must be in lexical order
-    StringValue svs[NUM_STRINGS];
+    StringRef svs[NUM_STRINGS];
     svs[0] = FromStdString(empty_str);
     svs[1] = FromStdString(str1_str);
     svs[2] = FromStdString(str2_str);
@@ -83,18 +82,3 @@ TEST(StringValueTest, TestCompare) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-#if 0
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    doris::CpuInfo::Init();
-#endif
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

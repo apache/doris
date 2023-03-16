@@ -18,19 +18,14 @@
 #include "runtime/client_cache.h"
 
 #include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/server/TServer.h>
-#include <thrift/transport/TSocket.h>
-#include <thrift/transport/TTransportUtils.h>
 
 #include <memory>
 #include <sstream>
 
 #include "common/logging.h"
 #include "gen_cpp/FrontendService.h"
-#include "util/container_util.hpp"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -153,9 +148,11 @@ void ClientCacheHelper::release_client(void** client_key) {
         DCHECK(client_map_entry != _client_map.end());
         client_to_close = client_map_entry->second;
 
-        auto cache_list = _client_cache.find(make_network_address(client_to_close->ipaddress(), client_to_close->port()));
+        auto cache_list = _client_cache.find(
+                make_network_address(client_to_close->ipaddress(), client_to_close->port()));
         DCHECK(cache_list != _client_cache.end());
-        if (_max_cache_size_per_host >= 0 && cache_list->second.size() >= _max_cache_size_per_host) {
+        if (_max_cache_size_per_host >= 0 &&
+            cache_list->second.size() >= _max_cache_size_per_host) {
             // cache of this host is full, close this client connection and remove if from _client_map
             _client_map.erase(*client_key);
         } else {
@@ -190,7 +187,8 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
             return;
         }
 
-        VLOG_RPC << "Invalidating all " << cache_entry->second.size() << " clients for: " << hostport;
+        VLOG_RPC << "Invalidating all " << cache_entry->second.size()
+                 << " clients for: " << hostport;
         for (void* client_key : cache_entry->second) {
             auto client_map_entry = _client_map.find(client_key);
             DCHECK(client_map_entry != _client_map.end());

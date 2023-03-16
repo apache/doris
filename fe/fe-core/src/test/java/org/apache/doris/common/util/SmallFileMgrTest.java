@@ -17,17 +17,19 @@
 
 package org.apache.doris.common.util;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.apache.doris.analysis.CreateFileStmt;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -35,7 +37,9 @@ import org.junit.Test;
 public class SmallFileMgrTest {
 
     @Mocked
-    Catalog catalog;
+    Env env;
+    @Mocked
+    InternalCatalog catalog;
     @Mocked
     EditLog editLog;
     @Mocked
@@ -49,6 +53,9 @@ public class SmallFileMgrTest {
                 db.getId();
                 minTimes = 0;
                 result = 1L;
+                env.getInternalCatalog();
+                minTimes = 0;
+                result = catalog;
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
@@ -79,7 +86,7 @@ public class SmallFileMgrTest {
                 result = "http://127.0.0.1:8001/file2";
             }
         };
-        
+
         SmallFile smallFile = new SmallFile(1L, "kafka", "file1", 10001L, "ABCD", 12, "12345", true);
         final SmallFileMgr smallFileMgr = new SmallFileMgr();
         new Expectations(smallFileMgr) {
@@ -97,13 +104,13 @@ public class SmallFileMgrTest {
             e.printStackTrace();
             Assert.fail(e.getMessage());
         }
-        
+
         Assert.assertTrue(smallFileMgr.containsFile(1L, "kafka", "file1"));
         SmallFile gotFile = smallFileMgr.getSmallFile(1L, "kafka", "file1", true);
         Assert.assertEquals(10001L, gotFile.id);
         gotFile = smallFileMgr.getSmallFile(10001L);
         Assert.assertEquals(10001L, gotFile.id);
-        
+
         // 2. test file num limit
         Config.max_small_file_number = 1;
         boolean fail = false;
@@ -114,7 +121,7 @@ public class SmallFileMgrTest {
             Assert.assertTrue(e.getMessage().contains("File number exceeds limit"));
         }
         Assert.assertTrue(fail);
-        
+
         // 3. test remove
         try {
             smallFileMgr.removeFile(2L, "kafka", "file1", true);

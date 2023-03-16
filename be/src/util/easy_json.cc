@@ -104,6 +104,13 @@ EasyJson& EasyJson::operator=(EasyJson::ComplexTypeInitializer val) {
     return (*this);
 }
 
+#ifdef __APPLE__
+template <>
+EasyJson& EasyJson::operator=(unsigned long val) {
+    return EasyJson::operator=(static_cast<uint64_t>(val));
+}
+#endif
+
 EasyJson& EasyJson::SetObject() {
     if (!value_->IsObject()) {
         value_->SetObject();

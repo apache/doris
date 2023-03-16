@@ -33,8 +33,8 @@
 namespace doris::vectorized {
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
-using AggregateFunctionCreator = std::function<AggregateFunctionPtr(
-        const std::string&, const DataTypes&, const Array&, const bool)>;
+using AggregateFunctionCreator =
+        std::function<AggregateFunctionPtr(const std::string&, const DataTypes&, const bool)>;
 
 class AggregateFunctionSimpleFactory {
 public:
@@ -57,21 +57,23 @@ public:
         }
     }
 
-    void register_distinct_function_combinator(const Creator& creator, const std::string& prefix) {
+    void register_distinct_function_combinator(const Creator& creator, const std::string& prefix,
+                                               bool nullable = false) {
+        auto& functions = nullable ? nullable_aggregate_functions : aggregate_functions;
         std::vector<std::string> need_insert;
         for (const auto& entity : aggregate_functions) {
             std::string target_value = prefix + entity.first;
-            if (aggregate_functions.find(target_value) == aggregate_functions.end()) {
+            if (functions.find(target_value) == functions.end()) {
                 need_insert.emplace_back(std::move(target_value));
             }
         }
         for (const auto& function_name : need_insert) {
-            aggregate_functions[function_name] = creator;
+            register_function(function_name, creator, nullable);
         }
     }
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
-                             const Array& parameters, const bool result_is_nullable = false) {
+                             const bool result_is_nullable = false) {
         bool nullable = false;
         for (const auto& type : argument_types) {
             if (type->is_nullable()) {
@@ -88,11 +90,11 @@ public:
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
                            : nullable_aggregate_functions[name_str](name_str, argument_types,
-                                                                    parameters, result_is_nullable);
+                                                                    result_is_nullable);
         } else {
             return aggregate_functions.find(name_str) == aggregate_functions.end()
                            ? nullptr
-                           : aggregate_functions[name_str](name_str, argument_types, parameters,
+                           : aggregate_functions[name_str](name_str, argument_types,
                                                            result_is_nullable);
         }
     }
@@ -103,6 +105,11 @@ public:
         } else {
             aggregate_functions[name] = creator;
         }
+    }
+
+    void register_function_both(const std::string& name, const Creator& creator) {
+        register_function(name, creator, false);
+        register_function(name, creator, true);
     }
 
     void register_alias(const std::string& name, const std::string& alias) {

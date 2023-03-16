@@ -24,7 +24,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -33,10 +33,10 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
@@ -47,13 +47,14 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.commons.collections.map.HashedMap;
-import org.junit.Assert;
-import org.junit.Test;
-
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import mockit.Mocked;
+import org.apache.commons.collections.map.HashedMap;
+import org.junit.Assert;
+import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,32 +63,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import mockit.Mocked;
-
 public class CoordinatorTest extends Coordinator {
-    static Planner planner = new Planner();
-    static ConnectContext context = new ConnectContext(null);
-    static {
-        context.setQueryId(new TUniqueId(1, 2));
-        context.setQualifiedUser("root");
-    }
+
+
     @Mocked
-    static Catalog catalog;
+    static Env env;
     @Mocked
     static EditLog editLog;
     @Mocked
     static FrontendOptions frontendOptions;
-    static Analyzer analyzer = new Analyzer(catalog, context);
-    
+
+    static ConnectContext context = new ConnectContext();
+    static Analyzer analyzer = new Analyzer(env, context);
+    static OriginalPlanner originalPlanner = new OriginalPlanner(analyzer);
+
+    static {
+        context.setQueryId(new TUniqueId(1, 2));
+        context.setQualifiedUser("root");
+    }
+
     public CoordinatorTest() {
-        super(context, analyzer, planner);
+        super(context, analyzer, originalPlanner);
     }
 
     private static Coordinator coor;
 
     @Test
     public void testComputeColocateJoinInstanceParam()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -109,13 +112,13 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in coordinator
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
         List<TScanRangeParams> scanRangeParamsList = new ArrayList<>();
         scanRangeParamsList.add(new TScanRangeParams());
 
-        ScanRangeMap.put(scanNodeId, scanRangeParamsList);
+        scanRangeMap.put(scanNodeId, scanRangeParamsList);
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(coordinator, "fragmentIdTobucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -126,7 +129,7 @@ public class CoordinatorTest extends Coordinator {
 
         // check whether one instance have 3 tablet to scan
         for (FInstanceExecParam instanceExecParam : params.instanceExecParams) {
-            for (List<TScanRangeParams> tempScanRangeParamsList :instanceExecParam.perNodeScanRanges.values()) {
+            for (List<TScanRangeParams> tempScanRangeParamsList : instanceExecParam.perNodeScanRanges.values()) {
                 Assert.assertEquals(3, tempScanRangeParamsList.size());
             }
         }
@@ -199,6 +202,11 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignmentByBucketq()  {
+        // init all be network address
+        TNetworkAddress be0 = new TNetworkAddress("0.0.0.0", 1000);
+        TNetworkAddress be1 = new TNetworkAddress("0.0.0.1", 2000);
+        TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
+
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
@@ -221,10 +229,13 @@ public class CoordinatorTest extends Coordinator {
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
         TScanRangeLocation tScanRangeLocation0 = new TScanRangeLocation();
         tScanRangeLocation0.backend_id = 0;
+        tScanRangeLocation0.server = be0;
         TScanRangeLocation tScanRangeLocation1 = new TScanRangeLocation();
         tScanRangeLocation1.backend_id = 1;
+        tScanRangeLocation1.server = be1;
         TScanRangeLocation tScanRangeLocation2 = new TScanRangeLocation();
         tScanRangeLocation2.backend_id = 2;
+        tScanRangeLocation2.server = be2;
 
         tScanRangeLocations.locations = new ArrayList<>();
         tScanRangeLocations.locations.add(tScanRangeLocation0);
@@ -235,6 +246,7 @@ public class CoordinatorTest extends Coordinator {
         }
 
         Deencapsulation.setField(olapScanNode, "bucketSeq2locations", bucketseq2localtion);
+        Deencapsulation.setField(olapScanNode, "totalTabletsNum", 66);
         olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
                 new DataPartition(TPartitionType.UNPARTITIONED)));
 
@@ -246,23 +258,23 @@ public class CoordinatorTest extends Coordinator {
         Backend backend2 = new Backend();
         backend2.setAlive(true);
 
-        // init all be network address
-        TNetworkAddress be0 = new TNetworkAddress("0.0.0.0", 1000);
-        TNetworkAddress be1 = new TNetworkAddress("0.0.0.1", 2000);
-        TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
-
         HashMap<Long, Backend> idToBackend = new HashMap<>();
-        idToBackend.put(0l, backend0);
-        idToBackend.put(1l, backend1);
-        idToBackend.put(2l, backend2);
+        idToBackend.put(0L, backend0);
+        idToBackend.put(1L, backend1);
+        idToBackend.put(2L, backend2);
 
         Map<TNetworkAddress, Long> addressToBackendID = new HashMap<>();
-        addressToBackendID.put(be0, 0l);
-        addressToBackendID.put(be1, 1l);
-        addressToBackendID.put(be2, 2l);
+        addressToBackendID.put(be0, 0L);
+        addressToBackendID.put(be1, 1L);
+        addressToBackendID.put(be2, 2L);
+
+        Map<TNetworkAddress, Long> replicaNumPerHost = Maps.newHashMap();
+        replicaNumPerHost.put(be0, 66L);
+        replicaNumPerHost.put(be1, 66L);
+        replicaNumPerHost.put(be2, 66L);
 
         Deencapsulation.invoke(bucketShuffleJoinController, "computeScanRangeAssignmentByBucket",
-                olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID);
+                olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID, replicaNumPerHost);
 
         Assert.assertEquals(java.util.Optional.of(66).get(),
                 Deencapsulation.invoke(bucketShuffleJoinController, "getFragmentBucketNum", new PlanFragmentId(1)));
@@ -270,15 +282,15 @@ public class CoordinatorTest extends Coordinator {
         Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap =
                 Deencapsulation.getField(bucketShuffleJoinController, "fragmentIdToBuckendIdBucketCountMap");
 
-        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values().
-                stream().flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
+        long targetBeCount = fragmentIdToBuckendIdBucketCountMap.values()
+                .stream().flatMap(buckend2BucketCountMap -> buckend2BucketCountMap.values().stream())
                 .filter(count -> count == 22).count();
         Assert.assertEquals(targetBeCount, 3);
     }
 
     @Test
     public void testColocateJoinAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
 
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
@@ -300,10 +312,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in coordinator
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
+        scanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(coordinator, "fragmentIdTobucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -321,6 +333,19 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignmentByBucket()  {
+        // init all backend
+        Backend backend0 = new Backend();
+        backend0.setAlive(true);
+        Backend backend1 = new Backend();
+        backend1.setAlive(true);
+        Backend backend2 = new Backend();
+        backend2.setAlive(true);
+
+        // init all be network address
+        TNetworkAddress be0 = new TNetworkAddress("0.0.0.0", 1000);
+        TNetworkAddress be1 = new TNetworkAddress("0.0.0.1", 2000);
+        TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
+
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
@@ -343,10 +368,13 @@ public class CoordinatorTest extends Coordinator {
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
         TScanRangeLocation tScanRangeLocation0 = new TScanRangeLocation();
         tScanRangeLocation0.backend_id = 0;
+        tScanRangeLocation0.server = be0;
         TScanRangeLocation tScanRangeLocation1 = new TScanRangeLocation();
         tScanRangeLocation1.backend_id = 1;
+        tScanRangeLocation1.server = be1;
         TScanRangeLocation tScanRangeLocation2 = new TScanRangeLocation();
         tScanRangeLocation2.backend_id = 2;
+        tScanRangeLocation2.server = be2;
 
         tScanRangeLocations.locations = new ArrayList<>();
         tScanRangeLocations.locations.add(tScanRangeLocation0);
@@ -357,36 +385,27 @@ public class CoordinatorTest extends Coordinator {
         }
 
         Deencapsulation.setField(olapScanNode, "bucketSeq2locations", bucketseq2localtion);
+        Deencapsulation.setField(olapScanNode, "totalTabletsNum", 66);
         olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
                 new DataPartition(TPartitionType.UNPARTITIONED)));
 
-
-        // init all backend
-        Backend backend0 = new Backend();
-        backend0.setAlive(true);
-        Backend backend1 = new Backend();
-        backend1.setAlive(true);
-        Backend backend2 = new Backend();
-        backend2.setAlive(true);
-
-        // init all be network address
-        TNetworkAddress be0 = new TNetworkAddress("0.0.0.0", 1000);
-        TNetworkAddress be1 = new TNetworkAddress("0.0.0.1", 2000);
-        TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
-
         HashMap<Long, Backend> idToBackend = new HashMap<>();
-        idToBackend.put(0l, backend0);
-        idToBackend.put(1l, backend1);
-        idToBackend.put(2l, backend2);
+        idToBackend.put(0L, backend0);
+        idToBackend.put(1L, backend1);
+        idToBackend.put(2L, backend2);
 
         Map<TNetworkAddress, Long> addressToBackendID = new HashMap<>();
-        addressToBackendID.put(be0, 0l);
-        addressToBackendID.put(be1, 1l);
-        addressToBackendID.put(be2, 2l);
+        addressToBackendID.put(be0, 0L);
+        addressToBackendID.put(be1, 1L);
+        addressToBackendID.put(be2, 2L);
+
+        Map<TNetworkAddress, Long> replicaNumPerHost = new HashMap<>();
+        replicaNumPerHost.put(be0, 66L);
+        replicaNumPerHost.put(be1, 66L);
+        replicaNumPerHost.put(be2, 66L);
 
         Deencapsulation.invoke(bucketShuffleJoinController, "computeScanRangeAssignmentByBucket",
-                olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID);
-
+                olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID, replicaNumPerHost);
         Assert.assertEquals(java.util.Optional.of(66).get(),
                 Deencapsulation.invoke(bucketShuffleJoinController, "getFragmentBucketNum", new PlanFragmentId(1)));
 
@@ -425,10 +444,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in bucketShuffleJoinController
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
+        scanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -436,13 +455,7 @@ public class CoordinatorTest extends Coordinator {
         FragmentExecParams params = new FragmentExecParams(null);
         Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 1, params);
         Assert.assertEquals(1, params.instanceExecParams.size());
-        try {
-            StringBuilder sb = new StringBuilder();
-            params.appendTo(sb);
-            System.out.println(sb);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+
         params = new FragmentExecParams(null);
         Deencapsulation.invoke(bucketShuffleJoinController, "computeInstanceParam", planFragmentId, 2, params);
         Assert.assertEquals(2, params.instanceExecParams.size());
@@ -481,10 +494,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in bucketShuffleJoinController
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
+        scanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -503,7 +516,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testComputeScanRangeAssignmentByScheduler()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         int scanNodeId = 1;
         Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = new HashMap<>();
@@ -563,21 +576,29 @@ public class CoordinatorTest extends Coordinator {
         backend2.setBePort(9050);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                put(0l, backend0).
-                put(1l, backend1).
-                put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
         FragmentScanRangeAssignment assignment = new FragmentScanRangeAssignment();
         List<TScanRangeLocations> locations = new ArrayList<>();
-        HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
+        Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
+        Map<TNetworkAddress, Long> replicaNumPerHost = new HashMap<>();
+        replicaNumPerHost.put(tScanRangeLocation0.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation1.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation2.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation3.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation4.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation5.server, 1L);
         locations.add(tScanRangeLocations);
         locations.add(tScanRangeLocations1);
         Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByScheduler",
-                olapScanNode, locations, assignment, assignedBytesPerHost);
-        for (Map.Entry entry:assignment.entrySet()) {
+                olapScanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
+        for (Map.Entry entry : assignment.entrySet()) {
             Map<Integer, List<TScanRangeParams>> addr = (HashMap<Integer, List<TScanRangeParams>>) entry.getValue();
-            for (Map.Entry item:addr.entrySet()) {
+            for (Map.Entry item : addr.entrySet()) {
                 List<TScanRangeParams> params = (List<TScanRangeParams>) item.getValue();
                 Assert.assertTrue(params.size() == 2);
             }
@@ -586,7 +607,7 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testGetExecHostPortForFragmentIDAndBucketSeq()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
@@ -615,10 +636,11 @@ public class CoordinatorTest extends Coordinator {
         backend2.setBePort(9050);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                        put(0l, backend0).
-                        put(1l, backend1).
-                        put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
         Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
         fragmentIdToSeqToAddressMap.put(planFragmentId, new HashedMap());
@@ -626,17 +648,22 @@ public class CoordinatorTest extends Coordinator {
         List<TScanRangeLocations> locations = new ArrayList<>();
         locations.add(tScanRangeLocations);
 
-        HashMap<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
-        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations,
-                planFragmentId, 1, assignedBytesPerHost);
-        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations,
-                planFragmentId, 2, assignedBytesPerHost);
-        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq",tScanRangeLocations,
-                planFragmentId, 3, assignedBytesPerHost);
+        Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
+        Map<TNetworkAddress, Long> replicaNumPerHost = Maps.newHashMap();
+        replicaNumPerHost.put(tScanRangeLocation0.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation1.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation2.server, 1L);
+
+        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
+                planFragmentId, 1, assignedBytesPerHost, replicaNumPerHost);
+        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
+                planFragmentId, 2, assignedBytesPerHost, replicaNumPerHost);
+        Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
+                planFragmentId, 3, assignedBytesPerHost, replicaNumPerHost);
         List<String> hosts = new ArrayList<>();
-        for (Map.Entry item:assignedBytesPerHost.entrySet()) {
-            Assert.assertTrue((Long)item.getValue() == 1);
-            TNetworkAddress addr = (TNetworkAddress)item.getKey();
+        for (Map.Entry item : assignedBytesPerHost.entrySet()) {
+            Assert.assertTrue((Long) item.getValue() == 1);
+            TNetworkAddress addr = (TNetworkAddress) item.getKey();
             hosts.add(addr.hostname);
         }
         Assert.assertTrue(hosts.size() == 3);
@@ -644,7 +671,6 @@ public class CoordinatorTest extends Coordinator {
 
     @Test
     public void testBucketShuffleWithUnaliveBackend()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
         PlanFragmentId planFragmentId = new PlanFragmentId(1);
         // each olaptable bucket have the same TScanRangeLocations, be id is {0, 1, 2}
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
@@ -678,10 +704,11 @@ public class CoordinatorTest extends Coordinator {
         addressToBackendID.put(tScanRangeLocation2.server, tScanRangeLocation2.backend_id);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                        put(0l, backend0).
-                        put(1l, backend1).
-                        put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap = Maps.newHashMap();
         Map<Long, Integer> backendIdBucketCountMap = new HashMap<Long, Integer>();
         fragmentIdToBuckendIdBucketCountMap.put(planFragmentId, backendIdBucketCountMap);
@@ -689,26 +716,28 @@ public class CoordinatorTest extends Coordinator {
         BucketShuffleJoinController controller = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
         Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
         fragmentIdToSeqToAddressMap.put(planFragmentId, new HashMap<Integer, TNetworkAddress>());
+        Map<TNetworkAddress, Long> replicaNumPerHost = Maps.newHashMap();
+        replicaNumPerHost.put(tScanRangeLocation0.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation1.server, 1L);
+        replicaNumPerHost.put(tScanRangeLocation2.server, 1L);
         Deencapsulation.setField(controller,  "fragmentIdToBuckendIdBucketCountMap", fragmentIdToBuckendIdBucketCountMap);
         Deencapsulation.setField(controller, "fragmentIdToSeqToAddressMap", fragmentIdToSeqToAddressMap);
         Deencapsulation.invoke(controller, "getExecHostPortForFragmentIDAndBucketSeq",
-                tScanRangeLocations, planFragmentId, 1, idToBackend, addressToBackendID);
-        Assert.assertTrue(backendIdBucketCountMap.size() == 2);
+                tScanRangeLocations, planFragmentId, 1, idToBackend, addressToBackendID, replicaNumPerHost);
+        Assert.assertTrue(backendIdBucketCountMap.size() == 1);
         List<Long> backendIds = new ArrayList<Long>();
         List<Integer> counts = new ArrayList<Integer>();
-        for (Map.Entry<Long, Integer> item:backendIdBucketCountMap.entrySet()) {
+        for (Map.Entry<Long, Integer> item : backendIdBucketCountMap.entrySet()) {
             backendIds.add(item.getKey());
             counts.add(item.getValue());
         }
-        Assert.assertTrue(backendIds.get(0) == 0);
-        Assert.assertTrue(counts.get(0) == 0);
-        Assert.assertTrue(backendIds.get(1) == 1);
-        Assert.assertTrue(counts.get(1) == 1);
+        Assert.assertTrue(backendIds.get(0) == 1);
+        Assert.assertTrue(counts.get(0) == 1);
     }
 
     @Test
     public void testComputeScanRangeAssignment()  {
-        Coordinator coordinator = new Coordinator(context, analyzer, planner);
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
 
         //TScanRangeLocations
         TScanRangeLocations tScanRangeLocations = new TScanRangeLocations();
@@ -789,17 +818,15 @@ public class CoordinatorTest extends Coordinator {
         Set<Integer> ids3 = new HashSet<>();
         ids1.add(3);
         fragmentIdToScanNodeIds.put(planFragmentId, ids3);
-        Deencapsulation.setField(coordinator,"fragmentIdToScanNodeIds", fragmentIdToScanNodeIds);
+        Deencapsulation.setField(coordinator, "fragmentIdToScanNodeIds", fragmentIdToScanNodeIds);
 
         //fragmentExecParamsMap
         Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
         fragmentExecParamsMap.put(planFragmentId, new FragmentExecParams(fragment));
         fragmentExecParamsMap.put(planFragmentId2, new FragmentExecParams(fragment2));
         fragmentExecParamsMap.put(planFragmentId3, new FragmentExecParams(fragment3));
-        Deencapsulation.setField(coordinator,"fragmentExecParamsMap", fragmentExecParamsMap);
+        Deencapsulation.setField(coordinator, "fragmentExecParamsMap", fragmentExecParamsMap);
 
-        //bucketShuffleJoinController
-        BucketShuffleJoinController bucketShuffleJoinController = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
         // init all backend
         Backend backend0 = new Backend(0, "0.0.0.0", 9060);
         backend0.setAlive(true);
@@ -812,34 +839,40 @@ public class CoordinatorTest extends Coordinator {
         backend2.setBePort(9050);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                        put(0l, backend0).
-                        put(1l, backend1).
-                        put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
 
         Deencapsulation.invoke(coordinator, "computeScanRangeAssignment");
+        Set<String> hostNames = Sets.newHashSet();
+        hostNames.add("0.0.0.0");
+        hostNames.add("0.0.0.1");
+        hostNames.add("0.0.0.2");
         FragmentScanRangeAssignment assignment = fragmentExecParamsMap.get(fragment.getFragmentId()).scanRangeAssignment;
         Assert.assertTrue(assignment.size() == 1);
         for (Map.Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : assignment.entrySet()) {
             TNetworkAddress host = entry.getKey();
-            Assert.assertTrue(host.hostname.equals("0.0.0.0"));
+            Assert.assertTrue(hostNames.contains(host.hostname));
+            hostNames.remove(host.hostname);
         }
 
         FragmentScanRangeAssignment assignment2 = fragmentExecParamsMap.get(fragment2.getFragmentId()).scanRangeAssignment;
         Assert.assertTrue(assignment2.size() == 1);
         for (Map.Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : assignment2.entrySet()) {
             TNetworkAddress host = entry.getKey();
-            Assert.assertTrue(host.hostname.equals("0.0.0.1"));
+            Assert.assertTrue(hostNames.contains(host.hostname));
+            hostNames.remove(host.hostname);
         }
 
         FragmentScanRangeAssignment assignment3 = fragmentExecParamsMap.get(fragment3.getFragmentId()).scanRangeAssignment;
         Assert.assertTrue(assignment3.size() == 1);
         for (Map.Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : assignment3.entrySet()) {
             TNetworkAddress host = entry.getKey();
-            Assert.assertTrue(host.hostname.equals("0.0.0.2"));
+            Assert.assertTrue(hostNames.contains(host.hostname));
+            hostNames.remove(host.hostname);
         }
     }
 }
-
-

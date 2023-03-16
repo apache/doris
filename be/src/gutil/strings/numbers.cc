@@ -450,14 +450,14 @@ bool ParseLeadingBoolValue(const char* str, bool deflt) {
 }
 
 // ----------------------------------------------------------------------
-// FpToString()
+// Uint64ToString()
 // FloatToString()
 // IntToString()
 //    Convert various types to their string representation, possibly padded
 //    with spaces, using snprintf format specifiers.
 // ----------------------------------------------------------------------
 
-string FpToString(Fprint fp) {
+string Uint64ToString(uint64 fp) {
     char buf[17];
     snprintf(buf, sizeof(buf), "%016" PRIx64, fp);
     return string(buf);
@@ -1442,7 +1442,6 @@ char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size) {
     return p;
 }
 
-
 // ----------------------------------------------------------------------
 // ItoaKMGT()
 //    Description: converts an integer to a string
@@ -1477,6 +1476,49 @@ string ItoaKMGT(int64 i) {
     }
 
     return StringPrintf("%s%" PRId64 "%s", sign, val, suffix);
+}
+
+string AccurateItoaKMGT(int64 i) {
+    const char* sign = "";
+    if (i < 0) {
+        // We lose some accuracy if the caller passes LONG_LONG_MIN, but
+        // that's OK as this function is only for human readability
+        if (i == numeric_limits<int64>::min()) i++;
+        sign = "-";
+        i = -i;
+    }
+
+    string ret = StringPrintf("%s", sign);
+    int64 val;
+    if ((val = (i >> 40)) > 1) {
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            ",",
+                            val, "T");
+        i = i - (val << 40);
+    }
+    if ((val = (i >> 30)) > 1) {
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            ",",
+                            val, "G");
+        i = i - (val << 30);
+    }
+    if ((val = (i >> 20)) > 1) {
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            ",",
+                            val, "M");
+        i = i - (val << 20);
+    }
+    if ((val = (i >> 10)) > 1) {
+        ret += StringPrintf("%" PRId64 "%s", val, "K");
+        i = i - (val << 10);
+    } else {
+        ret += StringPrintf("%" PRId64 "%s", i, "K");
+    }
+
+    return ret;
 }
 
 // DEPRECATED(wadetregaskis).

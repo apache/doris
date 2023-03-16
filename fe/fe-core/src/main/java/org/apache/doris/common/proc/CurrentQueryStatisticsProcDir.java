@@ -61,7 +61,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         final BaseProcResult result = new BaseProcResult();
-        final Map<String, QueryStatisticsItem> statistic = 
+        final Map<String, QueryStatisticsItem> statistic =
                 QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
         final List<List<String>> sortedRowData = Lists.newArrayList();

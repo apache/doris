@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.thrift.TTabletType;
@@ -33,7 +32,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.Map;
 
-public class SinglePartitionDesc {
+public class SinglePartitionDesc implements AllPartitionDesc {
     private boolean isAnalyzed;
 
     private boolean ifNotExists;
@@ -46,7 +45,9 @@ public class SinglePartitionDesc {
     private ReplicaAllocation replicaAlloc;
     private boolean isInMemory = false;
     private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
-    private Pair<Long, Long> versionInfo;
+    private Long versionInfo;
+    private String storagePolicy;
+    private boolean isMutable;
 
     public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
                                Map<String, String> properties) {
@@ -58,8 +59,9 @@ public class SinglePartitionDesc {
         this.partitionKeyDesc = partitionKeyDesc;
         this.properties = properties;
 
-        this.partitionDataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
+        this.partitionDataProperty = new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM);
         this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        this.storagePolicy = "";
     }
 
     public boolean isSetIfNotExists() {
@@ -86,11 +88,15 @@ public class SinglePartitionDesc {
         return isInMemory;
     }
 
+    public boolean isMutable() {
+        return isMutable;
+    }
+
     public TTabletType getTabletType() {
         return tabletType;
     }
 
-    public Pair<Long, Long> getVersionInfo() {
+    public Long getVersionInfo() {
         return versionInfo;
     }
 
@@ -103,6 +109,19 @@ public class SinglePartitionDesc {
             return;
         }
 
+        boolean hasStoragePolicy = false;
+        if (properties != null) {
+            hasStoragePolicy = properties.keySet().stream()
+                    .anyMatch(iter -> {
+                        boolean equal = iter.compareToIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY) == 0;
+                        // when find has storage policy properties, here will set it in partition
+                        if (equal) {
+                            storagePolicy = properties.get(iter);
+                        }
+                        return equal;
+                    });
+        }
+
         FeNameFormat.checkPartitionName(partName);
 
         partitionKeyDesc.analyze(partColNum);
@@ -113,7 +132,7 @@ public class SinglePartitionDesc {
 
         // analyze data property
         partitionDataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
-                DataProperty.DEFAULT_DATA_PROPERTY);
+                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num
@@ -128,13 +147,18 @@ public class SinglePartitionDesc {
         // analyze in memory
         isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
 
+        // analyze is mutable
+        isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
+
         tabletType = PropertyAnalyzer.analyzeTabletType(properties);
 
         if (otherProperties == null) {
             // check unknown properties
             if (properties != null && !properties.isEmpty()) {
-                MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
-                throw new AnalysisException("Unknown properties: " + mapJoiner.join(properties));
+                if (!hasStoragePolicy) {
+                    MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
+                    throw new AnalysisException("Unknown properties: " + mapJoiner.join(properties));
+                }
             }
         }
 
@@ -143,6 +167,10 @@ public class SinglePartitionDesc {
 
     public boolean isAnalyzed() {
         return this.isAnalyzed;
+    }
+
+    public String getStoragePolicy() {
+        return this.storagePolicy;
     }
 
     public String toSql() {

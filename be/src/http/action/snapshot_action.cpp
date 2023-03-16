@@ -39,7 +39,7 @@ namespace doris {
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+SnapshotAction::SnapshotAction() {}
 
 void SnapshotAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -78,7 +78,7 @@ void SnapshotAction::handle(HttpRequest* req) {
     VLOG_ROW << "get make snapshot tablet info: " << tablet_id << "-" << schema_hash;
 
     std::string snapshot_path;
-    int64_t ret = make_snapshot(tablet_id, schema_hash, &snapshot_path);
+    int64_t ret = _make_snapshot(tablet_id, schema_hash, &snapshot_path);
     if (ret != 0L) {
         std::string error_msg = std::string("make snapshot failed");
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, error_msg);
@@ -93,16 +93,17 @@ void SnapshotAction::handle(HttpRequest* req) {
     LOG(INFO) << "deal with snapshot request finished! tablet id: " << tablet_id;
 }
 
-int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
-                                      std::string* snapshot_path) {
+int64_t SnapshotAction::_make_snapshot(int64_t tablet_id, int32_t schema_hash,
+                                       std::string* snapshot_path) {
     TSnapshotRequest request;
     request.tablet_id = tablet_id;
     request.schema_hash = schema_hash;
 
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    Status res = Status::OK();
     bool allow_incremental_clone; // not used
-    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path, &allow_incremental_clone);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    res = SnapshotManager::instance()->make_snapshot(request, snapshot_path,
+                                                     &allow_incremental_clone);
+    if (!res.ok()) {
         LOG(WARNING) << "make snapshot failed. status: " << res << ", signature: " << tablet_id;
         return -1L;
     } else {

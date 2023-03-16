@@ -25,10 +25,9 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
-public class DbPrivEntry extends PrivEntry {
+public class DbPrivEntry extends CatalogPrivEntry {
     protected static final String ANY_DB = "*";
 
     protected PatternMatcher dbPattern;
@@ -38,9 +37,11 @@ public class DbPrivEntry extends PrivEntry {
     protected DbPrivEntry() {
     }
 
-    protected DbPrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher dbPattern, String origDb,
-            PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
-        super(hostPattern, origHost, userPattern, user, isDomain, privSet);
+    protected DbPrivEntry(
+            PatternMatcher ctlPattern, String origCtl,
+            PatternMatcher dbPattern, String origDb,
+            PrivBitSet privSet) {
+        super(ctlPattern, origCtl, privSet);
         this.dbPattern = dbPattern;
         this.origDb = origDb;
         if (origDb.equals(ANY_DB)) {
@@ -48,19 +49,18 @@ public class DbPrivEntry extends PrivEntry {
         }
     }
 
-    public static DbPrivEntry create(String host, String db, String user, boolean isDomain, PrivBitSet privs)
-            throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-        
+    public static DbPrivEntry create(
+            String ctl, String db, PrivBitSet privs) throws AnalysisException {
+        PatternMatcher ctlPattern = PatternMatcher.createFlatPattern(
+                ctl, CaseSensibility.CATALOG.getCaseSensibility(), ctl.equals(ANY_CTL));
+
         PatternMatcher dbPattern = createDbPatternMatcher(db);
-        
-        PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
             throw new AnalysisException("Db privilege can not contains global or resource privileges: " + privs);
         }
 
-        return new DbPrivEntry(hostPattern, host, dbPattern, db, userPattern, user, isDomain, privs);
+        return new DbPrivEntry(ctlPattern, ctl, dbPattern, db, privs);
     }
 
     private static PatternMatcher createDbPatternMatcher(String db) throws AnalysisException {
@@ -69,9 +69,8 @@ public class DbPrivEntry extends PrivEntry {
         if (ClusterNamespace.getNameFromFullName(db).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
             dbCaseSensibility = false;
         }
-        
-        PatternMatcher dbPattern = PatternMatcher.createMysqlPattern(db.equals(ANY_DB) ? "%" : db, dbCaseSensibility);
-        return dbPattern;
+
+        return PatternMatcher.createFlatPattern(db, dbCaseSensibility, db.equals(ANY_DB));
     }
 
     public PatternMatcher getDbPattern() {
@@ -93,17 +92,9 @@ public class DbPrivEntry extends PrivEntry {
         }
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
-        int res = origHost.compareTo(otherEntry.origHost);
-        if (res != 0) {
-            return -res;
-        }
-
-        res = origDb.compareTo(otherEntry.origDb);
-        if (res != 0) {
-            return -res;
-        }
-
-        return -origUser.compareTo(otherEntry.origUser);
+        return compareAssist(
+                origCtl, otherEntry.origCtl,
+                origDb, otherEntry.origDb);
     }
 
     @Override
@@ -113,34 +104,16 @@ public class DbPrivEntry extends PrivEntry {
         }
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
-        if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origDb.equals(otherEntry.origDb) && isDomain == otherEntry.isDomain) {
-            return true;
-        }
-        return false;
+        return origCtl.equals(otherEntry.origCtl) && origDb.equals(otherEntry.origDb);
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("db priv. host: ").append(origHost).append(", db: ").append(origDb);
-        sb.append(", user: ").append(origUser);
-        sb.append(", priv: ").append(privSet).append(", set by resolver: ").append(isSetByDomainResolver);
-        return sb.toString();
+        return String.format("database privilege.ctl: %s, db: %s, priv: %s",
+                origCtl, origDb, privSet.toString());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = DbPrivEntry.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-        super.write(out);
-        Text.writeString(out, origDb);
-        isClassNameWrote = false;
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

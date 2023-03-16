@@ -34,11 +34,51 @@ enum TDataSinkType {
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
+    JDBC_TABLE_SINK,
 }
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
-    FILE
+    FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
+}
+
+enum TParquetCompressionType {
+    SNAPPY,
+    GZIP,
+    BROTLI,
+    ZSTD,
+    LZ4,
+    LZO,
+    BZ2,
+    UNCOMPRESSED,
+}
+
+enum TParquetVersion {
+    PARQUET_1_0,
+    PARQUET_2_LATEST,
+}
+
+enum TParquetDataType {
+    BOOLEAN,
+    INT32,
+    INT64,
+    INT96,
+    BYTE_ARRAY,
+    FLOAT,
+    DOUBLE,
+    FIXED_LEN_BYTE_ARRAY,
+}
+
+enum TParquetRepetitionType {
+    REQUIRED,
+    REPEATED,
+    OPTIONAL,
+}
+
+struct TParquetSchema {
+    1: optional TParquetRepetitionType schema_repetition_type
+    2: optional TParquetDataType schema_data_type
+    3: optional string schema_column_name    
 }
 
 struct TResultFileSinkOptions {
@@ -50,8 +90,17 @@ struct TResultFileSinkOptions {
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
     8: optional string success_file_name
-    9: optional list<list<string>> schema            // for parquet/orc file
-    10: optional map<string, string> file_properties // for parquet/orc file
+    9: optional list<list<string>> schema            // for orc file
+    10: optional map<string, string> file_properties // for orc file
+
+    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
+    //because when this info thrift to BE, BE hava to find useful info in string,
+    //have to check by use string directly, and maybe not so efficient
+    11: optional list<TParquetSchema> parquet_schemas
+    12: optional TParquetCompressionType parquet_compression_type
+    13: optional bool parquet_disable_dictionary
+    14: optional TParquetVersion parquet_version
+    15: optional string orc_schema
 }
 
 struct TMemoryScratchSink {
@@ -75,7 +124,7 @@ struct TDataStreamSink {
 
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options
+    2: optional TResultFileSinkOptions file_options // deprecated
 }
 
 struct TResultFileSink {
@@ -83,6 +132,8 @@ struct TResultFileSink {
     2: optional Types.TStorageBackendType storage_backend_type;
     3: optional Types.TPlanNodeId dest_node_id;
     4: optional Types.TTupleId output_tuple_id;
+    5: optional string header;
+    6: optional string header_type;
 }
 
 struct TMysqlTableSink {
@@ -92,6 +143,7 @@ struct TMysqlTableSink {
     4: required string passwd
     5: required string db
     6: required string table
+    7: required string charset
 }
 
 struct TOdbcTableSink {
@@ -100,19 +152,10 @@ struct TOdbcTableSink {
     3: optional bool use_transaction
 }
 
-// Following is used to split data read from 
-// Used to describe rollup schema
-struct TRollupSchema {
-    1: required list<Exprs.TExpr> keys
-    2: required list<Exprs.TExpr> values
-    3: required list<Types.TAggregationType> value_ops
-    4: optional string keys_type 
-}
-
-struct TDataSplitSink {
-    1: required list<Exprs.TExpr> partition_exprs
-    2: required list<Partitions.TRangePartition> partition_infos
-    4: required map<string, TRollupSchema> rollup_schemas
+struct TJdbcTableSink {
+    1: optional Descriptors.TJdbcTable jdbc_table
+    2: optional bool use_transaction
+    3: optional Types.TOdbcTableType table_type
 }
 
 struct TExportSink {
@@ -123,6 +166,7 @@ struct TExportSink {
     // properties need to access broker.
     5: optional list<Types.TNetworkAddress> broker_addresses
     6: optional map<string, string> properties
+    7: optional string header
 }
 
 struct TOlapTableSink {
@@ -132,7 +176,7 @@ struct TOlapTableSink {
     4: required i64 table_id
     5: required i32 tuple_id
     6: required i32 num_replicas
-    7: required bool need_gen_rollup
+    7: required bool need_gen_rollup    // Deprecated, not used since alter job v2
     8: optional string db_name
     9: optional string table_name
     10: required Descriptors.TOlapTableSchemaParam schema
@@ -141,18 +185,21 @@ struct TOlapTableSink {
     13: required Descriptors.TPaloNodesInfo nodes_info
     14: optional i64 load_channel_timeout_s // the timeout of load channels in second
     15: optional i32 send_batch_parallelism
+    16: optional bool load_to_single_tablet
+    17: optional bool write_single_replica
+    18: optional Descriptors.TOlapTableLocationParam slave_location
 }
 
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
   3: optional TResultSink result_sink
-  4: optional TDataSplitSink split_sink
   5: optional TMysqlTableSink mysql_table_sink
   6: optional TExportSink export_sink
   7: optional TOlapTableSink olap_table_sink
   8: optional TMemoryScratchSink memory_scratch_sink
   9: optional TOdbcTableSink odbc_table_sink
   10: optional TResultFileSink result_file_sink
+  11: optional TJdbcTableSink jdbc_table_sink
 }
 

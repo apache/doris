@@ -25,20 +25,22 @@
 namespace doris {
 
 class RowsetWriter;
-class RowsetWriterContext;
+struct RowsetWriterContext;
 
 class RowsetFactory {
 public:
-    // return OLAP_SUCCESS and set inited rowset in `*rowset`.
+    // return OK and set inited rowset in `*rowset`.
     // return others if failed to create or init rowset.
-    static OLAPStatus create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
-                                    RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
+    // NOTE: `rowset_meta` loaded from `RowsetMetaPB` before version 1.2 doesn't have tablet schema,
+    //  use tablet's schema as rowset's schema for compatibility.
+    static Status create_rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+                                const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // create and init rowset writer.
-    // return OLAP_SUCCESS and set `*output` to inited rowset writer.
+    // return OK and set `*output` to inited rowset writer.
     // return others if failed
-    static OLAPStatus create_rowset_writer(const RowsetWriterContext& context,
-                                           std::unique_ptr<RowsetWriter>* output);
+    static Status create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
+                                       std::unique_ptr<RowsetWriter>* output);
 };
 
 } // namespace doris

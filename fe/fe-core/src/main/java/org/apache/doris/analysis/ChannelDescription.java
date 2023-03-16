@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,7 +62,8 @@ public class ChannelDescription implements Writable {
     @SerializedName(value = "channelId")
     private long channelId;
 
-    public ChannelDescription(String srcDatabase, String srcTableName, String targetTable, PartitionNames partitionNames, List<String> colNames) {
+    public ChannelDescription(String srcDatabase, String srcTableName, String targetTable,
+            PartitionNames partitionNames, List<String> colNames) {
         this.srcDatabase = srcDatabase;
         this.srcTableName = srcTableName;
         this.targetTable = targetTable;
@@ -102,7 +102,7 @@ public class ChannelDescription implements Writable {
         }
 
         // check target table auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, targetTable,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, targetTable,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),

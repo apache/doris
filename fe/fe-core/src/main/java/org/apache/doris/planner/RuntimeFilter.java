@@ -19,28 +19,32 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BitmapFilterPredicate;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -55,12 +59,12 @@ import java.util.Map;
  * the filter and the scan nodes that apply the filter (destination nodes).
  */
 public final class RuntimeFilter {
-    private final static Logger LOG = LogManager.getLogger(RuntimeFilter.class);
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilter.class);
 
     // Identifier of the filter (unique within a query)
     private final RuntimeFilterId id;
     // Join node that builds the filter
-    private final HashJoinNode builderNode;
+    private final PlanNode builderNode;
     // Expr (rhs of join predicate) on which the filter is built
     private final Expr srcExpr;
     // The position of expr in the join condition
@@ -96,6 +100,8 @@ public final class RuntimeFilter {
     // The type of filter to build.
     private TRuntimeFilterType runtimeFilterType;
 
+    private boolean bitmapFilterNotIn = false;
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -120,14 +126,14 @@ public final class RuntimeFilter {
 
         @Override
         public String toString() {
-            return "Target Id: " + node.getId() + " " +
-                    "Target expr: " + expr.debugString() + " " +
-                    "Is only Bound By Key: " + isBoundByKeyColumns +
-                    "Is local: " + isLocalTarget;
+            return "Target Id: " + node.getId() + " "
+                    + "Target expr: " + expr.debugString() + " "
+                    + "Is only Bound By Key: " + isBoundByKeyColumns
+                    + "Is local: " + isLocalTarget;
         }
     }
 
-    private RuntimeFilter(RuntimeFilterId filterId, HashJoinNode filterSrcNode, Expr srcExpr, int exprOrder,
+    private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
                           Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
                           TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         this.id = filterId;
@@ -141,17 +147,37 @@ public final class RuntimeFilter {
         calculateFilterSize(filterSizeLimits);
     }
 
+    // only for nereids planner
+    public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
+            int exprOrder, Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
+            TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr, targetSlots, type, filterSizeLimits);
+    }
+
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof RuntimeFilter)) return false;
+        if (!(obj instanceof RuntimeFilter)) {
+            return false;
+        }
         return ((RuntimeFilter) obj).id.equals(id);
     }
 
     @Override
-    public int hashCode() { return id.hashCode(); }
+    public int hashCode() {
+        return id.hashCode();
+    }
 
-    public void markFinalized() { finalized = true; }
-    public boolean isFinalized() { return finalized; }
+    public void markFinalized() {
+        finalized = true;
+    }
+
+    public boolean isFinalized() {
+        return finalized;
+    }
+
+    public void setBitmapFilterNotIn(boolean bitmapFilterNotIn) {
+        this.bitmapFilterNotIn = bitmapFilterNotIn;
+    }
 
     /**
      * Serializes a runtime filter to Thrift.
@@ -169,28 +195,61 @@ public final class RuntimeFilter {
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
+        if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
+            tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
+            tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
+        }
         return tFilter;
     }
 
-    public List<RuntimeFilterTarget> getTargets() { return targets; }
-    public boolean hasTargets() { return !targets.isEmpty(); }
-    public Expr getSrcExpr() { return srcExpr; }
-    public Expr getOrigTargetExpr() { return origTargetExpr; }
-    public Map<TupleId, List<SlotId>> getTargetSlots() { return targetSlotsByTid; }
-    public RuntimeFilterId getFilterId() { return id; }
-    public TRuntimeFilterType getType() { return runtimeFilterType; }
-    public void setType(TRuntimeFilterType type) { runtimeFilterType = type; }
-    public boolean hasRemoteTargets() { return hasRemoteTargets; }
-    public HashJoinNode getBuilderNode() { return builderNode; }
+    public List<RuntimeFilterTarget> getTargets() {
+        return targets;
+    }
+
+    public boolean hasTargets() {
+        return !targets.isEmpty();
+    }
+
+    public Expr getSrcExpr() {
+        return srcExpr;
+    }
+
+    public Expr getOrigTargetExpr() {
+        return origTargetExpr;
+    }
+
+    public Map<TupleId, List<SlotId>> getTargetSlots() {
+        return targetSlotsByTid;
+    }
+
+    public RuntimeFilterId getFilterId() {
+        return id;
+    }
+
+    public TRuntimeFilterType getType() {
+        return runtimeFilterType;
+    }
+
+    public void setType(TRuntimeFilterType type) {
+        runtimeFilterType = type;
+    }
+
+    public boolean hasRemoteTargets() {
+        return hasRemoteTargets;
+    }
+
+    public PlanNode getBuilderNode() {
+        return builderNode;
+    }
 
     /**
      * Static function to create a RuntimeFilter from 'joinPredicate' that is assigned
      * to the join node 'filterSrcNode'. Returns an instance of RuntimeFilter
      * or null if a runtime filter cannot be generated from the specified predicate.
      */
-    public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer,
-                                       Expr joinPredicate, int exprOrder, HashJoinNode filterSrcNode,
-                                       TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+    public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
+            int exprOrder, HashJoinNode filterSrcNode, TRuntimeFilterType type,
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, HashSet<TupleId> tupleHasConjuncts) {
         Preconditions.checkNotNull(idGen);
         Preconditions.checkNotNull(joinPredicate);
         Preconditions.checkNotNull(filterSrcNode);
@@ -199,13 +258,17 @@ public final class RuntimeFilter {
         // will filter the null value in child[0] while it is needed in the Null-safe equal join.
         // For example: select * from a join b where a.id<=>b.id
         // the null value in table a should be return by scan node instead of filtering it by runtimeFilter.
-        if (!Predicate.isUnNullSafeEquivalencePredicate(joinPredicate)) return null;
+        if (!Predicate.isUnNullSafeEquivalencePredicate(joinPredicate)) {
+            return null;
+        }
 
         BinaryPredicate normalizedJoinConjunct =
                 SingleNodePlanner.getNormalizedEqPred(joinPredicate,
                         filterSrcNode.getChild(0).getTupleIds(),
                         filterSrcNode.getChild(1).getTupleIds(), analyzer);
-        if (normalizedJoinConjunct == null) return null;
+        if (normalizedJoinConjunct == null) {
+            return null;
+        }
 
         // Ensure that the target expr does not contain TupleIsNull predicates as these
         // can't be evaluated at a scan node.
@@ -213,18 +276,78 @@ public final class RuntimeFilter {
                 TupleIsNullPredicate.unwrapExpr(normalizedJoinConjunct.getChild(0).clone());
         Expr srcExpr = normalizedJoinConjunct.getChild(1);
 
-        if (srcExpr.getType().equals(ScalarType.createHllType())
-                || srcExpr.getType().equals(ScalarType.createType(PrimitiveType.BITMAP))) return null;
+        Type srcType = srcExpr.getType();
+        if (srcType.equals(ScalarType.HLL) || srcType.equals(ScalarType.BITMAP) || srcType.equals(ScalarType.BOOLEAN)) {
+            return null;
+        }
 
+        targetExpr = targetExpr.getRealSlotRef();
         Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr);
         Preconditions.checkNotNull(targetSlots);
-        if (targetSlots.isEmpty()) return null;
+        if (targetSlots.isEmpty()) {
+            return null;
+        }
 
         if (LOG.isTraceEnabled()) {
             LOG.trace("Generating runtime filter from predicate " + joinPredicate);
         }
+        if (ConnectContext.get().getSessionVariable().isEnableRuntimeFilterPrune()) {
+            if (srcExpr instanceof SlotRef) {
+                if (!tupleHasConjuncts.contains(((SlotRef) srcExpr).getDesc().getParent().getId())) {
+                    // src tuple has no conjunct, don't create runtime filter
+                    return null;
+                } else {
+                    // runtime filter itself is a valid conjunct, add all the target tuple ids
+                    for (TupleId tupleId : targetSlots.keySet()) {
+                        tupleHasConjuncts.add(tupleId);
+                    }
+                }
+            }
+        }
+
         return new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
                 targetExpr, targetSlots, type, filterSizeLimits);
+    }
+
+    public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
+            int exprOrder, NestedLoopJoinNode filterSrcNode, TRuntimeFilterType type,
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+        Preconditions.checkNotNull(idGen);
+        Preconditions.checkNotNull(joinPredicate);
+        Preconditions.checkNotNull(filterSrcNode);
+
+        if (type.equals(TRuntimeFilterType.BITMAP)) {
+            if (!(joinPredicate instanceof BitmapFilterPredicate)) {
+                return null;
+            }
+
+            Expr targetExpr = Expr.getFirstBoundChild(joinPredicate, filterSrcNode.getChild(0).getTupleIds());
+            Expr srcExpr = Expr.getFirstBoundChild(joinPredicate, filterSrcNode.getChild(1).getTupleIds());
+            if (targetExpr == null || srcExpr == null) {
+                return null;
+            }
+
+            Type srcType = srcExpr.getType();
+            if (!srcType.equals(ScalarType.BITMAP)) {
+                return null;
+            }
+
+            Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr);
+            Preconditions.checkNotNull(targetSlots);
+            if (targetSlots.isEmpty()) {
+                return null;
+            }
+            while (targetExpr instanceof CastExpr && targetExpr.getChild(0).getType().isIntegerType()) {
+                targetExpr = targetExpr.getChild(0);
+            }
+
+            RuntimeFilter runtimeFilter =
+                    new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder, targetExpr, targetSlots,
+                            type, filterSizeLimits);
+            runtimeFilter.setBitmapFilterNotIn(((BitmapFilterPredicate) joinPredicate).isNotIn());
+            return runtimeFilter;
+        }
+        return null;
     }
 
     /**
@@ -296,16 +419,19 @@ public final class RuntimeFilter {
             // TODO(zxy) Returns true if 'p' evaluates to true when all its referenced slots are NULL, returns false
             //  otherwise. Throws if backend expression evaluation fails.
             if (expr.isContainsFunction("COALESCE") || expr.isContainsFunction("IFNULL")
-                    || expr.isContainsClass("org.apache.doris.analysis.CaseExpr"))
+                    || expr.isContainsClass("org.apache.doris.analysis.CaseExpr")) {
                 return Collections.emptyMap();
+            }
         }
 
         Map<TupleId, List<SlotId>> slotsByTid = new HashMap<>();
         // We need to iterate over all the slots of 'expr' and check if they have
         // equivalent slots that are bound by the same base table tuple(s).
-        for (SlotId slotId: sids) {
+        for (SlotId slotId : sids) {
             Map<TupleId, List<SlotId>> currSlotsByTid = getBaseTblEquivSlots(analyzer, slotId);
-            if (currSlotsByTid.isEmpty()) return Collections.emptyMap();
+            if (currSlotsByTid.isEmpty()) {
+                return Collections.emptyMap();
+            }
             if (slotsByTid.isEmpty()) {
                 slotsByTid.putAll(currSlotsByTid);
                 continue;
@@ -330,7 +456,9 @@ public final class RuntimeFilter {
                     entry.getValue().addAll(slotIds);
                 }
             }
-            if (slotsByTid.isEmpty()) return Collections.emptyMap();
+            if (slotsByTid.isEmpty()) {
+                return Collections.emptyMap();
+            }
         }
         return slotsByTid;
     }
@@ -343,9 +471,11 @@ public final class RuntimeFilter {
     private static Map<TupleId, List<SlotId>> getBaseTblEquivSlots(Analyzer analyzer,
                                                                    SlotId srcSid) {
         Map<TupleId, List<SlotId>> slotsByTid = new HashMap<>();
-        for (SlotId targetSid: analyzer.getValueTransferTargets(srcSid)) {
+        for (SlotId targetSid : analyzer.getValueTransferTargets(srcSid)) {
             TupleDescriptor tupleDesc = analyzer.getSlotDesc(targetSid).getParent();
-            if (tupleDesc.getTable() == null) continue;
+            if (tupleDesc.getTable() == null) {
+                continue;
+            }
             List<SlotId> sids = slotsByTid.computeIfAbsent(tupleDesc.getId(), k -> new ArrayList<>());
             sids.add(targetSid);
         }
@@ -353,8 +483,10 @@ public final class RuntimeFilter {
     }
 
     public Expr getTargetExpr(PlanNodeId targetPlanNodeId) {
-        for (RuntimeFilterTarget target: targets) {
-            if (target.node.getId() != targetPlanNodeId) continue;
+        for (RuntimeFilterTarget target : targets) {
+            if (target.node.getId() != targetPlanNodeId) {
+                continue;
+            }
             return target.expr;
         }
         return null;
@@ -374,16 +506,22 @@ public final class RuntimeFilter {
         return builderNode.getCardinality() / (double) builderNode.getChild(0).getCardinality();
     }
 
-    public void addTarget(RuntimeFilterTarget target) { targets.add(target); }
+    public void addTarget(RuntimeFilterTarget target) {
+        targets.add(target);
+    }
 
-    public void setIsBroadcast(boolean isBroadcast) { isBroadcastJoin = isBroadcast; }
+    public void setIsBroadcast(boolean isBroadcast) {
+        isBroadcastJoin = isBroadcast;
+    }
 
-    public void computeNdvEstimate() { ndvEstimate = builderNode.getChild(1).getCardinality(); }
+    public void computeNdvEstimate() {
+        ndvEstimate = builderNode.getChild(1).getCardinality();
+    }
 
     public void extractTargetsPosition() {
         Preconditions.checkNotNull(builderNode.getFragment());
         Preconditions.checkState(hasTargets());
-        for (RuntimeFilterTarget target: targets) {
+        for (RuntimeFilterTarget target : targets) {
             Preconditions.checkNotNull(target.node.getFragment());
             hasLocalTargets = hasLocalTargets || target.isLocalTarget;
             hasRemoteTargets = hasRemoteTargets || !target.isLocalTarget;
@@ -404,7 +542,7 @@ public final class RuntimeFilter {
             return;
         }
         double fpp = FeConstants.default_bloom_filter_fpp;
-        int logFilterSize = GetMinLogSpaceForBloomFilter(ndvEstimate, fpp);
+        int logFilterSize = getMinLogSpaceForBloomFilter(ndvEstimate, fpp);
         filterSizeBytes = 1L << logFilterSize;
         filterSizeBytes = Math.max(filterSizeBytes, filterSizeLimits.minVal);
         filterSizeBytes = Math.min(filterSizeBytes, filterSizeLimits.maxVal);
@@ -415,14 +553,16 @@ public final class RuntimeFilter {
      * filter with 'ndv' unique elements and a false positive probability of less
      * than 'fpp'.
      */
-    public static int GetMinLogSpaceForBloomFilter(long ndv, double fpp) {
-        if (0 == ndv) return 0;
+    public static int getMinLogSpaceForBloomFilter(long ndv, double fpp) {
+        if (0 == ndv) {
+            return 0;
+        }
         double k = 8; // BUCKET_WORDS
         // m is the number of bits we would need to get the fpp specified
         double m = -k * ndv / Math.log(1 - Math.pow(fpp, 1.0 / k));
 
         // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
-        return Math.max(0, (int)(Math.ceil(Math.log(m / 8)/Math.log(2))));
+        return Math.max(0, (int) (Math.ceil(Math.log(m / 8) / Math.log(2))));
     }
 
     /**
@@ -431,27 +571,34 @@ public final class RuntimeFilter {
     public void assignToPlanNodes() {
         Preconditions.checkState(hasTargets());
         builderNode.addRuntimeFilter(this);
-        builderNode.fragment_.setBuilderRuntimeFilterIds(getFilterId());
-        for (RuntimeFilterTarget target: targets) {
+        builderNode.fragment.setBuilderRuntimeFilterIds(getFilterId());
+        for (RuntimeFilterTarget target : targets) {
             target.node.addRuntimeFilter(this);
             // fragment is expected to use this filter id
-            target.node.fragment_.setTargetRuntimeFilterIds(this.id);
+            target.node.fragment.setTargetRuntimeFilterIds(this.id);
         }
     }
 
     public void registerToPlan(Analyzer analyzer) {
-        setIsBroadcast(getBuilderNode().getDistributionMode() == HashJoinNode.DistributionMode.BROADCAST);
-        if (LOG.isTraceEnabled()) LOG.trace("Runtime filter: " + debugString());
+        PlanNode node = getBuilderNode();
+        if (node instanceof HashJoinNode) {
+            setIsBroadcast(((HashJoinNode) node).getDistributionMode() == HashJoinNode.DistributionMode.BROADCAST);
+        } else {
+            setIsBroadcast(false);
+        }
+        if (LOG.isTraceEnabled()) {
+            LOG.trace("Runtime filter: " + debugString());
+        }
         assignToPlanNodes();
         analyzer.putAssignedRuntimeFilter(this);
     }
 
     public String debugString() {
-        return "FilterID: " + id + " " +
-                "Source: " + builderNode.getId() + " " +
-                "SrcExpr: " + getSrcExpr().debugString() + " " +
-                "Target(s): " +
-                Joiner.on(", ").join(targets) + " " +
-                "Selectivity: " + getSelectivity();
+        return "FilterID: " + id + " "
+                +      "Source: " + builderNode.getId() + " "
+                +      "SrcExpr: " + getSrcExpr().debugString() + " "
+                +      "Target(s): "
+                +      Joiner.on(", ").join(targets) + " "
+                + "Selectivity: " + getSelectivity();
     }
 }
