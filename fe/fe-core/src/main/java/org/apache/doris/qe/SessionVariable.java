@@ -71,6 +71,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String CHARACTER_SET_CONNNECTION = "character_set_connection";
     public static final String CHARACTER_SET_RESULTS = "character_set_results";
     public static final String CHARACTER_SET_SERVER = "character_set_server";
+    public static final String CHARACTER_SET_DATABASE = "character_set_database";
     public static final String COLLATION_CONNECTION = "collation_connection";
     public static final String COLLATION_DATABASE = "collation_database";
     public static final String COLLATION_SERVER = "collation_server";
@@ -367,6 +368,8 @@ public class SessionVariable implements Serializable, Writable {
     public String charsetResults = "utf8";
     @VariableMgr.VarAttr(name = CHARACTER_SET_SERVER)
     public String charsetServer = "utf8";
+    @VariableMgr.VarAttr(name = CHARACTER_SET_DATABASE)
+    public String charsetDatabase = "utf8";
     @VariableMgr.VarAttr(name = COLLATION_CONNECTION)
     public String collationConnection = "utf8_general_ci";
     @VariableMgr.VarAttr(name = COLLATION_DATABASE)
@@ -971,6 +974,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String getCharsetServer() {
         return charsetServer;
+    }
+
+    public String getCharsetDatabase() {
+        return charsetDatabase;
     }
 
     public String getCollationConnection() {
