@@ -40,6 +40,30 @@ suite("view") {
     """
 
     sql """
+        SET enable_nereids_planner=true
+    """
+
+    sql """
+        SET enable_vectorized_engine=true
+    """
+
+    sql """
+        SET enable_fallback_to_original_planner=false
+    """
+
+    qt_nereids_view_1 """
+        SELECT count() FROM yandex_view
+    """
+
+    qt_nereids_view_2 """
+        SELECT c, count() FROM yandex_view GROUP BY c ORDER BY count() DESC LIMIT 10
+    """
+
+    qt_nereids_view_3 """
+        SELECT * FROM yandex_view ORDER BY c DESC LIMIT 10
+    """
+
+    sql """
         DROP VIEW IF EXISTS `yandex_view`
     """
 }

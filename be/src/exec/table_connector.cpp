@@ -169,7 +169,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                                            const TypeDescriptor& type, int row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (table_type != TOdbcTableType::ORACLE) {
+        if (table_type != TOdbcTableType::ORACLE && table_type != TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         } else {
             //if is ORACLE and date type, insert into need convert
@@ -194,6 +194,12 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     auto [item, size] = column->get_data_at(row);
     switch (type.type) {
     case TYPE_BOOLEAN:
+        if (table_type == TOdbcTableType::SAP_HANA) {
+            fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const bool*>(item));
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
+        }
+        break;
     case TYPE_TINYINT:
         fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
         break;
@@ -260,7 +266,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_STRING: {
         // TODO(zhangstar333): check array data type of postgresql
         // for oracle/pg database string must be '
-        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL) {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
+            table_type == TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));

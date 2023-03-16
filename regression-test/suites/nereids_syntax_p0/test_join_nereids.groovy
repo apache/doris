@@ -122,7 +122,6 @@ suite("test_join_nereids") {
     sql"drop view if exists empty"
     sql"create view empty as select * from baseall where k1 = 0"
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
     sql 'set parallel_fragment_exec_instance_num = 2;'

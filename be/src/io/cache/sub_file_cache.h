@@ -75,7 +75,9 @@ private:
 
     std::pair<Path, Path> _cache_path(size_t offset);
 
-    void _init();
+    Status _init();
+
+    Status _get_all_sub_file_size(std::map<int64_t, int64_t>* expect_file_size_map);
 
 private:
     struct SubFileInfo {
@@ -97,7 +99,7 @@ private:
     // offset_begin -> local file reader
     std::map<size_t, io::FileReaderSPtr> _cache_file_readers;
 
-    std::once_flag init_flag;
+    bool _is_inited = false;
 };
 
 } // namespace io
