@@ -1214,6 +1214,10 @@ clean_stmt ::=
     {:
         RESULT = new CleanLabelStmt(db, label);
     :}
+    | KW_CLEAN KW_ALL KW_PROFILE
+    {:
+        RESULT = new CleanProfileStmt();
+    :}
     ;
 
 // plugin statement
