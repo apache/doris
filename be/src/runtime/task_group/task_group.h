@@ -55,6 +55,8 @@ public:
 
     uint64_t cpu_share() const;
 
+    std::string debug_string() const;
+
 private:
     // TODO pipeline use MLFQ
     std::queue<pipeline::PipelineTask*> _queue;

@@ -27,18 +27,16 @@ pipeline::PipelineTask* TaskGroupEntity::take() {
     }
     auto task = _queue.front();
     _queue.pop();
-    LOG(INFO) << "_llj3 TaskGroupEntity::take " << cpu_share() << ", vns:" << _vruntime_ns;
     return task;
 }
 
 void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns)  {
     auto v_time = runtime_ns / _tg->share();
-    LOG(INFO) << "_llj3 incr_runtime_ns " << cpu_share() << ", rs:" << runtime_ns
-              << ", v:" << v_time << ", _vruntime_ns:" << _vruntime_ns;
     _vruntime_ns += v_time;
 }
 
 void TaskGroupEntity::adjust_vruntime_ns(uint64_t vruntime_ns) {
+    VLOG_DEBUG << "adjust " << debug_string() << "vtime to " << vruntime_ns;
     _vruntime_ns = vruntime_ns;
 }
 
@@ -48,6 +46,11 @@ void TaskGroupEntity::push_back(pipeline::PipelineTask* task) {
 
 uint64_t TaskGroupEntity::cpu_share() const {
     return _tg->share();
+}
+
+std::string TaskGroupEntity::debug_string() const {
+    return fmt::format("TGE[id = {}, cpu_share = {}, task size: {}, v_time:{}ns]", _tg->id(),
+                       cpu_share(), _queue.size(), _vruntime_ns);
 }
 
 TaskGroup::TaskGroup(uint64_t id, std::string name, uint64_t share)

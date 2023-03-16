@@ -38,7 +38,7 @@ public:
     static constexpr uint64_t SHORT_TG_ID = 1;
     static constexpr uint64_t SHORT_TG_CPU_SHARE = 128;
 
-    static constexpr int32_t SHORT_QUERY_TIMEOUT_S = 20;
+    static constexpr int32_t SHORT_QUERY_TIMEOUT_S = 40;
 
 private:
     void _create_default_task_group();
