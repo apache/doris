@@ -25,6 +25,7 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.collect.ImmutableList;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseException;
@@ -67,8 +68,11 @@ public class BDBEnvironment {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
     private static final int RETRY_TIME = 3;
     private static final int MEMORY_CACHE_PERCENT = 20;
+    private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
+            "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
 
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
+
 
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
@@ -131,6 +135,14 @@ public class BDBEnvironment {
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
+
+        if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
+            environmentConfig.setConfigParam(EnvironmentConfig.FILE_LOGGING_LEVEL, Config.bdbje_file_logging_level);
+        } else {
+            LOG.warn("bdbje_file_logging_level invalid value: {}, will not take effort, use default",
+                    Config.bdbje_file_logging_level);
+        }
+
         if (isElectable) {
             Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy),
                     getSyncPolicy(Config.replica_sync_policy), getAckPolicy(Config.replica_ack_policy));
