@@ -2531,7 +2531,7 @@ public class Env {
                 haProtocol.removeElectableNode(fe.getNodeName());
                 removeHelperNode(ip, hostname, port);
                 BDBHA ha = (BDBHA) haProtocol;
-                ha.removeUnReadyElectableNode(nodeName, getFollowerCount());
+                ha.removeUnReadyElectableNode(fe.getNodeName(), getFollowerCount());
             }
             editLog.logRemoveFrontend(fe);
         } finally {
