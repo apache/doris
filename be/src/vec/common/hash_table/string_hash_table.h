@@ -713,9 +713,7 @@ public:
     }
 
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t get_collisions() const {
-        return 0;
-    }
+    size_t get_collisions() const { return 0; }
 #endif
 };
 

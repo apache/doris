@@ -187,68 +187,6 @@ struct AggregationMethodStringNoCache {
     }
 };
 
-template <typename TData>
-struct AggregationMethodSerializedKeys {
-    using Data = TData;
-    using Key = typename Data::key_type;
-    using Mapped = typename Data::mapped_type;
-    using Iterator = typename Data::iterator;
-
-    Data data;
-    Iterator iterator;
-    bool inited = false;
-
-    AggregationMethodSerializedKeys() = default;
-
-    template <typename Other>
-    explicit AggregationMethodSerializedKeys(const Other& other) : data(other.data) {}
-
-    using State = ColumnsHashing::HashMethodSerializedKeys<typename Data::value_type, Mapped, true,
-                                                           false>;
-
-    static const bool low_cardinality_optimization = false;
-
-    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
-                                        const Sizes& key_sizes) {
-        size_t keys_size = key_columns.size();
-
-        /// In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = 0;
-
-        for (size_t i = 0; i < keys_size; ++i) {
-            IColumn* observed_column;
-
-            observed_column = key_columns[i].get();
-
-            if (observed_column->is_column_string()) {
-                auto* str_col = reinterpret_cast<ColumnString*>(observed_column);
-                uint8_t sz = *(uint8_t*)(key.data + pos);
-                pos += 1;
-                str_col->insert_data(key.data + pos, sz);
-                pos += sz;
-            } else {
-                size_t size = key_sizes[i];
-                observed_column->insert_data(key.data + pos, size);
-                pos += size;
-            }
-        }
-    }
-
-    static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
-                                         const size_t num_rows, const Sizes& key_sizes) {
-        for (size_t i = 0; i != num_rows; ++i) {
-            insert_key_into_columns(keys[i], key_columns, key_sizes);
-        }
-    }
-
-    void init_once() {
-        if (!inited) {
-            inited = true;
-            iterator = data.begin();
-        }
-    }
-};
-
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
 template <typename FieldType, typename TData, bool consecutive_keys_optimization = false>
@@ -517,7 +455,7 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>,
         AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>,
         AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>,
-        AggregationMethodSerializedKeys<AggregatedDataWithShortStringKey>,
+        AggregationMethodSerialized<AggregatedDataWithShortStringKey>,
         AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>,
         AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>,
         AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>,
@@ -909,7 +847,7 @@ struct AggregatedDataVariants {
         case Type::serialized_keys:
             DCHECK(!is_nullable);
             _aggregated_method_variant
-                    .emplace<AggregationMethodSerializedKeys<AggregatedDataWithShortStringKey>>();
+                    .emplace<AggregationMethodSerialized<AggregatedDataWithShortStringKey>>();
             break;
         default:
             DCHECK(false) << "Do not have a rigth agg data type";
