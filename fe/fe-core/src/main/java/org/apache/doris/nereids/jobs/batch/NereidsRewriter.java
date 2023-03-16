@@ -31,7 +31,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
-import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunctionRule;
+import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
@@ -112,7 +112,6 @@ public class NereidsRewriter extends BatchRewriteJob {
                      *  TODO: group these rules to make sure the result plan is what we expected.
                      */
                     new CorrelateApplyToUnCorrelateApply(),
-                    new AggScalarSubQueryToWindowFunctionRule(),
                     new ApplyToJoin()
                 )
             ),
