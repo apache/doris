@@ -144,6 +144,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_BINARY:
     case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<vectorized::DataTypeString>();
+        const_cast<IDataType*>(nested.get())->set_byte_size(col_desc.byte_size);
         break;
     case TYPE_JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();

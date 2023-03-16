@@ -108,6 +108,109 @@ protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
 };
 
+template <typename Value, typename Mapped, bool place_string_to_arena = true, bool use_cache = true>
+struct HashMethodSerializedKeys
+        : public columns_hashing_impl::HashMethodBase<
+                  HashMethodSerializedKeys<Value, Mapped, place_string_to_arena, use_cache>, Value,
+                  Mapped, use_cache> {
+    using Self = HashMethodString<Value, Mapped, place_string_to_arena, use_cache>;
+    using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
+
+    std::vector<const IColumn::Offset*> offsets;
+    std::vector<const UInt8*> chars;
+    const Sizes sizes;
+    size_t fixed_length = 0;
+
+    HashMethodSerializedKeys(const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
+                             const HashMethodContextPtr&)
+            : sizes(key_sizes), key_columns(key_columns) {
+        offsets.reserve(key_columns.size());
+        chars.reserve(key_columns.size());
+        for (const auto* col : key_columns) {
+            if (const auto* str_col = check_and_get_column<const ColumnString>(*col)) {
+                chars.template emplace_back(str_col->get_chars().data());
+                offsets.template emplace_back(str_col->get_offsets().data());
+            } else {
+                chars.template emplace_back(nullptr);
+                offsets.template emplace_back(nullptr);
+                fixed_length += col->get_max_row_byte_size();
+            }
+        }
+    }
+
+    auto get_key_holder(ssize_t row, Arena& pool) const {
+        DCHECK_EQ(offsets.size(), sizes.size());
+        size_t sz = fixed_length;
+        std::vector<uint8_t> sz_vec(offsets.size());
+        for (size_t i = 0; i < offsets.size(); i++) {
+            sz_vec[i] = offsets[i] ? offsets[i][row] - offsets[i][row - 1] : 0;
+            sz += offsets[i] ? sz_vec[i] + 1 : 0;
+        }
+        auto* bytes = pool.alloc(sz);
+        size_t offset = 0;
+
+        for (size_t j = 0; j < sizes.size(); ++j) {
+            const IColumn* column = key_columns[j];
+
+            // For fixed-length string
+            if (const auto* str_col = check_and_get_column<const ColumnString>(*column)) {
+                memcpy(bytes + offset, &(sz_vec[j]), sizeof(uint8_t));
+                offset += 1;
+                memcpy(bytes + offset, chars[j] + offsets[j][row - 1], sz_vec[j]);
+                offset += sz_vec[j];
+                continue;
+            }
+            switch (sizes[j]) {
+            case 1:
+                memcpy(bytes + offset,
+                       static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() +
+                               row,
+                       1);
+                offset += 1;
+                break;
+            case 2:
+                memcpy(bytes + offset,
+                       static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<2>() +
+                               row * 2,
+                       2);
+                offset += 2;
+                break;
+            case 4:
+                memcpy(bytes + offset,
+                       static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<4>() +
+                               row * 4,
+                       4);
+                offset += 4;
+                break;
+            case 8:
+                memcpy(bytes + offset,
+                       static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<8>() +
+                               row * 8,
+                       8);
+                offset += 8;
+                break;
+            default:
+                memcpy(bytes + offset,
+                       static_cast<const ColumnVectorHelper*>(column)->get_raw_data_begin<1>() +
+                               row * sizes[j],
+                       sizes[j]);
+                offset += sizes[j];
+            }
+        }
+        if constexpr (place_string_to_arena) {
+            return ArenaKeyHolder {StringRef(bytes, offset), pool};
+        } else {
+            return StringRef(bytes, offset);
+        }
+    }
+
+protected:
+    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, use_cache>;
+
+private:
+    ColumnRawPtrs key_columns;
+};
+
 /** Hash by concatenating serialized key values.
   * The serialized value differs in that it uniquely allows to deserialize it, having only the position with which it starts.
   * That is, for example, for strings, it contains first the serialized length of the string, and then the bytes.

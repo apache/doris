@@ -78,6 +78,8 @@ public:
 protected:
     virtual String do_get_name() const;
 
+    int _byte_size = -1;
+
 public:
     /** Create empty column for corresponding type.
       */
@@ -250,6 +252,9 @@ public:
                                     int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
+
+    void set_byte_size(int byte_size) { _byte_size = byte_size; }
+    int byte_size() const { return _byte_size; }
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 

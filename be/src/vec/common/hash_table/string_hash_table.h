@@ -26,6 +26,7 @@
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_utils.h"
 
+using StringKey4 = doris::vectorized::UInt32;
 using StringKey8 = doris::vectorized::UInt64;
 using StringKey16 = doris::vectorized::UInt128;
 struct StringKey24 {
@@ -36,6 +37,10 @@ struct StringKey24 {
     bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
 };
 
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey4& n) {
+    assert(n != 0);
+    return {reinterpret_cast<const char*>(&n), 4ul - (__builtin_clz(n) >> 3)};
+}
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
     assert(n != 0);
     return {reinterpret_cast<const char*>(&n), 8ul - (__builtin_clzll(n) >> 3)};
@@ -51,6 +56,11 @@ inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
 
 struct StringHashTableHash {
 #if defined(__SSE4_2__)
+    size_t ALWAYS_INLINE operator()(StringKey4 key) const {
+        size_t res = -1ULL;
+        res = _mm_crc32_u32(res, key);
+        return res;
+    }
     size_t ALWAYS_INLINE operator()(StringKey8 key) const {
         size_t res = -1ULL;
         res = _mm_crc32_u64(res, key);
@@ -70,6 +80,9 @@ struct StringHashTableHash {
         return res;
     }
 #else
+    size_t ALWAYS_INLINE operator()(StringKey4 key) const {
+        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 4);
+    }
     size_t ALWAYS_INLINE operator()(StringKey8 key) const {
         return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 8);
     }
@@ -218,12 +231,13 @@ class StringHashTable : private boost::noncopyable {
 protected:
     static constexpr size_t NUM_MAPS = 5;
     // Map for storing empty string
-    using T0 = typename SubMaps::T0;
+    using Te = typename SubMaps::Te;
 
     // Short strings are stored as numbers
-    using T1 = typename SubMaps::T1;
-    using T2 = typename SubMaps::T2;
-    using T3 = typename SubMaps::T3;
+    using T4 = typename SubMaps::T4;
+    using T8 = typename SubMaps::T8;
+    using T16 = typename SubMaps::T16;
+    using T24 = typename SubMaps::T24;
 
     // Long strings are stored as doris::StringRef along with saved hash
     using Ts = typename SubMaps::Ts;
@@ -232,10 +246,11 @@ protected:
     template <typename, typename, size_t>
     friend class TwoLevelStringHashTable;
 
-    T0 m0;
-    T1 m1;
-    T2 m2;
-    T3 m3;
+    Te m0;
+    T4 m1;
+    T8 m2;
+    T16 m3;
+    T24 m4;
     Ts ms;
 
     using Cell = typename Ts::cell_type;
@@ -246,10 +261,11 @@ protected:
 
         Container* container;
         int sub_table_index;
-        typename T1::iterator iterator1;
-        typename T2::iterator iterator2;
-        typename T3::iterator iterator3;
-        typename Ts::iterator iterator4;
+        typename T4::iterator iterator1;
+        typename T8::iterator iterator2;
+        typename T16::iterator iterator3;
+        typename T24::iterator iterator4;
+        typename Ts::iterator iterator5;
 
         typename Ts::cell_type cell;
 
@@ -259,34 +275,44 @@ protected:
         iterator_base() = default;
         iterator_base(Container* container_, bool end = false) : container(container_) {
             if (end) {
-                sub_table_index = 4;
-                iterator4 = container->ms.end();
+                sub_table_index = 5;
+                iterator5 = container->ms.end();
             } else {
                 sub_table_index = 0;
-                if (container->m0.size() == 0)
+                if (container->m0.size() == 0) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator1 = container->m1.begin();
-                if (iterator1 == container->m1.end())
+                if (iterator1 == container->m1.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator2 = container->m2.begin();
-                if (iterator2 == container->m2.end())
+                if (iterator2 == container->m2.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator3 = container->m3.begin();
-                if (iterator3 == container->m3.end())
+                if (iterator3 == container->m3.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
-                iterator4 = container->ms.begin();
+                if (iterator4 == container->m4.end()) {
+                    sub_table_index++;
+                } else {
+                    return;
+                }
+
+                iterator5 = container->ms.begin();
             }
         }
 
@@ -307,6 +333,9 @@ protected:
             }
             case 4: {
                 return iterator4 == rhs.iterator4;
+            }
+            case 5: {
+                return iterator5 == rhs.iterator5;
             }
             }
             __builtin_unreachable();
@@ -344,6 +373,13 @@ protected:
             }
             case 4: {
                 ++iterator4;
+                if (iterator4 == container->m4.end()) {
+                    need_switch_to_next = true;
+                }
+                break;
+            }
+            case 5: {
+                ++iterator5;
                 break;
             }
             }
@@ -374,7 +410,14 @@ protected:
                     break;
                 }
                 case 4: {
-                    iterator4 = container->ms.begin();
+                    iterator4 = container->m4.begin();
+                    if (iterator4 == container->m4.end()) {
+                        need_switch_to_next = true;
+                    }
+                    break;
+                }
+                case 5: {
+                    iterator5 = container->ms.begin();
                     break;
                 }
                 }
@@ -405,6 +448,10 @@ protected:
                 const_cast<iterator_base*>(this)->cell = *iterator4;
                 break;
             }
+            case 5: {
+                const_cast<iterator_base*>(this)->cell = *iterator5;
+                break;
+            }
             }
             return cell;
         }
@@ -427,7 +474,10 @@ protected:
                 return iterator3->get_hash(container->m3);
             }
             case 4: {
-                return iterator4->get_hash(container->ms);
+                return iterator4->get_hash(container->m4);
+            }
+            case 5: {
+                return iterator5->get_hash(container->ms);
             }
             }
         }
@@ -464,16 +514,11 @@ public:
 
     StringHashTable() = default;
 
-    explicit StringHashTable(size_t reserve_for_num_elements)
-            : m1 {reserve_for_num_elements / 4},
-              m2 {reserve_for_num_elements / 4},
-              m3 {reserve_for_num_elements / 4},
-              ms {reserve_for_num_elements / 4} {}
-
     StringHashTable(StringHashTable&& rhs) noexcept
             : m1(std::move(rhs.m1)),
               m2(std::move(rhs.m2)),
               m3(std::move(rhs.m3)),
+              m4(std::move(rhs.m4)),
               ms(std::move(rhs.ms)) {}
 
     ~StringHashTable() = default;
@@ -508,48 +553,57 @@ public:
         // pending bits that needs to be shifted out
         const char s = (-sz & 7) * 8;
         union {
+            StringKey4 k4;
             StringKey8 k8;
             StringKey16 k16;
             StringKey24 k24;
             doris::vectorized::UInt64 n[3];
         };
-        switch ((sz - 1) >> 3) {
-        case 0: // 1..8 bytes
-        {
-            // first half page
-            if ((reinterpret_cast<uintptr_t>(p) & 2048) == 0) {
-                memcpy(&n[0], p, 8);
-                n[0] &= -1ULL >> s;
-            } else {
-                const char* lp = x.data + x.size - 8;
-                memcpy(&n[0], lp, 8);
-                n[0] >>= s;
+        if ((sz - 1) >> 2 == 0) {
+            const char* lp = x.data + x.size - 4;
+            memcpy(&n[0], lp, 4);
+            n[0] >>= ((-sz & 3) * 8);
+            key_holder_discard_key(key_holder);
+            return func(self.m1, k4, hash(k4));
+        } else {
+            switch ((sz - 1) >> 3) {
+            case 0: // 1..8 bytes
+            {
+                // first half page
+                if ((reinterpret_cast<uintptr_t>(p) & 2048) == 0) {
+                    memcpy(&n[0], p, 8);
+                    n[0] &= -1ULL >> s;
+                } else {
+                    const char* lp = x.data + x.size - 8;
+                    memcpy(&n[0], lp, 8);
+                    n[0] >>= s;
+                }
+                key_holder_discard_key(key_holder);
+                return func(self.m2, k8, hash(k8));
             }
-            key_holder_discard_key(key_holder);
-            return func(self.m1, k8, hash(k8));
-        }
-        case 1: // 9..16 bytes
-        {
-            memcpy(&n[0], p, 8);
-            const char* lp = x.data + x.size - 8;
-            memcpy(&n[1], lp, 8);
-            n[1] >>= s;
-            key_holder_discard_key(key_holder);
-            return func(self.m2, k16, hash(k16));
-        }
-        case 2: // 17..24 bytes
-        {
-            memcpy(&n[0], p, 16);
-            const char* lp = x.data + x.size - 8;
-            memcpy(&n[2], lp, 8);
-            n[2] >>= s;
-            key_holder_discard_key(key_holder);
-            return func(self.m3, k24, hash(k24));
-        }
-        default: // >= 25 bytes
-        {
-            return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
-        }
+            case 1: // 9..16 bytes
+            {
+                memcpy(&n[0], p, 8);
+                const char* lp = x.data + x.size - 8;
+                memcpy(&n[1], lp, 8);
+                n[1] >>= s;
+                key_holder_discard_key(key_holder);
+                return func(self.m3, k16, hash(k16));
+            }
+            case 2: // 17..24 bytes
+            {
+                memcpy(&n[0], p, 16);
+                const char* lp = x.data + x.size - 8;
+                memcpy(&n[2], lp, 8);
+                n[2] >>= s;
+                key_holder_discard_key(key_holder);
+                return func(self.m4, k24, hash(k24));
+            }
+            default: // >= 25 bytes
+            {
+                return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
+            }
+            }
         }
     }
 
@@ -618,16 +672,18 @@ public:
         return dispatch(*this, x, FindCallable {}) != nullptr;
     }
 
-    size_t size() const { return m0.size() + m1.size() + m2.size() + m3.size() + ms.size(); }
+    size_t size() const {
+        return m0.size() + m1.size() + m2.size() + m3.size() + m4.size() + ms.size();
+    }
 
     bool empty() const {
-        return m0.empty() && m1.empty() && m2.empty() && m3.empty() && ms.empty();
+        return m0.empty() && m1.empty() && m2.empty() && m3.empty() && m4.empty() && ms.empty();
     }
 
     size_t get_buffer_size_in_bytes() const {
         return m0.get_buffer_size_in_bytes() + m1.get_buffer_size_in_bytes() +
                m2.get_buffer_size_in_bytes() + m3.get_buffer_size_in_bytes() +
-               ms.get_buffer_size_in_bytes();
+               m4.get_buffer_size_in_bytes() + ms.get_buffer_size_in_bytes();
     }
 
     class iterator : public iterator_base<iterator, false> {
@@ -652,11 +708,14 @@ public:
 
     bool add_elem_size_overflow(size_t add_size) const {
         return m1.add_elem_size_overflow(add_size) || m2.add_elem_size_overflow(add_size) ||
-               m3.add_elem_size_overflow(add_size) || ms.add_elem_size_overflow(add_size);
+               m3.add_elem_size_overflow(add_size) || m4.add_elem_size_overflow(add_size) ||
+               ms.add_elem_size_overflow(add_size);
     }
 
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t get_collisions() const { return 0; }
+    size_t get_collisions() const {
+        return 0;
+    }
 #endif
 };
 

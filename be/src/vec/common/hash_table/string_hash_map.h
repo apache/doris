@@ -107,13 +107,15 @@ struct StringHashMapCell<doris::StringRef, TMapped>
 
 template <typename TMapped, typename Allocator>
 struct StringHashMapSubMaps {
-    using T0 = StringHashTableEmpty<StringHashMapCell<doris::StringRef, TMapped>>;
-    using T1 = HashMapTable<StringKey8, StringHashMapCell<StringKey8, TMapped>, StringHashTableHash,
+    using Te = StringHashTableEmpty<StringHashMapCell<doris::StringRef, TMapped>>;
+    using T4 = HashMapTable<StringKey4, StringHashMapCell<StringKey4, TMapped>, StringHashTableHash,
                             StringHashTableGrower<>, Allocator>;
-    using T2 = HashMapTable<StringKey16, StringHashMapCell<StringKey16, TMapped>,
-                            StringHashTableHash, StringHashTableGrower<>, Allocator>;
-    using T3 = HashMapTable<StringKey24, StringHashMapCell<StringKey24, TMapped>,
-                            StringHashTableHash, StringHashTableGrower<>, Allocator>;
+    using T8 = HashMapTable<StringKey8, StringHashMapCell<StringKey8, TMapped>, StringHashTableHash,
+                            StringHashTableGrower<>, Allocator>;
+    using T16 = HashMapTable<StringKey16, StringHashMapCell<StringKey16, TMapped>,
+                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
+    using T24 = HashMapTable<StringKey24, StringHashMapCell<StringKey24, TMapped>,
+                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
     using Ts = HashMapTable<doris::StringRef, StringHashMapCell<doris::StringRef, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
 };
@@ -145,6 +147,7 @@ public:
         this->m1.merge_to_via_emplace(that.m1, func);
         this->m2.merge_to_via_emplace(that.m2, func);
         this->m3.merge_to_via_emplace(that.m3, func);
+        this->m4.merge_to_via_emplace(that.m4, func);
         this->ms.merge_to_via_emplace(that.ms, func);
     }
 
@@ -162,6 +165,7 @@ public:
         this->m1.merge_to_via_find(that.m1, func);
         this->m2.merge_to_via_find(that.m2, func);
         this->m3.merge_to_via_find(that.m3, func);
+        this->m4.merge_to_via_find(that.m4, func);
         this->ms.merge_to_via_find(that.ms, func);
     }
 
@@ -192,6 +196,10 @@ public:
             func(v.get_key(), v.get_second());
         }
 
+        for (auto& v : this->m4) {
+            func(v.get_key(), v.get_second());
+        }
+
         for (auto& v : this->ms) {
             func(v.get_key(), v.get_second());
         }
@@ -203,6 +211,7 @@ public:
         for (auto& v : this->m1) func(v.get_second());
         for (auto& v : this->m2) func(v.get_second());
         for (auto& v : this->m3) func(v.get_second());
+        for (auto& v : this->m4) func(v.get_second());
         for (auto& v : this->ms) func(v.get_second());
     }
 

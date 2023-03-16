@@ -225,6 +225,8 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
+        bool has_string = false;
+        size_t max_string_len = 0;
         int key_byte_size = 0;
 
         _probe_key_sz.resize(_probe_expr_ctxs.size());
@@ -232,9 +234,13 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             const auto vexpr = _probe_expr_ctxs[i]->root();
             const auto& data_type = vexpr->data_type();
 
+            has_string |= WhichDataType(data_type).is_string();
             if (!data_type->have_maximum_size_of_value()) {
                 use_fixed_key = false;
                 break;
+            } else if (WhichDataType(data_type).is_string()) {
+                max_string_len =
+                        std::max(max_string_len, data_type->get_maximum_size_of_value_in_memory());
             }
 
             auto is_null = data_type->is_nullable();
@@ -248,7 +254,9 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         }
 
         if (use_fixed_key) {
-            if (has_null) {
+            if (has_string && max_string_len < 256) {
+                _agg_data->init(AggregatedDataVariants::Type::serialized_keys);
+            } else if (has_null) {
                 if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
                     if (_is_first_phase)
                         _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
