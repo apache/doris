@@ -249,6 +249,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("help", new Integer(SqlParserSymbols.KW_HELP));
         keywordMap.put("hll", new Integer(SqlParserSymbols.KW_HLL));
         keywordMap.put("hll_union", new Integer(SqlParserSymbols.KW_HLL_UNION));
+        keywordMap.put("hostname", new Integer(SqlParserSymbols.KW_HOSTNAME));
         keywordMap.put("hour", new Integer(SqlParserSymbols.KW_HOUR));
         keywordMap.put("hub", new Integer(SqlParserSymbols.KW_HUB));
         keywordMap.put("identified", new Integer(SqlParserSymbols.KW_IDENTIFIED));

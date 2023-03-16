@@ -17,8 +17,7 @@
 
 suite("test_group_concat") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_select """
                 SELECT group_concat(k6) FROM test_query_db.test where k6='false'
               """

@@ -69,11 +69,11 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 
 映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定Catalog下的一个 Schema（如示例中 `jdbc_url` 参数中 "demo"下的schemas）。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
 
-|Doris | PostgreSQL |
-|---|---|
-| Catalog | Database | 
-| Database | Schema |
-| Table | Table |
+| Doris    | PostgreSQL |
+|----------|------------|
+| Catalog  | Database   | 
+| Database | Schema     |
+| Table    | Table      |
 
 > Doris通过sql语句`select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` 来获得PG user能够访问的所有schema并将其映射为Doris的database
 
@@ -94,11 +94,11 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 
 映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
 
-|Doris | Oracle |
-|---|---|
-| Catalog | Database | 
-| Database | User |
-| Table | Table |
+| Doris    | Oracle   |
+|----------|----------|
+| Catalog  | Database | 
+| Database | User     |
+| Table    | Table    |
 
 4. Clickhouse
 
@@ -132,11 +132,11 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 
 映射 SQLServer 时，Doris 的一个 Database 对应于 SQLServer 中指定 Database（如示例中 `jdbc_url` 参数中的 "doris_test"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 SQLServer 中，Schema 下的 Tables。即映射关系如下：
 
-|Doris | SQLServer |
-|---|---|
-| Catalog | Database | 
-| Database | Schema |
-| Table | Table |
+| Doris    | SQLServer |
+|----------|-----------|
+| Catalog  | Database  | 
+| Database | Schema    |
+| Table    | Table     |
 
 6. Doris
 
@@ -156,6 +156,27 @@ CREATE CATALOG doris_catalog PROPERTIES (
 ```
 
 目前Jdbc Catalog连接一个Doris数据库只支持用5.x版本的jdbc jar包。如果使用8.x jdbc jar包，可能会出现列类型无法匹配问题。
+
+7. SAP_HANA
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG hana_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+)
+```
+
+| Doris    | SAP_HANA |
+|----------|----------|
+| Catalog  | Database | 
+| Database | Schema   |
+| Table    | Table    |
 
 ### 参数说明
 
@@ -326,6 +347,7 @@ set enable_odbc_transcation = true;
 |Other| UNSUPPORTED |
 
 ### Doris
+
 | Doris Type | Jdbc Catlog Doris Type | Comment |
 |---|---|---|
 | BOOLEAN | BOOLEAN | |
@@ -346,11 +368,36 @@ set enable_odbc_transcation = true;
 | STRING | STRING | |
 | TEXT | STRING | |
 |Other| UNSUPPORTED |
+
+### SAP_HANA
+
+| SAP_HANA     | Doris                    | Comment                                                                               |
+|--------------|--------------------------|---------------------------------------------------------------------------------------|
+| BOOLEAN      | BOOLEAN                  |                                                                                       |
+| TINYINT      | TINYINT                  |                                                                                       |
+| SMALLINT     | SMALLINT                 |                                                                                       |
+| INTERGER     | INT                      |                                                                                       |
+| BIGINT       | BIGINT                   |                                                                                       |
+| SMALLDECIMAL | DECIMALV3                |                                                                                       |
+| DECIMAL      | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| REAL         | FLOAT                    |                                                                                       |
+| DOUBLE       | DOUBLE                   |                                                                                       |
+| DATE         | DATEV2                   | Jdbc Catlog连接Doris时默认使用DATEV2类型                                                  |
+| TIME         | TEXT                     |                                                                                       |
+| TIMESTAMP    | DATETIMEV2               | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型                                              |
+| SECONDDATE   | DATETIMEV2               | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型                                              |
+| VARCHAR      | TEXT                     |                                                                                       |
+| NVARCHAR     | TEXT                     |                                                                                       |
+| ALPHANUM     | TEXT                     |                                                                                       |
+| SHORTTEXT    | TEXT                     |                                                                                       |
+| CHAR         | CHAR                     |                                                                                       |
+| NCHAR        | CHAR                     |                                                                                       |
+
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 

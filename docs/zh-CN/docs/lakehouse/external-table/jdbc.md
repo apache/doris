@@ -150,9 +150,9 @@ CREATE EXTERNAL TABLE `ext_pg` (
   `k1` int
 ) ENGINE=JDBC
 PROPERTIES (
-"resource" = "jdbc_pg",
-"table" = "pg_tbl",
-"table_type"="postgresql"
+    "resource" = "jdbc_pg",
+    "table" = "pg_tbl",
+    "table_type"="postgresql"
 );
 ```
 
@@ -173,6 +173,32 @@ PROPERTIES (
 |----------| ------------------- |
 | 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |
 
+#### 6.Sap_Hana测试
+
+| Sap_Hana版本 | Sap_Hana JDBC驱动版本 |
+|------------|-------------------|
+| 2.0        | ngdbc.jar         |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_hana
+properties (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "file:///path/to/ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_hana` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_hana",
+    "table" = "TEST.HANA",
+    "table_type"="sap_hana"
+);
+```
 
 ## 类型匹配
 
@@ -263,6 +289,30 @@ PROPERTIES (
 **注意：**
 - 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
 - 对于ClickHouse的Geo类型Point,无法进行匹配
+
+### SAP_HANA
+
+|   SAP_HANA   |        Doris        |
+|:------------:|:-------------------:|
+|   BOOLEAN    |       BOOLEAN       |
+|   TINYINT    |       TINYINT       |
+|   SMALLINT   |      SMALLINT       |
+|   INTERGER   |         INT         |
+|    BIGINT    |       BIGINT        |
+| SMALLDECIMAL |  DECIMAL/DECIMALV3  |
+|   DECIMAL    |  DECIMAL/DECIMALV3  |
+|     REAL     |        FLOAT        |
+|    DOUBLE    |       DOUBLE        |
+|     DATE     |     DATE/DATEV2     |
+|     TIME     |        TEXT         |
+|  TIMESTAMP   | DATETIME/DATETIMEV2 |
+|  SECONDDATE  | DATETIME/DATETIMEV2 |
+|   VARCHAR    |        TEXT         |
+|   NVARCHAR   |        TEXT         |
+|   ALPHANUM   |        TEXT         |
+|  SHORTTEXT   |        TEXT         |
+|     CHAR     |        CHAR         |
+|    NCHAR     |        CHAR         |
 
 ## Q&A
 

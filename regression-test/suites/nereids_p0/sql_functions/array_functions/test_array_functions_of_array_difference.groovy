@@ -17,8 +17,7 @@
 
 suite("test_array_functions_of_array_difference") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "test_array_functions_of_array_difference"
     // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""

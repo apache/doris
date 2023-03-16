@@ -17,8 +17,7 @@
 
 suite("aggregate_group_by_metric_type") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def error_msg = "column must use with specific function, and don't support filter or group by"
     sql "DROP TABLE IF EXISTS test_group_by_hll_and_bitmap"
 

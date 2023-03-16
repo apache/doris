@@ -17,15 +17,11 @@
 
 suite("test_dynamic_table", "dynamic_table"){
     // prepare test table
-
-    sql """ SET enable_vectorized_engine=true; """
-
     def load_json_data = {table_name, vec_flag, format_flag, read_flag, file_name, expect_success ->
         // load the json data
         streamLoad {
             table "${table_name}"
             // set http request header params
-            set 'enable_vectorized_engine', vec_flag
             set 'read_json_by_line', read_flag
             set 'format', format_flag
             set 'read_json_by_line', read_flag
@@ -106,10 +102,6 @@ suite("test_dynamic_table", "dynamic_table"){
         //check data in table and check table schema
         def select_res_now = "true"
         for(i = 0; i < 5; i++){
-            if( i == 3 ){
-                logger.info("open vectorized after ${i}".toString())
-                sql "SET enable_vectorized_engine=true;"
-            }
             //select_res_now = sql "select * from ${table_name} order by `${columes[0]}`"
             select_res_now = sql "select `${columes[0]}` from ${table_name} order by `${columes[0]}`"
             //logger.info("after alter schema, it's ${i} time select,  select result: ${select_res}".toString())
@@ -137,7 +129,6 @@ suite("test_dynamic_table", "dynamic_table"){
 
     def index_res = ""
     def create_index = { table_name, colume_name, index_name, index_type, expect_success ->
-        sql "SET enable_vectorized_engine=true;"
         // create index
         try{
             real_res = "success"
@@ -166,7 +157,6 @@ suite("test_dynamic_table", "dynamic_table"){
     }
 
     def drop_index = { table_name, colume_name, index_name, expect_success ->
-        sql "SET enable_vectorized_engine=true;"
         // create index
         try{
             sql """

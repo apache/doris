@@ -180,7 +180,6 @@ suite("explain_clickbench_benchmark") {
             .collect{ "explain ${it}".toString()}
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_dphyp_optimizer=true"
 

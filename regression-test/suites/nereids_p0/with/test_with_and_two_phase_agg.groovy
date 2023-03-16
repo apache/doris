@@ -17,8 +17,7 @@
 
 suite("test_with_and_two_phase_agg") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "test_with_and_two_phase_agg_table"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
