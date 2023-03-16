@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -112,8 +112,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             RequireProperties requireProperties, PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
+            Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
@@ -182,7 +182,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalHashAggregate",
+        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdAsString(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
                 "maybeUseStreaming", maybeUsingStream,
@@ -190,7 +190,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
                 "requireProperties", requireProperties,
-                "stats", statsDeriveResult
+                "stats", statistics
         );
     }
 
@@ -247,24 +247,24 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult) {
+            Statistics statistics) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                requireProperties, physicalProperties, statsDeriveResult,
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
+                requireProperties, physicalProperties, statistics,
                 child());
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutput, partitionExpressions,
-                aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                requireProperties, physicalProperties, statsDeriveResult, child());
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
+                requireProperties, physicalProperties, statistics, child());
     }
 
     public <C extends Plan> PhysicalHashAggregate<C> withRequirePropertiesAndChild(
             RequireProperties requireProperties, C newChild) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                requireProperties, physicalProperties, statsDeriveResult, newChild);
+                requireProperties, physicalProperties, statistics, newChild);
     }
 }

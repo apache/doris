@@ -45,6 +45,8 @@ public class DataProperty implements Writable, GsonPostProcessable {
     private long cooldownTimeMs;
     @SerializedName(value = "storagePolicy")
     private String storagePolicy;
+    @SerializedName(value = "isMutable")
+    private boolean isMutable = true;
 
     private DataProperty() {
         // for persist
@@ -69,9 +71,14 @@ public class DataProperty implements Writable, GsonPostProcessable {
      * @param storagePolicy remote storage policy for remote storage
      */
     public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy) {
+        this(medium, cooldown, storagePolicy, true);
+    }
+
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy, boolean isMutable) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
         this.storagePolicy = storagePolicy;
+        this.isMutable = isMutable;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -84,6 +91,14 @@ public class DataProperty implements Writable, GsonPostProcessable {
 
     public String getStoragePolicy() {
         return storagePolicy;
+    }
+
+    public boolean isMutable() {
+        return isMutable;
+    }
+
+    public void setMutable(boolean mutable) {
+        isMutable = mutable;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -127,7 +142,8 @@ public class DataProperty implements Writable, GsonPostProcessable {
 
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
-                && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy));
+                && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy))
+                && this.isMutable == other.isMutable;
     }
 
     @Override

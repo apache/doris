@@ -19,12 +19,11 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 
@@ -33,7 +32,7 @@ import java.util.List;
 /**
  * Divide Expression.
  */
-public class Divide extends BinaryArithmetic {
+public class Divide extends BinaryArithmetic implements AlwaysNullable {
 
     public Divide(Expression left, Expression right) {
         super(left, right, Operator.DIVIDE);
@@ -51,18 +50,35 @@ public class Divide extends BinaryArithmetic {
     }
 
     @Override
-    public AbstractDataType inputType() {
-        return NumericType.INSTANCE;
+    public DataType getDataType() throws UnboundException {
+        if (left().getDataType().isDecimalV3Type()) {
+            DecimalV3Type dt1 = (DecimalV3Type) left().getDataType();
+            DecimalV3Type dt2 = (DecimalV3Type) right().getDataType();
+            return DecimalV3Type.createDecimalV3Type(dt1.getPrecision(), dt1.getScale() - dt2.getScale());
+        }
+        return super.getDataType();
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
-        DataType commonType = super.getDataType();
-        if (commonType.isDecimalV2Type()) {
-            return DecimalV2Type.SYSTEM_DEFAULT;
-        } else {
-            return DoubleType.INSTANCE;
+    public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
+        int retPercision = t1.getPrecision() + t2.getScale();
+        int retScale = t1.getScale();
+        if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
+            retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
         }
+        int targetScale = t1.getScale() + t2.getScale();
+        Preconditions.checkState(retPercision > targetScale,
+                "target scale " + targetScale + " larger than precision " + retPercision
+                + " in Divide return type");
+        Preconditions.checkState(retPercision > retScale,
+                "scale " + retScale + " larger than precision " + retPercision
+                        + " in Divide return type");
+        return DecimalV3Type.createDecimalV3Type(retPercision, retScale);
+    }
+
+    @Override
+    public DataType getDataTypeForOthers(DataType t1, DataType t2) {
+        return DoubleType.INSTANCE;
     }
 
     // Divide is implemented as a scalar function which return type is always nullable.

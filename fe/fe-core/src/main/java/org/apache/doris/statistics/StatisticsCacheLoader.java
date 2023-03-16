@@ -35,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 
-public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKey, Statistic> {
+public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKey, ColumnLevelStatisticCache> {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
 
@@ -53,7 +53,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
 
     // TODO: Maybe we should trigger a analyze job when the required ColumnStatistic doesn't exists.
     @Override
-    public @NonNull CompletableFuture<Statistic> asyncLoad(@NonNull StatisticsCacheKey key,
+    public @NonNull CompletableFuture<ColumnLevelStatisticCache> asyncLoad(@NonNull StatisticsCacheKey key,
             @NonNull Executor executor) {
         synchronized (LOCK) {
             if (CUR_RUNNING_LOAD > StatisticConstants.LOAD_TASK_LIMITS) {
@@ -65,7 +65,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
             }
             CUR_RUNNING_LOAD++;
             return CompletableFuture.supplyAsync(() -> {
-                Statistic statistic = new Statistic();
+                ColumnLevelStatisticCache statistic = new ColumnLevelStatisticCache();
 
                 try {
                     Map<String, String> params = new HashMap<>();
@@ -84,7 +84,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
                         throw new CompletionException(e);
                     }
                     if (CollectionUtils.isEmpty(columnStatistics)) {
-                        statistic.setColumnStatistic(ColumnStatistic.DEFAULT);
+                        statistic.setColumnStatistic(ColumnStatistic.UNKNOWN);
                     } else {
                         statistic.setColumnStatistic(columnStatistics.get(0));
                     }
@@ -99,9 +99,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
                         LOG.warn("Failed to deserialize histogram statistics", e);
                         throw new CompletionException(e);
                     }
-                    if (CollectionUtils.isEmpty(histogramStatistics)) {
-                        statistic.setHistogram(Histogram.DEFAULT);
-                    } else {
+                    if (!CollectionUtils.isEmpty(histogramStatistics)) {
                         statistic.setHistogram(histogramStatistics.get(0));
                     }
                 } finally {

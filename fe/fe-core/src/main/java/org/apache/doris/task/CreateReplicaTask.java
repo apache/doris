@@ -73,6 +73,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
+    private boolean isDynamicSchema;
+
     private TTabletType tabletType;
 
     // used for synchronous process
@@ -112,7 +114,8 @@ public class CreateReplicaTask extends AgentTask {
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
-                             boolean storeRowColumn) {
+                             boolean storeRowColumn,
+                             boolean isDynamicSchema) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -135,6 +138,7 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
+        this.isDynamicSchema = isDynamicSchema;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
@@ -206,6 +210,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         int deleteSign = -1;
         int sequenceCol = -1;
+        int versionCol = -1;
         List<TColumn> tColumns = new ArrayList<TColumn>();
         for (int i = 0; i < columns.size(); i++) {
             Column column = columns.get(i);
@@ -227,10 +232,14 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isSequenceColumn()) {
                 sequenceCol = i;
             }
+            if (column.isVersionColumn()) {
+                versionCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
+        tSchema.setVersionColIdx(versionCol);
 
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
@@ -247,6 +256,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setStoreRowColumn(storeRowColumn);
+        tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);

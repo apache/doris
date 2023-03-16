@@ -121,7 +121,7 @@ suite("test_nereids_grouping_sets") {
                  rollup(k1_, k2) order by k1_, k2
                """
 
-    qt_select3 "select 1 as k, k3, sum(k1) from groupingSetsTable group by cube(k, k3) order by k, k3"
+    qt_select3 "select 1 as k, k3, sum(k1) as sum_k1 from groupingSetsTable group by cube(k, k3) order by k, k3, sum_k1"
 
     qt_select4 """
                  select k2, concat(k5, k6) as k_concat, sum(k1) from groupingSetsTable group by
@@ -230,7 +230,7 @@ suite("test_nereids_grouping_sets") {
                 from
                 grouping_sum_table
             ) T
-        ) T2;
+        ) T2 order by a;
     """
 
     order_qt_select1 """

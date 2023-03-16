@@ -33,6 +33,12 @@ under the License.
 ## Description
 
 Returns the status of the load transaction of the specified label
+Return of JSON format string of the status of specified transaction:
+	Label: The specified label.
+	Status: Success or not of this request.
+	Message: Error messages
+	State: 
+		UNKNOWN/PREPARE/COMMITTED/VISIBLE/ABORTED
     
 ## Path parameters
 

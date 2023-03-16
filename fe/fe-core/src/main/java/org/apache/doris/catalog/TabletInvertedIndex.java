@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
+import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -190,9 +191,11 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.enable_storage_policy) {
+                            if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownTerm()) {
                                 handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
                                         cooldownConfToUpdate);
+                                replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
+                                replica.setCooldownTerm(backendTabletInfo.getCooldownTerm());
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -246,6 +249,48 @@ public class TabletInvertedIndex {
                                                 map.put(transactionId, versionInfo);
                                             }
                                         }
+                                    } else if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                                        // for some reasons, transaction pushlish succeed replica num less than quorum,
+                                        // this transaction's status can not to be VISIBLE, and this publish task of
+                                        // this replica of this tablet on this backend need retry publish success to
+                                        // make transaction VISIBLE when last publish failed.
+                                        Map<Long, PublishVersionTask> publishVersionTask =
+                                                        transactionState.getPublishVersionTasks();
+                                        PublishVersionTask task = publishVersionTask.get(backendId);
+                                        if (task != null && task.isFinished()) {
+                                            List<Long> errorTablets = task.getErrorTablets();
+                                            if (errorTablets != null) {
+                                                for (int i = 0; i < errorTablets.size(); i++) {
+                                                    if (tabletId == errorTablets.get(i)) {
+                                                        TableCommitInfo tableCommitInfo
+                                                                = transactionState.getTableCommitInfo(
+                                                                        tabletMeta.getTableId());
+                                                        PartitionCommitInfo partitionCommitInfo =
+                                                                tableCommitInfo == null ? null :
+                                                                tableCommitInfo.getPartitionCommitInfo(partitionId);
+                                                        if (partitionCommitInfo != null) {
+                                                            TPartitionVersionInfo versionInfo
+                                                                    = new TPartitionVersionInfo(
+                                                                        tabletMeta.getPartitionId(),
+                                                                        partitionCommitInfo.getVersion(), 0);
+                                                            synchronized (transactionsToPublish) {
+                                                                ListMultimap<Long, TPartitionVersionInfo> map
+                                                                        = transactionsToPublish.get(
+                                                                        transactionState.getDbId());
+                                                                if (map == null) {
+                                                                    map = ArrayListMultimap.create();
+                                                                    transactionsToPublish.put(
+                                                                            transactionState.getDbId(), map);
+                                                                }
+                                                                map.put(transactionId, versionInfo);
+                                                            }
+                                                        }
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                     }
                                 }
                             } // end for txn id
@@ -339,9 +384,6 @@ public class TabletInvertedIndex {
 
     private void handleCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo,
             List<CooldownConf> cooldownConfToPush, List<CooldownConf> cooldownConfToUpdate) {
-        if (!beTabletInfo.isSetCooldownReplicaId()) {
-            return;
-        }
         Tablet tablet;
         try {
             OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
@@ -374,19 +416,21 @@ public class TabletInvertedIndex {
             return;
         }
 
-        // validate replica is active
+        // check cooldown replica is alive
         Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
         if (replicaMap.isEmpty()) {
             return;
         }
-        boolean replicaInvalid = true;
+        boolean replicaAlive = false;
         for (Replica replica : replicaMap.values()) {
             if (replica.getId() == cooldownConf.first) {
-                replicaInvalid = false;
+                if (replica.isAlive()) {
+                    replicaAlive = true;
+                }
                 break;
             }
         }
-        if (replicaInvalid) {
+        if (!replicaAlive) {
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
             synchronized (cooldownConfToUpdate) {
@@ -395,7 +439,7 @@ public class TabletInvertedIndex {
             return;
         }
 
-        if (cooldownConf.first != beTabletInfo.getCooldownReplicaId()) {
+        if (beTabletInfo.getCooldownTerm() < cooldownConf.second) {
             CooldownConf conf = new CooldownConf(beTabletInfo.tablet_id, cooldownConf.first, cooldownConf.second);
             synchronized (cooldownConfToPush) {
                 cooldownConfToPush.add(conf);

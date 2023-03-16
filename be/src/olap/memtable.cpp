@@ -26,6 +26,8 @@
 #include "util/doris_metrics.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_object.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/jsonb/serialize.h"
 
@@ -89,7 +91,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
             // In such table, non-key column's aggregation type is NONE, so we need to construct
             // the aggregate function manually.
             function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-                    "replace_load", {block->get_data_type(cid)}, {},
+                    "replace_load", {block->get_data_type(cid)},
                     block->get_data_type(cid)->is_nullable());
         } else {
             function = _tablet_schema->column(cid).get_aggregate_function(
@@ -147,9 +149,16 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
                                *_pblock, -1);
 }
 
-void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
+void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs,
+                      bool is_append) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
-    auto target_block = input_block->copy_block(_column_offset);
+    vectorized::Block target_block = *input_block;
+    if (!_tablet_schema->is_dynamic_schema()) {
+        // This insert may belong to a rollup tablet, rollup columns is a subset of base table
+        // but for dynamic table, it's need full columns, so input_block should ignore _column_offset
+        // of each column and avoid copy_block
+        target_block = input_block->copy_block(_column_offset);
+    }
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto cloneBlock = target_block.clone_without_columns();
@@ -163,7 +172,13 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
+    if (is_append) {
+        // Append the block, call insert range from
+        _input_mutable_block.add_rows(&target_block, 0, target_block.rows());
+        num_rows = target_block.rows();
+    } else {
+        _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
+    }
     size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
@@ -213,6 +228,9 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
         if (res > 0) {
             return;
         }
+        // need to update the row pos in skiplist to the new row pos when has
+        // sequence column
+        row_in_skiplist->_row_pos = new_row->_row_pos;
     }
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
@@ -361,12 +379,36 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         // convert block to row store format
         serialize_block_to_row_column(block);
     }
+    if (_tablet_schema->is_dynamic_schema()) {
+        // Unfold variant column
+        unfold_variant_column(block);
+    }
     RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 
 Status MemTable::close() {
     return flush();
+}
+
+void MemTable::unfold_variant_column(vectorized::Block& block) {
+    if (block.rows() == 0) {
+        return;
+    }
+    vectorized::ColumnWithTypeAndName variant_column =
+            block.get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
+    // remove it
+    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+    vectorized::ColumnObject& object_column =
+            assert_cast<vectorized::ColumnObject&>(variant_column.column->assume_mutable_ref());
+    // extend
+    for (auto& entry : object_column.get_subcolumns()) {
+        if (entry->path.get_path() == vectorized::ColumnObject::COLUMN_NAME_DUMMY) {
+            continue;
+        }
+        block.insert({entry->data.get_finalized_column().get_ptr(),
+                      entry->data.get_least_common_type(), entry->path.get_path()});
+    }
 }
 
 void MemTable::serialize_block_to_row_column(vectorized::Block& block) {

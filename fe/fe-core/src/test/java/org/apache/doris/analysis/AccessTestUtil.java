@@ -36,6 +36,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.Load;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
@@ -59,42 +60,52 @@ public class AccessTestUtil {
         return clusterInfo;
     }
 
-    public static Auth fetchAdminAccess() {
+    public static AccessControllerManager fetchAdminAccess() {
         Auth auth = new Auth();
+        AccessControllerManager accessManager = new AccessControllerManager(auth);
         try {
             new Expectations(auth) {
                 {
-                    auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
-                    auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
-                    auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
-                    auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                    minTimes = 0;
-                    result = true;
-
                     auth.setPassword((SetPassVar) any);
                     minTimes = 0;
+                }
+            };
+
+            new Expectations(accessManager) {
+                {
+                    accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                    minTimes = 0;
+                    result = true;
+
+                    accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                    minTimes = 0;
+                    result = true;
+
+                    accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                    minTimes = 0;
+                    result = true;
+
+                    accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
+                            (PrivPredicate) any);
+                    minTimes = 0;
+                    result = true;
+
+                    accessManager.getAuth();
+                    minTimes = 0;
+                    result = auth;
                 }
             };
         } catch (DdlException e) {
             e.printStackTrace();
         }
-        return auth;
+        return accessManager;
     }
 
     public static Env fetchAdminCatalog() {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
 
-            Auth auth = fetchAdminAccess();
+            AccessControllerManager accessManager = fetchAdminAccess();
 
             fakeEditLog = new FakeEditLog();
             EditLog editLog = new EditLog("name");
@@ -163,9 +174,9 @@ public class AccessTestUtil {
 
             new Expectations(env, catalog) {
                 {
-                    env.getAuth();
+                    env.getAccessManager();
                     minTimes = 0;
-                    result = auth;
+                    result = accessManager;
 
                     env.getCurrentCatalog();
                     minTimes = 0;
@@ -211,24 +222,25 @@ public class AccessTestUtil {
         }
     }
 
-    public static Auth fetchBlockAccess() {
+    public static AccessControllerManager fetchBlockAccess() {
         Auth auth = new Auth();
-        new Expectations(auth) {
+        AccessControllerManager accessManager = new AccessControllerManager(auth);
+        new Expectations(accessManager) {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
             }
         };
-        return auth;
+        return accessManager;
     }
 
     public static OlapTable mockTable(String name) {
@@ -336,7 +348,7 @@ public class AccessTestUtil {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
 
-            Auth auth = fetchBlockAccess();
+            AccessControllerManager accessManager = fetchBlockAccess();
             Database db = mockDb("testCluster:testDb");
 
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
@@ -376,18 +388,18 @@ public class AccessTestUtil {
                 }
             };
 
-            CatalogMgr dsMgr = new CatalogMgr();
-            new Expectations(dsMgr) {
+            CatalogMgr ctlMgr = new CatalogMgr();
+            new Expectations(ctlMgr) {
                 {
-                    dsMgr.getCatalog((String) any);
+                    ctlMgr.getCatalog((String) any);
                     minTimes = 0;
                     result = catalog;
 
-                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    ctlMgr.getCatalogOrException((String) any, (Function) any);
                     minTimes = 0;
                     result = catalog;
 
-                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    ctlMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
                     result = catalog;
                 }
@@ -395,9 +407,9 @@ public class AccessTestUtil {
 
             new Expectations(env) {
                 {
-                    env.getAuth();
+                    env.getAccessManager();
                     minTimes = 0;
-                    result = auth;
+                    result = accessManager;
 
                     env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
@@ -413,7 +425,7 @@ public class AccessTestUtil {
 
                     env.getCatalogMgr();
                     minTimes = 0;
-                    result = dsMgr;
+                    result = ctlMgr;
                 }
             };
             return env;
@@ -427,7 +439,7 @@ public class AccessTestUtil {
     public static Analyzer fetchAdminAnalyzer(boolean withCluster) {
         final String prefix = "testCluster:";
 
-        Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -463,7 +475,7 @@ public class AccessTestUtil {
     }
 
     public static Analyzer fetchBlockAnalyzer() throws AnalysisException {
-        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -487,7 +499,7 @@ public class AccessTestUtil {
     }
 
     public static Analyzer fetchEmptyDbAnalyzer() {
-        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(fetchBlockCatalog(), new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -600,7 +612,7 @@ public class AccessTestUtil {
         };
 
         Env env = fetchBlockCatalog();
-        Analyzer analyzer = new Analyzer(env, new ConnectContext(null));
+        Analyzer analyzer = new Analyzer(env, new ConnectContext());
         new Expectations(analyzer) {
             {
                 analyzer.getDefaultCatalog();
@@ -637,7 +649,7 @@ public class AccessTestUtil {
 
                 analyzer.getContext();
                 minTimes = 0;
-                result = new ConnectContext(null);
+                result = new ConnectContext();
 
             }
         };

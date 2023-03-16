@@ -102,6 +102,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     init_download_cache_required_components();
 
+    // min num equal to fragment pool's min num
+    // max num is useless because it will start as many as requested in the past
+    // queue size is useless because the max thread num is very large
+    ThreadPoolBuilder("SendReportThreadPool")
+            .set_min_threads(config::fragment_pool_thread_num_min)
+            .set_max_threads(std::numeric_limits<int>::max())
+            .set_max_queue_size(config::fragment_pool_queue_size)
+            .build(&_send_report_thread_pool);
+
+    ThreadPoolBuilder("JoinNodeThreadPool")
+            .set_min_threads(config::fragment_pool_thread_num_min)
+            .set_max_threads(std::numeric_limits<int>::max())
+            .set_max_queue_size(config::fragment_pool_queue_size)
+            .build(&_join_node_thread_pool);
+
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
 
@@ -232,6 +247,19 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
+
+    // use memory limit
+    int64_t inverted_index_query_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_query_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_query_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
+    }
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    LOG(INFO) << "Inverted index query match cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());

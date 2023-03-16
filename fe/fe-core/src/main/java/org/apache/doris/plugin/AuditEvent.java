@@ -64,7 +64,7 @@ public class AuditEvent {
     public int errorCode = 0;
     @AuditField(value = "ErrorMessage")
     public String errorMessage = "";
-    @AuditField(value = "Time")
+    @AuditField(value = "Time(ms)")
     public long queryTime = -1;
     @AuditField(value = "ScanBytes")
     public long scanBytes = -1;

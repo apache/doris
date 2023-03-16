@@ -191,7 +191,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
         run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-        return chunk_reader.decode_values(data_column, data_type, run_length_map);
+        return chunk_reader.decode_values(data_column, data_type, run_length_map, false);
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -204,8 +204,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
                     run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-                    RETURN_IF_ERROR(
-                            chunk_reader.decode_values(data_column, data_type, run_length_map));
+                    RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type,
+                                                               run_length_map, false));
                 }
                 level_type = definitions[i];
                 num_values = 1;
@@ -219,7 +219,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
             run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-            RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, run_length_map));
+            RETURN_IF_ERROR(
+                    chunk_reader.decode_values(data_column, data_type, run_length_map, false));
         }
         return Status::OK();
     }
@@ -375,13 +376,14 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
         {
             TTypeNode node;
             node.__set_type(TTypeNodeType::ARRAY);
-            node.contains_null = true;
+            std::vector<bool> contains_nulls {true};
+            node.__set_contains_nulls(contains_nulls);
             TTypeNode inner;
             inner.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
             scalar_type.__set_type(TPrimitiveType::STRING);
             inner.__set_scalar_type(scalar_type);
-            inner.contains_null = true;
+            inner.__set_contains_nulls(contains_nulls);
             type.types.push_back(node);
             type.types.push_back(inner);
         }
@@ -420,12 +422,13 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     std::shared_ptr<RowGroupReader> row_group_reader;
     RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
     row_group_reader.reset(new RowGroupReader(file_reader, read_columns, 0, row_group, &ctz,
-                                              position_delete_ctx, lazy_read_ctx));
+                                              position_delete_ctx, lazy_read_ctx, nullptr));
     std::vector<RowRange> row_ranges;
     row_ranges.emplace_back(0, row_group.num_rows);
 
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
-    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);
+    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets, nullptr,
+                                      nullptr, nullptr, nullptr, nullptr);
     EXPECT_TRUE(stg.ok());
 
     vectorized::Block block;

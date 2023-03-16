@@ -247,10 +247,6 @@ public class AggregationNode extends PlanNode {
           super.debugString()).toString();
     }
 
-    public boolean isTargetNode() {
-        return id.asInt() == 27 && needsFinalize;
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         aggInfo.updateMaterializedSlots();
@@ -372,5 +368,15 @@ public class AggregationNode extends PlanNode {
             }
         }
         return result;
+    }
+
+    @Override
+    public void finalize(Analyzer analyzer) throws UserException {
+        super.finalize(analyzer);
+        List<Expr> groupingExprs = aggInfo.getGroupingExprs();
+        for (int i = 0; i < groupingExprs.size(); i++) {
+            aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getOutputTupleDesc().computeMemLayout();
+        }
     }
 }

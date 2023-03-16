@@ -63,8 +63,20 @@ suite("test_javaudf_decimal") {
         qt_select """ SELECT user_id,java_udf_decimal_test(cost_1, cost_2) as sum FROM ${tableName} order by user_id; """
         
 
-        sql """ DROP FUNCTION java_udf_decimal_test(decimal(27,9),decimal(27,9)); """
+
+
+
+        sql """ DROP FUNCTION if exists java_udf_decimal_string_test(decimal(27,9),String,String); """
+        sql """ CREATE FUNCTION java_udf_decimal_string_test(decimal(27,9),String,String) RETURNS decimal(27,9) PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.DecimalStringTest",
+            "type"="JAVA_UDF"
+        ); """
+        qt_select_decimal_string """ SELECT java_udf_decimal_string_test(2.83645,'asd','a') as result; """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_decimal_test(decimal(27,9),decimal(27,9));")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_decimal_string_test(decimal(27,9),String,String);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

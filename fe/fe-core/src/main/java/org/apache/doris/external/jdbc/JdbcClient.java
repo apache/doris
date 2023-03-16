@@ -24,10 +24,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.Util;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
+import com.google.common.collect.Maps;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -42,6 +43,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 public class JdbcClient {
@@ -54,10 +56,19 @@ public class JdbcClient {
 
     private URLClassLoader classLoader = null;
 
-    private HikariDataSource dataSource = null;
+    private DruidDataSource dataSource = null;
+    private boolean isOnlySpecifiedDatabase = false;
 
-    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private boolean isLowerCaseTableNames = false;
+
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+
+    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
+            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
         this.jdbcUser = user;
+        this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
+        this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -69,15 +80,26 @@ public class JdbcClient {
             //  and URLClassLoader may load the jar package directly into memory
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
-            classLoader = URLClassLoader.newInstance(urls, null);
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
+            LOG.debug("parent ClassLoader: {}, old ClassLoader: {}, class Loader: {}.",
+                    parent, oldClassLoader, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
-            HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
-            config.setJdbcUrl(jdbcUrl);
-            config.setUsername(jdbcUser);
-            config.setPassword(password);
-            config.setMaximumPoolSize(1);
-            dataSource = new HikariDataSource(config);
+            dataSource = new DruidDataSource();
+            dataSource.setDriverClassLoader(classLoader);
+            dataSource.setDriverClassName(driverClass);
+            dataSource.setUrl(jdbcUrl);
+            dataSource.setUsername(jdbcUser);
+            dataSource.setPassword(password);
+            dataSource.setMinIdle(1);
+            dataSource.setInitialSize(2);
+            dataSource.setMaxActive(5);
+            // set connection timeout to 5s.
+            // The default is 30s, which is too long.
+            // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
+            // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
+            // it may cause the thrift rpc timeout.
+            dataSource.setMaxWait(5000);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
@@ -144,9 +166,12 @@ public class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         Statement stmt = null;
         ResultSet rs = null;
+        if (isOnlySpecifiedDatabase) {
+            return getSpecifiedDatabase(conn);
+        }
         List<String> databaseNames = Lists.newArrayList();
         try {
             stmt = conn.createStatement();
@@ -156,14 +181,17 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SHOW DATABASES");
                     break;
                 case JdbcResource.POSTGRESQL:
-                    rs = stmt.executeQuery("SELECT schema_name FROM information_schema.schemata "
-                            + "where schema_owner='" + jdbcUser + "';");
+                    rs = stmt.executeQuery("SELECT nspname FROM pg_namespace WHERE has_schema_privilege("
+                            + "'" + jdbcUser + "', nspname, 'USAGE');");
                     break;
                 case JdbcResource.ORACLE:
                     rs = stmt.executeQuery("SELECT DISTINCT OWNER FROM all_tables");
                     break;
                 case JdbcResource.SQLSERVER:
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
+                    break;
+                case JdbcResource.SAP_HANA:
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS");
                     break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
@@ -180,14 +208,39 @@ public class JdbcClient {
         return databaseNames;
     }
 
+    public List<String> getSpecifiedDatabase(Connection conn) {
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
+                    databaseNames.add(conn.getCatalog());
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
+                    databaseNames.add(conn.getSchema());
+                    break;
+                default:
+                    throw new JdbcClientException("Not supported jdbc type");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+        } finally {
+            close(conn);
+        }
+        return databaseNames;
+    }
+
     /**
      * get all tables of one database
      */
     public List<String> getTablesNameList(String dbName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -198,13 +251,19 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
-                tablesName.add(rs.getString("TABLE_NAME"));
+                String tableName = rs.getString("TABLE_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                    tableName = tableName.toLowerCase();
+                }
+                tablesName.add(tableName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get all tables for db %s", e, dbName);
@@ -215,9 +274,9 @@ public class JdbcClient {
     }
 
     public boolean isTableExist(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
-        String[] types = { "TABLE", "VIEW" };
+        String[] types = {"TABLE", "VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             switch (dbType) {
@@ -228,6 +287,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
                 default:
@@ -264,22 +324,21 @@ public class JdbcClient {
         // for utf8 encoding, if columnSize=10, then charOctetLength=30
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         private int charOctetLength;
-        /**
-         *  Whether it is allowed to be NULL
-         *  0 (columnNoNulls)
-         *  1 (columnNullable)
-         *  2 (columnNullableUnknown)
-         */
-        private int nullAble;
+        private boolean isAllowNull;
     }
 
     /**
      * get all columns of one table
      */
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
-        Connection conn =  getConnection();
+        Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        // if isLowerCaseTableNames == true, tableName is lower case
+        // but databaseMetaData.getColumns() is case sensitive
+        if (isLowerCaseTableNames) {
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
@@ -299,6 +358,7 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
+                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
                 default:
@@ -312,13 +372,20 @@ public class JdbcClient {
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                field.setNullAble(rs.getInt("NULLABLE"));
+                /**
+                 *  Whether it is allowed to be NULL
+                 *  0 (columnNoNulls)
+                 *  1 (columnNullable)
+                 *  2 (columnNullableUnknown)
+                 */
+                field.setAllowNull(rs.getInt("NULLABLE") == 0 ? false : true);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s", e, tableName);
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+                    Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
@@ -337,6 +404,8 @@ public class JdbcClient {
                 return oracleTypeToDoris(fieldSchema);
             case JdbcResource.SQLSERVER:
                 return sqlserverTypeToDoris(fieldSchema);
+            case JdbcResource.SAP_HANA:
+                return saphanaTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
         }
@@ -360,18 +429,11 @@ public class JdbcClient {
                 case "INT":
                     return Type.BIGINT;
                 case "BIGINT":
-                    return ScalarType.createStringType();
+                    return Type.LARGEINT;
                 case "DECIMAL":
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
-                    if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                        if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                            return ScalarType.createStringType();
-                        }
-                        return ScalarType.createDecimalType(precision, scale);
-                    } else {
-                        return ScalarType.createStringType();
-                    }
+                    return createDecimalOrStringType(precision, scale);
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -389,32 +451,31 @@ public class JdbcClient {
                 return Type.INT;
             case "BIGINT":
                 return Type.BIGINT;
+            case "LARGEINT": // for jdbc catalog connecting Doris database
+                return Type.LARGEINT;
             case "DATE":
+            case "DATEV2":
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME":
+            case "DATETIMEV2": // for jdbc catalog connecting Doris database
                 return ScalarType.createDatetimeV2Type(0);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
+            case "DECIMALV3": // for jdbc catalog connecting Doris database
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
-                }
+                return createDecimalOrStringType(precision, scale);
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
                 return charType;
-            case "TIME":
             case "VARCHAR":
+                return ScalarType.createVarcharType(fieldSchema.columnSize);
+            case "TIME":
             case "TINYTEXT":
             case "TEXT":
             case "MEDIUMTEXT":
@@ -454,14 +515,7 @@ public class JdbcClient {
             case "numeric": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
-                }
+                return createDecimalOrStringType(precision, scale);
             }
             case "float4":
                 return Type.FLOAT;
@@ -517,14 +571,7 @@ public class JdbcClient {
             String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
             int precision = Integer.parseInt(accuracy[0]);
             int scale = Integer.parseInt(accuracy[1]);
-            if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                    return ScalarType.createStringType();
-                }
-                return ScalarType.createDecimalType(precision, scale);
-            } else {
-                return ScalarType.createStringType();
-            }
+            return createDecimalOrStringType(precision, scale);
         } else if ("String".contains(ckType) || ckType.startsWith("Enum")
                 || ckType.startsWith("IPv") || "UUID".contains(ckType)
                 || ckType.startsWith("FixedString")) {
@@ -577,10 +624,29 @@ public class JdbcClient {
             return ScalarType.createDatetimeV2Type(0);
         }
         switch (oracleType) {
+            /**
+             * The data type NUMBER(p,s) of oracle has some different of doris decimal type in semantics.
+             * For Oracle Number(p,s) type:
+             * 1. if s<0 , it means this is an Interger.
+             *    This NUMBER(p,s) has (p+|s| ) significant digit, and rounding will be performed at s position.
+             *    eg: if we insert 1234567 into NUMBER(5,-2) type, then the oracle will store 1234500.
+             *    In this case, Doris will use INT type (TINYINT/SMALLINT/INT/.../LARGEINT).
+             * 2. if s>=0 && s<p , it just like doris Decimal(p,s) behavior.
+             * 3. if s>=0 && s>p, it means this is a decimal(like 0.xxxxx).
+             *    p represents how many digits can be left to the left after the decimal point,
+             *    the figure after the decimal point s will be rounded.
+             *    eg: we can not insert 0.0123456 into NUMBER(5,7) type,
+             *    because there must be two zeros on the right side of the decimal point,
+             *    we can insert 0.0012345 into NUMBER(5,7) type.
+             *    In this case, Doris will use DECIMAL(s,s)
+             * 4. if we don't specify p and s for NUMBER(p,s), just NUMBER, the p and s of NUMBER are uncertain.
+             *    In this case, doris can not determine p and s, so doris can not determine data type.
+             */
             case "NUMBER":
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (scale == 0) {
+                if (scale <= 0) {
+                    precision -= scale;
                     if (precision < 3) {
                         return Type.TINYINT;
                     } else if (precision < 5) {
@@ -590,18 +656,17 @@ public class JdbcClient {
                     } else if (precision < 19) {
                         return Type.BIGINT;
                     } else if (precision < 39) {
+                        // LARGEINT supports up to 38 numbers.
                         return Type.LARGEINT;
-                    }
-                    return ScalarType.createStringType();
-                }
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                    } else {
                         return ScalarType.createStringType();
                     }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
                 }
+                // scale > 0
+                if (precision < scale) {
+                    precision = scale;
+                }
+                return createDecimalOrStringType(precision, scale);
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
@@ -672,13 +737,78 @@ public class JdbcClient {
         }
     }
 
+    public Type saphanaTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String hanaType = fieldSchema.getDataTypeName();
+        switch (hanaType) {
+            case "TINYINT":
+                return Type.TINYINT;
+            case "SMALLINT":
+                return Type.SMALLINT;
+            case "INTEGER":
+                return Type.INT;
+            case "BIGINT":
+                return Type.BIGINT;
+            case "SMALLDECIMAL":
+            case "DECIMAL": {
+                int precision = fieldSchema.getColumnSize();
+                int scale = fieldSchema.getDecimalDigits();
+                return createDecimalOrStringType(precision, scale);
+            }
+            case "REAL":
+                return Type.FLOAT;
+            case "DOUBLE":
+                return Type.DOUBLE;
+            case "TIMESTAMP":
+            case "SECONDDATE":
+                return ScalarType.createDatetimeV2Type(6);
+            case "DATE":
+                return ScalarType.createDateV2Type();
+            case "BOOLEAN":
+                return Type.BOOLEAN;
+            case "CHAR":
+            case "NCHAR":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.columnSize);
+                return charType;
+            case "TIME":
+            case "VARCHAR":
+            case "NVARCHAR":
+            case "ALPHANUM":
+            case "SHORTTEXT":
+                return ScalarType.createStringType();
+            case "BINARY":
+            case "VARBINARY":
+            case "BLOB":
+            case "CLOB":
+            case "NCLOB":
+            case "TEXT":
+            case "BINTEXT":
+            case "ST_GEOMETRY":
+            case "ST_POINT":
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    private Type createDecimalOrStringType(int precision, int scale) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            if (!Config.enable_decimal_conversion && (precision > ScalarType.MAX_DECIMALV2_PRECISION
+                    || scale > ScalarType.MAX_DECIMALV2_SCALE)) {
+                return ScalarType.createStringType();
+            }
+            return ScalarType.createDecimalType(precision, scale);
+        }
+        return ScalarType.createStringType();
+    }
+
+
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), true, null,
-                    true, field.getRemarks(),
+                    field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
         return dorisTableSchema;

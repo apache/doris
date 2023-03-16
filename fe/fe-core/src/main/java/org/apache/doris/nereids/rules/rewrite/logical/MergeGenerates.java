@@ -22,7 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 
 import com.google.common.collect.Lists;
@@ -37,7 +37,7 @@ public class MergeGenerates extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalGenerate(logicalGenerate()).then(top -> {
-            LogicalGenerate<GroupPlan> bottom = top.child();
+            LogicalGenerate<Plan> bottom = top.child();
             Set<Slot> topGeneratorSlots = top.getInputSlots();
             if (bottom.getGeneratorOutput().stream().anyMatch(topGeneratorSlots::contains)) {
                 // top generators use bottom's generator's output, cannot merge.

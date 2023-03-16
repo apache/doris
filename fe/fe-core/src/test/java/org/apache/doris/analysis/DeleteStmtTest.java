@@ -21,7 +21,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 
@@ -39,14 +39,14 @@ public class DeleteStmtTest {
     Analyzer analyzer;
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
@@ -77,7 +77,7 @@ public class DeleteStmtTest {
         DeleteStmt deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), likePredicate);
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(likePredicate);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
@@ -93,7 +93,7 @@ public class DeleteStmtTest {
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
 
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(compoundPredicate);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("should be AND"));
         }
@@ -106,7 +106,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(compoundPredicate);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
@@ -121,7 +121,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(compoundPredicate);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Right expr of binary predicate should be value"));
         }
@@ -136,7 +136,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(compoundPredicate);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Left expr of binary predicate should be column name"));
         }
@@ -149,7 +149,7 @@ public class DeleteStmtTest {
 
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"), null, compoundPredicate);
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(compoundPredicate);
         } catch (UserException e) {
             e.printStackTrace();
             Assert.assertTrue(e.getMessage().contains("Partition is not set"));
@@ -175,7 +175,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
-            deleteStmt.analyze(analyzer);
+            deleteStmt.analyzePredicate(compoundPredicate);
         } catch (UserException e) {
             Assert.fail();
         }
@@ -183,21 +183,6 @@ public class DeleteStmtTest {
         // multi partition
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
                 new PartitionNames(false, Lists.newArrayList("partition1", "partiton2")), compoundPredicate);
-        try {
-            deleteStmt.analyze(analyzer);
-            Assert.assertEquals(Lists.newArrayList("partition1", "partiton2"), deleteStmt.getPartitionNames());
-        } catch (UserException e) {
-            Assert.fail();
-        }
-
-        // no partition
-        deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"), null, compoundPredicate);
-        try {
-            deleteStmt.analyze(analyzer);
-            Assert.assertEquals(Lists.newArrayList(), deleteStmt.getPartitionNames());
-        } catch (UserException e) {
-            Assert.fail();
-        }
+        Assert.assertEquals(Lists.newArrayList("partition1", "partiton2"), deleteStmt.getPartitionNames());
     }
-
 }

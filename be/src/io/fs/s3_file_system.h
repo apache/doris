@@ -80,6 +80,8 @@ public:
     Status batch_upload_impl(const std::vector<Path>& local_paths,
                              const std::vector<Path>& dest_paths);
 
+    Status batch_delete(const std::vector<Path>& paths) override;
+
     Status connect() override;
 
     Status connect_impl();

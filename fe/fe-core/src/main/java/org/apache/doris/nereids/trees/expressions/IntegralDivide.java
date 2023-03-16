@@ -19,9 +19,8 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 
@@ -30,7 +29,7 @@ import java.util.List;
 /**
  * A DIV B
  */
-public class IntegralDivide extends BinaryArithmetic {
+public class IntegralDivide extends BinaryArithmetic implements AlwaysNullable {
 
     public IntegralDivide(Expression left, Expression right) {
         super(left, right, Operator.INT_DIVIDE);
@@ -39,11 +38,6 @@ public class IntegralDivide extends BinaryArithmetic {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitIntegralDivide(this, context);
-    }
-
-    @Override
-    public AbstractDataType inputType() {
-        return NumericType.INSTANCE;
     }
 
     // Divide is implemented as a scalar function which return type is always nullable.

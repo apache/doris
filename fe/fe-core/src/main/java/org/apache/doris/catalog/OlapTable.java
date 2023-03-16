@@ -333,13 +333,13 @@ public class OlapTable extends Table {
         }
         for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
             for (Column column : indexMeta.getSchema()) {
-                if (!nameToColumn.containsKey(column.getName())) {
+                if (!nameToColumn.containsKey(column.getDefineName())) {
                     fullSchema.add(column);
-                    nameToColumn.put(column.getName(), column);
+                    nameToColumn.put(column.getDefineName(), column);
                 }
             }
         }
-        LOG.debug("after rebuild full schema. table {}, schema: {}", id, fullSchema);
+        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -403,7 +403,7 @@ public class OlapTable extends Table {
     public Column getVisibleColumn(String columnName) {
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             for (Column column : meta.getSchema()) {
-                if (MaterializedIndexMeta.matchColumnName(column.getName(), columnName)) {
+                if (MaterializedIndexMeta.matchColumnName(column.getDefineName(), columnName)) {
                     return column;
                 }
             }
@@ -749,7 +749,8 @@ public class OlapTable extends Table {
                             new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
                             partitionInfo.getDataProperty(partition.getId()),
                             partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()));
+                            partitionInfo.getIsInMemory(partition.getId()),
+                            partitionInfo.getIsMutable(partition.getId()));
 
                 } else if (partitionInfo.getType() == PartitionType.LIST) {
                     // construct a dummy range
@@ -768,7 +769,8 @@ public class OlapTable extends Table {
                             partitionInfo.getItem(partition.getId()),
                             partitionInfo.getDataProperty(partition.getId()),
                             partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()));
+                            partitionInfo.getIsInMemory(partition.getId()),
+                            partitionInfo.getIsMutable(partition.getId()));
                 }
             } else if (!reserveTablets) {
                 Env.getCurrentEnv().onErasePartition(partition);
@@ -1298,7 +1300,8 @@ public class OlapTable extends Table {
             for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
                 this.partitionInfo.addPartition(partitionId, true,
                         tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
-                        tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId));
+                        tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId),
+                        tempRangeInfo.getIsMutable(partitionId));
             }
         }
         tempPartitions.unsetPartitionInfo();
@@ -1317,8 +1320,13 @@ public class OlapTable extends Table {
         }
 
         // remove shadow index from copied table
-        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst()
-                .get().getMaterializedIndices(IndexExtState.SHADOW);
+        // NOTICE that there maybe not partition in table.
+        List<MaterializedIndex> shadowIndex = Lists.newArrayList();
+        Optional<Partition> firstPartition = copied.getPartitions().stream().findFirst();
+        if (firstPartition.isPresent()) {
+            shadowIndex = firstPartition.get().getMaterializedIndices(IndexExtState.SHADOW);
+        }
+
         for (MaterializedIndex deleteIndex : shadowIndex) {
             LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
             copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
@@ -1382,16 +1390,17 @@ public class OlapTable extends Table {
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
         ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(oldPartition.getId());
         boolean isInMemory = partitionInfo.getIsInMemory(oldPartition.getId());
+        boolean isMutable = partitionInfo.getIsMutable(oldPartition.getId());
 
         if (partitionInfo.getType() == PartitionType.RANGE
                 || partitionInfo.getType() == PartitionType.LIST) {
             PartitionItem item = partitionInfo.getItem(oldPartition.getId());
             partitionInfo.dropPartition(oldPartition.getId());
             partitionInfo.addPartition(newPartition.getId(), false, item, dataProperty,
-                    replicaAlloc, isInMemory);
+                    replicaAlloc, isInMemory, isMutable);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
-            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicaAlloc, isInMemory);
+            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicaAlloc, isInMemory, isMutable);
         }
 
         return oldPartition;
@@ -1731,6 +1740,22 @@ public class OlapTable extends Table {
         return false;
     }
 
+    public Boolean isDynamicSchema() {
+        if (tableProperty != null) {
+            return tableProperty.isDynamicSchema();
+        }
+        return false;
+    }
+
+    public void setIsDynamicSchema(boolean isDynamicSchema) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, Boolean.valueOf(isDynamicSchema).toString());
+        tableProperty.buildDynamicSchema();
+    }
+
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
@@ -2011,4 +2036,9 @@ public class OlapTable extends Table {
         return idToPartition.keySet();
     }
 
+    public boolean isDupKeysOrMergeOnWrite() {
+        return getKeysType() == KeysType.DUP_KEYS
+                || (getKeysType() == KeysType.UNIQUE_KEYS
+                && getEnableUniqueKeyMergeOnWrite());
+    }
 }

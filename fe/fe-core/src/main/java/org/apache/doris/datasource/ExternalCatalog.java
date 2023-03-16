@@ -26,11 +26,13 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Lists;
@@ -38,8 +40,10 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
@@ -122,7 +126,8 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         if (!initialized) {
             if (!Env.getCurrentEnv().isMaster()) {
                 // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                 try {
                     remoteExecutor.forward(id, -1);
                 } catch (Exception e) {
@@ -139,6 +144,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected final void initLocalObjects() {
         if (!objectCreated) {
             initLocalObjectsImpl();
+            initAccessController();
             objectCreated = true;
         }
     }
@@ -146,6 +152,41 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // init some local objects such as:
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
+
+    // check if all required properties are set when creating catalog
+    public void checkProperties() throws DdlException {
+    }
+
+    /**
+     * eg:
+     * (
+     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+     * "access_controller.properties.prop1" = "xxx",
+     * "access_controller.properties.prop2" = "yyy",
+     * )
+     */
+    private void initAccessController() {
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        // 1. get access controller class name
+        String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (Strings.isNullOrEmpty(className)) {
+            // not set access controller, use internal access controller
+            return;
+        }
+
+        // 2. get access controller properties
+        Map<String, String> acProperties = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP)) {
+                acProperties.put(
+                        StringUtils.removeStart(entry.getKey(), CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP),
+                        entry.getValue());
+            }
+        }
+
+        // 3. create access controller
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+    }
 
     // init schema related objects
     protected abstract void init();
@@ -199,6 +240,20 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Override
     public List<String> getDbNames() {
         return listDatabaseNames(null);
+    }
+
+    @Override
+    public List<String> getDbNamesOrEmpty() {
+        if (initialized) {
+            try {
+                return getDbNames();
+            } catch (Exception e) {
+                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                return Lists.newArrayList();
+            }
+        } else {
+            return Lists.newArrayList();
+        }
     }
 
     @Override
@@ -259,6 +314,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    public void onClose() {
+        removeAccessController();
+        CatalogIf.super.onClose();
+    }
+
+    private void removeAccessController() {
+        Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
     public void replayInitCatalog(InitCatalogLog log) {

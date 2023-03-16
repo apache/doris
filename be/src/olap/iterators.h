@@ -101,7 +101,7 @@ public:
     std::vector<ColumnPredicate*> column_predicates;
     std::vector<ColumnPredicate*> column_predicates_except_leafnode_of_andnode;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
-    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
+    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
@@ -119,12 +119,17 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
+    const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
+    Version version;
     int32_t tablet_id = 0;
 };
 
+class RowwiseIterator;
+using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
 public:
     RowwiseIterator() = default;

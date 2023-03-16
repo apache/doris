@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /** NormalizeToSlot */
@@ -65,6 +66,10 @@ public interface NormalizeToSlot {
             return new NormalizeToSlotContext(normalizeToSlotMap);
         }
 
+        public <E extends Expression> E normalizeToUseSlotRef(E expression) {
+            return normalizeToUseSlotRef(ImmutableList.of(expression)).get(0);
+        }
+
         /** normalizeToUseSlotRef, no custom normalize */
         public <E extends Expression> List<E> normalizeToUseSlotRef(List<E> expressions) {
             return normalizeToUseSlotRef(expressions, (context, expr) -> expr);
@@ -82,6 +87,24 @@ public interface NormalizeToSlot {
                         NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
                         return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
                     })).collect(ImmutableList.toImmutableList());
+        }
+
+        public <E extends Expression> E normalizeToUseSlotRefUp(E expression, Predicate skip) {
+            return (E) expression.rewriteDownShortCircuitUp(child -> {
+                NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
+                return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
+            }, skip);
+        }
+
+        /**
+         * rewrite subtrees whose root matches predicate border
+         * when we traverse to the node satisfies border predicate, aboveBorder becomes false
+         */
+        public <E extends Expression> E normalizeToUseSlotRefDown(E expression, Predicate border, boolean aboveBorder) {
+            return (E) expression.rewriteDownShortCircuitDown(child -> {
+                NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
+                return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
+            }, border, aboveBorder);
         }
 
         /**

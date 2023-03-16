@@ -224,12 +224,12 @@ private:
 };
 
 template <typename T>
-inline bool RleDecoder<T>::ReadHeader() {
+bool RleDecoder<T>::ReadHeader() {
     DCHECK(bit_reader_.is_initialized());
     if (PREDICT_FALSE(literal_count_ == 0 && repeat_count_ == 0)) {
         // Read the next run's indicator int, it could be a literal or repeated run
         // The int is encoded as a vlq-encoded value.
-        int32_t indicator_value = 0;
+        uint32_t indicator_value = 0;
         bool result = bit_reader_.GetVlqInt(&indicator_value);
         if (PREDICT_FALSE(!result)) {
             return false;
@@ -252,7 +252,7 @@ inline bool RleDecoder<T>::ReadHeader() {
 }
 
 template <typename T>
-inline bool RleDecoder<T>::Get(T* val) {
+bool RleDecoder<T>::Get(T* val) {
     DCHECK(bit_reader_.is_initialized());
     if (PREDICT_FALSE(!ReadHeader())) {
         return false;
@@ -274,7 +274,7 @@ inline bool RleDecoder<T>::Get(T* val) {
 }
 
 template <typename T>
-inline void RleDecoder<T>::RewindOne() {
+void RleDecoder<T>::RewindOne() {
     DCHECK(bit_reader_.is_initialized());
 
     switch (rewind_state_) {
@@ -295,7 +295,7 @@ inline void RleDecoder<T>::RewindOne() {
 }
 
 template <typename T>
-inline size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
+size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
     DCHECK(bit_reader_.is_initialized());
     DCHECK_GT(max_run, 0);
     size_t ret = 0;
@@ -343,7 +343,7 @@ inline size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
 }
 
 template <typename T>
-inline size_t RleDecoder<T>::get_values(T* values, size_t num_values) {
+size_t RleDecoder<T>::get_values(T* values, size_t num_values) {
     size_t read_num = 0;
     while (read_num < num_values) {
         size_t read_this_time = num_values - read_num;
@@ -373,7 +373,7 @@ inline size_t RleDecoder<T>::get_values(T* values, size_t num_values) {
 }
 
 template <typename T>
-inline size_t RleDecoder<T>::repeated_count() {
+size_t RleDecoder<T>::repeated_count() {
     if (repeat_count_ > 0) {
         return repeat_count_;
     }
@@ -384,14 +384,14 @@ inline size_t RleDecoder<T>::repeated_count() {
 }
 
 template <typename T>
-inline T RleDecoder<T>::get_repeated_value(size_t count) {
+T RleDecoder<T>::get_repeated_value(size_t count) {
     DCHECK_GE(repeat_count_, count);
     repeat_count_ -= count;
     return current_value_;
 }
 
 template <typename T>
-inline size_t RleDecoder<T>::Skip(size_t to_skip) {
+size_t RleDecoder<T>::Skip(size_t to_skip) {
     DCHECK(bit_reader_.is_initialized());
 
     size_t set_count = 0;
@@ -427,7 +427,7 @@ inline size_t RleDecoder<T>::Skip(size_t to_skip) {
 // This function buffers input values 8 at a time.  After seeing all 8 values,
 // it decides whether they should be encoded as a literal or repeated run.
 template <typename T>
-inline void RleEncoder<T>::Put(T value, size_t run_length) {
+void RleEncoder<T>::Put(T value, size_t run_length) {
     DCHECK(bit_width_ == 64 || value < (1LL << bit_width_));
 
     // TODO(perf): remove the loop and use the repeat_count_
@@ -460,7 +460,7 @@ inline void RleEncoder<T>::Put(T value, size_t run_length) {
 }
 
 template <typename T>
-inline void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
+void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
     if (literal_indicator_byte_idx_ < 0) {
         // The literal indicator byte has not been reserved yet, get one now.
         literal_indicator_byte_idx_ = bit_writer_.GetByteIndexAndAdvance(1);
@@ -488,7 +488,7 @@ inline void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
 }
 
 template <typename T>
-inline void RleEncoder<T>::FlushRepeatedRun() {
+void RleEncoder<T>::FlushRepeatedRun() {
     DCHECK_GT(repeat_count_, 0);
     // The lsb of 0 indicates this is a repeated run
     int32_t indicator_value = repeat_count_ << 1 | 0;
@@ -501,7 +501,7 @@ inline void RleEncoder<T>::FlushRepeatedRun() {
 // Flush the values that have been buffered.  At this point we decide whether
 // we need to switch between the run types or continue the current one.
 template <typename T>
-inline void RleEncoder<T>::FlushBufferedValues(bool done) {
+void RleEncoder<T>::FlushBufferedValues(bool done) {
     if (repeat_count_ >= 8) {
         // Clear the buffered values.  They are part of the repeated run now and we
         // don't want to flush them out as literals.
@@ -531,14 +531,14 @@ inline void RleEncoder<T>::FlushBufferedValues(bool done) {
 }
 
 template <typename T>
-inline void RleEncoder<T>::Reserve(int num_bytes, uint8_t val) {
+void RleEncoder<T>::Reserve(int num_bytes, uint8_t val) {
     for (int i = 0; i < num_bytes; ++i) {
         bit_writer_.PutValue(val, 8);
     }
 }
 
 template <typename T>
-inline int RleEncoder<T>::Flush() {
+int RleEncoder<T>::Flush() {
     if (literal_count_ > 0 || repeat_count_ > 0 || num_buffered_values_ > 0) {
         bool all_repeat = literal_count_ == 0 &&
                           (repeat_count_ == num_buffered_values_ || num_buffered_values_ == 0);
@@ -559,7 +559,7 @@ inline int RleEncoder<T>::Flush() {
 }
 
 template <typename T>
-inline void RleEncoder<T>::Clear() {
+void RleEncoder<T>::Clear() {
     current_value_ = 0;
     repeat_count_ = 0;
     num_buffered_values_ = 0;
@@ -720,7 +720,7 @@ private:
 };
 
 template <typename T>
-inline int32_t RleBatchDecoder<T>::OutputBufferedLiterals(int32_t max_to_output, T* values) {
+int32_t RleBatchDecoder<T>::OutputBufferedLiterals(int32_t max_to_output, T* values) {
     int32_t num_to_output =
             std::min<int32_t>(max_to_output, num_buffered_literals_ - literal_buffer_pos_);
     memcpy(values, &literal_buffer_[literal_buffer_pos_], sizeof(T) * num_to_output);
@@ -730,7 +730,7 @@ inline int32_t RleBatchDecoder<T>::OutputBufferedLiterals(int32_t max_to_output,
 }
 
 template <typename T>
-inline void RleBatchDecoder<T>::Reset(uint8_t* buffer, int buffer_len, int bit_width) {
+void RleBatchDecoder<T>::Reset(uint8_t* buffer, int buffer_len, int bit_width) {
     bit_reader_.Reset(buffer, buffer_len);
     bit_width_ = bit_width;
     repeat_count_ = 0;
@@ -740,14 +740,14 @@ inline void RleBatchDecoder<T>::Reset(uint8_t* buffer, int buffer_len, int bit_w
 }
 
 template <typename T>
-inline int32_t RleBatchDecoder<T>::NextNumRepeats() {
+int32_t RleBatchDecoder<T>::NextNumRepeats() {
     if (repeat_count_ > 0) return repeat_count_;
     if (literal_count_ == 0) NextCounts();
     return repeat_count_;
 }
 
 template <typename T>
-inline void RleBatchDecoder<T>::NextCounts() {
+void RleBatchDecoder<T>::NextCounts() {
     // Read the next run's indicator int, it could be a literal or repeated run.
     // The int is encoded as a ULEB128-encoded value.
     uint32_t indicator_value = 0;
@@ -775,20 +775,20 @@ inline void RleBatchDecoder<T>::NextCounts() {
 }
 
 template <typename T>
-inline T RleBatchDecoder<T>::GetRepeatedValue(int32_t num_repeats_to_consume) {
+T RleBatchDecoder<T>::GetRepeatedValue(int32_t num_repeats_to_consume) {
     repeat_count_ -= num_repeats_to_consume;
     return repeated_value_;
 }
 
 template <typename T>
-inline int32_t RleBatchDecoder<T>::NextNumLiterals() {
+int32_t RleBatchDecoder<T>::NextNumLiterals() {
     if (literal_count_ > 0) return literal_count_;
     if (repeat_count_ == 0) NextCounts();
     return literal_count_;
 }
 
 template <typename T>
-inline bool RleBatchDecoder<T>::GetLiteralValues(int32_t num_literals_to_consume, T* values) {
+bool RleBatchDecoder<T>::GetLiteralValues(int32_t num_literals_to_consume, T* values) {
     int32_t num_consumed = 0;
     // Copy any buffered literals left over from previous calls.
     if (HaveBufferedLiterals()) {
@@ -820,7 +820,7 @@ inline bool RleBatchDecoder<T>::GetLiteralValues(int32_t num_literals_to_consume
 }
 
 template <typename T>
-inline bool RleBatchDecoder<T>::FillLiteralBuffer() {
+bool RleBatchDecoder<T>::FillLiteralBuffer() {
     int32_t num_to_buffer = std::min<int32_t>(LITERAL_BUFFER_LEN, literal_count_);
     num_buffered_literals_ = bit_reader_.UnpackBatch(bit_width_, num_to_buffer, literal_buffer_);
     // If we couldn't read the expected number, that means the input was truncated.
@@ -830,7 +830,7 @@ inline bool RleBatchDecoder<T>::FillLiteralBuffer() {
 }
 
 template <typename T>
-inline int32_t RleBatchDecoder<T>::GetBatch(T* values, int32_t batch_num) {
+int32_t RleBatchDecoder<T>::GetBatch(T* values, int32_t batch_num) {
     int32_t num_consumed = 0;
     while (num_consumed < batch_num) {
         // Add RLE encoded values by repeating the current value this number of times.

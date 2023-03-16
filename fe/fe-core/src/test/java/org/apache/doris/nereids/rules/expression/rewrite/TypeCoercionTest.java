@@ -46,7 +46,6 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
@@ -83,14 +82,14 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
     @Test
     public void testLikeImplicitCast() {
         String expression = "1 like 5";
-        String expected = "cast(1 as string) like cast(5 as string)";
+        String expected = "cast(1 as varchar) like cast(5 as varchar)";
         assertRewrite(expression, expected);
     }
 
     @Test
     public void testRegexImplicitCast() {
         String expression = "1 regexp 5";
-        String expected = "cast(1 as string) regexp cast(5 as string)";
+        String expected = "cast(1 as varchar) regexp cast(5 as varchar)";
         assertRewrite(expression, expected);
     }
 
@@ -172,9 +171,9 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         List<Expression> actualOptions = Lists.newArrayList(actualOption1, actualOption2);
         Expression actual = new InPredicate(actualCompare, actualOptions);
 
-        Expression expectedCompare = new Cast(new DoubleLiteral(1.5), StringType.INSTANCE);
-        Expression expectedOption1 = new StringLiteral("hello");
-        Expression expectedOption2 = new Cast(new IntegerLiteral(1), StringType.INSTANCE);
+        Expression expectedCompare = new DoubleLiteral(1.5);
+        Expression expectedOption1 = new Cast(new StringLiteral("hello"), DoubleType.INSTANCE);
+        Expression expectedOption2 = new Cast(new IntegerLiteral(1), DoubleType.INSTANCE);
         List<Expression> expectedOptions = Lists.newArrayList(expectedOption1, expectedOption2);
         Expression expected = new InPredicate(expectedCompare, expectedOptions);
 

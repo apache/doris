@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -90,20 +91,31 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
 
     private Plan correlatedToJoin(LogicalApply apply) {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
+        Expression predicate = null;
+        if (correlationFilter.isPresent() && apply.getSubCorrespondingConject().isPresent()) {
+            predicate = ExpressionUtils.and(correlationFilter.get(),
+                (Expression) apply.getSubCorrespondingConject().get());
+        } else if (apply.getSubCorrespondingConject().isPresent()) {
+            predicate = (Expression) apply.getSubCorrespondingConject().get();
+        } else if (correlationFilter.isPresent()) {
+            predicate = correlationFilter.get();
+        }
 
         if (((Exists) apply.getSubqueryExpr()).isNot()) {
             return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
-                    correlationFilter
-                            .map(ExpressionUtils::extractConjunction)
-                            .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    predicate != null
+                        ? ExpressionUtils.extractConjunction(predicate)
+                        : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
+                    apply.getMarkJoinSlotReference(),
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
-                    correlationFilter
-                            .map(ExpressionUtils::extractConjunction)
-                            .orElse(ExpressionUtils.EMPTY_CONDITION),
+                    predicate != null
+                        ? ExpressionUtils.extractConjunction(predicate)
+                        : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
+                    apply.getMarkJoinSlotReference(),
                     (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
         }
     }
@@ -117,18 +129,25 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedNotExist(LogicalApply unapply) {
-        LogicalLimit newLimit = new LogicalLimit<>(1, 0, (LogicalPlan) unapply.right());
+        LogicalLimit newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
         Alias alias = new Alias(new Count(), "count(*)");
         LogicalAggregate newAgg = new LogicalAggregate<>(new ArrayList<>(),
                 ImmutableList.of(alias), newLimit);
-        LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
+        LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
+                unapply.getSubCorrespondingConject().isPresent()
+                    ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConject().get())
+                    : ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, unapply.getMarkJoinSlotReference(),
                 (LogicalPlan) unapply.left(), newAgg);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
                 new IntegerLiteral(0))), newJoin);
     }
 
     private Plan unCorrelatedExist(LogicalApply unapply) {
-        LogicalLimit newLimit = new LogicalLimit<>(1, 0, (LogicalPlan) unapply.right());
-        return new LogicalJoin<>(JoinType.CROSS_JOIN, (LogicalPlan) unapply.left(), newLimit);
+        LogicalLimit newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
+        return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
+            unapply.getSubCorrespondingConject().isPresent()
+                ? ExpressionUtils.extractConjunction((Expression) unapply.getSubCorrespondingConject().get())
+                : ExpressionUtils.EMPTY_CONDITION,
+            JoinHint.NONE, unapply.getMarkJoinSlotReference(), (LogicalPlan) unapply.left(), newLimit);
     }
 }

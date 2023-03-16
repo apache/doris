@@ -48,12 +48,17 @@ public:
 
 class OlapBlockDataConvertor {
 public:
+    OlapBlockDataConvertor() = default;
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
     OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
+
+    bool empty() const { return _convertors.empty(); }
+    void reserve(size_t size) { _convertors.reserve(size); }
+    void reset() { _convertors.clear(); }
 
 private:
     class OlapColumnDataConvertorBase;
@@ -103,6 +108,11 @@ private:
     };
 
     class OlapColumnDataConvertorBitMap final : public OlapColumnDataConvertorObject {
+    public:
+        Status convert_to_olap() override;
+    };
+
+    class OlapColumnDataConvertorQuantileState final : public OlapColumnDataConvertorObject {
     public:
         Status convert_to_olap() override;
     };
@@ -403,12 +413,12 @@ private:
                                    OlapColumnDataConvertorBaseUPtr value_convertor)
                 : _key_convertor(std::move(key_convertor)),
                   _value_convertor(std::move(value_convertor)) {
-            _results.resize(2);
+            _base_row = 0;
+            _results.resize(6); // size + offset + k_data + v_data +  k_nullmap + v_nullmap
         }
 
         Status convert_to_olap() override;
         const void* get_data() const override { return _results.data(); };
-
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
         };
@@ -418,6 +428,8 @@ private:
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;
+        PaddedPODArray<UInt64> _offsets;
+        UInt64 _base_row;
     }; //OlapColumnDataConvertorMap
 
 private:

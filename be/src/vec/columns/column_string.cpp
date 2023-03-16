@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_string.h"
 
+#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -145,6 +146,16 @@ ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) con
     filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filt,
                                       result_size_hint);
     return res;
+}
+
+size_t ColumnString::filter(const Filter& filter) {
+    CHECK_EQ(filter.size(), offsets.size());
+    if (offsets.size() == 0) {
+        resize(0);
+        return 0;
+    }
+
+    return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
 }
 
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
@@ -518,6 +529,10 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }
+}
+
+ColumnPtr ColumnString::index(const IColumn& indexes, size_t limit) const {
+    return select_index_impl(*this, indexes, limit);
 }
 
 } // namespace doris::vectorized

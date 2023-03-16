@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -25,7 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 public class ExpressionRewriteContext {
     public final ConnectContext connectContext;
 
-    public ExpressionRewriteContext(ConnectContext connectContext) {
-        this.connectContext = connectContext;
+    public ExpressionRewriteContext(CascadesContext cascadesContext) {
+        this.connectContext = cascadesContext.getConnectContext();
     }
 }

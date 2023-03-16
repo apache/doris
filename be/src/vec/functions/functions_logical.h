@@ -26,10 +26,10 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
-/** Logical functions AND, OR, XOR and NOT support three-valued (or ternary) logic
+/** Logical functions AND, OR and NOT support three-valued (or ternary) logic
   * https://en.wikibooks.org/wiki/Structured_Query_Language/NULLs_and_the_Three_Valued_Logic
   *
-  * Functions XOR and NOT rely on "default implementation for NULLs":
+  * Functions NOT rely on "default implementation for NULLs":
   *   - if any of the arguments is of Nullable type, the return value type is Nullable
   *   - if any of the arguments is NULL, the return value is NULL
   *
@@ -46,12 +46,12 @@ static constexpr UInt8 True = -1;
 static constexpr UInt8 Null = 1;
 
 template <typename T>
-inline ResultType make_value(T value) {
+ResultType make_value(T value) {
     return value != 0 ? Ternary::True : Ternary::False;
 }
 
 template <typename T>
-inline ResultType make_value(T value, bool is_null) {
+ResultType make_value(T value, bool is_null) {
     if (is_null) return Ternary::Null;
     return make_value<T>(value);
 }
@@ -60,35 +60,23 @@ inline ResultType make_value(T value, bool is_null) {
 struct AndImpl {
     using ResultType = UInt8;
 
-    static inline constexpr bool is_saturable() { return true; }
-    static inline constexpr bool is_saturated_value(UInt8 a) { return a == Ternary::False; }
     static inline constexpr ResultType apply(UInt8 a, UInt8 b) { return a & b; }
+    static inline constexpr ResultType apply_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        // (<> && false) is false, (true && NULL) is NULL
+        return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
+    }
     static inline constexpr bool special_implementation_for_nulls() { return true; }
 };
 
 struct OrImpl {
     using ResultType = UInt8;
 
-    static inline constexpr bool is_saturable() { return true; }
-    static inline constexpr bool is_saturated_value(UInt8 a) { return a == Ternary::True; }
     static inline constexpr ResultType apply(UInt8 a, UInt8 b) { return a | b; }
-    static inline constexpr bool special_implementation_for_nulls() { return true; }
-};
-
-struct XorImpl {
-    using ResultType = UInt8;
-
-    static inline constexpr bool is_saturable() { return false; }
-    static inline constexpr bool is_saturated_value(bool) { return false; }
-    /** Considering that CH uses UInt8 for representation of boolean values this function
-      * returns 255 as "true" but the current implementation of logical functions suggests that
-      * any nonzero value is "true" as well. Also the current code provides no guarantee
-      * for "true" to be represented with the value of 1.
-      */
-    static inline constexpr ResultType apply(UInt8 a, UInt8 b) {
-        return (a != b) ? Ternary::True : Ternary::False;
+    static inline constexpr ResultType apply_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        // (<> || true) is true, (false || NULL) is NULL
+        return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
     }
-    static inline constexpr bool special_implementation_for_nulls() { return false; }
+    static inline constexpr bool special_implementation_for_nulls() { return true; }
 };
 
 template <typename A>
@@ -102,18 +90,17 @@ template <typename Impl, typename Name>
 class FunctionAnyArityLogical : public IFunction {
 public:
     static constexpr auto name = Name::name;
-    //    static FunctionPtr create(const Context &) { return std::make_shared<FunctionAnyArityLogical>(); }
     static FunctionPtr create() { return std::make_shared<FunctionAnyArityLogical>(); }
 
 public:
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return true; }
-    size_t get_number_of_arguments() const override { return 0; }
+    size_t get_number_of_arguments() const override { return 2; }
 
     bool use_default_implementation_for_nulls() const override {
         return !Impl::special_implementation_for_nulls();
     }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
@@ -149,9 +136,6 @@ struct NameAnd {
 struct NameOr {
     static constexpr auto name = "or";
 };
-struct NameXor {
-    static constexpr auto name = "xor";
-};
 struct NameNot {
     static constexpr auto name = "not";
 };
@@ -160,8 +144,6 @@ using FunctionAnd =
         FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::AndImpl, NameAnd>;
 using FunctionOr =
         FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::OrImpl, NameOr>;
-using FunctionXor =
-        FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::XorImpl, NameXor>;
 using FunctionNot =
         FunctionsLogicalDetail::FunctionUnaryLogical<FunctionsLogicalDetail::NotImpl, NameNot>;
 } // namespace doris::vectorized

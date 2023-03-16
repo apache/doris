@@ -26,7 +26,7 @@
 namespace detail {
 
 template <typename T>
-inline int cmp(T a, T b) {
+int cmp(T a, T b) {
     if (a < b) return -1;
     if (a > b) return 1;
     return 0;
@@ -53,8 +53,7 @@ inline int cmp(T a, T b) {
 /** Variant when memory regions may have different sizes.
   */
 template <typename Char>
-inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
-                                         size_t b_size) {
+int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, size_t b_size) {
     size_t min_size = std::min(a_size, b_size);
 
     for (size_t offset = 0; offset < min_size; offset += 16) {
@@ -79,7 +78,7 @@ inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Cha
   * TODO Check if the compiler can optimize previous function when the caller pass identical sizes.
   */
 template <typename Char>
-inline int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t size) {
+int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t size) {
     for (size_t offset = 0; offset < size; offset += 16) {
         uint16_t mask = _mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
@@ -101,8 +100,7 @@ inline int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t si
 /** Compare memory regions for equality.
   */
 template <typename Char>
-inline bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
-                                            size_t b_size) {
+bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, size_t b_size) {
     if (a_size != b_size) return false;
 
     for (size_t offset = 0; offset < a_size; offset += 16) {
@@ -123,7 +121,7 @@ inline bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const 
 /** Variant when the caller know in advance that the size is a multiple of 16.
   */
 template <typename Char>
-inline int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
+int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
     for (size_t offset = 0; offset < size; offset += 16) {
         uint16_t mask = _mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
@@ -142,7 +140,7 @@ inline int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size)
 /** Variant when the size is 16 exactly.
   */
 template <typename Char>
-inline int memcmp16(const Char* a, const Char* b) {
+int memcmp16(const Char* a, const Char* b) {
     uint16_t mask =
             _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
                                              _mm_loadu_si128(reinterpret_cast<const __m128i*>(b))));
@@ -188,8 +186,7 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
 #include <cstring>
 
 template <typename Char>
-inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
-                                         size_t b_size) {
+int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, size_t b_size) {
     if (auto res = memcmp(a, b, std::min(a_size, b_size)))
         return res;
     else
@@ -197,23 +194,22 @@ inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Cha
 }
 
 template <typename Char>
-inline int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t size) {
+int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t size) {
     return memcmp(a, b, size);
 }
 
 template <typename Char>
-inline bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
-                                            size_t b_size) {
+bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, size_t b_size) {
     return a_size == b_size && 0 == memcmp(a, b, a_size);
 }
 
 template <typename Char>
-inline int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
+int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
     return memcmp(a, b, size);
 }
 
 template <typename Char>
-inline int memcmp16(const Char* a, const Char* b) {
+int memcmp16(const Char* a, const Char* b) {
     return memcmp(a, b, 16);
 }
 

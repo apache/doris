@@ -39,13 +39,6 @@ public:
         if (_init) flush_untracked_mem<false, true>();
     }
 
-    // only for memory hook
-    static void consume_no_attach(int64_t size) {
-        if (ExecEnv::GetInstance()->initialized()) {
-            ExecEnv::GetInstance()->orphan_mem_tracker()->consume(size);
-        }
-    }
-
     void init();
 
     // After attach, the current thread Memory Hook starts to consume/release task mem_tracker
@@ -210,7 +203,7 @@ inline bool ThreadMemTrackerMgr::try_consume(int64_t size) {
 }
 
 template <bool CheckLimit, bool Force>
-inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
+bool ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;

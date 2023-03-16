@@ -52,7 +52,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -109,7 +109,7 @@ public class PartitionCacheTest {
     private Database db;
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private SystemInfoService service;
     @Mocked
@@ -128,7 +128,7 @@ public class PartitionCacheTest {
         MetricRepo.init();
         try {
             FrontendOptions.init();
-            context = new ConnectContext(null);
+            context = new ConnectContext();
             Config.cache_enable_sql_mode = true;
             Config.cache_enable_partition_mode = true;
             context.getSessionVariable().setEnableSqlCache(true);
@@ -141,7 +141,7 @@ public class PartitionCacheTest {
 
     @Before
     public void setUp() throws Exception {
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new MockUp<Util>() {
             @Mock
@@ -212,9 +212,9 @@ public class PartitionCacheTest {
 
         new Expectations(env) {
             {
-                env.getAuth();
+                env.getAccessManager();
                 minTimes = 0;
-                result = auth;
+                result = accessManager;
 
                 env.getCurrentCatalog();
                 minTimes = 0;
@@ -235,6 +235,14 @@ public class PartitionCacheTest {
         QueryState state = new QueryState();
         channel.reset();
 
+        new Expectations(channel) {
+            {
+                channel.getSerializer();
+                minTimes = 0;
+                result = MysqlSerializer.newInstance();
+            }
+        };
+
         new Expectations(ctx) {
             {
                 ctx.getMysqlChannel();
@@ -244,10 +252,6 @@ public class PartitionCacheTest {
                 ctx.getClusterName();
                 minTimes = 0;
                 result = clusterName;
-
-                ctx.getSerializer();
-                minTimes = 0;
-                result = MysqlSerializer.newInstance();
 
                 ctx.getEnv();
                 minTimes = 0;

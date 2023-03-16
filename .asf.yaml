@@ -62,6 +62,7 @@ github:
           - BE UT (macOS)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
+          - COMPILE (DORIS_COMPILE)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -81,13 +82,14 @@ github:
         required_approving_review_count: 1
   collaborators:
     - tinkerrrr
-    - luzhijing
     - spaces-X
     - zuochunwei
     - thomascai126
     - dataalive
     - LemonLiTree
     - zy-kkk
+    - Yukang-Lian
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
+

@@ -18,31 +18,34 @@
 #include "vec/aggregate_functions/aggregate_function_window_funnel.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const Array& parameters,
                                                              const bool result_is_nullable) {
     if (argument_types.size() < 3) {
         LOG(WARNING) << "window_funnel's argument less than 3.";
         return nullptr;
     }
     if (WhichDataType(remove_nullable(argument_types[2])).is_date_time_v2()) {
-        return std::make_shared<
-                AggregateFunctionWindowFunnel<DateV2Value<DateTimeV2ValueType>, UInt64>>(
-                argument_types);
+        return AggregateFunctionPtr(
+                creator_without_type::create<
+                        AggregateFunctionWindowFunnel<DateV2Value<DateTimeV2ValueType>, UInt64>>(
+                        result_is_nullable, argument_types));
     } else if (WhichDataType(remove_nullable(argument_types[2])).is_date_time()) {
-        return std::make_shared<AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(
-                argument_types);
+        return AggregateFunctionPtr(creator_without_type::create<
+                                    AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(
+                result_is_nullable, argument_types));
     } else {
-        LOG(FATAL) << "Only support DateTime type as window argument!";
+        LOG(WARNING) << "Only support DateTime type as window argument!";
+        return nullptr;
     }
 }
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("window_funnel", create_aggregate_function_window_funnel, false);
+    factory.register_function_both("window_funnel", create_aggregate_function_window_funnel);
 }
 } // namespace doris::vectorized

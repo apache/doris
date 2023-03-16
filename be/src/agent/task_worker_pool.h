@@ -23,7 +23,6 @@
 #include <utility>
 #include <vector>
 
-#include "agent/utils.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -35,6 +34,7 @@ namespace doris {
 
 class ExecEnv;
 class ThreadPool;
+class AgentUtils;
 
 class TaskWorkerPool {
 public:
@@ -68,6 +68,7 @@ public:
         SUBMIT_TABLE_COMPACTION,
         PUSH_COOLDOWN_CONF,
         PUSH_STORAGE_POLICY,
+        ALTER_INVERTED_INDEX,
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -127,6 +128,8 @@ public:
             return "PUSH_COOLDOWN_CONF";
         case PUSH_STORAGE_POLICY:
             return "PUSH_STORAGE_POLICY";
+        case ALTER_INVERTED_INDEX:
+            return "ALTER_INVERTED_INDEX";
         default:
             return "Unknown";
         }
@@ -177,6 +180,7 @@ private:
     void _publish_version_worker_thread_callback();
     void _clear_transaction_task_worker_thread_callback();
     void _alter_tablet_worker_thread_callback();
+    void _alter_inverted_index_worker_thread_callback();
     void _clone_worker_thread_callback();
     void _storage_medium_migrate_worker_thread_callback();
     void _check_consistency_worker_thread_callback();
@@ -193,9 +197,13 @@ private:
     void _push_cooldown_conf_worker_thread_callback();
     void _push_storage_policy_worker_thread_callback();
 
+    void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
+                               int64_t signature, const TTaskType::type task_type,
+                               TFinishTaskRequest* finish_task_request);
+
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
-    void _handle_report(TReportRequest& request, ReportType type);
+    void _handle_report(const TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);
@@ -216,7 +224,6 @@ private:
     const TMasterInfo& _master_info;
     TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
-    std::unique_ptr<MasterServerClient> _master_client;
     ExecEnv* _env;
 
     // Protect task queue
@@ -238,7 +245,6 @@ private:
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
 
-    static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;
 
     static std::mutex _s_task_signatures_lock;

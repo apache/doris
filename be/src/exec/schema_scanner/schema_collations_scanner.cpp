@@ -56,39 +56,66 @@ Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* e
 }
 
 Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto row_num = 0;
     while (nullptr != _s_collations[row_num].name) {
         ++row_num;
     }
+    std::vector<void*> datas(row_num);
+
     // COLLATION_NAME
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
-        fill_dest_column(block, &str, _s_cols_columns[0]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 0, datas);
     }
     // charset
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
-        fill_dest_column(block, &str, _s_cols_columns[1]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // id
-    for (int i = 0; i < row_num; ++i) {
-        int64_t src = _s_collations[i].id;
-        fill_dest_column(block, &src, _s_cols_columns[2]);
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_collations[i].id;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // is_default
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
-        fill_dest_column(block, &str, _s_cols_columns[3]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 3, datas);
     }
     // IS_COMPILED
-    for (int i = 0; i < row_num; ++i) {
-        StringRef str = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
-        fill_dest_column(block, &str, _s_cols_columns[4]);
+    {
+        StringRef strs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            strs[i] = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
+            datas[i] = strs + i;
+        }
+        fill_dest_column_for_range(block, 4, datas);
     }
     // sortlen
-    for (int i = 0; i < row_num; ++i) {
-        int64_t src = _s_collations[i].sortlen;
-        fill_dest_column(block, &src, _s_cols_columns[5]);
+    {
+        int64_t srcs[row_num];
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _s_collations[i].sortlen;
+            datas[i] = srcs + i;
+        }
+        fill_dest_column_for_range(block, 5, datas);
     }
     return Status::OK();
 }

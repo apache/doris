@@ -219,4 +219,106 @@ suite("test_multi_partition") {
     logger.info("${result2}")
     assertEquals(result2.size(), 48)
     sql "drop table multi_par5"
+
+
+    sql "drop table if exists multi_par6"
+    sql """
+        CREATE TABLE IF NOT EXISTS multi_par6 (
+            k1 tinyint NOT NULL,
+            k2 smallint NOT NULL,
+            k3 int NOT NULL,
+            k4 bigint NOT NULL,
+            k5 decimal(9, 3) NOT NULL,
+            k6 char(5) NOT NULL,
+            k10 date NOT NULL,
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
+            k7 varchar(20) NOT NULL,
+            k8 double max NOT NULL,
+            k9 float sum NOT NULL )
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+        PARTITION BY RANGE(k11) (
+            FROM ("2022-11-02 00:00:00") TO ("2022-12-02 00:00:00") INTERVAL 1 DAY
+            )
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'multi_par6'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from multi_par6"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 30)
+    sql "drop table multi_par6"
+
+
+    sql "drop table if exists multi_par7"
+    sql """
+        CREATE TABLE IF NOT EXISTS multi_par7 (
+            k1 tinyint NOT NULL,
+            k2 smallint NOT NULL,
+            k3 int NOT NULL,
+            k4 bigint NOT NULL,
+            k5 decimal(9, 3) NOT NULL,
+            k6 char(5) NOT NULL,
+            k10 date NOT NULL,
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
+            k7 varchar(20) NOT NULL,
+            k8 double max NOT NULL,
+            k9 float sum NOT NULL )
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+        PARTITION BY RANGE(k13) (
+            FROM ("2022-11-02 00:00:00") TO ("2022-12-02 00:00:00") INTERVAL 1 DAY
+            )
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'multi_par7'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from multi_par7"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 30)
+    sql "drop table multi_par7"
+
+
+
+
+    sql "drop table if exists multi_par8"
+    sql """
+        CREATE TABLE IF NOT EXISTS multi_par8 (
+            k1 tinyint NOT NULL,
+            k2 smallint NOT NULL,
+            k3 int NOT NULL,
+            k4 bigint NOT NULL,
+            k5 decimal(9, 3) NOT NULL,
+            k6 char(5) NOT NULL,
+            k10 date NOT NULL,
+            k11 datetime NOT NULL,
+            k12 datev2 NOT NULL,
+            k13 datetimev2 NOT NULL,
+            k14 datetimev2(3) NOT NULL,
+            k15 datetimev2(6) NOT NULL,
+            k7 varchar(20) NOT NULL,
+            k8 double max NOT NULL,
+            k9 float sum NOT NULL )
+        AGGREGATE KEY(k1,k2,k3,k4,k5,k6,k10,k11,k12,k13,k14,k15,k7)
+        PARTITION BY RANGE(k10) (
+            FROM ("2022-11-02") TO ("2022-12-03") INTERVAL 2 DAY
+            )
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'multi_par8'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from multi_par8"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 16)
+    sql "drop table multi_par8"
+
 }

@@ -44,6 +44,13 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     .addColumn(new Column("EndTime", ScalarType.createVarchar(128)))
                     .addColumn(new Column("TotalTime", ScalarType.createVarchar(128)))
                     .addColumn(new Column("QueryState", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("TraceId", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("AnalysisTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("PlanTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("ScheduleTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("FetchResultTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("WriteResultTime", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("WaitAndFetchResultTime", ScalarType.createVarchar(128)))
                     .build();
 
     public static final ShowResultSetMetaData META_DATA_FRAGMENTS =

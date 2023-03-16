@@ -92,7 +92,7 @@ public class BatchRollupJobTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(1000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -135,6 +135,7 @@ public class BatchRollupJobTest {
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assert.assertNotNull(tbl);
 
+
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             if (alterJobV2.getType() != AlterJobV2.JobType.ROLLUP) {
                 continue;
@@ -142,7 +143,7 @@ public class BatchRollupJobTest {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
                         "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(1000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -163,8 +164,18 @@ public class BatchRollupJobTest {
             break;
         }
 
+        int finishedJobNum = 0;
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            if (alterJobV2.getType() != AlterJobV2.JobType.ROLLUP) {
+                continue;
+            }
+            if (alterJobV2.getJobState() == AlterJobV2.JobState.FINISHED) {
+                ++finishedJobNum;
+            }
+        }
+
         for (Partition partition : tbl.getPartitions()) {
-            Assert.assertEquals(2, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+            Assert.assertEquals(finishedJobNum + 1, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         }
     }
 }

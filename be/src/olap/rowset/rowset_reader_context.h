@@ -64,10 +64,10 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
-    bool is_vec = false;
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;
@@ -77,6 +77,7 @@ struct RowsetReaderContext {
     bool record_rowids = false;
     bool is_vertical_compaction = false;
     bool is_key_column_group = false;
+    const std::set<int32_t>* output_columns = nullptr;
 };
 
 } // namespace doris

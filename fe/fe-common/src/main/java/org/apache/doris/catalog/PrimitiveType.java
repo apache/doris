@@ -62,6 +62,7 @@ public enum PrimitiveType {
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2),
+    LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION),
 
     // sizeof(CollectionValue)
     ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),
@@ -71,6 +72,8 @@ public enum PrimitiveType {
     // Aligning to 16 bytes total.
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
+    VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
+    TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
@@ -557,6 +560,7 @@ public enum PrimitiveType {
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
         supportedTypes.add(QUANTILE_STATE);
+        supportedTypes.add(VARIANT);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -1004,6 +1008,8 @@ public enum PrimitiveType {
                 return STRUCT;
             case ALL:
                 return ALL;
+            case VARIANT:
+                return VARIANT;
             default:
                 return INVALID_TYPE;
         }
@@ -1108,8 +1114,24 @@ public enum PrimitiveType {
         return this == MAP;
     }
 
+    public boolean isStructType() {
+        return this == STRUCT;
+    }
+
     public boolean isComplexType() {
-        return this == HLL || this == BITMAP;
+        return this == ARRAY || this == MAP || this == STRUCT;
+    }
+
+    public boolean isHllType() {
+        return this == HLL;
+    }
+
+    public boolean isBitmapType() {
+        return this == BITMAP;
+    }
+
+    public boolean isVariantType() {
+        return this == VARIANT;
     }
 
     public boolean isStringType() {

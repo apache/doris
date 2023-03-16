@@ -36,7 +36,6 @@
 #include "runtime/struct_value.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
-#include "util/mem_util.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
@@ -248,8 +247,7 @@ public:
         if (src_value->has_null()) {
             // direct copy null_signs
             dest_value->set_null_signs(reinterpret_cast<bool*>(*base));
-            memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
-                        src_value->length());
+            memcpy(dest_value->mutable_null_signs(), src_value->null_signs(), src_value->length());
         }
         *base += nulls_size + src_value->length() * _item_type_info->size();
 
@@ -341,7 +339,18 @@ public:
         } else if (l_size > r_size) {
             return 1;
         } else {
-            return 0;
+            // now we use collection value in array to pack map k-v
+            auto l_k = reinterpret_cast<const CollectionValue*>(l_value->key_data());
+            auto l_v = reinterpret_cast<const CollectionValue*>(l_value->value_data());
+            auto r_k = reinterpret_cast<const CollectionValue*>(r_value->key_data());
+            auto r_v = reinterpret_cast<const CollectionValue*>(r_value->value_data());
+            auto key_arr = new ArrayTypeInfo(create_static_type_info_ptr(_key_type_info.get()));
+            auto val_arr = new ArrayTypeInfo(create_static_type_info_ptr(_value_type_info.get()));
+            if (int kc = key_arr->cmp(l_k, r_k) != 0) {
+                return kc;
+            } else {
+                return val_arr->cmp(l_v, r_v);
+            }
         }
     }
 
@@ -358,7 +367,27 @@ public:
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
-    std::string to_string(const void* src) const override { return "{}"; }
+    std::string to_string(const void* src) const override {
+        auto src_ = reinterpret_cast<const MapValue*>(src);
+        auto src_key = reinterpret_cast<const CollectionValue*>(src_->key_data());
+        auto src_val = reinterpret_cast<const CollectionValue*>(src_->value_data());
+        size_t key_slot_size = _key_type_info->size();
+        size_t val_slot_size = _value_type_info->size();
+        std::string result = "{";
+
+        for (size_t i = 0; i < src_key->length(); ++i) {
+            std::string k_s =
+                    _key_type_info->to_string((uint8_t*)(src_key->data()) + key_slot_size);
+            std::string v_s =
+                    _key_type_info->to_string((uint8_t*)(src_val->data()) + val_slot_size);
+            result += k_s + ":" + v_s;
+            if (i != src_key->length() - 1) {
+                result += ", ";
+            }
+        }
+        result += "}";
+        return result;
+    }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -368,7 +397,6 @@ public:
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    // todo . is here only to need return 16 for two ptr?
     size_t size() const override { return sizeof(MapValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
@@ -1227,7 +1255,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         if (slice->size < value_len) {
             /*
              * CHAR type is of fixed length. Size in slice can be modified
@@ -1250,14 +1278,14 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
 
     static void direct_copy(void* dest, const void* src) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
 
@@ -1275,7 +1303,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
 
         auto min_size =
                 MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size : MAX_ZONE_MAP_INDEX_SIZE;
-        memory_copy(l_slice->data, r_slice->data, min_size);
+        memcpy(l_slice->data, r_slice->data, min_size);
         l_slice->size = min_size;
     }
 };
@@ -1292,7 +1320,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return Status::OK();
     }
@@ -1315,7 +1343,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return Status::OK();
     }
@@ -1370,7 +1398,7 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
 };
 
 template <FieldType field_type>
-inline const TypeInfo* get_scalar_type_info() {
+const TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
     static ScalarTypeInfo scalar_type_info(traits);
     return &scalar_type_info;

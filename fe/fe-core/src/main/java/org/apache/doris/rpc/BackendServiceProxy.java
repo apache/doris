@@ -25,6 +25,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
@@ -121,6 +122,38 @@ public class BackendServiceProxy {
         }
         // VERSION 2 means we send TExecPlanFragmentParamsList, not single TExecPlanFragmentParams
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_2);
+
+        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
+        MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
+        MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
+        try {
+            final BackendServiceClient client = getProxy(address);
+            if (twoPhaseExecution) {
+                return client.execPlanFragmentPrepareAsync(pRequest);
+            } else {
+                return client.execPlanFragmentAsync(pRequest);
+            }
+        } catch (Throwable e) {
+            LOG.warn("Execute plan fragment catch a exception, address={}:{}", address.getHostname(), address.getPort(),
+                    e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
+            TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
+        InternalService.PExecPlanFragmentRequest.Builder builder =
+                InternalService.PExecPlanFragmentRequest.newBuilder();
+        if (Config.use_compact_thrift_rpc) {
+            builder.setRequest(
+                    ByteString.copyFrom(new TSerializer(new TCompactProtocol.Factory()).serialize(params)));
+            builder.setCompact(true);
+        } else {
+            builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(params))).build();
+            builder.setCompact(false);
+        }
+        // VERSION 3 means we send TPipelineFragmentParamsList
+        builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_3);
 
         final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
         MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
@@ -261,11 +294,13 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PSendDataResult> sendData(
-            TNetworkAddress address, Types.PUniqueId fragmentInstanceId, List<InternalService.PDataRow> data)
+            TNetworkAddress address, Types.PUniqueId fragmentInstanceId,
+            Types.PUniqueId loadId, List<InternalService.PDataRow> data)
             throws RpcException {
 
         final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
         pRequest.setFragmentInstanceId(fragmentInstanceId);
+        pRequest.setLoadId(loadId);
         pRequest.addAllData(data);
         try {
             final BackendServiceClient client = getProxy(address);
@@ -276,10 +311,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address,
+            Types.PUniqueId fragmentInstanceId, Types.PUniqueId loadId)
             throws RpcException {
         final InternalService.PRollbackRequest pRequest = InternalService.PRollbackRequest.newBuilder()
-                .setFragmentInstanceId(fragmentInstanceId).build();
+                .setFragmentInstanceId(fragmentInstanceId).setLoadId(loadId).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.rollback(pRequest);
@@ -289,10 +325,11 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PCommitResult> commit(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+    public Future<InternalService.PCommitResult> commit(TNetworkAddress address,
+            Types.PUniqueId fragmentInstanceId, Types.PUniqueId loadId)
             throws RpcException {
         final InternalService.PCommitRequest pRequest = InternalService.PCommitRequest.newBuilder()
-                .setFragmentInstanceId(fragmentInstanceId).build();
+                .setFragmentInstanceId(fragmentInstanceId).setLoadId(loadId).build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.commit(pRequest);

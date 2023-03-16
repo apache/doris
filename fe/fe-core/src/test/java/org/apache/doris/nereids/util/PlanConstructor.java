@@ -25,7 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
 
@@ -34,25 +34,32 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 public class PlanConstructor {
-    public static OlapTable student;
-    public static OlapTable score;
-    public static OlapTable course;
-    private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
+
+    public static final OlapTable student;
+    public static final OlapTable score;
+    public static final OlapTable course;
+
+    public static final LogicalOlapScan scan1;
+    public static final LogicalOlapScan scan2;
+    public static final LogicalOlapScan scan3;
+    public static final LogicalOlapScan scan4;
+
+    private static final IdGenerator<ObjectId> RELATION_ID_GENERATOR = ObjectId.createGenerator();
 
     static {
         student = new OlapTable(0L, "student",
-                ImmutableList.<Column>of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                ImmutableList.of(new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("gender", Type.INT, false, AggregateType.NONE, "0", ""),
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("age", Type.INT, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
         score = new OlapTable(1L, "score",
-                ImmutableList.<Column>of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
+                ImmutableList.of(new Column("sid", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("cid", Type.INT, true, AggregateType.NONE, "", ""),
                         new Column("grade", Type.DOUBLE, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
         course = new OlapTable(2L, "course",
-                ImmutableList.<Column>of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
+                ImmutableList.of(new Column("cid", Type.INT, true, AggregateType.NONE, "0", ""),
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
@@ -74,6 +81,11 @@ public class PlanConstructor {
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
+
+        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+        scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
@@ -102,14 +114,16 @@ public class PlanConstructor {
     // With OlapTable.
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+        return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn),
+                ImmutableList.of("db"));
     }
 
     public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+        return new LogicalOlapScan(ObjectId.createGenerator().getNextId(),
+                newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
 
-    public static RelationId getNextRelationId() {
+    public static ObjectId getNextRelationId() {
         return RELATION_ID_GENERATOR.getNextId();
     }
 }

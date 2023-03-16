@@ -56,6 +56,7 @@ void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_va
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
+    column->reserve(1);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }
@@ -137,12 +138,16 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::DATEV2;
     case TypeIndex::DateTime:
         return PGenericType::DATETIME;
+    case TypeIndex::VARIANT:
+        return PGenericType::VARIANT;
     case TypeIndex::DateTimeV2:
         return PGenericType::DATETIMEV2;
     case TypeIndex::BitMap:
         return PGenericType::BITMAP;
     case TypeIndex::HLL:
         return PGenericType::HLL;
+    case TypeIndex::QuantileState:
+        return PGenericType::QUANTILE_STATE;
     case TypeIndex::Array:
         return PGenericType::LIST;
     case TypeIndex::Struct:

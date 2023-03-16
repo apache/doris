@@ -17,63 +17,92 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.OutputSavePoint;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
-import com.google.common.collect.ImmutableList;
-
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * remove the project that output same with its child to avoid we get two consecutive projects in best plan.
  * for more information, please see <a href="https://github.com/apache/doris/pull/13886">this PR</a>
  */
-public class EliminateUnnecessaryProject implements RewriteRuleFactory {
+@DependsRules(ColumnPruning.class)
+public class EliminateUnnecessaryProject implements CustomRewriter {
+
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-            RuleType.MARK_NECESSARY_PROJECT.build(
-                logicalSetOperation(logicalProject(), group())
-                    .thenApply(ctx -> {
-                        LogicalProject project = (LogicalProject) ctx.root.child(0);
-                        return ctx.root.withChildren(project.withEliminate(false), ctx.root.child(1));
-                    })
-            ),
-            RuleType.MARK_NECESSARY_PROJECT.build(
-                logicalSetOperation(group(), logicalProject())
-                    .thenApply(ctx -> {
-                        LogicalProject project = (LogicalProject) ctx.root.child(1);
-                        return ctx.root.withChildren(ctx.root.child(0), project.withEliminate(false));
-                    })
-            ),
-            RuleType.ELIMINATE_UNNECESSARY_PROJECT.build(
-                logicalProject(any())
-                    .when(LogicalProject::canEliminate)
-                    .when(project -> project.getOutputSet().equals(project.child().getOutputSet()))
-                    .thenApply(ctx -> {
-                        int rootGroupId = ctx.cascadesContext.getMemo().getRoot().getGroupId().asInt();
-                        LogicalProject<Plan> project = ctx.root;
-                        // if project is root, we need to ensure the output order is same.
-                        if (project.getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
-                                == rootGroupId) {
-                            if (project.getOutput().equals(project.child().getOutput())) {
-                                return project.child();
-                            } else {
-                                return null;
-                            }
-                        } else {
-                            return project.child();
-                        }
-                    })
-            ),
-            RuleType.ELIMINATE_UNNECESSARY_PROJECT.build(
-                logicalProject(logicalEmptyRelation())
-                        .then(project -> new LogicalEmptyRelation(project.getProjects()))
-            )
-        );
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return rewrite(plan, false);
+    }
+
+    private Plan rewrite(Plan plan, boolean outputSavePoint) {
+        if (plan instanceof LogicalSetOperation) {
+            return rewriteLogicalSetOperation((LogicalSetOperation) plan, outputSavePoint);
+        } else if (plan instanceof LogicalProject) {
+            return rewriteProject((LogicalProject) plan, outputSavePoint);
+        } else if (plan instanceof OutputSavePoint) {
+            return rewriteChildren(plan, true);
+        } else {
+            return rewriteChildren(plan, outputSavePoint);
+        }
+    }
+
+    private Plan rewriteProject(LogicalProject<Plan> project, boolean outputSavePoint) {
+        if (project.child() instanceof LogicalEmptyRelation) {
+            // eliminate unnecessary project
+            return new LogicalEmptyRelation(project.getProjects());
+        } else if (project.canEliminate() && outputSavePoint
+                && project.getOutputSet().equals(project.child().getOutputSet())) {
+            // eliminate unnecessary project
+            return rewrite(project.child(), outputSavePoint);
+        } else if (project.canEliminate() && project.getOutput().equals(project.child().getOutput())) {
+            // eliminate unnecessary project
+            return rewrite(project.child(), outputSavePoint);
+        } else {
+            return rewriteChildren(project, true);
+        }
+    }
+
+    private Plan rewriteLogicalSetOperation(LogicalSetOperation set, boolean outputSavePoint) {
+        if (set.arity() == 2) {
+            Plan left = set.child(0);
+            Plan right = set.child(1);
+            boolean changed = false;
+            if (isCanEliminateProject(left)) {
+                changed = true;
+                left = ((LogicalProject) left).withEliminate(false);
+            }
+            if (isCanEliminateProject(right)) {
+                changed = true;
+                right = ((LogicalProject) right).withEliminate(false);
+            }
+            if (changed) {
+                set = (LogicalSetOperation) set.withChildren(left, right);
+            }
+        }
+        return rewriteChildren(set, outputSavePoint);
+    }
+
+    private Plan rewriteChildren(Plan plan, boolean outputSavePoint) {
+        List<Plan> newChildren = new ArrayList<>();
+        boolean hasNewChildren = false;
+        for (Plan child : plan.children()) {
+            Plan newChild = rewrite(child, outputSavePoint);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            newChildren.add(newChild);
+        }
+        return hasNewChildren ? plan.withChildren(newChildren) : plan;
+    }
+
+    private static boolean isCanEliminateProject(Plan plan) {
+        return plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate();
     }
 }

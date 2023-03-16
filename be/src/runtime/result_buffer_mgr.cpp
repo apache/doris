@@ -55,7 +55,7 @@ Status ResultBufferMgr::init() {
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
                                       std::shared_ptr<BufferControlBlock>* sender,
-                                      bool enable_pipeline, int query_timeout) {
+                                      bool enable_pipeline, int exec_timout) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
@@ -78,7 +78,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // otherwise in some case may block all fragment handle threads
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
-        int64_t max_timeout = time(nullptr) + query_timeout + 5;
+        int64_t max_timeout = time(nullptr) + exec_timout + 5;
         cancel_at_time(max_timeout, query_id);
     }
     *sender = control_block;

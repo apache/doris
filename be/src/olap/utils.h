@@ -43,6 +43,7 @@
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,
@@ -51,16 +52,16 @@ const static int32_t g_power_table[] = {1,      10,      100,      1000,      10
 // 计时工具，用于确定一段代码执行的时间，用于性能调优
 class OlapStopWatch {
 public:
-    uint64_t get_elapse_time_us() {
+    uint64_t get_elapse_time_us() const {
         struct timeval now;
-        gettimeofday(&now, 0);
+        gettimeofday(&now, nullptr);
         return (uint64_t)((now.tv_sec - _begin_time.tv_sec) * 1e6 +
                           (now.tv_usec - _begin_time.tv_usec));
     }
 
-    double get_elapse_second() { return get_elapse_time_us() / 1000000.0; }
+    double get_elapse_second() const { return get_elapse_time_us() / 1000000.0; }
 
-    void reset() { gettimeofday(&_begin_time, 0); }
+    void reset() { gettimeofday(&_begin_time, nullptr); }
 
     OlapStopWatch() { reset(); }
 
@@ -105,9 +106,7 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-// 计算adler32的包装函数
-// 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
-#define ADLER32_INIT adler32(0L, Z_NULL, 0)
+uint32_t olap_adler32_init();
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
 // 获取系统当前时间，并将时间转换为字符串
@@ -251,8 +250,11 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
            field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
            field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
-           field_type == OLAP_FIELD_TYPE_DATETIME || field_type == OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_BOOL;
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
 }
 
 // Util used to get string name of thrift enum item
@@ -275,6 +277,20 @@ struct RowLocation {
     RowsetId rowset_id;
     uint32_t segment_id;
     uint32_t row_id;
+
+    bool operator==(const RowLocation& rhs) const {
+        return rowset_id == rhs.rowset_id && segment_id == rhs.segment_id && row_id == rhs.row_id;
+    }
+
+    bool operator<(const RowLocation& rhs) const {
+        if (rowset_id != rhs.rowset_id) {
+            return rowset_id < rhs.rowset_id;
+        } else if (segment_id != rhs.segment_id) {
+            return segment_id < rhs.segment_id;
+        } else {
+            return row_id < rhs.row_id;
+        }
+    }
 };
 
 struct GlobalRowLoacation {

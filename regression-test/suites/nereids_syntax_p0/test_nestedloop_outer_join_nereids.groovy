@@ -37,7 +37,6 @@ suite("test_nestedloop_outer_join_nereids", "query_p0") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
 

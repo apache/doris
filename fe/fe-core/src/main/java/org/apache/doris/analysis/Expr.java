@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -1074,6 +1075,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     @Override
     public abstract Expr clone();
 
+    public boolean notCheckDescIdEquals(Object obj) {
+        return equals(obj);
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == null) {
@@ -1323,18 +1328,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public boolean isScalarSubquery() {
         Preconditions.checkState(isAnalyzed);
         return this instanceof Subquery && getType().isScalarType();
-    }
-
-    /**
-     * Returns true if expr is can use vectorized process, otherwise false.
-     */
-    public boolean isVectorized() {
-        for (Expr child : children) {
-            if (!child.isVectorized()) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
@@ -1705,6 +1698,34 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return null;
     }
 
+    /*
+     * this function is used be lambda function to find lambda argument.
+     * and replace a new ColumnRefExpr
+     */
+    public void replaceExpr(String colName, ColumnRefExpr slotRefs, List<Expr> slotExpr) {
+        for (int i = 0; i < children.size(); ++i) {
+            children.get(i).replaceExpr(colName, slotRefs, slotExpr);
+            if (children.get(i).findSlotRefByName(colName)) {
+                slotExpr.add(slotRefs);
+                setChild(i, slotRefs);
+                break;
+            }
+        }
+    }
+
+    private boolean findSlotRefByName(String colName) {
+        if (this instanceof SlotRef) {
+            SlotRef slot = (SlotRef) this;
+            if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+
+
     /**
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
@@ -1953,10 +1974,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
 
-    protected void recursiveResetChildrenResult() throws AnalysisException {
+    protected void recursiveResetChildrenResult(boolean inView) throws AnalysisException {
         for (int i = 0; i < children.size(); i++) {
             final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue();
+            final Expr newChild = child.getResultValue(inView);
             if (newChild != child) {
                 setChild(i, newChild);
             }
@@ -1968,8 +1989,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * @return value returned can't be null, if this and it's children are't constant expr, return this.
      * @throws AnalysisException
      */
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
     }
@@ -2108,6 +2129,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return hasNullableChild();
             }
         }
+        if (fn.functionName().equalsIgnoreCase("group_concat")) {
+            int size = Math.min(fn.getNumArgs(), children.size());
+            for (int i = 0; i < size; ++i) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
         return true;
     }
 
@@ -2150,13 +2180,22 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    private boolean matchExprsWithoutAlias(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias) {
-        for (Expr expr : exprs) {
-            if (expr == null) {
-                continue;
+    public boolean haveMvSlot() {
+        for (Expr expr : getChildren()) {
+            if (expr.haveMvSlot()) {
+                return true;
             }
-            if (MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                    .mvColumnBreaker(MaterializedIndexMeta.normalizeName(toSqlWithoutTbl())))) {
+        }
+        return false;
+    }
+
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+            throws AnalysisException {
+        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
+        for (Expr expr : exprs) {
+            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
+                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
+                            .mvColumnBreaker(name))) {
                 return true;
             }
             if (MVExprEquivalent.aggregateArgumentEqual(this, expr)) {
@@ -2165,28 +2204,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         if (getChildren().isEmpty()) {
-            return false;
+            // Match base index when expr not be rewritten
+            return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
         }
 
         for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias)) {
+            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
                 return false;
             }
         }
         return true;
-    }
-
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias) {
-        if (this instanceof SlotRef && ((SlotRef) this).getColumnName() == null) {
-            return true; // means this is alias of other expr
-        }
-
-        Expr aliasExpr = stmt.getExprFromAliasSMap(this);
-        if (!ignoreAlias && aliasExpr != null) {
-            return aliasExpr.matchExprsWithoutAlias(exprs, stmt, true);
-        } else {
-            return matchExprsWithoutAlias(exprs, stmt, ignoreAlias);
-        }
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {
@@ -2203,9 +2230,27 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                         return Type.DECIMAL128;
                     } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
                         return Type.DATETIMEV2;
+                    } else if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
+                        return getActualArrayType((ArrayType) type);
                     }
                     return type;
                 }).toArray(Type[]::new);
+    }
+
+    private ArrayType getActualArrayType(ArrayType originArrayType) {
+        // Now we only support single-level array nesting.
+        // Multi-layer array nesting will be supported in the future.
+        Type type = originArrayType.getItemType();
+        if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+            return new ArrayType(Type.DECIMAL32);
+        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+            return new ArrayType(Type.DECIMAL64);
+        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+            return new ArrayType(Type.DECIMAL128);
+        } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+            return new ArrayType(Type.DATETIMEV2);
+        }
+        return originArrayType;
     }
 
     public boolean refToCountStar() {

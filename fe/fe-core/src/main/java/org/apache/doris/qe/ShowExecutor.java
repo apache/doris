@@ -41,6 +41,7 @@ import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
@@ -287,7 +288,9 @@ public class ShowExecutor {
             handleShowRoutineLoadTask();
         } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
             handleShowCreateRoutineLoad();
-        } else if (stmt instanceof ShowDeleteStmt) {
+        } else if (stmt instanceof ShowCreateLoadStmt) {
+            handleShowCreateLoad();
+        }  else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
@@ -562,7 +565,7 @@ public class ShowExecutor {
         List<List<String>> finalRows = procNode.fetchResult().getRows();
         // if this is superuser, hide ip and host info form backends info proc
         if (procNode instanceof BackendsProcDir) {
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
                 // hide host info
                 for (List<String> row : finalRows) {
                     row.remove(BackendsProcDir.HOSTNAME_INDEX);
@@ -707,7 +710,7 @@ public class ShowExecutor {
                 continue;
             }
 
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
                     fullName, PrivPredicate.SHOW)) {
                 continue;
             }
@@ -742,7 +745,7 @@ public class ShowExecutor {
                 continue;
             }
             // check tbl privs
-            if (!Env.getCurrentEnv().getAuth()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), showTableStmt.getCatalog(), db.getFullName(), tbl.getName(),
                             PrivPredicate.SHOW)) {
                 continue;
@@ -784,7 +787,7 @@ public class ShowExecutor {
                 }
 
                 // check tbl privs
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -1223,14 +1226,14 @@ public class ShowExecutor {
         Set<String> tableNames = job.getTableNames();
         if (tableNames.isEmpty()) {
             // forward compatibility
-            if (!Env.getCurrentEnv().getAuth()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), db.getFullName(), PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                         ConnectContext.get().getQualifiedUser(), db.getFullName());
             }
         } else {
             for (String tblName : tableNames) {
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), db.getFullName(), tblName, PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW LOAD WARNING",
                             ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -1250,6 +1253,9 @@ public class ShowExecutor {
     private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
             throws AnalysisException {
         String host = url.getHost();
+        if (host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 1);
+        }
         int port = url.getPort();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         Backend be = infoService.getBackendWithHttpPort(host, port);
@@ -1318,7 +1324,7 @@ public class ShowExecutor {
                                     + "The job will be cancelled automatically")
                             .build(), e);
                 }
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), dbFullName, tableName, PrivPredicate.LOAD)) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
                                     "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
@@ -1367,7 +1373,7 @@ public class ShowExecutor {
             throw new AnalysisException("The table metadata of job has been changed."
                     + " The job will be cancelled automatically", e);
         }
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbFullName, tableName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -1892,7 +1898,7 @@ public class ShowExecutor {
                     }
 
                     // check tbl privs
-                    if (!Env.getCurrentEnv().getAuth()
+                    if (!Env.getCurrentEnv().getAccessManager()
                             .checkTblPriv(ConnectContext.get(), db.getFullName(), olapTable.getName(),
                                     PrivPredicate.SHOW)) {
                         continue;
@@ -1929,7 +1935,7 @@ public class ShowExecutor {
                             dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods,
                                     dynamicPartitionProperty.getTimeUnit().toUpperCase())));
                 } catch (DdlException e) {
-                    e.printStackTrace();
+                    LOG.warn("", e);
                 } finally {
                     olapTable.readUnlock();
                 }
@@ -2027,7 +2033,7 @@ public class ShowExecutor {
         ShowLoadProfileStmt.PathType pathType = showStmt.getPathType();
         List<List<String>> rows = Lists.newArrayList();
         switch (pathType) {
-            case JOB_IDS:
+            case QUERY_IDS:
                 rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.LOAD);
                 break;
             case TASK_IDS: {
@@ -2098,7 +2104,7 @@ public class ShowExecutor {
                             .add("error_msg", "The table name for this routine load does not exist")
                             .build(), e);
                 }
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
                     resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
                     continue;
@@ -2122,6 +2128,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
+    private void handleShowCreateLoad() throws AnalysisException {
+        ShowCreateLoadStmt showCreateLoadStmt = (ShowCreateLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        String labelName = showCreateLoadStmt.getLabel();
+
+        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
+        Env env = ctx.getEnv();
+        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateLoadStmt.getDb());
+        long dbId = db.getId();
+        try {
+            List<Pair<Long, String>> result = env.getLoadManager().getCreateLoadStmt(dbId, labelName);
+            rows.addAll(result.stream().map(pair -> Lists.newArrayList(String.valueOf(pair.first), pair.second))
+                    .collect(Collectors.toList()));
+        } catch (DdlException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
+    }
+
     private void handleShowDataSkew() throws AnalysisException {
         ShowDataSkewStmt showStmt = (ShowDataSkewStmt) stmt;
         try {
@@ -2137,7 +2163,7 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -2225,7 +2251,7 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Lists.newArrayList();
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isQueryAvailable() && be.isLoadAvailable()) {
-                AgentClient client = new AgentClient(be.getHost(), be.getBePort());
+                AgentClient client = new AgentClient(be.getIp(), be.getBePort());
                 TCheckStorageFormatResult result = client.checkStorageFormat();
                 if (result == null) {
                     throw new AnalysisException("get tablet data from backend: " + be.getId() + "error.");
@@ -2429,7 +2455,7 @@ public class ShowExecutor {
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(tabletId));
             row.add(String.valueOf(backendId));
-            row.add(be.getHost());
+            row.add(be.getIp());
             row.add(task.getResultSnapshotPath());
             row.add(String.valueOf(copyStmt.getExpirationMinutes()));
             row.add(createTableStmt.get(0));

@@ -35,8 +35,6 @@ class DecimalV2Value;
 struct StringRef;
 struct JsonBinaryValue;
 
-PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
-
 constexpr bool is_enumeration_type(PrimitiveType type) {
     switch (type) {
     case TYPE_FLOAT:
@@ -98,10 +96,9 @@ constexpr bool has_variable_type(PrimitiveType type) {
            type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
-// Returns the byte size of type when in a tuple
-int get_slot_size(PrimitiveType type);
-
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
+
+PrimitiveType get_primitive_type(vectorized::TypeIndex v_type);
 
 TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);

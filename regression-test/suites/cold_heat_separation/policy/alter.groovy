@@ -16,12 +16,22 @@
 // under the License.
 
 suite("alter_policy") {
-    def has_resouce_policy_alter = sql """
-        SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
-    """
-    if(has_resouce_policy_alter.size() == 0) {
+
+    def check_resource_delete_if_exist = { resource_name ->
+        def has_resouce = sql """
+            SHOW RESOURCES WHERE NAME = "${resource_name}";
+        """
+        if (has_resouce.size() > 0) {
+            sql """
+                DROP RESOURCE '${resource_name}';
+            """
+        }
+    }
+    
+    // create resource
+    def create_source = { resource_name ->
         sql """
-        CREATE RESOURCE "has_resouce_policy_alter"
+        CREATE RESOURCE "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "bj.s3.comaaaa",
@@ -36,92 +46,159 @@ suite("alter_policy") {
             "s3_validity_check" = "false"
         );
         """
+    }
 
-        sql """
-        CREATE STORAGE POLICY has_resouce_policy_alter_policy
-        PROPERTIES(
-            "storage_resource" = "has_resouce_policy_alter",
-            "cooldown_ttl" = "1d"
-        )
+    def alter_resource_change_property = { resource_name ->
+        // support
+        def alter_result_succ_1 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_MAX_CONNECTIONS" = "1111");
+        """
+
+        def alter_result_succ_2 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_CONNECTION_TIMEOUT_MS" = "2222");
+        """
+
+        def alter_result_succ_5 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_SECRET_KEY" = "5555");
+        """
+
+        def alter_result_succ_6 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_ACCESS_KEY" = "6666");
+        """
+
+        def alter_result_succ_7 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_REQUEST_TIMEOUT_MS" = "7777");
+        """
+
+        // errCode = 2, detailMessage = current not support modify property : AWS_REGION
+        def alter_result_fail_1 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_REGION" = "8888");
+        """
+
+        // errCode = 2, detailMessage = current not support modify property : AWS_BUCKET
+        def alter_result_fail_2 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_BUCKET" = "9999");
+        """
+
+        // errCode = 2, detailMessage = current not support modify property : AWS_ROOT_PATH
+        def alter_result_fail_3 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_ROOT_PATH" = "10101010");
+        """
+
+        // errCode = 2, detailMessage = current not support modify property : AWS_ENDPOINT
+        def alter_result_fail_4 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("AWS_ENDPOINT" = "11111111");
+        """
+
+        // errCode = 2, detailMessage = current not support modify property : type
+        def alter_result_fail_5 = try_sql """
+            ALTER RESOURCE "${resource_name}" PROPERTIES("type" = "local");
         """
     }
 
-    // support
-    def alter_result_succ_1 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_MAX_CONNECTIONS" = "1111");
-    """
+    def check_alter_resource_result_no_policy = { resource_name ->
+        def show_alter_result = order_sql """
+            SHOW RESOURCES WHERE NAME = "${resource_name}";
+        """
+        logger.info(show_alter_result.toString())
+        println show_alter_result.toString()
 
-    def alter_result_succ_2 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_CONNECTION_TIMEOUT_MS" = "2222");
-    """
+        // [[has_resouce_policy_alter, s3, AWS_ACCESS_KEY, 6666],
+        // [has_resouce_policy_alter, s3, AWS_BUCKET, test-bucket],
+        // [has_resouce_policy_alter, s3, AWS_CONNECTION_TIMEOUT_MS, 2222],
+        // [has_resouce_policy_alter, s3, AWS_ENDPOINT, bj.s3.comaaaa],
+        // [has_resouce_policy_alter, s3, AWS_MAX_CONNECTIONS, 1111],
+        // [has_resouce_policy_alter, s3, AWS_REGION, bj],
+        // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
+        // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
+        // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
+        // [has_resouce_policy_alter, s3, id, {id}],
+        // [has_resouce_policy_alter, s3, type, s3]
+        // [has_resouce_policy_alter, s3, version, {version}]]
+        // AWS_ACCESS_KEY
+        assertEquals(show_alter_result[0][3], "6666")
+        // AWS_BUCKET
+        assertEquals(show_alter_result[1][3], "9999")
+        // AWS_CONNECTION_TIMEOUT_MS
+        assertEquals(show_alter_result[2][3], "2222")
+        // AWS_ENDPOINT
+        assertEquals(show_alter_result[3][3], "11111111")
+        // AWS_MAX_CONNECTIONS
+        assertEquals(show_alter_result[4][3], "1111")
+        // AWS_REGION
+        assertEquals(show_alter_result[5][3], "8888")
+        // AWS_REQUEST_TIMEOUT_MS
+        assertEquals(show_alter_result[6][3], "7777")
+        // s3_rootpath
+        assertEquals(show_alter_result[7][3], "10101010")
+        // AWS_SECRET_KEY
+        assertEquals(show_alter_result[8][3], "******")
+    }
 
-    def alter_result_succ_5 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_SECRET_KEY" = "5555");
-    """
+    def check_alter_resource_result_with_policy = { resource_name ->
+        def show_alter_result = order_sql """
+            SHOW RESOURCES WHERE NAME = "${resource_name}";
+        """
+        logger.info(show_alter_result.toString())
+        println show_alter_result.toString()
 
-    def alter_result_succ_6 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_ACCESS_KEY" = "6666");
-    """
+        // [[has_resouce_policy_alter, s3, AWS_ACCESS_KEY, 6666],
+        // [has_resouce_policy_alter, s3, AWS_BUCKET, test-bucket],
+        // [has_resouce_policy_alter, s3, AWS_CONNECTION_TIMEOUT_MS, 2222],
+        // [has_resouce_policy_alter, s3, AWS_ENDPOINT, bj.s3.comaaaa],
+        // [has_resouce_policy_alter, s3, AWS_MAX_CONNECTIONS, 1111],
+        // [has_resouce_policy_alter, s3, AWS_REGION, bj],
+        // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
+        // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
+        // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
+        // [has_resouce_policy_alter, s3, id, {id}],
+        // [has_resouce_policy_alter, s3, type, s3]
+        // [has_resouce_policy_alter, s3, version, {version}]]
+        // AWS_ACCESS_KEY
+        assertEquals(show_alter_result[0][3], "6666")
+        // AWS_BUCKET
+        assertEquals(show_alter_result[1][3], "test-bucket")
+        // AWS_CONNECTION_TIMEOUT_MS
+        assertEquals(show_alter_result[2][3], "2222")
+        // AWS_ENDPOINT
+        assertEquals(show_alter_result[3][3], "bj.s3.comaaaa")
+        // AWS_MAX_CONNECTIONS
+        assertEquals(show_alter_result[4][3], "1111")
+        // AWS_REGION
+        assertEquals(show_alter_result[5][3], "bj")
+        // AWS_REQUEST_TIMEOUT_MS
+        assertEquals(show_alter_result[6][3], "7777")
+        // s3_rootpath
+        assertEquals(show_alter_result[7][3], "path/to/rootaaaa")
+        // AWS_SECRET_KEY
+        assertEquals(show_alter_result[8][3], "******")
+    }
 
-    def alter_result_succ_7 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_REQUEST_TIMEOUT_MS" = "7777");
-    """
 
-    // errCode = 2, detailMessage = current not support modify property : AWS_REGION
-    def alter_result_fail_1 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_REGION" = "8888");
-    """
+    // test when no policy binding to resource
+    def no_binding_policy_resource = "no_binding_policy_resource"
+    check_resource_delete_if_exist(no_binding_policy_resource)
+    create_source(no_binding_policy_resource)
+    alter_resource_change_property(no_binding_policy_resource)
+    check_alter_resource_result_no_policy(no_binding_policy_resource)
+    
 
-    // errCode = 2, detailMessage = current not support modify property : AWS_BUCKET
-    def alter_result_fail_2 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_BUCKET" = "9999");
+    // test when policy binding to resource
+    def has_resource_policy_alter = "has_resource_policy_alter"
+    check_resource_delete_if_exist(has_resource_policy_alter)
+    create_source(has_resource_policy_alter)
+    sql """
+        CREATE STORAGE POLICY has_resouce_policy_alter_policy
+        PROPERTIES(
+            "storage_resource" = "${has_resource_policy_alter}",
+            "cooldown_ttl" = "1d"
+        )
+        """
+    alter_resource_change_property(has_resource_policy_alter)
+    check_alter_resource_result_with_policy(has_resource_policy_alter)
+    sql """
+    DROP STORAGE POLICY has_resouce_policy_alter_policy
     """
-
-    // errCode = 2, detailMessage = current not support modify property : AWS_ROOT_PATH
-    def alter_result_fail_3 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_ROOT_PATH" = "10101010");
-    """
-
-    // errCode = 2, detailMessage = current not support modify property : AWS_ENDPOINT
-    def alter_result_fail_4 = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_ENDPOINT" = "11111111");
-    """
-
-    def show_alter_result = order_sql """
-        SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
-    """
-    logger.info(show_alter_result.toString())
-
-    // [[has_resouce_policy_alter, s3, AWS_ACCESS_KEY, 6666],
-    // [has_resouce_policy_alter, s3, AWS_BUCKET, test-bucket],
-    // [has_resouce_policy_alter, s3, AWS_CONNECTION_TIMEOUT_MS, 2222],
-    // [has_resouce_policy_alter, s3, AWS_ENDPOINT, bj.s3.comaaaa],
-    // [has_resouce_policy_alter, s3, AWS_MAX_CONNECTIONS, 1111],
-    // [has_resouce_policy_alter, s3, AWS_REGION, bj],
-    // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
-    // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
-    // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
-    // [has_resouce_policy_alter, s3, id, {id}],
-    // [has_resouce_policy_alter, s3, type, s3]
-    // [has_resouce_policy_alter, s3, version, {version}]]
-    // AWS_ACCESS_KEY
-    assertEquals(show_alter_result[0][3], "6666")
-    // AWS_BUCKET
-    assertEquals(show_alter_result[1][3], "test-bucket")
-    // AWS_CONNECTION_TIMEOUT_MS
-    assertEquals(show_alter_result[2][3], "2222")
-    // AWS_ENDPOINT
-    assertEquals(show_alter_result[3][3], "bj.s3.comaaaa")
-    // AWS_MAX_CONNECTIONS
-    assertEquals(show_alter_result[4][3], "1111")
-    // AWS_REGION
-    assertEquals(show_alter_result[5][3], "bj")
-    // AWS_REQUEST_TIMEOUT_MS
-    assertEquals(show_alter_result[6][3], "7777")
-    // s3_rootpath
-    assertEquals(show_alter_result[7][3], "path/to/rootaaaa")
-    // AWS_SECRET_KEY
-    assertEquals(show_alter_result[8][3], "******")
 
     def storage_exist = { name ->
         def show_storage_policy = sql """
@@ -139,8 +216,8 @@ suite("alter_policy") {
     if (!storage_exist.call("has_test_policy_to_alter")) {
         def create_succ_1 = try_sql """
             CREATE STORAGE POLICY has_test_policy_to_alter
-            PROPERTIES(
-            "storage_resource" = "has_resouce_policy_alter",
+            PROPERTIES( 
+            "storage_resource" = "${has_resource_policy_alter}",
             "cooldown_ttl" = "10086"
             );
         """
@@ -152,14 +229,24 @@ suite("alter_policy") {
         ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_ttl" = "10000");
     """
 
+    // FAIL
+    alter_result_sql_succ_ttl = try_sql """
+        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_ttl" = "-10000");
+    """
+
     // OK
     def alter_result_sql_succ_datetime = try_sql """
         ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "2023-06-08 00:00:00");
     """
 
     // FAILED
+    alter_result_sql_succ_datetime = try_sql """
+        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("cooldown_datetime" = "2023-13-32 00:00:00");
+    """
+
+    // FAILED
     def alter_result_sql_failed_storage_resource = try_sql """
-        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("storage_resource" = "has_resouce_policy_alter");
+        ALTER STORAGE POLICY has_test_policy_to_alter PROPERTIES("storage_resource" = "${no_binding_policy_resource}");
     """
     // errCode = 2, detailMessage = not support change storage policy's storage resource, you can change s3 properties by alter resource
     assertEquals(alter_result_sql_failed_storage_resource, null)
@@ -168,7 +255,7 @@ suite("alter_policy") {
         def create_succ_1 = try_sql """
             CREATE STORAGE POLICY has_test_policy_to_alter_1
             PROPERTIES(
-            "storage_resource" = "has_resouce_policy_alter",
+            "storage_resource" = "${no_binding_policy_resource}",
             "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
@@ -177,6 +264,18 @@ suite("alter_policy") {
 
     // go to check be、fe log about notify alter.
     def alter_result_succ_again = try_sql """
-        ALTER RESOURCE "has_resouce_policy_alter" PROPERTIES("AWS_ACCESS_KEY" = "akakak");
+        ALTER RESOURCE "${has_resource_policy_alter}" PROPERTIES("AWS_ACCESS_KEY" = "akakak");
     """
+
+    sql """
+    DROP STORAGE POLICY has_test_policy_to_alter;
+    """
+
+    sql """
+    DROP STORAGE POLICY has_test_policy_to_alter_1;
+    """
+
+    sql """
+            DROP RESOURCE '${no_binding_policy_resource}'
+        """
 }

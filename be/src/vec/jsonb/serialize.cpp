@@ -157,11 +157,11 @@ static void deserialize_column(PrimitiveType type, JsonbValue* slot_value, Mutab
 static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
                              const IColumn* column, const StringRef& data_ref, int row,
                              JsonbWriterT<JsonbOutStream>& jsonb_writer) {
-    jsonb_writer.writeKey(tablet_column.unique_id());
     if (is_column_null_at(row, column, tablet_column.type(), data_ref)) {
-        jsonb_writer.writeNull();
+        // Do nothing
         return;
     }
+    jsonb_writer.writeKey(tablet_column.unique_id());
     if (tablet_column.is_array_type()) {
         const char* begin = nullptr;
         StringRef value = column->serialize_value_into_arena(row, *mem_pool, begin);
@@ -173,7 +173,7 @@ static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
         auto size = bitmap_value->getSizeInBytes();
         // serialize the content of string
         auto ptr = mem_pool->alloc(size);
-        bitmap_value->write(reinterpret_cast<char*>(ptr));
+        bitmap_value->write_to(reinterpret_cast<char*>(ptr));
         jsonb_writer.writeStartBinary();
         jsonb_writer.writeBinary(reinterpret_cast<const char*>(ptr), size);
         jsonb_writer.writeEndBinary();

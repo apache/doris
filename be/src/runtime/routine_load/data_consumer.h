@@ -33,7 +33,7 @@ class Status;
 
 class DataConsumer {
 public:
-    DataConsumer(StreamLoadContext* ctx)
+    DataConsumer()
             : _id(UniqueId::gen_uid()),
               _grp_id(UniqueId::gen_uid()),
               _has_grp(false),
@@ -44,18 +44,18 @@ public:
     virtual ~DataConsumer() {}
 
     // init the consumer with the given parameters
-    virtual Status init(StreamLoadContext* ctx) = 0;
+    virtual Status init(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // start consuming
-    virtual Status consume(StreamLoadContext* ctx) = 0;
+    virtual Status consume(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // cancel the consuming process.
     // if the consumer is not initialized, or the consuming
     // process is already finished, call cancel() will
     // return ERROR
-    virtual Status cancel(StreamLoadContext* ctx) = 0;
+    virtual Status cancel(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // reset the data consumer before being reused
     virtual Status reset() = 0;
     // return true the if the consumer match the need
-    virtual bool match(StreamLoadContext* ctx) = 0;
+    virtual bool match(std::shared_ptr<StreamLoadContext> ctx) = 0;
 
     const UniqueId& id() { return _id; }
     time_t last_visit_time() { return _last_visit_time; }
@@ -109,10 +109,8 @@ public:
 
 class KafkaDataConsumer : public DataConsumer {
 public:
-    KafkaDataConsumer(StreamLoadContext* ctx)
-            : DataConsumer(ctx),
-              _brokers(ctx->kafka_info->brokers),
-              _topic(ctx->kafka_info->topic) {}
+    KafkaDataConsumer(std::shared_ptr<StreamLoadContext> ctx)
+            : _brokers(ctx->kafka_info->brokers), _topic(ctx->kafka_info->topic) {}
 
     virtual ~KafkaDataConsumer() {
         VLOG_NOTICE << "deconstruct consumer";
@@ -123,18 +121,19 @@ public:
         }
     }
 
-    virtual Status init(StreamLoadContext* ctx) override;
+    Status init(std::shared_ptr<StreamLoadContext> ctx) override;
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
-    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK(); }
-    virtual Status cancel(StreamLoadContext* ctx) override;
+    Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
+    Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
     // reassign partition topics
     virtual Status reset() override;
-    virtual bool match(StreamLoadContext* ctx) override;
+    bool match(std::shared_ptr<StreamLoadContext> ctx) override;
     // commit kafka offset
     Status commit(std::vector<RdKafka::TopicPartition*>& offset);
 
     Status assign_topic_partitions(const std::map<int32_t, int64_t>& begin_partition_offset,
-                                   const std::string& topic, StreamLoadContext* ctx);
+                                   const std::string& topic,
+                                   std::shared_ptr<StreamLoadContext> ctx);
 
     // start the consumer and put msgs to queue
     Status group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);

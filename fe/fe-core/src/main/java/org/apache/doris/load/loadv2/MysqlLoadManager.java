@@ -21,11 +21,14 @@ import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
-import org.apache.doris.load.loadv2.LoadTask.MergeType;
+import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -47,59 +50,175 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
     private final ThreadPoolExecutor mysqlLoadPool;
+    private final TokenManager tokenManager;
 
-    public MysqlLoadManager() {
-        this.mysqlLoadPool = ThreadPoolManager.newDaemonCacheThreadPool(4, "Mysql Load", true);
+    private static class MySqlLoadContext {
+        private boolean finished;
+        private HttpPut request;
+        private boolean isCancelled;
+
+        public MySqlLoadContext() {
+            this.finished = false;
+            this.isCancelled = false;
+        }
+
+        public boolean isFinished() {
+            return finished;
+        }
+
+        public void setFinished(boolean finished) {
+            this.finished = finished;
+        }
+
+        public HttpPut getRequest() {
+            return request;
+        }
+
+        public void setRequest(HttpPut request) {
+            this.request = request;
+        }
+
+        public boolean isCancelled() {
+            return isCancelled;
+        }
+
+        public void setCancelled(boolean cancelled) {
+            isCancelled = cancelled;
+        }
     }
 
-    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
-            throws IOException, LoadException {
+    private final Map<String, MySqlLoadContext> loadContextMap = new ConcurrentHashMap<>();
+
+
+    public MysqlLoadManager(TokenManager tokenManager) {
+        int poolSize = Config.mysql_load_thread_pool;
+        // MySqlLoad pool can accept 4 + 4 * 5 = 24  requests by default.
+        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5, "Mysql Load", true);
+        this.tokenManager = tokenManager;
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt, String loadId)
+            throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         // Mysql data load only have one data desc
         DataDescription dataDesc = stmt.getDataDescriptions().get(0);
-        String database = dataDesc.getDbName();
-        String table = dataDesc.getTableName();
         List<String> filePaths = dataDesc.getFilePaths();
+        String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
+        String table = dataDesc.getTableName();
+        int oldTimeout = context.getExecTimeout();
+        int newTimeOut = extractTimeOut(dataDesc);
+        if (newTimeOut > oldTimeout) {
+            // set exec timeout avoid by killed TimeoutChecker
+            context.setExecTimeout(newTimeOut);
+        }
+        String token = tokenManager.acquireToken();
+        LOG.info("execute MySqlLoadJob for id: {}.", loadId);
         try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
             for (String file : filePaths) {
-                InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
-                HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
+                InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file, loadId);
+                HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table, token);
+                MySqlLoadContext loadContext = new MySqlLoadContext();
+                loadContext.setRequest(request);
+                loadContextMap.put(loadId, loadContext);
                 try (final CloseableHttpResponse response = httpclient.execute(request)) {
-                    JsonObject result = JsonParser.parseString(EntityUtils.toString(response.getEntity()))
-                            .getAsJsonObject();
+                    String body = EntityUtils.toString(response.getEntity());
+                    JsonObject result = JsonParser.parseString(body).getAsJsonObject();
                     if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
-                        LOG.warn("Execute stream load for mysql data load failed with message: " + request);
+                        LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
                         throw new LoadException(result.get("Message").getAsString());
                     }
                     loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
                     loadResult.incSkipped(result.get("NumberFilteredRows").getAsInt());
                 }
             }
+        } catch (Throwable t) {
+            LOG.warn("Execute mysql load {} failed", loadId, t);
+            // drain the data from client conn util empty packet received, otherwise the connection will be reset
+            if (loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
+                LOG.warn("not drained yet, try reading left data from client connection for load {}.", loadId);
+                ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
+                // MySql client will send an empty packet when eof
+                while (buffer != null && buffer.limit() != 0) {
+                    buffer = context.getMysqlChannel().fetchOnePacket();
+                }
+                LOG.debug("Finished reading the left bytes.");
+            }
+            // make cancel message to user
+            if (loadContextMap.containsKey(loadId) && loadContextMap.get(loadId).isCancelled()) {
+                throw new LoadException("Cancelled");
+            } else {
+                throw t;
+            }
+        } finally {
+            loadContextMap.remove(loadId);
+            // revert the exec timeout
+            if (newTimeOut > oldTimeout) {
+                context.setExecTimeout(oldTimeout);
+            }
         }
         return loadResult;
     }
 
-    private InputStreamEntity getInputStreamEntity(ConnectContext context, boolean isClientLocal, String file)
+    public void cancelMySqlLoad(String loadId) {
+        if (loadContextMap.containsKey(loadId)) {
+            loadContextMap.get(loadId).setCancelled(true);
+            loadContextMap.get(loadId).getRequest().abort();
+            LOG.info("Cancel MySqlLoad with id {}", loadId);
+        } else {
+            LOG.info("Load id: {} may be already finished.", loadId);
+        }
+    }
+
+    public int extractTimeOut(DataDescription desc) {
+        if (desc.getProperties() != null && desc.getProperties().containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(desc.getProperties().get(LoadStmt.TIMEOUT_PROPERTY));
+        }
+        return -1;
+    }
+
+    private String getColumns(DataDescription desc) {
+        if (desc.getFileFieldNames() != null) {
+            List<String> fields = desc.getFileFieldNames();
+            StringBuilder fieldString = new StringBuilder();
+            fieldString.append(Joiner.on(",").join(fields));
+
+            if (desc.getColumnMappingList() != null) {
+                fieldString.append(",");
+                List<String> mappings = new ArrayList<>();
+                for (Expr expr : desc.getColumnMappingList()) {
+                    mappings.add(expr.toSql().replaceAll("`", ""));
+                }
+                fieldString.append(Joiner.on(",").join(mappings));
+            }
+            return fieldString.toString();
+        }
+        return null;
+    }
+
+    private InputStreamEntity getInputStreamEntity(
+            ConnectContext context,
+            boolean isClientLocal,
+            String file,
+            String loadId)
             throws IOException {
         InputStream inputStream;
         if (isClientLocal) {
             // mysql client will check the file exist.
             replyClientForReadFile(context, file);
             inputStream = new ByteBufferNetworkInputStream();
-            fillByteBufferAsync(context, (ByteBufferNetworkInputStream) inputStream);
+            fillByteBufferAsync(context, (ByteBufferNetworkInputStream) inputStream, loadId);
         } else {
             // server side file had already check after analyze.
             inputStream = Files.newInputStream(Paths.get(file));
@@ -108,15 +227,16 @@ public class MysqlLoadManager {
     }
 
     private void replyClientForReadFile(ConnectContext context, String path) throws IOException {
-        context.getSerializer().reset();
-        context.getSerializer().writeByte((byte) 0xfb);
-        context.getSerializer().writeEofString(path);
-        context.getMysqlChannel().sendAndFlush(context.getSerializer().toByteBuffer());
+        MysqlSerializer serializer = context.getMysqlChannel().getSerializer();
+        serializer.reset();
+        serializer.writeByte((byte) 0xfb);
+        serializer.writeEofString(path);
+        context.getMysqlChannel().sendAndFlush(serializer.toByteBuffer());
     }
 
-    private void fillByteBufferAsync(ConnectContext context, ByteBufferNetworkInputStream inputStream) {
+    private void fillByteBufferAsync(ConnectContext context, ByteBufferNetworkInputStream inputStream, String loadId) {
         mysqlLoadPool.submit(() -> {
-            ByteBuffer buffer = null;
+            ByteBuffer buffer;
             try {
                 buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
@@ -124,7 +244,11 @@ public class MysqlLoadManager {
                     inputStream.fillByteBuffer(buffer);
                     buffer = context.getMysqlChannel().fetchOnePacket();
                 }
+                if (loadContextMap.containsKey(loadId)) {
+                    loadContextMap.get(loadId).setFinished(true);
+                }
             } catch (IOException | InterruptedException e) {
+                LOG.warn("Failed fetch packet from mysql client for load: " + loadId, e);
                 throw new RuntimeException(e);
             } finally {
                 inputStream.markFinished();
@@ -137,23 +261,16 @@ public class MysqlLoadManager {
             InputStreamEntity entity,
             DataDescription desc,
             String database,
-            String table) throws LoadException {
+            String table,
+            String token) throws LoadException {
         final HttpPut httpPut = new HttpPut(selectBackendForMySqlLoad(database, table));
 
         httpPut.addHeader("Expect", "100-continue");
         httpPut.addHeader("Content-Type", "text/plain");
+        httpPut.addHeader("token", token);
 
         Map<String, String> props = desc.getProperties();
         if (props != null) {
-            // auth
-            if (!props.containsKey("auth")) {
-                throw new LoadException("Must have auth(user:password) in properties.");
-            }
-            // TODO: use token to send request to avoid double auth.
-            String auth = props.get("auth");
-            String base64Auth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
-            httpPut.addHeader("Authorization", "Basic " + base64Auth);
-
             // max_filter_ratio
             if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
                 String maxFilterRatio = props.get(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO);
@@ -170,6 +287,18 @@ public class MysqlLoadManager {
             if (props.containsKey(LoadStmt.STRICT_MODE)) {
                 String strictMode = props.get(LoadStmt.STRICT_MODE);
                 httpPut.addHeader(LoadStmt.STRICT_MODE, strictMode);
+            }
+
+            // timeout
+            if (props.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+                String timeout = props.get(LoadStmt.TIMEOUT_PROPERTY);
+                httpPut.addHeader(LoadStmt.TIMEOUT_PROPERTY, timeout);
+            }
+
+            // timezone
+            if (props.containsKey(LoadStmt.TIMEZONE)) {
+                String timezone = props.get(LoadStmt.TIMEZONE);
+                httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
             }
         }
 
@@ -188,26 +317,10 @@ public class MysqlLoadManager {
             httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
         }
 
-        // merge_type
-        if (!desc.getMergeType().equals(MergeType.APPEND)) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, desc.getMergeType().name());
-        }
-
         // columns
-        if (desc.getFileFieldNames() != null) {
-            List<String> fields = desc.getFileFieldNames();
-            StringBuilder fieldString = new StringBuilder();
-            fieldString.append(Joiner.on(",").join(fields));
-
-            if (desc.getColumnMappingList() != null) {
-                fieldString.append(",");
-                List<String> mappings = new ArrayList<>();
-                for (Expr expr : desc.getColumnMappingList()) {
-                    mappings.add(expr.toSql().replaceAll("`", ""));
-                }
-                fieldString.append(Joiner.on(",").join(mappings));
-            }
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, fieldString.toString());
+        String columns = getColumns(desc);
+        if (columns != null) {
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, columns);
         }
 
         // partitions
@@ -237,7 +350,7 @@ public class MysqlLoadManager {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("http://");
-        sb.append(backend.getHost());
+        sb.append(backend.getIp());
         sb.append(":");
         sb.append(backend.getHttpPort());
         sb.append("/api/");

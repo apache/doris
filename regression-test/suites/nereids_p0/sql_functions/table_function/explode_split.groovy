@@ -17,8 +17,7 @@
 
 suite("explode_split") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "test_lv_str"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

@@ -31,7 +31,6 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
   aggregate_functions/aggregate_function_min_max_by.cpp
-  aggregate_functions/aggregate_function_null.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -47,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
   aggregate_functions/aggregate_function_histogram.cpp
+  aggregate_functions/aggregate_function_quantile_state.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_struct.cpp
@@ -57,6 +57,11 @@ set(VEC_FILES
   columns/column_vector.cpp
   columns/column_map.cpp
   columns/columns_common.cpp
+  columns/column_object.cpp
+  json/json_parser.cpp
+  json/parse2column.cpp
+  json/path_in_data.cpp
+  common/schema_util.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
@@ -91,13 +96,16 @@ set(VEC_FILES
   data_types/data_type_string.cpp
   data_types/data_type_decimal.cpp
   data_types/data_type_map.cpp
+  data_types/data_type_quantilestate.cpp
   data_types/get_least_supertype.cpp
+  data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
   data_types/data_type_time.cpp
+  data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
@@ -146,11 +154,13 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/vschema_change_expr.cpp
   exprs/table_function/table_function_factory.cpp
   exprs/table_function/vexplode.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
+  exprs/lambda_function/varray_map_function.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
@@ -167,11 +177,16 @@ set(VEC_FILES
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
+  functions/array/function_array_enumerate_uniq.cpp
   functions/array/function_array_range.cpp
   functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
+  functions/array/function_array_popfront.cpp
   functions/array/function_array_constructor.cpp
   functions/array/function_array_with_constant.cpp
+  functions/array/function_array_apply.cpp
+  functions/array/function_array_concat.cpp
+  functions/array/function_array_pushfront.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -228,6 +243,7 @@ set(VEC_FILES
   functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/function_nonnullable.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
@@ -236,6 +252,7 @@ set(VEC_FILES
   functions/function_running_difference.cpp
   functions/function_width_bucket.cpp
   functions/match.cpp
+  functions/function_quantile_state.cpp
   
   jsonb/serialize.cpp
   olap/vgeneric_iterators.cpp
@@ -273,6 +290,11 @@ set(VEC_FILES
   exec/format/parquet/schema_desc.cpp
   exec/format/parquet/vparquet_column_reader.cpp
   exec/format/parquet/level_decoder.cpp
+  exec/format/parquet/decoder.cpp
+  exec/format/parquet/fix_length_plain_decoder.cpp
+  exec/format/parquet/byte_array_plain_decoder.cpp
+  exec/format/parquet/byte_array_dict_decoder.cpp
+  exec/format/parquet/bool_plain_decoder.cpp
   exec/format/parquet/parquet_common.cpp
   exec/scan/vscan_node.cpp
   exec/scan/vscanner.cpp
@@ -297,13 +319,14 @@ set(VEC_FILES
   exec/format/table/iceberg_reader.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
   exec/format/file_reader/new_plain_binary_line_reader.cpp
+  exec/format/parquet/delta_bit_pack_decoder.cpp
+  exec/format/parquet/bool_rle_decoder.cpp
   )
 
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
-            exec/scan/mysql_scanner.cpp
-            )
+            exec/scan/mysql_scanner.cpp)
 endif ()
 
 add_library(Vec STATIC

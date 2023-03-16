@@ -299,4 +299,4 @@ xxx
 
 ## Finish publishing
 
-Please refer to the [Completing the Release](../release-complete) documentation to complete all release processes.
+Please refer to the [Completing the Release](./release-complete.md) documentation to complete all release processes.

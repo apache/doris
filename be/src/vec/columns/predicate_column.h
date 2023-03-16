@@ -19,7 +19,6 @@
 
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
-#include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -186,6 +185,15 @@ public:
         LOG(FATAL) << "update_hash_with_value not supported in PredicateColumnType";
     }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in PredicateColumnType";
+    }
+
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported in PredicateColumnType";
+    }
+
     void insert_string_value(const char* data_ptr, size_t length) {
         StringRef sv((char*)data_ptr, length);
         data.push_back_without_reserve(sv);
@@ -267,11 +275,9 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_pool == nullptr) {
-                _pool.reset(new MemPool());
-            }
             const auto total_mem_size = offsets[num] - offsets[0];
-            char* destination = (char*)_pool->allocate(total_mem_size);
+            strings.resize(strings.size() + total_mem_size);
+            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -291,16 +297,13 @@ public:
             return;
         }
         if constexpr (std::is_same_v<T, StringRef>) {
-            if (_pool == nullptr) {
-                _pool.reset(new MemPool());
-            }
-
             size_t total_mem_size = 0;
             for (size_t i = 0; i < num; i++) {
                 total_mem_size += len_array[i];
             }
 
-            char* destination = (char*)_pool->allocate(total_mem_size);
+            strings.resize(strings.size() + total_mem_size);
+            char* destination = reinterpret_cast<char*>(strings.data()) + strings.size();
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -331,9 +334,7 @@ public:
 
     void clear() override {
         data.clear();
-        if (_pool != nullptr) {
-            _pool->clear();
-        }
+        strings.clear();
     }
 
     size_t byte_size() const override { return data.size() * sizeof(T); }
@@ -424,6 +425,10 @@ public:
         LOG(FATAL) << "filter not supported in PredicateColumnType";
     }
 
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in PredicateColumnType";
+    }
+
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in PredicateColumnType";
     }
@@ -444,6 +449,10 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
+    }
+
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
@@ -530,7 +539,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    std::unique_ptr<MemPool> _pool;
+    ColumnString::Chars strings;
 };
 
 } // namespace doris::vectorized

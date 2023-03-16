@@ -48,4 +48,5 @@ public enum StatisticalType {
     FILE_SCAN_NODE,
     METADATA_SCAN_NODE,
     JDBC_SCAN_NODE,
+    TEST_EXTERNAL_TABLE,
 }

@@ -19,6 +19,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "io/fs/file_system.h"
+#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
 namespace doris {
@@ -26,6 +27,10 @@ namespace doris {
 class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 class DataDir;
+class Tablet;
+namespace vectorized::schema_util {
+class LocalSchemaChangeRecorder;
+}
 
 struct RowsetWriterContext {
     RowsetWriterContext()
@@ -79,6 +84,10 @@ struct RowsetWriterContext {
     // If it is directly write from load procedure, else
     // it could be compaction or schema change etc..
     bool is_direct_write = false;
+    std::shared_ptr<Tablet> tablet = nullptr;
+    // for tracing local schema change record
+    std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
+            nullptr;
 };
 
 } // namespace doris

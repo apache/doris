@@ -48,7 +48,6 @@ private:
     hdfsFS _hdfs_fs = nullptr;
     hdfsFile _hdfs_file = nullptr;
     bool _closed = false;
-    HDFSCommonBuilder _builder;
 };
 
 } // namespace doris

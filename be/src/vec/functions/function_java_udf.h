@@ -51,7 +51,7 @@ public:
         return nullptr;
     }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    size_t result, size_t input_rows_count, bool dry_run = false) override;
@@ -85,13 +85,22 @@ private:
         JavaFunctionCall* parent = nullptr;
 
         jobject executor = nullptr;
+        bool is_closed = false;
 
         std::unique_ptr<int64_t[]> input_values_buffer_ptr;
         std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
         std::unique_ptr<int64_t[]> input_offsets_ptrs;
+        //used for array type nested column null map, because array nested column must be nullable
+        std::unique_ptr<int64_t[]> input_array_nulls_buffer_ptr;
+        //used for array type of nested string column offset, not the array column offset
+        std::unique_ptr<int64_t[]> input_array_string_offsets_ptrs;
         std::unique_ptr<int64_t> output_value_buffer;
         std::unique_ptr<int64_t> output_null_value;
         std::unique_ptr<int64_t> output_offsets_ptr;
+        //used for array type nested column null map
+        std::unique_ptr<int64_t> output_array_null_ptr;
+        //used for array type of nested string column offset
+        std::unique_ptr<int64_t> output_array_string_offsets_ptr;
         std::unique_ptr<int32_t> batch_size_ptr;
         // intermediate_state includes two parts: reserved / used buffer size and rows
         std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
@@ -101,22 +110,33 @@ private:
                   input_values_buffer_ptr(new int64_t[num_args]),
                   input_nulls_buffer_ptr(new int64_t[num_args]),
                   input_offsets_ptrs(new int64_t[num_args]),
+                  input_array_nulls_buffer_ptr(new int64_t[num_args]),
+                  input_array_string_offsets_ptrs(new int64_t[num_args]),
                   output_value_buffer(new int64_t()),
                   output_null_value(new int64_t()),
                   output_offsets_ptr(new int64_t()),
+                  output_array_null_ptr(new int64_t()),
+                  output_array_string_offsets_ptr(new int64_t()),
                   batch_size_ptr(new int32_t()),
                   output_intermediate_state_ptr(new IntermediateState()) {}
 
-        ~JniContext() {
+        void close() {
+            if (is_closed) {
+                return;
+            }
             VLOG_DEBUG << "Free resources for JniContext";
             JNIEnv* env;
-            Status status;
-            RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
+            Status status = JniUtil::GetJNIEnv(&env);
+            if (!status.ok()) {
+                LOG(WARNING) << "errors while get jni env " << status;
+                return;
+            }
             env->CallNonvirtualVoidMethodA(executor, parent->executor_cl_,
                                            parent->executor_close_id_, NULL);
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) LOG(WARNING) << s;
             env->DeleteGlobalRef(executor);
+            is_closed = true;
         }
 
         /// These functions are cross-compiled to IR and used by codegen.

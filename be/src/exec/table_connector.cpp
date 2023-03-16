@@ -17,9 +17,10 @@
 
 #include "exec/table_connector.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/Types_types.h>
-
-#include <codecvt>
+#include <glog/logging.h>
+#include <iconv.h>
 
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -46,8 +47,39 @@ void TableConnector::init_profile(doris::RuntimeProfile* profile) {
 }
 
 std::u16string TableConnector::utf8_to_u16string(const char* first, const char* last) {
-    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> utf8_utf16_cvt;
-    return utf8_utf16_cvt.from_bytes(first, last);
+    auto deleter = [](auto convertor) {
+        if (convertor == reinterpret_cast<decltype(convertor)>(-1)) {
+            return;
+        }
+        iconv_close(convertor);
+    };
+    std::unique_ptr<std::remove_pointer_t<iconv_t>, decltype(deleter)> convertor(
+            iconv_open("UTF-16LE", "UTF-8"), deleter);
+
+    char* in = const_cast<char*>(first);
+    size_t inbytesleft = last - first;
+
+    char16_t buffer[1024];
+    char* out = reinterpret_cast<char*>(&buffer[0]);
+    size_t outbytesleft = sizeof(buffer);
+
+    std::u16string result;
+    while (inbytesleft > 0) {
+        if (iconv(convertor.get(), &in, &inbytesleft, &out, &outbytesleft)) {
+            if (errno == E2BIG) {
+                result += std::u16string_view(buffer,
+                                              (sizeof(buffer) - outbytesleft) / sizeof(char16_t));
+                out = reinterpret_cast<char*>(&buffer[0]);
+                outbytesleft = sizeof(buffer);
+            } else {
+                LOG(WARNING) << fmt::format("Failed to convert the UTF-8 string {} to UTF-16LE",
+                                            std::string(first, last));
+                return result;
+            }
+        }
+    }
+    result += std::u16string_view(buffer, (sizeof(buffer) - outbytesleft) / sizeof(char16_t));
+    return result;
 }
 
 Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
@@ -137,7 +169,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                                            const TypeDescriptor& type, int row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (table_type != TOdbcTableType::ORACLE) {
+        if (table_type != TOdbcTableType::ORACLE && table_type != TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         } else {
             //if is ORACLE and date type, insert into need convert
@@ -162,6 +194,12 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     auto [item, size] = column->get_data_at(row);
     switch (type.type) {
     case TYPE_BOOLEAN:
+        if (table_type == TOdbcTableType::SAP_HANA) {
+            fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const bool*>(item));
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
+        }
+        break;
     case TYPE_TINYINT:
         fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const int8_t*>(item));
         break;
@@ -228,7 +266,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_STRING: {
         // TODO(zhangstar333): check array data type of postgresql
         // for oracle/pg database string must be '
-        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL) {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
+            table_type == TOdbcTableType::SAP_HANA) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));

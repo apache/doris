@@ -49,8 +49,10 @@ void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
 void register_function_bitmap_variadic(SimpleFunctionFactory& factory);
+void register_function_quantile_state(SimpleFunctionFactory& factory);
 void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
+void register_function_non_nullable(SimpleFunctionFactory& factory);
 void register_function_to_time_function(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
@@ -175,6 +177,7 @@ public:
         static SimpleFunctionFactory instance;
         std::call_once(oc, []() {
             register_function_bitmap(instance);
+            register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
             register_function_hll_cardinality(instance);
             register_function_hll_empty(instance);
@@ -194,6 +197,7 @@ public:
             register_function_bit(instance);
             register_function_is_null(instance);
             register_function_is_not_null(instance);
+            register_function_non_nullable(instance);
             register_function_to_time_function(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);

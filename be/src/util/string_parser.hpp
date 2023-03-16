@@ -227,7 +227,7 @@ private:
 }; // end of class StringParser
 
 template <typename T>
-inline T StringParser::string_to_int_internal(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_int_internal(const char* s, int len, ParseResult* result) {
     if (UNLIKELY(len <= 0)) {
         *result = PARSE_FAILURE;
         return 0;
@@ -242,6 +242,7 @@ inline T StringParser::string_to_int_internal(const char* s, int len, ParseResul
     case '-':
         negative = true;
         max_val = StringParser::numeric_limits<T>(false) + 1;
+        [[fallthrough]];
     case '+':
         ++i;
     }
@@ -282,8 +283,7 @@ inline T StringParser::string_to_int_internal(const char* s, int len, ParseResul
 }
 
 template <typename T>
-inline T StringParser::string_to_unsigned_int_internal(const char* s, int len,
-                                                       ParseResult* result) {
+T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseResult* result) {
     if (UNLIKELY(len <= 0)) {
         *result = PARSE_FAILURE;
         return 0;
@@ -330,8 +330,7 @@ inline T StringParser::string_to_unsigned_int_internal(const char* s, int len,
 }
 
 template <typename T>
-inline T StringParser::string_to_int_internal(const char* s, int len, int base,
-                                              ParseResult* result) {
+T StringParser::string_to_int_internal(const char* s, int len, int base, ParseResult* result) {
     typedef typename std::make_unsigned<T>::type UnsignedT;
     UnsignedT val = 0;
     UnsignedT max_val = StringParser::numeric_limits<T>(false);
@@ -345,6 +344,7 @@ inline T StringParser::string_to_int_internal(const char* s, int len, int base,
     case '-':
         negative = true;
         max_val = StringParser::numeric_limits<T>(false) + 1;
+        [[fallthrough]];
     case '+':
         i = 1;
     }
@@ -389,7 +389,7 @@ inline T StringParser::string_to_int_internal(const char* s, int len, int base,
 }
 
 template <typename T>
-inline T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* result) {
     T val = 0;
     if (UNLIKELY(len == 0)) {
         *result = PARSE_SUCCESS;
@@ -420,7 +420,7 @@ inline T StringParser::string_to_int_no_overflow(const char* s, int len, ParseRe
 }
 
 template <typename T>
-inline T StringParser::string_to_float_internal(const char* s, int len, ParseResult* result) {
+T StringParser::string_to_float_internal(const char* s, int len, ParseResult* result) {
     int i = 0;
     // skip leading spaces
     for (; i < len; ++i) {
@@ -546,8 +546,8 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
 }
 
 template <typename T>
-inline T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
-                                         ParseResult* result) {
+T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
+                                  ParseResult* result) {
     // Special cases:
     //   1) '' == Fail, an empty string fails to parse.
     //   2) '   #   ' == #, leading and trailing white space is ignored.
@@ -568,6 +568,7 @@ inline T StringParser::string_to_decimal(const char* s, int len, int type_precis
         switch (*s) {
         case '-':
             is_negative = true;
+            [[fallthrough]];
         case '+':
             ++s;
             --len;

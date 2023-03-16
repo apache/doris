@@ -89,9 +89,6 @@ public:
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
-    // @brief 设置root_path是否可用
-    void set_store_used_flag(const std::string& root_path, bool is_used);
-
     // @brief 获取所有root_path信息
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
@@ -193,6 +190,7 @@ public:
         return _tablet_publish_txn_thread_pool;
     }
     bool stopped() { return _stopped; }
+    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
 private:
     // Instance should be inited from `static open()`
@@ -272,6 +270,8 @@ private:
     void _adjust_compaction_thread_num();
 
     void _cooldown_tasks_producer_callback();
+    void _remove_unused_remote_files_callback();
+    void _cold_data_compaction_producer_callback();
 
     void _cache_file_cleaner_tasks_producer_callback();
 
@@ -370,10 +370,12 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
+    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
@@ -392,6 +394,8 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
+    scoped_refptr<Thread> _remove_unused_remote_files_thread;
+    scoped_refptr<Thread> _cold_data_compaction_producer_thread;
 
     scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 

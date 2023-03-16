@@ -28,8 +28,12 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joda.time.LocalDateTime;
-import org.joda.time.format.DateTimeFormatter;
+
+import java.time.LocalDateTime;
+import java.time.Year;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 
 /**
  * Date literal in Nereids.
@@ -41,6 +45,10 @@ public class DateLiteral extends Literal {
     protected static DateTimeFormatter DATEKEY_FORMATTER = null;
 
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
+
+    private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
+    private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
+    private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final int DATEKEY_LENGTH = 8;
 
     protected long year;
@@ -100,20 +108,38 @@ public class DateLiteral extends Literal {
 
     protected void init(String s) throws AnalysisException {
         try {
-            LocalDateTime dateTime;
+            TemporalAccessor dateTime;
             if (s.split("-")[0].length() == 2) {
-                dateTime = DATE_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
+                dateTime = DATE_FORMATTER_TWO_DIGIT.parse(s);
             } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
-                dateTime = DATEKEY_FORMATTER.parseLocalDateTime(s);
+                dateTime = DATEKEY_FORMATTER.parse(s);
             } else {
-                dateTime = DATE_FORMATTER.parseLocalDateTime(s);
+                dateTime = DATE_FORMATTER.parse(s);
             }
-            year = dateTime.getYear();
-            month = dateTime.getMonthOfYear();
-            day = dateTime.getDayOfMonth();
+            year = DateUtils.getOrDefault(dateTime, ChronoField.YEAR);
+            month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
+            day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid");
         }
+
+        if (checkRange() || checkDate()) {
+            throw new AnalysisException("date literal [" + s + "] is out of range");
+        }
+    }
+
+    protected boolean checkRange() {
+        return year > MAX_DATE.getYear() || month > MAX_DATE.getMonth() || day > MAX_DATE.getDay();
+    }
+
+    protected boolean checkDate() {
+        if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
+            if (month == 2 && day == 29 && Year.isLeap(year)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -159,9 +185,17 @@ public class DateLiteral extends Literal {
     }
 
     public DateLiteral plusDays(int days) {
-        LocalDateTime dateTime = LocalDateTime.parse(getStringValue(), DATE_FORMATTER).plusDays(days);
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth());
+        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    public DateLiteral plusMonths(int months) {
+        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    public DateLiteral plusYears(int years) {
+        LocalDateTime dateTime = DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
 }
-
-

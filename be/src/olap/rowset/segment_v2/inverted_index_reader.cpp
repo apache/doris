@@ -100,19 +100,27 @@ std::vector<std::wstring> FullTextIndexReader::get_analyse_result(
     return analyse_result;
 }
 
-Status FullTextIndexReader::new_iterator(const TabletIndex* index_meta,
+Status FullTextIndexReader::new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                                          InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(index_meta, this);
+    *iterator = new InvertedIndexIterator(index_meta, stats, this);
     return Status::OK();
 }
 
-Status FullTextIndexReader::query(const std::string& column_name, const void* query_value,
-                                  InvertedIndexQueryType query_type,
+Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string& column_name,
+                                  const void* query_value, InvertedIndexQueryType query_type,
                                   InvertedIndexParserType analyser_type,
                                   roaring::Roaring* bit_map) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
+
     std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    VLOG_DEBUG << column_name
-               << " begin to load the fulltext index from clucene, query_str=" << search_str;
+    LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
+              << search_str << "]";
+
+    io::Path path(_path);
+    auto index_dir = path.parent_path();
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
+    auto index_file_path = index_dir / index_file_name;
+
     std::unique_ptr<lucene::search::Query> query;
     std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
     try {
@@ -122,78 +130,95 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
         if (analyse_result.empty()) {
             LOG(WARNING) << "invalid input query_str: " << search_str
                          << ", please check your query sql";
-            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>();
+            return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
         }
 
-        switch (query_type) {
-        case InvertedIndexQueryType::MATCH_ANY_QUERY: {
-            query.reset(_CLNEW lucene::search::BooleanQuery());
-            for (auto token_ws : analyse_result) {
-                lucene::index::Term* term =
-                        _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
-                static_cast<lucene::search::BooleanQuery*>(query.get())
-                        ->add(_CLNEW lucene::search::TermQuery(term), true,
-                              lucene::search::BooleanClause::SHOULD);
-                _CLDECDELETE(term);
+        roaring::Roaring query_match_bitmap;
+        bool first = true;
+        for (auto token_ws : analyse_result) {
+            roaring::Roaring* term_match_bitmap = nullptr;
+
+            // try to get term bitmap match result from cache to avoid query index on cache hit
+            auto cache = InvertedIndexQueryCache::instance();
+            // use EQUAL_QUERY type here since cache is for each term/token
+            InvertedIndexQueryCache::CacheKey cache_key {
+                    index_file_path, column_name, InvertedIndexQueryType::EQUAL_QUERY, token_ws};
+            InvertedIndexQueryCacheHandle cache_handle;
+            if (cache->lookup(cache_key, &cache_handle)) {
+                stats->inverted_index_query_cache_hit++;
+                term_match_bitmap = cache_handle.match_bitmap();
+            } else {
+                stats->inverted_index_query_cache_miss++;
+                term_match_bitmap = new roaring::Roaring();
+                // unique_ptr with custom deleter
+                std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
+                        _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
+                        [](lucene::index::Term* term) { _CLDECDELETE(term); }};
+                query.reset(new lucene::search::TermQuery(term.get()));
+
+                InvertedIndexCacheHandle inverted_index_cache_handle;
+                InvertedIndexSearcherCache::instance()->get_index_searcher(
+                        _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle,
+                        stats);
+                auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+
+                try {
+                    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+                    index_searcher->_search(
+                            query.get(),
+                            [&term_match_bitmap](const int32_t docid, const float_t /*score*/) {
+                                // docid equal to rowid in segment
+                                term_match_bitmap->add(docid);
+                            });
+                } catch (const CLuceneError& e) {
+                    LOG(WARNING) << "CLuceneError occured: " << e.what();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                }
+
+                {
+                    // add to cache
+                    term_match_bitmap->runOptimize();
+                    cache->insert(cache_key, term_match_bitmap, &cache_handle);
+                }
             }
-            break;
-        }
-        case InvertedIndexQueryType::MATCH_ALL_QUERY: {
-            query.reset(_CLNEW lucene::search::BooleanQuery());
-            for (auto token_ws : analyse_result) {
-                lucene::index::Term* term =
-                        _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
-                static_cast<lucene::search::BooleanQuery*>(query.get())
-                        ->add(_CLNEW lucene::search::TermQuery(term), true,
-                              lucene::search::BooleanClause::MUST);
-                _CLDECDELETE(term);
+
+            // add to query_match_bitmap
+            if (first) {
+                SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
+                query_match_bitmap = *term_match_bitmap;
+                first = false;
+                continue;
             }
-            break;
-        }
-        case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
-            LOG(WARNING) << "match phrase of fulltext is not supported";
-            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-        }
-        default:
-            LOG(ERROR) << "fulltext query do not support query type other than match, column: "
-                       << column_name;
-            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+
+            switch (query_type) {
+            case InvertedIndexQueryType::MATCH_ANY_QUERY: {
+                SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
+                query_match_bitmap |= *term_match_bitmap;
+                break;
+            }
+            case InvertedIndexQueryType::EQUAL_QUERY:
+            case InvertedIndexQueryType::MATCH_ALL_QUERY: {
+                SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
+                query_match_bitmap &= *term_match_bitmap;
+                break;
+            }
+            case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                break;
+            }
+            default: {
+                LOG(ERROR) << "fulltext query do not support query type other than match.";
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+            }
+            }
         }
 
+        bit_map->swap(query_match_bitmap);
+        return Status::OK();
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "CLuceneError occured, error msg: " << e.what();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
     }
-
-    io::Path path(_path);
-    auto index_dir = path.parent_path();
-    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
-
-    // check index file existence
-    auto index_file_path = index_dir / index_file_name;
-    if (!indexExists(index_file_path)) {
-        LOG(WARNING) << "inverted index path: " << index_file_path.string() << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
-    }
-
-    roaring::Roaring result;
-    InvertedIndexCacheHandle inverted_index_cache_handle;
-    InvertedIndexSearcherCache::instance()->get_index_searcher(
-            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle);
-    auto index_searcher = inverted_index_cache_handle.get_index_searcher();
-
-    try {
-        index_searcher->_search(query.get(),
-                                [&result](const int32_t docid, const float_t /*score*/) {
-                                    // docid equal to rowid in segment
-                                    result.add(docid);
-                                });
-    } catch (const CLuceneError& e) {
-        LOG(WARNING) << "CLuceneError occured, error msg: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
-    }
-    bit_map->swap(result);
-    return Status::OK();
 }
 
 InvertedIndexReaderType FullTextIndexReader::type() {
@@ -201,70 +226,82 @@ InvertedIndexReaderType FullTextIndexReader::type() {
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(const TabletIndex* index_meta,
+                                                   OlapReaderStatistics* stats,
                                                    InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(index_meta, this);
+    *iterator = new InvertedIndexIterator(index_meta, stats, this);
     return Status::OK();
 }
 
-Status StringTypeInvertedIndexReader::query(const std::string& column_name, const void* query_value,
+Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
+                                            const std::string& column_name, const void* query_value,
                                             InvertedIndexQueryType query_type,
                                             InvertedIndexParserType analyser_type,
                                             roaring::Roaring* bit_map) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
+
     const StringRef* search_query = reinterpret_cast<const StringRef*>(query_value);
     auto act_len = strnlen(search_query->data, search_query->size);
     std::string search_str(search_query->data, act_len);
+    // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
     std::wstring search_str_ws = std::wstring(search_str.begin(), search_str.end());
-    lucene::index::Term* term =
-            _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str());
+    // unique_ptr with custom deleter
+    std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
+            _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
+            [](lucene::index::Term* term) { _CLDECDELETE(term); }};
     std::unique_ptr<lucene::search::Query> query;
 
     io::Path path(_path);
     auto index_dir = path.parent_path();
     auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
+    auto index_file_path = index_dir / index_file_name;
+
+    // try to get query bitmap result from cache and return immediately on cache hit
+    InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name, query_type,
+                                                 search_str_ws};
+    auto cache = InvertedIndexQueryCache::instance();
+    InvertedIndexQueryCacheHandle cache_handle;
+    if (cache->lookup(cache_key, &cache_handle)) {
+        stats->inverted_index_query_cache_hit++;
+        SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
+        *bit_map = *cache_handle.match_bitmap();
+        return Status::OK();
+    } else {
+        stats->inverted_index_query_cache_miss++;
+    }
 
     // check index file existence
-    auto index_file_path = index_dir / index_file_name;
     if (!indexExists(index_file_path)) {
         LOG(WARNING) << "inverted index path: " << index_file_path.string() << " not exist.";
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
     switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
     case InvertedIndexQueryType::EQUAL_QUERY: {
-        query.reset(new lucene::search::TermQuery(term));
-        _CLDECDELETE(term);
+        query.reset(new lucene::search::TermQuery(term.get()));
         break;
     }
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
-        query.reset(new lucene::search::RangeQuery(nullptr, term, false));
-        _CLDECDELETE(term);
+        query.reset(new lucene::search::RangeQuery(nullptr, term.get(), false));
         break;
     }
     case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
-        query.reset(new lucene::search::RangeQuery(nullptr, term, true));
-        _CLDECDELETE(term);
+        query.reset(new lucene::search::RangeQuery(nullptr, term.get(), true));
         break;
     }
     case InvertedIndexQueryType::GREATER_THAN_QUERY: {
-        query.reset(new lucene::search::RangeQuery(term, nullptr, false));
-        _CLDECDELETE(term);
+        query.reset(new lucene::search::RangeQuery(term.get(), nullptr, false));
         break;
     }
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
-        query.reset(new lucene::search::RangeQuery(term, nullptr, true));
-        _CLDECDELETE(term);
+        query.reset(new lucene::search::RangeQuery(term.get(), nullptr, true));
         break;
     }
     default:
-        LOG(ERROR) << "invalid query type when query untokenized inverted index";
-        if (_is_match_query(query_type)) {
-            LOG(WARNING) << column_name << " is untokenized inverted index"
-                         << ", please use equal query instead of match query";
-            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-        }
         LOG(WARNING) << "invalid query type when query untokenized inverted index";
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -272,10 +309,11 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
     roaring::Roaring result;
     InvertedIndexCacheHandle inverted_index_cache_handle;
     InvertedIndexSearcherCache::instance()->get_index_searcher(
-            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle);
+            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
     auto index_searcher = inverted_index_cache_handle.get_index_searcher();
 
     try {
+        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         index_searcher->_search(query.get(),
                                 [&result](const int32_t docid, const float_t /*score*/) {
                                     // docid equal to rowid in segment
@@ -285,6 +323,11 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
         LOG(WARNING) << "CLuceneError occured, error msg: " << e.what();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
     }
+
+    // add to cache
+    roaring::Roaring* term_match_bitmap = new roaring::Roaring(result);
+    term_match_bitmap->runOptimize();
+    cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
     bit_map->swap(result);
     return Status::OK();
@@ -309,27 +352,26 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         return;
     }
     compoundReader = new DorisCompoundReader(
-            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str());
+            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
+            config::inverted_index_read_buffer_size);
 }
 
-Status BkdIndexReader::new_iterator(const TabletIndex* index_meta,
+Status BkdIndexReader::new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                                     InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(index_meta, this);
+    *iterator = new InvertedIndexIterator(index_meta, stats, this);
     return Status::OK();
 }
 
-Status BkdIndexReader::bkd_query(const std::string& column_name, const void* query_value,
-                                 InvertedIndexQueryType query_type,
-                                 std::shared_ptr<lucene::util::bkd::bkd_reader>&& r,
+Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string& column_name,
+                                 const void* query_value, InvertedIndexQueryType query_type,
+                                 std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
                                  InvertedIndexVisitor* visitor) {
-    lucene::util::bkd::bkd_reader* tmp_reader;
-    auto status = get_bkd_reader(tmp_reader);
+    auto status = get_bkd_reader(r);
     if (!status.ok()) {
         LOG(WARNING) << "get bkd reader for column " << column_name
                      << " failed: " << status.code_as_string();
         return status;
     }
-    r.reset(tmp_reader);
     char tmp[r->bytes_per_dim_];
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY: {
@@ -359,15 +401,14 @@ Status BkdIndexReader::bkd_query(const std::string& column_name, const void* que
     return Status::OK();
 }
 
-Status BkdIndexReader::try_query(const std::string& column_name, const void* query_value,
-                                 InvertedIndexQueryType query_type,
+Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                                 const void* query_value, InvertedIndexQueryType query_type,
                                  InvertedIndexParserType analyser_type, uint32_t* count) {
     uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        RETURN_IF_ERROR(
-                bkd_query(column_name, query_value, query_type, std::move(r), visitor.get()));
+        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
         *count = r->estimate_point_count(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
@@ -379,20 +420,47 @@ Status BkdIndexReader::try_query(const std::string& column_name, const void* que
     return Status::OK();
 }
 
-Status BkdIndexReader::query(const std::string& column_name, const void* query_value,
-                             InvertedIndexQueryType query_type,
+Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& column_name,
+                             const void* query_value, InvertedIndexQueryType query_type,
                              InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
+
+    io::Path path(_path);
+    auto index_dir = path.parent_path();
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
+    auto index_file_path = index_dir / index_file_name;
+    // std::string query_str {(const char *)query_value};
+
+    // // try to get query bitmap result from cache and return immediately on cache hit
+    // InvertedIndexQueryCache::CacheKey cache_key
+    //     {index_file_path, column_name, query_type, std::wstring(query_str.begin(), query_str.end())};
+    // auto cache = InvertedIndexQueryCache::instance();
+    // InvertedIndexQueryCacheHandle cache_handle;
+    // if (cache->lookup(cache_key, &cache_handle)) {
+    //     stats->inverted_index_query_cache_hit++;
+    //     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
+    //     *bit_map = *cache_handle.match_bitmap();
+    //     return Status::OK();
+    // } else {
+    //     stats->inverted_index_query_cache_miss++;
+    // }
+
     uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        RETURN_IF_ERROR(
-                bkd_query(column_name, query_value, query_type, std::move(r), visitor.get()));
+        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
         r->intersect(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
     }
+
+    // // add to cache
+    // roaring::Roaring* term_match_bitmap = new roaring::Roaring(*bit_map);
+    // term_match_bitmap->runOptimize();
+    // cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
     LOG(INFO) << "BKD index search time taken: " << UnixMillis() - start << "ms "
               << " column: " << column_name << " result: " << bit_map->cardinality()
@@ -400,7 +468,7 @@ Status BkdIndexReader::query(const std::string& column_name, const void* query_v
     return Status::OK();
 }
 
-Status BkdIndexReader::get_bkd_reader(lucene::util::bkd::bkd_reader*& bkdReader) {
+Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>& bkdReader) {
     // bkd file reader
     if (compoundReader == nullptr) {
         LOG(WARNING) << "bkd index input file not found";
@@ -424,7 +492,7 @@ Status BkdIndexReader::get_bkd_reader(lucene::util::bkd::bkd_reader*& bkdReader)
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
-    bkdReader = new lucene::util::bkd::bkd_reader(data_in);
+    bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in);
     if (0 == bkdReader->read_meta(meta_in)) {
         return Status::EndOfFile("bkd index file is empty");
     }
@@ -433,9 +501,7 @@ Status BkdIndexReader::get_bkd_reader(lucene::util::bkd::bkd_reader*& bkdReader)
 
     _type_info = get_scalar_type_info((FieldType)bkdReader->type);
     if (_type_info == nullptr) {
-        auto type = bkdReader->type;
-        delete bkdReader;
-        LOG(WARNING) << "unsupported typeinfo, type=" << type;
+        LOG(WARNING) << "unsupported typeinfo, type=" << bkdReader->type;
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
     _value_key_coder = get_key_coder(_type_info->type());
@@ -631,7 +697,8 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
         }
     }
 
-    RETURN_IF_ERROR(_reader->query(column_name, query_value, query_type, _analyser_type, bit_map));
+    RETURN_IF_ERROR(
+            _reader->query(_stats, column_name, query_value, query_type, _analyser_type, bit_map));
     return Status::OK();
 }
 
@@ -645,8 +712,8 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& co
         query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
         query_type == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(
-                _reader->try_query(column_name, query_value, query_type, _analyser_type, count));
+        RETURN_IF_ERROR(_reader->try_query(_stats, column_name, query_value, query_type,
+                                           _analyser_type, count));
     }
     return Status::OK();
 }

@@ -340,31 +340,38 @@ private:
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
 // But the statistics of memory through TCMalloc new/delete Hook are after the memory is actually allocated,
 // which is different from the previous behavior.
-#define CONSUME_MEM_TRACKER(size)                                           \
-    do {                                                                    \
-        if (doris::thread_context_ptr.init) {                               \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size); \
-        }                                                                   \
+#define CONSUME_MEM_TRACKER(size)                                                                  \
+    do {                                                                                           \
+        if (doris::thread_context_ptr.init) {                                                      \
+            doris::thread_context()->thread_mem_tracker_mgr->consume(size);                        \
+        } else if (doris::ExecEnv::GetInstance()->initialized()) {                                 \
+            doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
+        }                                                                                          \
     } while (0)
 // NOTE, The LOG cannot be printed in the mem hook. If the LOG statement triggers the mem hook LOG,
 // the nested LOG may cause an unknown crash.
-#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                            \
-    do {                                                                                   \
-        if (doris::thread_context_ptr.init) {                                              \
-            if (doris::enable_thread_catch_bad_alloc) {                                    \
-                if (!doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)) { \
-                    return fail_ret;                                                       \
-                }                                                                          \
-            } else {                                                                       \
-                doris::thread_context()->thread_mem_tracker_mgr->consume(size);            \
-            }                                                                              \
-        }                                                                                  \
+#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                                    \
+    do {                                                                                           \
+        if (doris::thread_context_ptr.init) {                                                      \
+            if (doris::enable_thread_catch_bad_alloc) {                                            \
+                if (!doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)) {         \
+                    return fail_ret;                                                               \
+                }                                                                                  \
+            } else {                                                                               \
+                doris::thread_context()->thread_mem_tracker_mgr->consume(size);                    \
+            }                                                                                      \
+        } else if (doris::ExecEnv::GetInstance()->initialized()) {                                 \
+            doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
+        }                                                                                          \
     } while (0)
-#define RELEASE_MEM_TRACKER(size)                                            \
-    do {                                                                     \
-        if (doris::thread_context_ptr.init) {                                \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(-size); \
-        }                                                                    \
+#define RELEASE_MEM_TRACKER(size)                                                            \
+    do {                                                                                     \
+        if (doris::thread_context_ptr.init) {                                                \
+            doris::thread_context()->thread_mem_tracker_mgr->consume(-size);                 \
+        } else if (doris::ExecEnv::GetInstance()->initialized()) {                           \
+            doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
+                    -size);                                                                  \
+        }                                                                                    \
     } while (0)
 #else
 #define CONSUME_THREAD_MEM_TRACKER(size) (void)0

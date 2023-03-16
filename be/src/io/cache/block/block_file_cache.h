@@ -43,6 +43,12 @@ class IFileCache {
     friend struct FileBlocksHolder;
 
 public:
+    /// use version 2 when USE_CACHE_VERSION2 = true, while use version 1 if false
+    /// version 1.0: cache_base_path / key / offset
+    /// version 2.0: cache_base_path / key_prefix / key / offset
+    static constexpr bool USE_CACHE_VERSION2 = true;
+    static constexpr int KEY_PREFIX_LENGTH = 3;
+
     struct Key {
         uint128_t key;
         std::string to_string() const;
@@ -72,6 +78,8 @@ public:
     std::string get_path_in_local_cache(const Key& key, size_t offset, bool is_persistent) const;
 
     std::string get_path_in_local_cache(const Key& key) const;
+
+    std::string get_version_path() const;
 
     const std::string& get_base_path() const { return _cache_base_path; }
 

@@ -21,21 +21,18 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * <ul>
@@ -59,12 +56,11 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
                         && (topJoin.left().child().getJoinType().isInnerJoin()
-                                || topJoin.left().child().getJoinType().isLeftOuterJoin()
-                                || topJoin.left().child().getJoinType().isRightOuterJoin())))
-                .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
+                        || topJoin.left().child().getJoinType().isLeftOuterJoin()
+                        || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderCommon.checkProject(join.left()))
-                .when(this::conditionChecker)
+                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
+                .when(join -> JoinReorderUtils.isAllSlotProject(join.left()))
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topSemiJoin.left();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = project.child();
@@ -72,17 +68,16 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
-
-                    List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
-
-                    boolean lasscom = false;
-                    for (Expression hashJoinConjunct : hashJoinConjuncts) {
-                        Set<ExprId> usedSlotExprIdSet = hashJoinConjunct.getInputSlotExprIds();
-                        lasscom = ExpressionUtils.isIntersecting(usedSlotExprIdSet, aOutputExprIdSet) || lasscom;
+                    Set<ExprId> conjunctsIds = Stream.concat(topSemiJoin.getHashJoinConjuncts().stream(),
+                                    topSemiJoin.getOtherJoinConjuncts().stream())
+                            .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
+                    ContainsType containsType = containsChildren(conjunctsIds, a.getOutputExprIdSet(),
+                            b.getOutputExprIdSet());
+                    if (containsType == ContainsType.ALL) {
+                        return null;
                     }
 
-                    if (lasscom) {
+                    if (containsType == ContainsType.LEFT) {
                         /*-
                          *     topSemiJoin                    project
                          *      /     \                         |
@@ -92,71 +87,49 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                    /      \
                          *  A      B                  A        C
                          */
-                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
-                            // when bottom join is right outer join, we change it to inner join
-                            // if we want to do this trans. However, we do not allow different logical properties
-                            // in one group. So we need to change it to inner join in rewrite step.
-                            return topSemiJoin;
-                        }
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
-                                topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, c);
+                        // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
+                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE,
-                                newBottomSemiJoin, b);
-
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
+                        Plan newTopJoin = bottomJoin.withChildren(newBottomSemiJoin, b);
+                        return project.withChildren(newTopJoin);
                     } else {
+                        if (leftDeep) {
+                            return null;
+                        }
                         /*-
                          *     topSemiJoin                  project
                          *       /     \                       |
                          *    project   C                  newTopJoin
                          *       |                        /         \
-                         *  bottomJoin  C     -->       A     newBottomSemiJoin
-                         *   /    \                               /      \
-                         *  A      B                             B       C
+                         *  bottomJoin  C     -->        A    newBottomSemiJoin
+                         *    /    \                              /      \
+                         *   A      B                             B       C
                          */
-                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
-                            // when bottom join is left outer join, we change it to inner join
-                            // if we want to do this trans. However, we do not allow different logical properties
-                            // in one group. So we need to change it to inner join in rewrite step.
-                            return topSemiJoin;
-                        }
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
-                                topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, b, c);
+                        // LEFT_OUTER_JOIN should be eliminated in rewrite phase
+                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.LEFT_OUTER_JOIN);
 
-                        LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE,
-                                a, newBottomSemiJoin);
-
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
+                        Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);
+                        return project.withChildren(newTopJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
     }
 
-    // project of bottomJoin just return A OR B, else return false.
-    private boolean conditionChecker(
-            LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemiJoin) {
-        List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
+    enum ContainsType {
+        LEFT, RIGHT, ALL
+    }
 
-        List<Slot> aOutput = topSemiJoin.left().child().left().getOutput();
-        List<Slot> bOutput = topSemiJoin.left().child().right().getOutput();
-
-        boolean hashContainsA = false;
-        boolean hashContainsB = false;
-        for (Expression hashJoinConjunct : hashJoinConjuncts) {
-            Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-            hashContainsA = ExpressionUtils.isIntersecting(usedSlot, aOutput) || hashContainsA;
-            hashContainsB = ExpressionUtils.isIntersecting(usedSlot, bOutput) || hashContainsB;
+    private ContainsType containsChildren(Set<ExprId> conjunctsExprIdSet, Set<ExprId> left, Set<ExprId> right) {
+        boolean containsLeft = Utils.isIntersecting(conjunctsExprIdSet, left);
+        boolean containsRight = Utils.isIntersecting(conjunctsExprIdSet, right);
+        Preconditions.checkState(containsLeft || containsRight, "join output must contain child");
+        if (containsLeft && containsRight) {
+            return ContainsType.ALL;
+        } else if (containsLeft) {
+            return ContainsType.LEFT;
+        } else {
+            return ContainsType.RIGHT;
         }
-        if (leftDeep && hashContainsB) {
-            return false;
-        }
-        Preconditions.checkState(hashContainsA || hashContainsB, "join output must contain child");
-        return !(hashContainsA && hashContainsB);
     }
 }

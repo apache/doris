@@ -23,7 +23,7 @@
 #include <type_traits>
 
 #include "runtime/decimalv2_value.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -811,7 +811,7 @@ public:
             right_generic =
                     static_cast<const DataTypeNullable*>(right_generic)->get_nested_type().get();
         }
-        bool result_is_nullable = context->impl()->check_overflow_for_decimal();
+        bool result_is_nullable = context->check_overflow_for_decimal();
         if (result_generic->is_nullable()) {
             result_generic =
                     static_cast<const DataTypeNullable*>(result_generic)->get_nested_type().get();

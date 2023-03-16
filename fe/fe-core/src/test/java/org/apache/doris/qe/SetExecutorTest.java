@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
@@ -44,12 +45,14 @@ public class SetExecutorTest {
     private ConnectContext ctx;
 
     @Mocked
+    private AccessControllerManager accessManager;
+    @Mocked
     private Auth auth;
 
     @Before
     public void setUp() throws DdlException {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        ctx = new ConnectContext(null);
+        ctx = new ConnectContext();
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
@@ -60,15 +63,15 @@ public class SetExecutorTest {
 
         new Expectations() {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 

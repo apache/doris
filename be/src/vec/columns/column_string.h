@@ -280,6 +280,52 @@ public:
         }
     }
 
+#define MAX_STRINGS_OVERFLOW_SIZE 128
+    template <typename T, size_t copy_length>
+    void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
+            __attribute__((noinline));
+
+    template <size_t copy_length>
+    void insert_many_strings_fixed_length(const StringRef* strings, size_t num) {
+        size_t new_size = 0;
+        for (size_t i = 0; i < num; i++) {
+            new_size += strings[i].size;
+        }
+
+        const size_t old_size = chars.size();
+        check_chars_length(old_size + new_size, offsets.size() + num);
+        chars.resize(old_size + new_size + copy_length);
+
+        Char* data = chars.data();
+        size_t offset = old_size;
+        for (size_t i = 0; i < num; i++) {
+            uint32_t len = strings[i].size;
+            if (len) {
+                memcpy(data + offset, strings[i].data, copy_length);
+                offset += len;
+            }
+            offsets.push_back(offset);
+        }
+        chars.resize(old_size + new_size);
+    }
+
+    void insert_many_strings_overflow(const StringRef* strings, size_t num,
+                                      size_t max_length) override {
+        if (max_length <= 8) {
+            insert_many_strings_fixed_length<8>(strings, num);
+        } else if (max_length <= 16) {
+            insert_many_strings_fixed_length<16>(strings, num);
+        } else if (max_length <= 32) {
+            insert_many_strings_fixed_length<32>(strings, num);
+        } else if (max_length <= 64) {
+            insert_many_strings_fixed_length<64>(strings, num);
+        } else if (max_length <= 128) {
+            insert_many_strings_fixed_length<128>(strings, num);
+        } else {
+            insert_many_strings(strings, num);
+        }
+    }
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
         size_t offset_size = offsets.size();
@@ -373,6 +419,7 @@ public:
                              const int* indices_end) override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
@@ -472,6 +519,24 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
+    MutableColumnPtr get_shinked_column() const {
+        auto shrinked_column = ColumnString::create();
+        for (int i = 0; i < size(); i++) {
+            StringRef str = get_data_at(i);
+            reinterpret_cast<ColumnString*>(shrinked_column.get())
+                    ->insert_data(str.data, strnlen(str.data, str.size));
+        }
+        return shrinked_column;
+    }
+
+    TypeIndex get_data_type() const override { return TypeIndex::String; }
+
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return get_indices_of_non_default_rows_impl<ColumnString>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 };
 
 } // namespace doris::vectorized

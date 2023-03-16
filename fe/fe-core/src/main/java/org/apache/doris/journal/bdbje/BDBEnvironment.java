@@ -21,8 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
+import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
+import org.apache.doris.system.Frontend;
 
+import com.google.common.collect.ImmutableList;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseException;
@@ -51,11 +54,11 @@ import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /* this class contains the reference to bdb environment.
  * including all the opened databases and the replicationGroupAdmin.
@@ -65,15 +68,17 @@ public class BDBEnvironment {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
     private static final int RETRY_TIME = 3;
     private static final int MEMORY_CACHE_PERCENT = 20;
+    private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
+            "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
 
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
+
 
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
     private ReplicationConfig replicationConfig;
     private DatabaseConfig dbConfig;
     private Database epochDB = null;  // used for fencing
-    private ReplicationGroupAdmin replicationGroupAdmin = null;
     private ReentrantReadWriteLock lock;
     private List<Database> openedDatabases;
 
@@ -130,6 +135,14 @@ public class BDBEnvironment {
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
+
+        if (BDBJE_LOG_LEVEL.contains(Config.bdbje_file_logging_level)) {
+            environmentConfig.setConfigParam(EnvironmentConfig.FILE_LOGGING_LEVEL, Config.bdbje_file_logging_level);
+        } else {
+            LOG.warn("bdbje_file_logging_level invalid value: {}, will not take effort, use default",
+                    Config.bdbje_file_logging_level);
+        }
+
         if (isElectable) {
             Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy),
                     getSyncPolicy(Config.replica_sync_policy), getAckPolicy(Config.replica_ack_policy));
@@ -153,23 +166,6 @@ public class BDBEnvironment {
                 // open the environment
                 replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
 
-                // get replicationGroupAdmin object.
-                Set<InetSocketAddress> adminNodes = new HashSet<InetSocketAddress>();
-                // 1. add helper node
-                InetSocketAddress helper = new InetSocketAddress(helperHostPort.split(":")[0],
-                                                                 Integer.parseInt(helperHostPort.split(":")[1]));
-                adminNodes.add(helper);
-                LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
-                // 2. add self if is electable
-                if (!selfNodeHostPort.equals(helperHostPort) && Env.getCurrentEnv().isElectable()) {
-                    InetSocketAddress self = new InetSocketAddress(selfNodeHostPort.split(":")[0],
-                                                                   Integer.parseInt(selfNodeHostPort.split(":")[1]));
-                    adminNodes.add(self);
-                    LOG.info("add self[{}] as ReplicationGroupAdmin", selfNodeHostPort);
-                }
-
-                replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, adminNodes);
-
                 // get a BDBHA object and pass the reference to Catalog
                 HAProtocol protocol = new BDBHA(this, selfNodeName);
                 Env.getCurrentEnv().setHaProtocol(protocol);
@@ -177,7 +173,6 @@ public class BDBEnvironment {
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();
                 replicatedEnvironment.setStateChangeListener(listener);
-
                 // open epochDB. the first parameter null means auto-commit
                 epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
@@ -195,7 +190,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
@@ -206,11 +201,13 @@ public class BDBEnvironment {
     }
 
     public ReplicationGroupAdmin getReplicationGroupAdmin() {
-        return this.replicationGroupAdmin;
-    }
-
-    public void setNewReplicationGroupAdmin(Set<InetSocketAddress> newHelperNodes) {
-        this.replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, newHelperNodes);
+        Set<InetSocketAddress> addresses = Env.getCurrentEnv()
+                .getFrontends(FrontendNodeType.FOLLOWER)
+                .stream()
+                .filter(Frontend::isAlive)
+                .map(fe -> new InetSocketAddress(fe.getIp(), fe.getEditLogPort()))
+                .collect(Collectors.toSet());
+        return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
 
     // Return a handle to the epochDB
@@ -336,7 +333,7 @@ public class BDBEnvironment {
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e1) {
-                    e1.printStackTrace();
+                    LOG.warn("", e1);
                 }
             } catch (DatabaseException e) {
                 LOG.warn("catch an exception when calling getDatabaseNames", e);
@@ -415,7 +412,7 @@ public class BDBEnvironment {
                     try {
                         Thread.sleep(5 * 1000);
                     } catch (InterruptedException e1) {
-                        e1.printStackTrace();
+                        LOG.warn("", e1);
                     }
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);

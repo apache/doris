@@ -39,6 +39,12 @@ import java.util.Map;
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
 
+    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+            JdbcResource.JDBC_URL,
+            JdbcResource.DRIVER_URL,
+            JdbcResource.DRIVER_CLASS
+    );
+
     // Must add "transient" for Gson to ignore this field,
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
@@ -51,7 +57,18 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        for (String requiredProperty : REQUIRED_PROPERTIES) {
+            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+                throw new DdlException("Required property '" + requiredProperty + "' is missing");
+            }
+        }
+    }
+
+    @Override
     public void onClose() {
+        super.onClose();
         if (jdbcClient != null) {
             jdbcClient.closeClient();
         }
@@ -68,7 +85,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
 
-        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+        if (properties.containsKey(JdbcResource.DRIVER_URL) && !properties.containsKey(JdbcResource.CHECK_SUM)) {
             properties.put(JdbcResource.CHECK_SUM,
                     JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL)));
         }
@@ -103,9 +120,18 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.CHECK_SUM, "");
     }
 
+    public String getOnlySpecifiedDatabase() {
+        return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
+    }
+
+    public String getLowerCaseTableNames() {
+        return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass());
+        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass(),
+                getOnlySpecifiedDatabase(), getLowerCaseTableNames());
     }
 
     @Override

@@ -23,6 +23,9 @@ suite("test_create_mtmv") {
         ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
 
+    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNamePv}`"""
+
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
             event_day DATE,
@@ -52,6 +55,9 @@ suite("test_create_mtmv") {
     sql """
         INSERT INTO ${tableNamePv} VALUES("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
     """
+
+    sql """drop materialized view if exists ${mvName}""" 
+
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH COMPLETE
@@ -124,6 +130,18 @@ suite("test_create_mtmv") {
 
     assertEquals 'SUCCESS', state, show_task_result.last().toString()
     assertEquals 2, show_task_result.size()
+
+    // test alter mtmv
+    sql """
+        alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE start with "2022-11-03 00:00:00" next 2 DAY
+    """
+    show_job_meta = sql_meta "SHOW MTMV JOB ON ${mvName}"
+    def scheduleIndex = show_job_meta.indexOf(['Schedule', 'CHAR'])
+
+    show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
+    assertEquals 1, show_job_result.size()
+
+    assertEquals 'START 2022-11-03T00:00 EVERY(2 DAYS)', show_job_result.last().get(scheduleIndex).toString(), show_job_result.last().toString()
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}

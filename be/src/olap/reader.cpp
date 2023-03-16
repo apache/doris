@@ -39,7 +39,7 @@ namespace doris {
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
-    if (UNLIKELY(version.first == -1)) {
+    if (UNLIKELY(version.first == -1 && is_segcompaction == false)) {
         LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
     }
 }
@@ -133,10 +133,8 @@ bool TabletReader::_optimize_for_single_rowset(
     return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
 }
 
-Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
-                                         std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
-    if (rs_readers->empty()) {
+Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
+    if (read_params.rs_readers.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->full_name());
     }
@@ -220,7 +218,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.sequence_id_idx = _sequence_col_idx;
-    _reader_context.batch_size = _batch_size;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
@@ -228,8 +225,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
-
-    *valid_rs_readers = *rs_readers;
+    _reader_context.common_vexpr_ctxs_pushdown = read_params.common_vexpr_ctxs_pushdown;
+    _reader_context.output_columns = &read_params.output_columns;
 
     return Status::OK();
 }
@@ -307,7 +304,9 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+                read_params.reader_type == READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == READER_BASE_COMPACTION ||
+                read_params.reader_type == READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
@@ -415,10 +414,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
-    if (read_params.start_key.empty()) {
-        return Status::OK();
-    }
-
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
@@ -458,6 +453,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             // _gen_predicate_result_sign will build predicate result unique sign with condition value
             auto predicate_params = predicate->predicate_params();
             predicate_params->value = condition.condition_values[0];
+            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
@@ -477,13 +473,18 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 
     for (const auto& filter : read_params.in_filters) {
-        _col_predicates.emplace_back(_parse_to_predicate(filter));
+        ColumnPredicate* predicate = _parse_to_predicate(filter);
+        if (predicate != nullptr) {
+            // in_filters from runtime filter predicates which pushed down to data source.
+            auto predicate_params = predicate->predicate_params();
+            predicate_params->marked_by_runtime_filter = true;
+        }
+        _col_predicates.emplace_back(predicate);
     }
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<false>*>(_pred) ||
-            dynamic_cast<LikeColumnPredicate<true>*>(_pred)) {
+        if (dynamic_cast<LikeColumnPredicate*>(_pred)) {
             return true;
         }
 
@@ -524,6 +525,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
+            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
             predicate_params->value = condition.condition_values[0];
             _col_preds_except_leafnode_of_andnode.push_back(predicate);
         }
@@ -576,19 +578,21 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
 
     // currently only support like predicate
-    return new LikeColumnPredicate<false>(function_filter._opposite, index, function_filter._fn_ctx,
-                                          function_filter._string_param);
+    return new LikeColumnPredicate(function_filter._opposite, index, function_filter._fn_ctx,
+                                   function_filter._string_param);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
+    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+        read_params.reader_type == READER_SEGMENT_COMPACTION) {
         return Status::OK();
     }
-    // Only BASE_COMPACTION need set filter_delete = true
+    // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
     if (read_params.reader_type == READER_BASE_COMPACTION ||
+        read_params.reader_type == READER_COLD_DATA_COMPACTION ||
         read_params.reader_type == READER_CHECKSUM) {
         _filter_delete = true;
     }

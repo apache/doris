@@ -8,3 +8,6 @@
 -- !nereids_monotonicEvaluationSegfault_3 --
 0
 
+-- !nereids_monotonicEvaluationSegfault_4 --
+0
+

@@ -27,7 +27,6 @@ namespace doris::vectorized {
 template <template <typename, typename> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const Array& parameters,
                                                              const bool result_is_nullable) {
     const auto arg_count = argument_types.size();
 
@@ -42,24 +41,28 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
     }
 
     if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
-        return std::make_shared<AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
-                argument_types);
+        return AggregateFunctionPtr(creator_without_type::create<
+                                    AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(
+                result_is_nullable, argument_types));
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
-        return std::make_shared<AggregateFunction<VecDateTimeValue, Int64>>(argument_types);
+        return AggregateFunctionPtr(
+                creator_without_type::create<AggregateFunction<VecDateTimeValue, Int64>>(
+                        result_is_nullable, argument_types));
     } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_v2()) {
-        return std::make_shared<AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(
-                argument_types);
+        return AggregateFunctionPtr(creator_without_type::create<
+                                    AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(
+                result_is_nullable, argument_types));
     } else {
-        LOG(FATAL) << "Only support Date and DateTime type as timestamp argument!";
+        LOG(WARNING) << "Only support Date and DateTime type as timestamp argument!";
         return nullptr;
     }
 }
 
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function(
+    factory.register_function_both(
             "sequence_match",
             create_aggregate_function_sequence_base<AggregateFunctionSequenceMatch>);
-    factory.register_function(
+    factory.register_function_both(
             "sequence_count",
             create_aggregate_function_sequence_base<AggregateFunctionSequenceCount>);
 }

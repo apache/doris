@@ -17,15 +17,12 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
-import com.google.common.base.Preconditions;
-
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -35,44 +32,56 @@ import java.util.List;
  * Inspired by GPORCA-CExpressionHandle.
  */
 public class PlanContext {
-    // attached group expression
-    private final GroupExpression groupExpression;
+    private List<Statistics> childrenStats = new ArrayList<>();
+    private Statistics planStats;
+    private int arity = 0;
+    private boolean isBroadcastJoin = false;
 
     /**
      * Constructor for PlanContext.
      */
     public PlanContext(GroupExpression groupExpression) {
-        this.groupExpression = groupExpression;
+        this.arity = groupExpression.arity();
+        if (groupExpression.getOwnerGroup() == null) {
+            return;
+        }
+        planStats = groupExpression.getOwnerGroup().getStatistics();
+        childrenStats = new ArrayList<>();
+        for (int i = 0; i < groupExpression.arity(); i++) {
+            childrenStats.add(groupExpression.childStatistics(i));
+        }
     }
 
-    public GroupExpression getGroupExpression() {
-        return groupExpression;
+    public PlanContext(Statistics planStats, Statistics... childrenStats) {
+        this.planStats = planStats;
+        this.childrenStats = Arrays.asList(childrenStats);
+        this.arity = this.childrenStats.size();
     }
 
-    public StatsDeriveResult getStatisticsWithCheck() {
-        StatsDeriveResult statistics = groupExpression.getOwnerGroup().getStatistics();
-        Preconditions.checkNotNull(statistics);
-        return statistics;
+    public void setBroadcastJoin() {
+        isBroadcastJoin = true;
     }
 
-    public LogicalProperties childLogicalPropertyAt(int index) {
-        return groupExpression.child(index).getLogicalProperties();
+    public boolean isBroadcastJoin() {
+        return isBroadcastJoin;
     }
 
-    public List<Slot> getChildOutputSlots(int index) {
-        return childLogicalPropertyAt(index).getOutput();
+    public int arity() {
+        return arity;
     }
 
-    public List<Id> getChildOutputIds(int index) {
-        return childLogicalPropertyAt(index).getOutputExprIds();
+    public Statistics getStatisticsWithCheck() {
+        return planStats;
     }
 
     /**
      * Get child statistics.
      */
-    public StatsDeriveResult getChildStatistics(int index) {
-        StatsDeriveResult statistics = groupExpression.child(index).getStatistics();
-        Preconditions.checkNotNull(statistics);
-        return statistics;
+    public Statistics getChildStatistics(int index) {
+        return childrenStats.get(index);
+    }
+
+    public List<Statistics> getChildrenStatistics() {
+        return childrenStats;
     }
 }

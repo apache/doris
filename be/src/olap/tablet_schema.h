@@ -54,6 +54,7 @@ public:
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
+    bool is_variant_type() const { return _type == OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == OLAP_FIELD_TYPE_ARRAY; }
@@ -133,6 +134,7 @@ class TabletSchema;
 class TabletIndex {
 public:
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
+    void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
     void init_from_pb(const TabletIndexPB& index);
     void to_schema_pb(TabletIndexPB* index) const;
 
@@ -206,10 +208,13 @@ public:
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
     void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
     bool store_row_column() const { return _store_row_column; }
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
+    int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
@@ -226,7 +231,10 @@ public:
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    void set_schema_version(int32_t version) { _schema_version = version; }
 
+    void set_table_id(int32_t table_id) { _table_id = table_id; }
+    int32_t table_id() const { return _table_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
@@ -245,6 +253,18 @@ public:
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
+
+    string get_all_field_names() const {
+        string str = "[";
+        for (auto p : _field_name_to_index) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += p.first;
+        }
+        str += "]";
+        return str;
+    }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -270,9 +290,12 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
+    bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
+    int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
+    int32_t _table_id = -1;
     bool _disable_auto_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;

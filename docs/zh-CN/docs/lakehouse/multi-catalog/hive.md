@@ -83,12 +83,12 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.security.authentication' = 'kerberos',
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
-    'yarn.resourcemanager.principal' = 'your-rm-principal/your-rm-address@YOUR.COM'
+    'hive.metastore.kerberos.principal' = 'your-hms-principal'
 );
 ```
 
 请在所有的 `BE`、`FE` 节点下放置 `krb5.conf` 文件和 `keytab` 认证文件，`keytab` 认证文件路径和配置保持一致，`krb5.conf` 文件默认放置在 `/etc/krb5.conf` 路径。
+`hive.metastore.kerberos.principal` 的值需要和所连接的 hive metastore 的同名属性保持一致，可从 `hive-site.xml` 中获取。
 
 提供 Hadoop KMS 加密传输信息，示例如下：
 	
@@ -112,6 +112,40 @@ CREATE CATALOG hive PROPERTIES (
     'juicefs.meta' = 'xxx'
 );
 ```
+
+hive元数据存储在Glue，数据存储在S3，示例如下：
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.type" = "glue",
+    "aws.region" = "us-east-1",
+    "aws.glue.access-key" = "ak",
+    "aws.glue.secret-key" = "sk",
+    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+    "AWS_REGION" = "us-east-1",
+    "AWS_ACCESS_KEY" = "ak",
+    "AWS_SECRET_KEY" = "sk",
+    "use_path_style" = "true"
+);
+```
+
+<version since="dev">
+
+连接开启 Ranger 权限校验的 Hive Metastore 需要增加配置 & 配置环境：
+1. 创建 Catalog 时增加：
+
+```sql
+"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
+"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+```
+2. 配置所有 FE 环境： 
+   a. 将 HMS conf 目录下的三个 Ranger 配置文件Copy到 <doris_home>/conf 目录下
+   b. 修改其中 ranger-<ranger_service_name>-security.xml 的属性 `ranger.plugin.hive.policy.cache.dir` 的值为一个可写目录
+   c. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties
+   d. 重启 FE
+
+</version>
 
 在 1.2.1 版本之后，我们也可以将这些信息通过创建一个 Resource 统一存储，然后在创建 Catalog 时使用这个 Resource。示例如下：
 	
@@ -170,4 +204,6 @@ CREATE CATALOG hive PROPERTIES (
 | varchar| varchar| |
 | decimal| decimal | |
 | `array<type>` | `array<type>`| 支持array嵌套，如 `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |

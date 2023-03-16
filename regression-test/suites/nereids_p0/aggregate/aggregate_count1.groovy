@@ -19,8 +19,7 @@
 
 suite("aggregate_count1", "query") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS aggregate_count1 """
     sql """create table if not exists aggregate_count1 (
                 name varchar(128),

@@ -38,6 +38,7 @@ SchemaSchemataScanner::SchemaSchemataScanner()
 SchemaSchemataScanner::~SchemaSchemataScanner() = default;
 
 Status SchemaSchemataScanner::start(RuntimeState* state) {
+    SCOPED_TIMER(_get_db_timer);
     if (!_is_init) {
         return Status::InternalError("used before initial.");
     }
@@ -85,50 +86,55 @@ Status SchemaSchemataScanner::get_next_block(vectorized::Block* block, bool* eos
 }
 
 Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto dbs_num = _db_result.dbs.size();
+    std::vector<void*> null_datas(dbs_num, nullptr);
+    std::vector<void*> datas(dbs_num);
 
     // catalog
     {
-        for (int i = 0; i < dbs_num; ++i) {
-            if (!_db_result.__isset.catalogs) {
-                fill_dest_column(block, nullptr, _s_columns[0]);
-            } else {
-                std::string catalog_name = _db_result.catalogs[i];
-                StringRef str = StringRef(catalog_name.c_str(), catalog_name.size());
-                fill_dest_column(block, &str, _s_columns[0]);
+        if (!_db_result.__isset.catalogs) {
+            fill_dest_column_for_range(block, 0, null_datas);
+        } else {
+            StringRef strs[dbs_num];
+            for (int i = 0; i < dbs_num; ++i) {
+                strs[i] = StringRef(_db_result.catalogs[i].c_str(), _db_result.catalogs[i].size());
+                datas[i] = strs + i;
             }
+            fill_dest_column_for_range(block, 0, datas);
         }
     }
     // schema
     {
+        std::string db_names[dbs_num];
+        StringRef strs[dbs_num];
         for (int i = 0; i < dbs_num; ++i) {
-            std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[i]);
-            StringRef str = StringRef(db_name.c_str(), db_name.size());
-            fill_dest_column(block, &str, _s_columns[1]);
+            db_names[i] = SchemaHelper::extract_db_name(_db_result.dbs[i]);
+            strs[i] = StringRef(db_names[i].c_str(), db_names[i].size());
+            datas[i] = strs + i;
         }
+        fill_dest_column_for_range(block, 1, datas);
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
+        std::string src = "utf8";
+        StringRef str = StringRef(src.c_str(), src.size());
         for (int i = 0; i < dbs_num; ++i) {
-            std::string src = "utf8";
-            StringRef str = StringRef(src.c_str(), src.size());
-            fill_dest_column(block, &str, _s_columns[2]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 2, datas);
     }
     // DEFAULT_COLLATION_NAME
     {
+        std::string src = "utf8_general_ci";
+        StringRef str = StringRef(src.c_str(), src.size());
         for (int i = 0; i < dbs_num; ++i) {
-            std::string src = "utf8_general_ci";
-            StringRef str = StringRef(src.c_str(), src.size());
-            fill_dest_column(block, &str, _s_columns[3]);
+            datas[i] = &str;
         }
+        fill_dest_column_for_range(block, 3, datas);
     }
     // SQL_PATH
-    {
-        for (int i = 0; i < dbs_num; ++i) {
-            fill_dest_column(block, nullptr, _s_columns[4]);
-        }
-    }
+    { fill_dest_column_for_range(block, 4, null_datas); }
     return Status::OK();
 }
 

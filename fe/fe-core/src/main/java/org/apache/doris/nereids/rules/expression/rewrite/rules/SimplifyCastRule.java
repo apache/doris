@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -86,6 +88,19 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
                     return new DecimalLiteral(new BigDecimal(((IntegerLiteral) child).getValue()));
                 } else if (child instanceof BigIntLiteral) {
                     return new DecimalLiteral(new BigDecimal(((BigIntLiteral) child).getValue()));
+                }
+            } else if (castType instanceof DecimalV3Type) {
+                DecimalV3Type decimalV3Type = (DecimalV3Type) castType;
+                if (child instanceof TinyIntLiteral) {
+                    return new DecimalV3Literal(decimalV3Type, new BigDecimal(((TinyIntLiteral) child).getValue()));
+                } else if (child instanceof SmallIntLiteral) {
+                    return new DecimalV3Literal(decimalV3Type, new BigDecimal(((SmallIntLiteral) child).getValue()));
+                } else if (child instanceof IntegerLiteral) {
+                    return new DecimalV3Literal(decimalV3Type, new BigDecimal(((IntegerLiteral) child).getValue()));
+                } else if (child instanceof BigIntLiteral) {
+                    return new DecimalV3Literal(decimalV3Type, new BigDecimal(((BigIntLiteral) child).getValue()));
+                } else if (child instanceof DecimalV3Literal) {
+                    return new DecimalV3Literal(decimalV3Type, ((DecimalV3Literal) child).getValue());
                 }
             }
         }

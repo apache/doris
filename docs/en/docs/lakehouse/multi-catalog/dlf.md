@@ -35,69 +35,83 @@ Doris can access DLF the same way as it accesses Hive Metastore.
 
 ## Connect to DLF
 
-1. Create `hive-site.xml`
+### The First Way, Create a Hive Catalog.
 
-   Create the  `hive-site.xml` file, and put it in the `fe/conf`  directory.
+```sql
+CREATE CATALOG hive_with_dlf PROPERTIES (
+   "type"="hms",
+   "dlf.catalog.proxyMode" = "DLF_ONLY",
+   "hive.metastore.type" = "dlf",
+   "dlf.catalog.endpoint" = "dlf.cn-beijing.aliyuncs.com",
+   "dlf.catalog.region" = "cn-beijing",
+   "dlf.catalog.uid" = "uid",
+   "dlf.catalog.accessKeyId" = "ak",
+   "dlf.catalog.accessKeySecret" = "sk"
+);
+```
 
-   ```
-   <?xml version="1.0"?>
-   <configuration>
-       <!--Set to use dlf client-->
-       <property>
-           <name>hive.metastore.type</name>
-           <value>dlf</value>
-       </property>
-       <property>
-           <name>dlf.catalog.endpoint</name>
-           <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
-       </property>
-       <property>
-           <name>dlf.catalog.region</name>
-           <value>cn-beijing</value>
-       </property>
-       <property>
-           <name>dlf.catalog.proxyMode</name>
-           <value>DLF_ONLY</value>
-       </property>
-       <property>
-           <name>dlf.catalog.uid</name>
-           <value>20000000000000000</value>
-       </property>
-       <property>
-           <name>dlf.catalog.accessKeyId</name>
-           <value>XXXXXXXXXXXXXXX</value>
-       </property>
-       <property>
-           <name>dlf.catalog.accessKeySecret</name>
-           <value>XXXXXXXXXXXXXXXXX</value>
-       </property>
-   </configuration>
-   ```
+`type` should always be `hms`. If you need to access Alibaba Cloud OSS on the public network, can add `"dlf.catalog.accessPublic"="true"`.
 
-   * `dlf.catalog.endpoint`: DLF Endpoint. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
-   * `dlf.catalog.region`: DLF Region. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
-   * `dlf.catalog.uid`: Alibaba Cloud account. You can find the "Account ID" in the upper right corner on the Alibaba Cloud console. 
-   * `dlf.catalog.accessKeyId`：AccessKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
-   * `dlf.catalog.accessKeySecret`：SecretKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
+* `dlf.catalog.endpoint`: DLF Endpoint. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
+* `dlf.catalog.region`: DLF Region. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
+* `dlf.catalog.uid`: Alibaba Cloud account. You can find the "Account ID" in the upper right corner on the Alibaba Cloud console.
+* `dlf.catalog.accessKeyId`：AccessKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
+* `dlf.catalog.accessKeySecret`：SecretKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
 
-   Other configuration items are fixed and require no modifications.
+Other configuration items are fixed and require no modifications.
 
-2. Restart FE, and create Catalog via the `CREATE CATALOG`  statement.
+After the above steps, you can access metadata in DLF the same way as you access Hive MetaStore.
 
-   Doris will read and parse  `fe/conf/hive-site.xml`.
+Doris supports accessing Hive/Iceberg/Hudi metadata in DLF.
 
-   ```sql
-   CREATE CATALOG hive_with_dlf PROPERTIES (
-       "type"="hms",
-       "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-   )
-   ```
+### The Second Way, Configure the Hive Conf
 
-    `type`  should always be  `hms`; while  `hive.metastore.uris` can be arbitary since it is not used in real practice, but it should follow the format of Hive Metastore Thrift URI.
+1. Create the `hive-site.xml` file, and put it in the `fe/conf`  directory.
 
-   After the above steps, you can access metadata in DLF the same way as you access Hive MetaStore.
+```
+<?xml version="1.0"?>
+<configuration>
+    <!--Set to use dlf client-->
+    <property>
+        <name>hive.metastore.type</name>
+        <value>dlf</value>
+    </property>
+    <property>
+        <name>dlf.catalog.endpoint</name>
+        <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
+    </property>
+    <property>
+        <name>dlf.catalog.region</name>
+        <value>cn-beijing</value>
+    </property>
+    <property>
+        <name>dlf.catalog.proxyMode</name>
+        <value>DLF_ONLY</value>
+    </property>
+    <property>
+        <name>dlf.catalog.uid</name>
+        <value>20000000000000000</value>
+    </property>
+    <property>
+        <name>dlf.catalog.accessKeyId</name>
+        <value>XXXXXXXXXXXXXXX</value>
+    </property>
+    <property>
+        <name>dlf.catalog.accessKeySecret</name>
+        <value>XXXXXXXXXXXXXXXXX</value>
+    </property>
+</configuration>
+```
 
-   Doris supports accessing Hive/Iceberg/Hudi metadata in DLF.
+2. Restart FE, Doris will read and parse `fe/conf/hive-site.xml`. And then Create Catalog via the `CREATE CATALOG` statement.
 
+```sql
+CREATE CATALOG hive_with_dlf PROPERTIES (
+    "type"="hms",
+    "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+)
+```
+
+`type` should always be `hms`; while `hive.metastore.uris` can be arbitary since it is not used in real practice, but it should follow the format of Hive Metastore Thrift URI.
 
 

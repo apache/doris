@@ -20,6 +20,7 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,6 +61,8 @@ public class SearchContext {
     // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     // fetch field value from doc_values, this is activated when `enable_docvalue_scan= true`
     private Map<String, String> docValueFieldsContext = Maps.newHashMap();
+
+    private List<String> needCompatDateFields = Lists.newArrayList();
 
     // sourceIndex is the name of index when creating ES external table
     private final String sourceIndex;
@@ -123,6 +126,10 @@ public class SearchContext {
 
     public Map<String, String> docValueFieldsContext() {
         return docValueFieldsContext;
+    }
+
+    public List<String> needCompatDateFields() {
+        return needCompatDateFields;
     }
 
     public void version(EsMajorVersion version) {

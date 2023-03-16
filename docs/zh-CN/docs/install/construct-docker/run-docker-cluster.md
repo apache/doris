@@ -76,12 +76,13 @@ Doris Docker 适用的网络模式有两种。
 
 从 `Apache Doris 1.2.1 Docker Image` 版本起，各个进程镜像接口列表如下：
 
-| 进程名         | 接口名      | 接口定义            | 接口示例                                                     |
-| -------------- | ----------- | ------------------- | ------------------------------------------------------------ |
-| FE\|BE\|BROKER | FE_SERVERS  | FE 节点主要信息     | fe1:172.20.80.2:9010,fe2:172.20.80.3:9010,fe3:172.20.80.4:9010 |
-| FE             | FE_ID       | FE 节点 ID          | 1                                                            |
-| BE             | BE_ADDR     | BE 节点主要信息     | 172.20.80.5:9050                                             |
-| BROKER         | BROKER_ADDR | BROKER 节点主要信息 | 172.20.80.6:8000                                             |
+| 进程名         | 接口名         | 接口定义          | 接口示例             |
+| -------------- |-------------|---------------|------------------|
+| FE\| BE\         | BROKER        | FE_SERVERS       | FE 节点主要信息     | fe1:172.20.80.2:9010,fe2:172.20.80.3:9010,fe3:172.20.80.4:9010 |
+| FE             | FE_ID       | FE 节点 ID      | 1                |
+| BE             | BE_ADDR     | BE 节点主要信息     | 172.20.80.5:9050 |
+| BE             | NODE_ROLE   | BE 节点类型       | computation      |
+| BROKER         | BROKER_ADDR | BROKER 节点主要信息 | 172.20.80.6:8000 |
 
 注意，以上接口必须填写信息，否则进程无法启动。
 
@@ -90,6 +91,8 @@ Doris Docker 适用的网络模式有两种。
 > FE_ID 接口规则为：`1-9` 的整数，其中 `1` 号 FE 为 Master 节点。
 >
 > BE_ADDR 接口规则为：`BE_HOST:BE_HEARTBEAT_SERVICE_PORT`
+>
+> NODE_ROLE 接口规则为：`computation` 或为空，其中为空或为其他值时表示节点类型为 `mix` 类型
 >
 > BROKER_ADDR 接口规则为：`BROKER_HOST:BROKER_IPC_PORT`
 
@@ -209,7 +212,4 @@ sysctl -w vm.max_map_count=2000000
 
 然后 `exit` 退出，创建 Doris Docker 集群。
 
-## 未尽事项
 
-1. Computer Node 接口尚未适配，下个版本适配
-2. Compose Demo List 

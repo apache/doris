@@ -35,7 +35,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
@@ -67,9 +67,9 @@ public class DeriveStatsJobTest {
         while (!cascadesContext.getJobPool().isEmpty()) {
             cascadesContext.getJobPool().pop().execute();
         }
-        StatsDeriveResult statistics = cascadesContext.getMemo().getRoot().getStatistics();
+        Statistics statistics = cascadesContext.getMemo().getRoot().getStatistics();
         Assertions.assertNotNull(statistics);
-        Assertions.assertEquals(1, statistics.getRowCount());
+        Assertions.assertEquals(0, statistics.getRowCount());
     }
 
     private LogicalOlapScan constructOlapSCan() {

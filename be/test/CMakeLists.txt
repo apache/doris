@@ -31,6 +31,7 @@ set(COMMON_TEST_FILES
     common/resource_tls_test.cpp
     common/status_test.cpp
     common/config_test.cpp
+    common/exception_test.cpp
 )
 set(ENV_TEST_FILES
     env/env_posix_test.cpp
@@ -117,7 +118,7 @@ set(OLAP_TEST_FILES
     olap/txn_manager_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
-    #olap/primary_key_index_test.cpp
+    olap/primary_key_index_test.cpp
     olap/page_cache_test.cpp
     olap/hll_test.cpp
     olap/selection_vector_test.cpp
@@ -125,10 +126,10 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/common_test.cpp
     olap/tablet_cooldown_test.cpp
-    #olap/rowid_conversion_test.cpp
+    olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
-    #olap/ordered_data_compaction_test.cpp
+    olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -155,7 +156,6 @@ set(RUNTIME_TEST_FILES
     runtime/memory/chunk_allocator_test.cpp
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
-    runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
@@ -164,10 +164,7 @@ set(TESTUTIL_TEST_FILES
     testutil/function_utils.cpp
     testutil/run_all_tests.cpp
 )
-set(UDF_TEST_FILES
-    # udf/udf_test.cpp
-    # udf/uda_test.cpp
-)
+
 set(UTIL_TEST_FILES
     util/bit_util_test.cpp
     util/brpc_client_cache_test.cpp
@@ -176,7 +173,6 @@ set(UTIL_TEST_FILES
     util/crc32c_test.cpp
     util/lru_cache_util_test.cpp
     util/filesystem_util_test.cpp
-    util/internal_queue_test.cpp
     util/cidr_test.cpp
     util/metrics_test.cpp
     util/doris_metrics_test.cpp
@@ -237,6 +233,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/vec_sequence_match_test.cpp
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp
+    vec/columns/column_fixed_length_object_test.cpp
     vec/core/block_test.cpp
     vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp
@@ -270,8 +267,9 @@ set(VEC_TEST_FILES
     vec/runtime/vdata_stream_test.cpp
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
+    vec/utils/histogram_helpers_test.cpp
     vec/olap/char_type_padding_test.cpp
-    #vec/olap/vertical_compaction_test.cpp
+    vec/olap/vertical_compaction_test.cpp
     vec/jsonb/serialize_test.cpp
 )
 add_executable(doris_be_test
@@ -287,7 +285,6 @@ add_executable(doris_be_test
     ${OLAP_TEST_FILES}
     ${RUNTIME_TEST_FILES}
     ${TESTUTIL_TEST_FILES}
-    ${UDF_TEST_FILES}
     ${UTIL_TEST_FILES}
     ${VEC_TEST_FILES}
 )

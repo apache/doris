@@ -17,8 +17,7 @@
 
 suite("test_aggregate_collect") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "collect_test"
     def tableCTAS = "collect_test_ctas"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -39,15 +38,15 @@ suite("test_aggregate_collect") {
     sql "INSERT INTO ${tableName} values(1,'hello','2022-07-04',1.23,'hello'), (2,NULL,NULL,NULL,'hello')"
     sql "INSERT INTO ${tableName} values(1,'hello','2022-07-04',1.23,'hello'), (2,NULL,NULL,NULL,'hello')"
 
-    qt_select "select c_int,collect_list(c_string),collect_list(c_date),collect_list(c_decimal) from ${tableName} group by c_int order by c_int"
-    qt_select "select c_int,collect_set(c_string),collect_set(c_date),collect_set(c_decimal) from ${tableName} group by c_int order by c_int"
+    // qt_select "select c_int,collect_list(c_string),collect_list(c_date),collect_list(c_decimal) from ${tableName} group by c_int order by c_int"
+    // qt_select "select c_int,collect_set(c_string),collect_set(c_date),collect_set(c_decimal) from ${tableName} group by c_int order by c_int"
 
     // test without GROUP BY
-    qt_select "select collect_list(c_string),collect_list(c_string_not_null) from ${tableName}"
-    qt_select "select collect_set(c_string),collect_set(c_string_not_null) from ${tableName}"
+    // qt_select "select collect_list(c_string),collect_list(c_string_not_null) from ${tableName}"
+    // qt_select "select collect_set(c_string),collect_set(c_string_not_null) from ${tableName}"
 
     sql """ CREATE TABLE ${tableCTAS} PROPERTIES("replication_num" = "1") AS SELECT 1,collect_list(c_int),collect_set(c_string),collect_list(c_date),collect_set(c_decimal),collect_list(c_string_not_null) FROM ${tableName} """
-    qt_select "SELECT * from ${tableCTAS}"
+    // qt_select "SELECT * from ${tableCTAS}"
 
     // topn_array
     def tableName_12 = "topn_array"

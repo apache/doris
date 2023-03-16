@@ -603,7 +603,12 @@ public class Load {
                 if (hasSequenceCol && column.isSequenceColumn()) {
                     continue;
                 }
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                ImportColumnDesc columnDesc = null;
+                if (formatType == TFileFormatType.FORMAT_JSON) {
+                    columnDesc = new ImportColumnDesc(column.getName());
+                } else {
+                    columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                }
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
@@ -720,20 +725,50 @@ public class Load {
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                    // ISSUE A: src slot should be nullable even if the column is not nullable.
-                    // because src slot is what we read from file, not represent to real column value.
-                    // If column is not nullable, error will be thrown when filling the dest slot,
-                    // which is not nullable.
-                    slotDesc.setIsNullable(true);
+                    if (formatType == TFileFormatType.FORMAT_JSON
+                                && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+                        // Dynamic table does not require conversion from VARCHAR to corresponding data types.
+                        // Some columns are self-described and their types are dynamically generated.
+                        slotDesc.setType(tblColumn.getType());
+                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        slotDesc.setIsNullable(tblColumn.isAllowNull());
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        // ISSUE A: src slot should be nullable even if the column is not nullable.
+                        // because src slot is what we read from file, not represent to real column value.
+                        // If column is not nullable, error will be thrown when filling the dest slot,
+                        // which is not nullable.
+                        slotDesc.setIsNullable(true);
+                    }
                 }
                 slotDesc.setIsMaterialized(true);
                 srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }
+
+        // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+            analyzer.getDescTbl().addReferencedTable(tbl);
+            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+            String name = Column.DYNAMIC_COLUMN_NAME;
+            Column col = new Column(name, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setType(Type.VARIANT);
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(false);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
+            slotDesc.setIsMaterialized(true);
+            srcSlotIds.add(slotDesc.getId().asInt());
+            slotDescByName.put(name, slotDesc);
+            LOG.debug("add dynamic column to srcTupleDesc with name:{} id:{}", name, slotDesc.getId().asInt());
+        }
+        LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
+
         /*
          * The extension column of the materialized view is added to the expression evaluation of load
          * To avoid nested expressions. eg : column(a, tmp_c, c = expr(tmp_c)) ,
@@ -1300,6 +1335,31 @@ public class Load {
         }
     }
 
+    public long getLoadJobNum(JobState jobState) {
+        readLock();
+        try {
+            List<LoadJob> loadJobs = new ArrayList<>();
+            for (Long dbId : dbToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+                loadJobs.addAll(this.dbToLoadJobs.get(dbId));
+            }
+
+            int jobNum = 0;
+            for (LoadJob job : loadJobs) {
+                if (job.getState() == jobState) {
+                    ++jobNum;
+                }
+            }
+            return jobNum;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public LoadJob getLoadJob(long jobId) {
         readLock();
         try {
@@ -1307,6 +1367,151 @@ public class Load {
         } finally {
             readUnlock();
         }
+    }
+
+    public LinkedList<List<Comparable>> getAllLoadJobInfos() {
+        LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
+        readLock();
+        try {
+            List<LoadJob> loadJobs = new ArrayList<>();
+            for (Long dbId : dbToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                loadJobs.addAll(this.dbToLoadJobs.get(dbId));
+            }
+            if (loadJobs.size() == 0) {
+                return loadJobInfos;
+            }
+
+            long start = System.currentTimeMillis();
+            LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+
+            for (LoadJob loadJob : loadJobs) {
+                // filter first
+                String dbName = Env.getCurrentEnv().getCatalogMgr().getDbNullable(loadJob.getDbId()).getFullName();
+                // check auth
+                Set<String> tableNames = loadJob.getTableNames();
+                boolean auth = true;
+                for (String tblName : tableNames) {
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
+                            tblName, PrivPredicate.LOAD)) {
+                        auth = false;
+                        break;
+                    }
+                }
+                if (!auth) {
+                    continue;
+                }
+
+                loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
+            } // end for loadJobs
+
+            LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+        } finally {
+            readUnlock();
+        }
+
+        return loadJobInfos;
+    }
+
+    private List<Comparable> composeJobInfoByLoadJob(LoadJob loadJob) {
+        List<Comparable> jobInfo = new ArrayList<Comparable>();
+
+        // jobId
+        jobInfo.add(loadJob.getId());
+        // label
+        jobInfo.add(loadJob.getLabel());
+        // state
+        jobInfo.add(loadJob.getState().name());
+
+        // progress
+        switch (loadJob.getState()) {
+            case PENDING:
+                jobInfo.add("ETL:0%; LOAD:0%");
+                break;
+            case ETL:
+                jobInfo.add("ETL:" + loadJob.getProgress() + "%; LOAD:0%");
+                break;
+            case LOADING:
+                jobInfo.add("ETL:100%; LOAD:" + loadJob.getProgress() + "%");
+                break;
+            case QUORUM_FINISHED:
+            case FINISHED:
+                jobInfo.add("ETL:100%; LOAD:100%");
+                break;
+            case CANCELLED:
+            default:
+                jobInfo.add("ETL:N/A; LOAD:N/A");
+                break;
+        }
+
+        // type
+        jobInfo.add(loadJob.getEtlJobType().name());
+
+        // etl info
+        EtlStatus status = loadJob.getEtlJobStatus();
+        if (status == null || status.getState() == TEtlState.CANCELLED) {
+            jobInfo.add(FeConstants.null_string);
+        } else {
+            Map<String, String> counters = status.getCounters();
+            List<String> info = Lists.newArrayList();
+            for (String key : counters.keySet()) {
+                // XXX: internal etl job return all counters
+                if (key.equalsIgnoreCase("HDFS bytes read")
+                        || key.equalsIgnoreCase("Map input records")
+                        || key.startsWith("dpp.")
+                        || loadJob.getEtlJobType() == EtlJobType.MINI) {
+                    info.add(key + "=" + counters.get(key));
+                }
+            } // end for counters
+            if (info.isEmpty()) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(StringUtils.join(info, "; "));
+            }
+        }
+
+        // task info
+        jobInfo.add("cluster:" + loadJob.getHadoopCluster()
+                + "; timeout(s):" + loadJob.getTimeoutSecond()
+                + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
+
+        // error msg
+        if (loadJob.getState() == JobState.CANCELLED) {
+            FailMsg failMsg = loadJob.getFailMsg();
+            jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
+        } else {
+            jobInfo.add(FeConstants.null_string);
+        }
+
+        // create time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getCreateTimeMs()));
+        // etl start time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getEtlStartTimeMs()));
+        // etl end time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getEtlFinishTimeMs()));
+        // load start time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadStartTimeMs()));
+        // load end time
+        jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadFinishTimeMs()));
+        // tracking url
+        jobInfo.add(status.getTrackingUrl());
+        // job detail(not used for hadoop load, just return an empty string)
+        jobInfo.add("");
+        // transaction id
+        jobInfo.add(loadJob.getTransactionId());
+        // error tablets(not used for hadoop load, just return an empty string)
+        jobInfo.add("");
+        // user
+        jobInfo.add(loadJob.getUser());
+        // comment
+        jobInfo.add(loadJob.getComment());
+
+        return jobInfo;
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
@@ -1354,14 +1559,14 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                             PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                                 tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
@@ -1372,99 +1577,7 @@ public class Load {
                     }
                 }
 
-                List<Comparable> jobInfo = new ArrayList<Comparable>();
-
-                // jobId
-                jobInfo.add(loadJob.getId());
-                // label
-                jobInfo.add(label);
-                // state
-                jobInfo.add(state.name());
-
-                // progress
-                switch (loadJob.getState()) {
-                    case PENDING:
-                        jobInfo.add("ETL:0%; LOAD:0%");
-                        break;
-                    case ETL:
-                        jobInfo.add("ETL:" + loadJob.getProgress() + "%; LOAD:0%");
-                        break;
-                    case LOADING:
-                        jobInfo.add("ETL:100%; LOAD:" + loadJob.getProgress() + "%");
-                        break;
-                    case QUORUM_FINISHED:
-                        jobInfo.add("ETL:100%; LOAD:100%");
-                        break;
-                    case FINISHED:
-                        jobInfo.add("ETL:100%; LOAD:100%");
-                        break;
-                    case CANCELLED:
-                        jobInfo.add("ETL:N/A; LOAD:N/A");
-                        break;
-                    default:
-                        jobInfo.add("ETL:N/A; LOAD:N/A");
-                        break;
-                }
-
-                // type
-                jobInfo.add(loadJob.getEtlJobType().name());
-
-                // etl info
-                EtlStatus status = loadJob.getEtlJobStatus();
-                if (status == null || status.getState() == TEtlState.CANCELLED) {
-                    jobInfo.add(FeConstants.null_string);
-                } else {
-                    Map<String, String> counters = status.getCounters();
-                    List<String> info = Lists.newArrayList();
-                    for (String key : counters.keySet()) {
-                        // XXX: internal etl job return all counters
-                        if (key.equalsIgnoreCase("HDFS bytes read")
-                                || key.equalsIgnoreCase("Map input records")
-                                || key.startsWith("dpp.")
-                                || loadJob.getEtlJobType() == EtlJobType.MINI) {
-                            info.add(key + "=" + counters.get(key));
-                        }
-                    } // end for counters
-                    if (info.isEmpty()) {
-                        jobInfo.add(FeConstants.null_string);
-                    } else {
-                        jobInfo.add(StringUtils.join(info, "; "));
-                    }
-                }
-
-                // task info
-                jobInfo.add("cluster:" + loadJob.getHadoopCluster()
-                        + "; timeout(s):" + loadJob.getTimeoutSecond()
-                        + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
-
-                // error msg
-                if (loadJob.getState() == JobState.CANCELLED) {
-                    FailMsg failMsg = loadJob.getFailMsg();
-                    jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
-                } else {
-                    jobInfo.add(FeConstants.null_string);
-                }
-
-                // create time
-                jobInfo.add(TimeUtils.longToTimeString(loadJob.getCreateTimeMs()));
-                // etl start time
-                jobInfo.add(TimeUtils.longToTimeString(loadJob.getEtlStartTimeMs()));
-                // etl end time
-                jobInfo.add(TimeUtils.longToTimeString(loadJob.getEtlFinishTimeMs()));
-                // load start time
-                jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadStartTimeMs()));
-                // load end time
-                jobInfo.add(TimeUtils.longToTimeString(loadJob.getLoadFinishTimeMs()));
-                // tracking url
-                jobInfo.add(status.getTrackingUrl());
-                // job detail(not used for hadoop load, just return an empty string)
-                jobInfo.add("");
-                // transaction id
-                jobInfo.add(loadJob.getTransactionId());
-                // error tablets(not used for hadoop load, just return an empty string)
-                jobInfo.add("");
-
-                loadJobInfos.add(jobInfo);
+                loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
             } // end for loadJobs
 
             LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));

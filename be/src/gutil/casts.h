@@ -34,14 +34,14 @@
 // base::identity_ is used to make a non-deduced context, which
 // forces all callers to explicitly specify the template argument.
 template <typename To>
-inline To implicit_cast(typename base::identity_<To>::type to) {
+ To implicit_cast(typename base::identity_<To>::type to) {
     return to;
 }
 
 // This version of implicit_cast is used when two template arguments
 // are specified. It's obsolete and should not be used.
 template <typename To, typename From>
-inline To implicit_cast(typename base::identity_<From>::type const& f) {
+ To implicit_cast(typename base::identity_<From>::type const& f) {
     return f;
 }
 
@@ -89,7 +89,7 @@ inline To down_cast(From* f) {        // so we only accept pointers
 // or the reference form. If you call down_cast with a const T&, the
 // compiler will just bind From to const T.
 template <typename To, typename From>
-inline To down_cast(From& f) {
+ To down_cast(From& f) {
     COMPILE_ASSERT(std::is_reference<To>::value, target_type_not_a_reference);
     using ToAsPointer = typename std::remove_reference<To>::type*;
     if (false) {
@@ -161,7 +161,7 @@ inline To down_cast(From& f) {
 // -- mec 2005-10-17
 
 template <class Dest, class Source>
-inline Dest bit_cast(const Source& source) {
+ Dest bit_cast(const Source& source) {
     // Compile time assertion: sizeof(Dest) == sizeof(Source)
     // A compile error here means your Dest and Source have different sizes.
     COMPILE_ASSERT(sizeof(Dest) == sizeof(Source), VerifySizesAreEqual);
@@ -279,7 +279,7 @@ public:
 // because of value propagation on the constant enumerator bounds.
 
 template <typename Enum>
-inline bool loose_enum_test(int e_val) {
+ bool loose_enum_test(int e_val) {
     COMPILE_ASSERT(enum_limits<Enum>::is_specialized, missing_MAKE_ENUM_LIMITS);
     const Enum e_min = enum_limits<Enum>::min_enumerator;
     const Enum e_max = enum_limits<Enum>::max_enumerator;
@@ -333,7 +333,7 @@ inline bool loose_enum_test(int e_val) {
 }
 
 template <typename Enum>
-inline bool tight_enum_test(int e_val) {
+ bool tight_enum_test(int e_val) {
     COMPILE_ASSERT(enum_limits<Enum>::is_specialized, missing_MAKE_ENUM_LIMITS);
     const Enum e_min = enum_limits<Enum>::min_enumerator;
     const Enum e_max = enum_limits<Enum>::max_enumerator;
@@ -341,7 +341,7 @@ inline bool tight_enum_test(int e_val) {
 }
 
 template <typename Enum>
-inline bool loose_enum_test_cast(int e_val, Enum* e_var) {
+ bool loose_enum_test_cast(int e_val, Enum* e_var) {
     if (loose_enum_test<Enum>(e_val)) {
         *e_var = static_cast<Enum>(e_val);
         return true;
@@ -351,7 +351,7 @@ inline bool loose_enum_test_cast(int e_val, Enum* e_var) {
 }
 
 template <typename Enum>
-inline bool tight_enum_test_cast(int e_val, Enum* e_var) {
+ bool tight_enum_test_cast(int e_val, Enum* e_var) {
     if (tight_enum_test<Enum>(e_val)) {
         *e_var = static_cast<Enum>(e_val);
         return true;
@@ -371,7 +371,7 @@ inline void WarnEnumCastError(int value_of_int) {
 } // namespace base
 
 template <typename Enum>
-inline Enum loose_enum_cast(int e_val) {
+ Enum loose_enum_cast(int e_val) {
     if (!loose_enum_test<Enum>(e_val)) {
         base::internal::WarnEnumCastError(e_val);
     }
@@ -379,7 +379,7 @@ inline Enum loose_enum_cast(int e_val) {
 }
 
 template <typename Enum>
-inline Enum tight_enum_cast(int e_val) {
+ Enum tight_enum_cast(int e_val) {
     if (!tight_enum_test<Enum>(e_val)) {
         base::internal::WarnEnumCastError(e_val);
     }

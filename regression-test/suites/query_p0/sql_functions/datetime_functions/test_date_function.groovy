@@ -548,6 +548,8 @@ suite("test_date_function") {
     qt_sql """ select minutes_sub(test_time2,1) result from ${tableName}; """
     //seconds_sub
     qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
+    //datediff
+    qt_sql """ select datediff(test_time2, STR_TO_DATE('2022-08-01 00:00:00','%Y-%m-%d')) from ${tableName}; """
 
     // test last_day for vec
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -645,6 +647,13 @@ suite("test_date_function") {
             where
               birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
         """
+    test {
+        sql"""select current_timestamp(7);"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
 }

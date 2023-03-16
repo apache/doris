@@ -52,7 +52,7 @@ namespace vectorized {
   *  (either original names from a table, or generated names during temporary calculations).
   * Allows to insert, remove columns in arbitrary position, to change order of columns.
   */
-
+class MutableBlock;
 class Block {
 private:
     using Container = ColumnsWithTypeAndName;
@@ -86,6 +86,8 @@ public:
     void insert_unique(ColumnWithTypeAndName&& elem);
     /// remove the column at the specified position
     void erase(size_t position);
+    /// remove the column at the [start, end)
+    void erase_tail(size_t start);
     /// remove the columns at the specified positions
     void erase(const std::set<size_t>& positions);
     /// remove the column with the specified name
@@ -181,7 +183,7 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
-    std::string each_col_size();
+    std::string each_col_size() const;
 
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
@@ -242,6 +244,8 @@ public:
 
     bool is_empty_column() { return data.empty(); }
 
+    bool empty() const { return rows() == 0; }
+
     /** Updates SipHash of the Block, using update method of columns.
       * Returns hash for block, that could be used to differentiate blocks
       *  with same structure, but different data.
@@ -257,7 +261,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableColumns& columns, const IColumn::Selector& selector) const;
+    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                       const IColumn::Filter& filter);
@@ -271,9 +275,7 @@ public:
     static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
-        for (int i = block->columns() - 1; i >= column_to_keep; --i) {
-            block->erase(i);
-        }
+        block->erase_tail(column_to_keep);
     }
 
     // serialize block to PBlock
@@ -476,6 +478,7 @@ public:
 
     template <typename T>
     void merge(T&& block) {
+        // merge is not supported in dynamic block
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
             _names = block.get_names();

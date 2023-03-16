@@ -54,4 +54,17 @@ suite("sort") {
     qt_sql """select cast(k1 as STRING) as id from tbl1 order by id;"""
     qt_sql """select cast(k1 as INT) as id from tbl1 order by id limit 2"""
     qt_sql """select cast(k1 as STRING) as id from tbl1 order by id limit 2"""
+
+	
+    sql """drop table if exists test_convert"""
+    sql """CREATE TABLE `test_convert` (
+                 `a` varchar(100) NULL
+             ) ENGINE=OLAP
+               DUPLICATE KEY(`a`)
+               DISTRIBUTED BY HASH(`a`) BUCKETS 3
+               PROPERTIES (
+               "replication_allocation" = "tag.location.default: 1"
+               );"""
+    sql """insert into test_convert values("b"),("z"),("a"), ("c"), ("睿"), ("多"), ("丝");"""
+    qt_sql """select * from test_convert order by convert(a using gbk);"""
 }

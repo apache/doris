@@ -99,6 +99,9 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     public String getStringValue() {
+        if (lExpr == null) {
+            return "";
+        }
         return lExpr.getStringValue();
     }
 
@@ -151,11 +154,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public boolean isNullable() {
         return this.lExpr instanceof NullLiteral;
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
     }
 
     @Override
