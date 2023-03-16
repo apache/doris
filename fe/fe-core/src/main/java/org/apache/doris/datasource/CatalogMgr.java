@@ -250,10 +250,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             long id = Env.getCurrentEnv().getNextId();
             CatalogLog log = CatalogFactory.constructorCatalogLog(id, stmt);
-            CatalogIf catalog = replayCreateCatalog(log);
-            if (catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
-            }
+            replayCreateCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, log);
         } finally {
             writeUnlock();
@@ -465,6 +462,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
+            if (Env.getCurrentEnv().isMaster()) {
+                if (catalog instanceof ExternalCatalog) {
+                    ((ExternalCatalog) catalog).checkProperties();
+                }
+            }
             addCatalog(catalog);
             return catalog;
         } finally {
