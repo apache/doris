@@ -193,17 +193,17 @@ public class IndexDef {
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid column: " + indexColName);
-            } else if (keysType == KeysType.AGG_KEYS && !column.isKey() && indexType != IndexType.INVERTED) {
-                throw new AnalysisException(indexType.toString()
-                    + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                    + " AGG_KEYS table. invalid column: " + indexColName);
-            } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())
-                    || (keysType == KeysType.UNIQUE_KEYS && indexType == IndexType.INVERTED
-                        && !enableUniqueKeyMergeOnWrite)) {
+            } else if (indexType == IndexType.INVERTED
+                    && ((keysType == KeysType.AGG_KEYS && !column.isKey())
+                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
                 throw new AnalysisException(indexType.toString()
                     + " index only used in columns of DUP_KEYS table"
                     + " or UNIQUE_KEYS table with merge_on_write enabled"
                     + " or key columns of AGG_KEYS table. invalid column: " + indexColName);
+            } else if (keysType == KeysType.AGG_KEYS && !column.isKey() && indexType != IndexType.INVERTED) {
+                throw new AnalysisException(indexType.toString()
+                    + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                    + " AGG_KEYS table. invalid column: " + indexColName);
             }
 
             if (indexType == IndexType.INVERTED) {
