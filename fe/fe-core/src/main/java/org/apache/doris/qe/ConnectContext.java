@@ -599,6 +599,7 @@ public class ConnectContext {
             long timeout;
             String timeoutTag = "query";
             if (userQueryTimeout > 0) {
+                // user set query_timeout property
                 timeout = userQueryTimeout * 1000L;
             } else {
                 //to ms
@@ -651,6 +652,9 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
+    /**
+     * Keep it just for controlling kill_thread_timeout
+     */
     public void setExecTimeout(int timeout) {
         executionTimeoutS = timeout;
     }
