@@ -24,17 +24,28 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 
 @Aspect
-public class LogAspect {
+public class ExceptionAspect {
 
-    private static final Logger LOG = LogManager.getLogger(LogAspect.class);
+    private static final Logger LOG = LogManager.getLogger(ExceptionAspect.class);
 
     @Pointcut("@annotation(org.apache.doris.common.annotation.LogException)")
-    public void throwingLogPointCut() {
+    public void exceptionLogPointCut() {
     }
 
-    @AfterThrowing(value = "throwingLogPointCut()", throwing = "e")
+    @AfterThrowing(value = "exceptionLogPointCut()", throwing = "e")
     public void logException(Throwable e)  {
         LOG.warn(e);
+    }
+
+    @Pointcut("@annotation(org.apache.doris.common.annotation.NoException)")
+    public void exitPointCut() {
+    }
+
+    @AfterThrowing(value = "exitPointCut()", throwing = "e")
+    public void exitException(Throwable e)  {
+        LOG.warn("A problem that does not allow errors has occurred.");
+        LOG.warn(e);
+        System.exit(-1);
     }
 
 }
