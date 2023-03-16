@@ -178,7 +178,19 @@ public class CreateFunctionStmt extends DdlStmt {
         // https://github.com/apache/doris/issues/17810
         // this error report in P0 test, so we suspect that it is related to concurrency
         // add this change to test it.
-        synchronized (CreateFunctionStmt.class) {
+        if (Config.use_fuzzy_session_variable) {
+            synchronized (CreateFunctionStmt.class) {
+                analyzeCommon(analyzer);
+                // check
+                if (isAggregate) {
+                    analyzeUda();
+                } else if (isAlias) {
+                    analyzeAliasFunction();
+                } else {
+                    analyzeUdf();
+                }
+            }
+        } else {
             analyzeCommon(analyzer);
             // check
             if (isAggregate) {
