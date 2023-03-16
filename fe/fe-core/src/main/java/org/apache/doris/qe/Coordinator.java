@@ -40,6 +40,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -264,6 +265,8 @@ public class Coordinator {
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
+    private StatsErrorEstimator statsErrorEstimator;
+
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
@@ -281,6 +284,12 @@ public class Coordinator {
                 primitiveSink.putLong(desc.size);
             }
         }
+    }
+
+    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+            StatsErrorEstimator statsErrorEstimator) {
+        this(context, analyzer, planner);
+        this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert
@@ -2598,6 +2607,9 @@ public class Coordinator {
                 profile.update(params.profile);
             }
             this.done = params.done;
+            if (statsErrorEstimator != null) {
+                statsErrorEstimator.updateExactReturnedRows(params);
+            }
             return true;
         }
 
