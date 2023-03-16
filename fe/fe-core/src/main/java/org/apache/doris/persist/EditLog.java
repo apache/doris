@@ -1596,6 +1596,10 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
     }
 
+    public void logAlterLightSchemaChange(ModifyTablePropertyOperationLog info) {
+        logEdit(OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE, info);
+    }
+
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
         logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
     }

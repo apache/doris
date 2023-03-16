@@ -74,6 +74,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
@@ -1955,9 +1956,14 @@ public class SchemaChangeHandler extends AlterHandler {
             indexMeta.setSchema(columns);
             indexMeta.setMaxColUniqueId(maxColId);
         });
-
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(
+                        db.getId(), olapTable.getId(), olapTable.getTableProperty().getProperties()
+                );
         // write table property
         olapTable.setEnableLightSchemaChange(true);
+        //write edit log
+        Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
     }
 
     @Override
