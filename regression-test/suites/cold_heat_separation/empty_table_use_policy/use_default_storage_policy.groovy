@@ -16,6 +16,16 @@
 // under the License.
 
 suite("use_default_storage_policy") {
+    try_sql """
+    DROP TABLE use_default_storage_policy;
+    """
+    try_sql """
+    DROP STORAGE POLICY default_storage_policy
+    """
+    try_sql """
+    DROP RESOURCE default_s3_resource
+    """
+
     def storage_exist = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;
@@ -55,7 +65,7 @@ suite("use_default_storage_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            ALTER STORAGE POLICY default_storage_policy PROPERTIES(
+            CREATE STORAGE POLICY default_storage_policy PROPERTIES(
                 "storage_resource" = "default_s3_resource",
                 "cooldown_ttl" = "1008611"
             );
@@ -84,4 +94,11 @@ suite("use_default_storage_policy") {
     sql """
     DROP TABLE use_default_storage_policy;
     """
+    sql """
+    DROP STORAGE POLICY default_storage_policy
+    """
+    sql """
+    DROP RESOURCE default_s3_resource
+    """
 }
+

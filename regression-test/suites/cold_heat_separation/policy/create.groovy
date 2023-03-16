@@ -64,6 +64,80 @@ suite("create_policy") {
 
         // errCode = 2, detailMessage = Resource(crete_policy_1) already exist
         assertEquals(failed_cannot_create_duplicate_name_resources, null)
+
+        // test if we could create one polycy with the same name but
+        // with different properties
+        def failed_cannot_create_duplicate_name_resources_with_different_properties = try_sql """
+            CREATE RESOURCE "crete_policy_1"
+            PROPERTIES(
+                "type" = "s3",
+                "AWS_ENDPOINT" = "bj.s3.comaaaab",
+                "AWS_REGION" = "bjc",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_ACCESS_KEY" = "different-bbba",
+                "AWS_SECRET_KEY" = "different-aaaa",
+                "AWS_MAX_CONNECTIONS" = "50",
+                "AWS_REQUEST_TIMEOUT_MS" = "3000",
+                "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+                "AWS_BUCKET" = "test-different-bucket",
+                "s3_validity_check" = "false"
+            );
+        """
+        assertEquals(failed_cannot_create_duplicate_name_resources_with_different_properties, null)
+
+        // delete the policy with the same name then try to
+        // create policies with different property each time
+        def drop_result = try_sql """
+            DROP RESOURCE 'crete_policy_1'
+        """
+        assertEquals(drop_result.size(), 1)
+
+        def create_duplicate_name_resources_different_ak = try_sql """
+            CREATE RESOURCE "crete_policy_1"
+            PROPERTIES(
+                "type" = "s3",
+                "AWS_ENDPOINT" = "bj.s3.comaaaab",
+                "AWS_REGION" = "bjc",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_ACCESS_KEY" = "different-bbba",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_MAX_CONNECTIONS" = "50",
+                "AWS_REQUEST_TIMEOUT_MS" = "3000",
+                "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
+            );
+        """
+        assertEquals(create_duplicate_name_resources_different_ak.size(), 1)
+
+        drop_result = try_sql """
+            DROP RESOURCE 'crete_policy_1'
+        """
+
+        assertEquals(drop_result.size(), 1)
+
+        def create_duplicate_name_resources_different_bucket = try_sql """
+        CREATE RESOURCE "crete_policy_1"
+        PROPERTIES(
+            "type" = "s3",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
+            "AWS_REGION" = "bj",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_MAX_CONNECTIONS" = "50",
+            "AWS_REQUEST_TIMEOUT_MS" = "3000",
+            "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+            "AWS_BUCKET" = "different-test-bucket",
+            "s3_validity_check" = "false"
+        );
+        """
+        assertEquals(create_duplicate_name_resources_different_bucket.size(), 1)
+
+        drop_result = try_sql """
+            DROP RESOURCE 'crete_policy_1'
+        """
+        assertEquals(drop_result.size(), 1)
     }
 
     // can't create success, due to missing required items
@@ -107,6 +181,26 @@ suite("create_policy") {
         );
         """
         // errCode = 2, detailMessage = Missing [AWS_ENDPOINT] in properties.
+        assertEquals(failed_create_2, null)
+    }
+
+    if (has_created_2.size() == 0) {
+        def failed_create_2 = try_sql """
+        CREATE RESOURCE "crete_policy_2"
+        PROPERTIES(
+            "type" = "s3",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
+            "AWS_REGION" = "bj",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_MAX_CONNECTIONS" = "50",
+            "AWS_REQUEST_TIMEOUT_MS" = "3000",
+            "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+            "AWS_BUCKET" = "test-bucket",
+        );
+        """
+        // errCode = 2, detailMessage = Missing [s3_validity_check] in properties.
         assertEquals(failed_create_2, null)
     }
 
@@ -190,6 +284,9 @@ suite("create_policy") {
         """
         // "AWS_MAX_CONNECTIONS" = "50", "AWS_REQUEST_TIMEOUT_MS" = "3000","AWS_CONNECTION_TIMEOUT_MS" = "1000"
         assertEquals(succ_create_3.size(), 1)
+        sql """
+        DROP RESOURCE crete_policy_3;
+        """
     }
 
     // create policy
@@ -225,10 +322,18 @@ suite("create_policy") {
             CREATE STORAGE POLICY testPolicy_10
             PROPERTIES(
             "storage_resource" = "testPolicy_10_resource",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call("testPolicy_10"), true)
+
+        sql"""
+        DROP STORAGE POLICY testPolicy_10;
+        """
+
+        sql"""
+        DROP RESOURCE testPolicy_10_resource;
+        """
     }
 
     if (!storage_exist.call("testPolicy_11")) {
@@ -253,6 +358,14 @@ suite("create_policy") {
             );
         """
         assertEquals(storage_exist.call("testPolicy_11"), true)
+
+        sql """
+        DROP STORAGE POLICY testPolicy_11;
+        """
+
+        sql """
+        DROP RESOURCE "testPolicy_11_resource";
+        """
     }
 
     if (!storage_exist.call("testPolicy_12")) {
@@ -274,11 +387,15 @@ suite("create_policy") {
             PROPERTIES(
             "storage_resource" = "testPolicy_12_resource",
             "cooldown_ttl" = "10086",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
         // errCode = 2, detailMessage = cooldown_datetime and cooldown_ttl can't be set together.
         assertEquals(storage_exist.call("testPolicy_12"), false)
+
+        sql """
+            DROP RESOURCE "testPolicy_12_resource"
+        """
     }
 
     if (!storage_exist.call("testPolicy_13")) {
@@ -304,6 +421,9 @@ suite("create_policy") {
         """
         // errCode = 2, detailMessage = cooldown_ttl must >= 0.
         assertEquals(storage_exist.call("testPolicy_13"), false)
+        sql """
+            DROP RESOURCE "testPolicy_13_resource"
+        """
     }
 
     if (!storage_exist.call("testPolicy_14")) {
@@ -324,7 +444,7 @@ suite("create_policy") {
             CREATE STORAGE POLICY testPolicy_14
             PROPERTIES(
             "storage_resource" = "testPolicy_14_resource",
-            "cooldown_datetime" = "2022-06-08"
+            "cooldown_datetime" = "2025-06-08"
             );
         """
         //  errCode = 2, detailMessage = cooldown_datetime format error: 2022-06-08
@@ -336,7 +456,7 @@ suite("create_policy") {
             CREATE STORAGE POLICY testPolicy_15
             PROPERTIES(
             "storage_resource" = "s3_resource_not_exist",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
         //  errCode = 2, detailMessage = storage resource doesn't exist: s3_resource_not_exist
