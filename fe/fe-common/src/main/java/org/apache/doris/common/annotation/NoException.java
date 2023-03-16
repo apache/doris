@@ -15,26 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.aspectj;
+package org.apache.doris.common.annotation;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.aspectj.lang.annotation.AfterThrowing;
-import org.aspectj.lang.annotation.Aspect;
-import org.aspectj.lang.annotation.Pointcut;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-@Aspect
-public class LogAspect {
-
-    private static final Logger LOG = LogManager.getLogger(LogAspect.class);
-
-    @Pointcut("@annotation(org.apache.doris.common.annotation.ExceptionLog)")
-    public void throwingLogPointCut() {
-    }
-
-    @AfterThrowing(value = "throwingLogPointCut()", throwing = "e")
-    public void exceptionLog(Throwable e)  {
-        LOG.warn(e.getMessage());
-    }
-
+// You can use this annotation when throw exception the program will exit.
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface NoException {
 }
