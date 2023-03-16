@@ -26,7 +26,7 @@ under the License.
 
 ## array_filter
 
-<version since="1.2.2">
+<version since="2.0">
 
 array_filter(lambda,array)
 
@@ -34,8 +34,8 @@ array_filter(lambda,array)
 
 ### description
 
-Use a lambda expression as the input parameter to calculate and filter the internal data of other input ARRAY parameters.
-Filter out the values of 0 and NULL in the result, and only keep the values of 1.
+使用lambda表达式作为输入参数，计算筛选另外的输入参数ARRAY列的数据。
+并过滤掉在结果中0和NULL的值。
 
 ```
 array_filter(x->x>0, array1);
@@ -47,6 +47,13 @@ array_filter(x->(abs(x)-2)>0, array1);
 ### example
 
 ```shell
+mysql [test]>select array_filter(x->(x > 1),[1,2,3,0,null]);
++----------------------------------------------------------------------------------------------+
+| array_filter(ARRAY(1, 2, 3, 0, NULL), array_map([x] -> (x(0) > 1), ARRAY(1, 2, 3, 0, NULL))) |
++----------------------------------------------------------------------------------------------+
+| [2, 3]                                                                                       |
++----------------------------------------------------------------------------------------------+
+
 mysql [test]>select *, array_filter(x->x>0,c_array2) from array_test2;
 +------+-----------------+-------------------------+------------------------------------------------------------------+
 | id   | c_array1        | c_array2                | array_filter(`c_array2`, array_map([x] -> x(0) > 0, `c_array2`)) |

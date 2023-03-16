@@ -26,7 +26,7 @@ under the License.
 
 ## array_filter
 
-<version since="1.2.2">
+<version since="2.0">
 
 array_filter(lambda,array)
 
@@ -34,9 +34,8 @@ array_filter(lambda,array)
 
 ### description
 
-Use a lambda expression as the input parameter to calculate the corresponding expression for the internal data of other input ARRAY parameters.
-The number of parameters entered in the lambda expression is 1 or more, which must be consistent with the number of input array columns.
-The scalar functions can be executed in lambda, and aggregate functions are not supported.
+Use the lambda expression as the input parameter to calculate and filter the data of the ARRAY column of the other input parameter.
+And filter out the values of 0 and NULL in the result.
 
 ```
 array_filter(x->x>0, array1);
@@ -47,6 +46,13 @@ array_filter(x->(abs(x)-2)>0, array1);
 ### example
 
 ```shell
+
+mysql [test]>select array_filter(x->(x > 1),[1,2,3,0,null]);
++----------------------------------------------------------------------------------------------+
+| array_filter(ARRAY(1, 2, 3, 0, NULL), array_map([x] -> (x(0) > 1), ARRAY(1, 2, 3, 0, NULL))) |
++----------------------------------------------------------------------------------------------+
+| [2, 3]                                                                                       |
++----------------------------------------------------------------------------------------------+
 
 mysql [test]>select *, array_filter(x->x>0,c_array2) from array_test2;
 +------+-----------------+-------------------------+------------------------------------------------------------------+
