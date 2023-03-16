@@ -23,8 +23,8 @@ suite("test_create_mtmv") {
         ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
 
-    sql """"drop table if exists `${tableName}`""
-    sql """"drop table if exists `${tableNamePv}`""
+    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNamePv}`"""
 
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
