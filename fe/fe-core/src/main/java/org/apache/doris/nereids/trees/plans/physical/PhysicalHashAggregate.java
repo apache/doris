@@ -223,7 +223,9 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, getLogicalProperties(), requireProperties, children.get(0));
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
+                requireProperties, physicalProperties, statistics,
+                children.get(0));
     }
 
     public PhysicalHashAggregate<CHILD_TYPE> withPartitionExpressions(List<Expression> partitionExpressions) {
