@@ -82,7 +82,21 @@ public:
     virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     ColumnSelectVector& select_vector, size_t batch_size,
-                                    size_t* read_rows, bool* eof) = 0;
+                                    size_t* read_rows, bool* eof, bool is_dict_filter) = 0;
+
+    virtual Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) {
+        return Status::NotSupported("read_dict_values_to_column is not supported");
+    }
+
+    virtual Status get_dict_codes(const ColumnString* column_string,
+                                  std::vector<int32_t>* dict_codes) {
+        return Status::NotSupported("get_dict_codes is not supported");
+    }
+
+    virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
+        LOG(FATAL) << "Method convert_dict_column_to_string_column is not supported";
+    }
+
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
@@ -118,7 +132,11 @@ public:
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof) override;
+                            bool* eof, bool is_dict_filter) override;
+    Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) override;
+    Status get_dict_codes(const ColumnString* column_string,
+                          std::vector<int32_t>* dict_codes) override;
+    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
     Statistics statistics() override {
@@ -136,10 +154,11 @@ private:
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,
-                        ColumnSelectVector& select_vector);
+                        ColumnSelectVector& select_vector, bool is_dict_filter);
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                ColumnSelectVector& select_vector, size_t batch_size,
-                               size_t* read_rows, bool* eof);
+                               size_t* read_rows, bool* eof, bool is_dict_filter);
+    Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
 class ArrayColumnReader : public ParquetColumnReader {
@@ -150,7 +169,7 @@ public:
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof) override;
+                            bool* eof, bool is_dict_filter) override;
     const std::vector<level_t>& get_rep_level() const override {
         return _element_reader->get_rep_level();
     }
@@ -174,7 +193,7 @@ public:
                 std::unique_ptr<ParquetColumnReader> value_reader, FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof) override;
+                            bool* eof, bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         return _key_reader->get_rep_level();
@@ -207,7 +226,7 @@ public:
                 FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
-                            bool* eof) override;
+                            bool* eof, bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         return _child_readers[0]->get_rep_level();
