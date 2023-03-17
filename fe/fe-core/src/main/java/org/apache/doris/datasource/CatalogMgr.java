@@ -456,7 +456,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable, Runnable {
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
         }
-        System.out.println("refreshCatalog " + stmt.getCatalogName());
         CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
         refreshCatalog(log);
     }
@@ -480,10 +479,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable, Runnable {
         try {
             CatalogIf catalog = CatalogFactory.constructorFromLog(log);
             Map<String, String> props = log.getProps();
-            System.out.println("replayCreateCatalog");
-            for (Map.Entry<String, String> entry : props.entrySet()) {
-                System.out.println(entry.getKey() + " " + entry.getValue());
-            }
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                 // need refresh
                 String catalogName = log.getCatalogName();
@@ -987,7 +982,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable, Runnable {
 
     @Override
     public void run() {
-
         Integer time = refreshTime;
         for (Map.Entry<String, Integer[]> entry : refreshMap.entrySet()) {
             String catalogName = entry.getKey();
@@ -999,8 +993,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable, Runnable {
                 timeGroup[1] = current - time;
                 refreshMap.put(catalogName, timeGroup);
             } else {
-                //todo refresh catalog  need removeCache
-                System.out.println("refreshMapcatalogName " + catalogName);
                 RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
                 try {
                     DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
