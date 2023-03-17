@@ -654,10 +654,11 @@ public class DistributedPlanner {
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
 
         if (leftDistribution instanceof HashDistributionInfo) {
-            // use the table_name + '-' + column_name as check condition
+            // use the table_name + '-' + column_name.toLowerCase() as check condition,
+            // as column name in doris is case insensitive and table name is case sensitive
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<String> leftDistributeColumnNames = leftDistributeColumns.stream()
-                    .map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
+                    .map(col -> leftTable.getName() + "." + col.getName().toLowerCase()).collect(Collectors.toList());
 
             List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
@@ -675,7 +676,8 @@ public class DistributedPlanner {
                         && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`
                     // table name in SlotRef is `t`, but here we need is `test`.
-                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "." + leftSlot.getColumnName());
+                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "."
+                            + leftSlot.getColumnName().toLowerCase());
                     rightExprs.add(rhsJoinExpr);
                 }
             }
