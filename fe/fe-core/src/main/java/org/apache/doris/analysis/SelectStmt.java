@@ -123,6 +123,8 @@ public class SelectStmt extends QueryStmt {
     // Set in analyze().
     protected String sqlString;
 
+    boolean isReAnalyze = false;
+
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
 
@@ -253,11 +255,8 @@ public class SelectStmt extends QueryStmt {
         if (originSelectList != null) {
             selectList = originSelectList;
         }
-        if (originalWhereClause != null) {
+        if (whereClause != null) {
             whereClause = originalWhereClause;
-        }
-        if (originalFromClause != null) {
-            fromClause = originalFromClause;
         }
 
         for (TableRef tableRef : getTableRefs()) {
@@ -265,6 +264,8 @@ public class SelectStmt extends QueryStmt {
                 ((InlineViewRef) tableRef).getViewStmt().resetSelectList();
             }
         }
+
+        isReAnalyze = true;
     }
 
     @Override
@@ -477,9 +478,9 @@ public class SelectStmt extends QueryStmt {
                 }
                 try {
                     Expr expr = tableRef.getOnClause();
-                    if (CreateMaterializedViewStmt.isMVColumn(expr.toSqlWithoutTbl())) {
-                        tableRef.setOnClause(expr.trySubstitute(mvSMap, analyzer, false));
-                    }
+                    Expr originalExpr = expr.clone().substituteImpl(mvSMap, null, analyzer);
+                    originalExpr.reset();
+                    tableRef.setOnClause(originalExpr);
                 } catch (Exception e) {
                     LOG.warn("", e);
                 }
@@ -2045,6 +2046,9 @@ public class SelectStmt extends QueryStmt {
      */
     private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
             throws AnalysisException {
+        if (isReAnalyze) {
+            return null;
+        }
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
                 throw new AnalysisException("Only support select subquery in case-when clause.");

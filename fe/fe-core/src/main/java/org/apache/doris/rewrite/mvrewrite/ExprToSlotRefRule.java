@@ -89,7 +89,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
     public boolean isDisableTuplesMVRewriter(Expr expr) {
         boolean result;
         try {
-            result = expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+            result = expr.isRelativedByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
         } catch (Exception e) {
             result = true;
         }
@@ -283,7 +283,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
         mvSlotRef.analyzeNoThrow(analyzer);
 
         originExpr.analyze(analyzer);
-        mvSMap.put(mvSlotRef, originExpr.trySubstitute(aliasSMap, analyzer, false));
+        mvSMap.put(mvSlotRef, originExpr.trySubstitute(aliasSMap, analyzer, false).clone());
         return mvSlotRef;
     }
 }

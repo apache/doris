@@ -186,6 +186,7 @@ public:
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
     const TabletColumn& column(const std::string& field_name) const;
+    Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
     size_t num_columns() const { return _num_columns; }
