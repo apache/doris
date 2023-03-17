@@ -715,16 +715,14 @@ struct TInitExternalCtlMetaResult {
     2: optional string status;
 }
 
-enum TSchemaTableName{
+enum TSchemaTableName {
   BACKENDS = 0,
-  ICEBERG_TABLE_META = 1,
+  METADATA_TABLE = 1,
 }
 
 struct TMetadataTableRequestParams {
-  1: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional Types.TMetadataType metadata_type
+  2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
