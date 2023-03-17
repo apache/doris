@@ -400,8 +400,21 @@ size_t Block::allocated_bytes() const {
 std::string Block::dump_names() const {
     std::stringstream out;
     for (auto it = data.begin(); it != data.end(); ++it) {
-        if (it != data.begin()) out << ", ";
+        if (it != data.begin()) {
+            out << ", ";
+        }
         out << it->name;
+    }
+    return out.str();
+}
+
+std::string Block::dump_types() const {
+    std::stringstream out;
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        if (it != data.begin()) {
+            out << ", ";
+        }
+        out << it->type->get_name();
     }
     return out.str();
 }
