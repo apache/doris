@@ -34,8 +34,6 @@
 #include "vec/data_types/data_type_string.h"
 namespace doris::vectorized {
 
-void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
-
 class VAggReplaceTest : public testing::Test {
 public:
     void SetUp() {
