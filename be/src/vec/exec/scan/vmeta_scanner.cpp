@@ -165,8 +165,8 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return Status::OK();
     }
 
-    // _state->query_timeout() is seconds, change to milliseconds
-    int time_out = _state->query_timeout() * 1000;
+    // _state->execution_timeout() is seconds, change to milliseconds
+    int time_out = _state->execution_timeout() * 1000;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
