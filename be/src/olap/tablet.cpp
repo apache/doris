@@ -253,7 +253,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
                     << "] version: " << calc_delete_bitmap_rowsets[i]->version()
                     << " calc_delete_bitmap_rowsets[" << i - 1
                     << "] version: " << calc_delete_bitmap_rowsets[i - 1]->version();
-            CHECK(update_delete_bitmap_without_lock(rs_to_add[i]).ok());
+            CHECK(update_delete_bitmap_without_lock(calc_delete_bitmap_rowsets[i]).ok());
         }
     }
 
