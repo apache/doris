@@ -125,4 +125,55 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     json_load_unique("nbagames_sample.json", "test_nbagames_json")
     // sql """insert into test_ghdata_json_unique select * from test_ghdata_json_unique"""
     // sql """insert into test_btc_json_unique select * from test_btc_json_unique"""
+
+    // load more
+    table_name = "gharchive";
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+        CREATE TABLE gharchive (
+            created_at datetime NOT NULL COMMENT '',
+            id varchar(30) default 'defualt-id' COMMENT '',
+            type varchar(50) NULL COMMENT '',
+            public boolean NULL COMMENT '',
+            ...
+        )
+        ENGINE=OLAP
+        DUPLICATE KEY(created_at)
+        DISTRIBUTED BY HASH(id) BUCKETS 32
+        PROPERTIES (
+            'replication_allocation' = 'tag.location.default: 1'
+        ); 
+        """
+    def paths = [
+        """${getS3Url() + '/regression/gharchive/2015-01-01-16.json'}""",
+        """${getS3Url() + '/regression/gharchive/2016-01-01-16.json'}""",
+    ]
+    for (String path in paths) {
+        streamLoad {
+            // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
+            // db 'regression_test'
+            table "${table_name}"
+            // default column_separator is specify in doris fe config, usually is '\t'.
+            // this line change to ','
+            set 'read_json_by_line', 'true' 
+            set 'format', 'json' 
+            // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+            // also, you can stream load a http stream, e.g. http://xxx/some.csv
+            file path 
+            time 10000 // limit inflight 10s
+
+            // if declared a check callback, the default check condition will ignore.
+            // So you must check all condition
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals('success', json.Status.toLowerCase())
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
+        }
+    }
 }
