@@ -17,44 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.RangePartitionItem;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.BoundType;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Range;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatternMatchSupported {
 
@@ -63,7 +31,16 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         createDatabase("test");
         useDatabase("test");
 
-        createTable("create table test_parts(id int, part int) "
+        createTable("create table test_list_parts(id int, part int not null) "
+                + "partition by list(part) ("
+                + "  partition p1 (('1'), ('4'), ('7')),"
+                + "  partition p2 (('8'), ('9'), ('5')),"
+                + "  partition p3 (('11'), ('0'), ('6'))"
+                + ") "
+                + "distributed by hash(id) "
+                + "properties ('replication_num'='1')");
+
+        createTable("create table test_range_parts(id int, part int) "
                 + "partition by range(part) ("
                 + "  partition p1 values[('1'), ('2')),"
                 + "  partition p2 values[('2'), ('3')),"
@@ -75,128 +52,66 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    void testOlapScanPartitionWithSingleColumnCase(@Mocked OlapTable olapTable) throws Exception {
-        List<Column> columnNameList = new ArrayList<>();
-        columnNameList.add(new Column("col1", Type.INT.getPrimitiveType()));
-        columnNameList.add(new Column("col2", Type.INT.getPrimitiveType()));
-        Map<Long, PartitionItem> keyItemMap = new HashMap<>();
-        PartitionKey k0 = new PartitionKey();
-        k0.pushColumn(new IntLiteral(0), Type.INT.getPrimitiveType());
-        PartitionKey k1 = new PartitionKey();
-        k1.pushColumn(new IntLiteral(5), Type.INT.getPrimitiveType());
-        keyItemMap.put(0L, new RangePartitionItem(Range.range(k0, BoundType.CLOSED, k1, BoundType.OPEN)));
-        PartitionKey k2 = new PartitionKey();
-        k2.pushColumn(new IntLiteral(5), Type.INT.getPrimitiveType());
-        PartitionKey k3 = new PartitionKey();
-        k3.pushColumn(new IntLiteral(10), Type.INT.getPrimitiveType());
-        keyItemMap.put(1L, new RangePartitionItem(Range.range(k2, BoundType.CLOSED, k3, BoundType.OPEN)));
-        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(columnNameList);
-        Deencapsulation.setField(rangePartitionInfo, "idToItem", keyItemMap);
-        new Expectations() {{
-                olapTable.getPartitionInfo();
-                result = rangePartitionInfo;
-                olapTable.getPartitionColumnNames();
-                result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
-                        .collect(Collectors.toSet());
-                olapTable.getName();
-                result = "tbl";
-            }};
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
-        SlotReference slotRef = new SlotReference("col1", IntegerType.INSTANCE);
-        Expression expression = new LessThan(slotRef, new IntegerLiteral(4));
-        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(expression), scan);
+    void testOlapScanPartitionWithSingleColumnCase() throws Exception {
+        createTable("create table testOlapScanPartitionWithSingleColumnCase("
+                + "  id int not null,"
+                + "  col1 int not null"
+                + "  ) "
+                + "partition by range(col1) ("
+                + "  partition p1 values[('0'), ('5')),"
+                + "  partition p2 values[('5'), ('10'))"
+                + ") "
+                + "distributed by hash(id) "
+                + "properties ('replication_num'='1')");
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                .applyTopDown(new PruneOlapScanPartition())
-                .matches(
-                        logicalFilter(
-                                logicalOlapScan().when(
-                                        olapScan -> olapScan.getSelectedPartitionIds().iterator().next() == 0L)
-                        )
-                );
-
-        Expression lessThan0 = new LessThan(slotRef, new IntegerLiteral(0));
-        Expression greaterThan6 = new GreaterThan(slotRef, new IntegerLiteral(6));
-        Or lessThan0OrGreaterThan6 = new Or(lessThan0, greaterThan6);
-        filter = new LogicalFilter<>(ImmutableSet.of(lessThan0OrGreaterThan6), scan);
-        scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                .applyTopDown(new PruneOlapScanPartition())
-                .matches(
-                        logicalFilter(
-                                logicalOlapScan().when(
-                                        olapScan -> olapScan.getSelectedPartitionIds().iterator().next() == 1L)
-                        )
-                );
-
-        Expression greaterThanEqual0 =
-                new GreaterThanEqual(
-                        slotRef, new IntegerLiteral(0));
-        Expression lessThanEqual5 =
-                new LessThanEqual(slotRef, new IntegerLiteral(5));
-        scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
-        filter = new LogicalFilter<>(ImmutableSet.of(greaterThanEqual0, lessThanEqual5), scan);
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                .applyTopDown(new PruneOlapScanPartition())
-                .matches(
-                        logicalFilter(
-                                logicalOlapScan().when(
-                                                olapScan -> olapScan.getSelectedPartitionIds().iterator().next() == 0L)
-                                        .when(olapScan -> olapScan.getSelectedPartitionIds().size() == 2)
-                        )
-                );
+        test("testOlapScanPartitionWithSingleColumnCase", "col1 < 4", 1);
+        test("testOlapScanPartitionWithSingleColumnCase", "col1 < 0 or col1 > 6", 1);
+        test("testOlapScanPartitionWithSingleColumnCase", "col1 >= 0 and col1 <= 5", 2);
     }
 
     @Test
-    void testOlapScanPartitionPruneWithMultiColumnCase(@Mocked OlapTable olapTable) throws Exception {
-        List<Column> columnNameList = new ArrayList<>();
-        columnNameList.add(new Column("col1", Type.INT.getPrimitiveType()));
-        columnNameList.add(new Column("col2", Type.INT.getPrimitiveType()));
-        Map<Long, PartitionItem> keyItemMap = new HashMap<>();
-        PartitionKey k0 = new PartitionKey();
-        k0.pushColumn(new IntLiteral(1), Type.INT.getPrimitiveType());
-        k0.pushColumn(new IntLiteral(10), Type.INT.getPrimitiveType());
-        PartitionKey k1 = new PartitionKey();
-        k1.pushColumn(new IntLiteral(4), Type.INT.getPrimitiveType());
-        k1.pushColumn(new IntLiteral(5), Type.INT.getPrimitiveType());
-        keyItemMap.put(0L, new RangePartitionItem(Range.range(k0, BoundType.CLOSED, k1, BoundType.OPEN)));
-        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(columnNameList);
-        Deencapsulation.setField(rangePartitionInfo, "idToItem", keyItemMap);
-        new Expectations() {{
-                olapTable.getPartitionInfo();
-                result = rangePartitionInfo;
-                olapTable.getPartitionColumnNames();
-                result = rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase())
-                        .collect(Collectors.toSet());
-                olapTable.getName();
-                result = "tbl";
-            }};
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
-        Expression left = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));
-        Expression right = new GreaterThan(new SlotReference("col2", IntegerType.INSTANCE), new IntegerLiteral(11));
-        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(left, right), scan);
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
-                .applyTopDown(new PruneOlapScanPartition())
-                .matches(
-                        logicalFilter(
-                                logicalOlapScan()
-                                        .when(
-                                                olapScan -> olapScan.getSelectedPartitionIds().iterator().next() == 0L)
-                        )
-                );
+    void testOlapScanPartitionPruneWithMultiColumnCase() throws Exception {
+        createTable("create table testOlapScanPartitionPruneWithMultiColumnCase("
+                + "  id int not null,"
+                + "  col1 int not null,"
+                + "  col2 int not null"
+                + "  ) "
+                + "partition by range(col1, col2) ("
+                + "  partition p1 values[('1', '10'), ('4', '5'))"
+                + ") "
+                + "distributed by hash(id) "
+                + "properties ('replication_num'='1')");
+
+        test("testOlapScanPartitionPruneWithMultiColumnCase", "col1 < 4 and col2 > 11", 0);
+//        test("testOlapScanPartitionPruneWithMultiColumnCase", "col1 < 4 or col2 > 5", 1);
+//        test("testOlapScanPartitionPruneWithMultiColumnCase", "col1 < 4 or col2 > 3", 2);
+//        test("testOlapScanPartitionPruneWithMultiColumnCase", "col1 < 1 or col2 > 5", 1);
+//        test("testOlapScanPartitionPruneWithMultiColumnCase", "col1 <= 1 or col2 >= 10", 1);
     }
 
     @Test
-    public void prunePartitionWithOrPredicate() throws Exception {
-        PlanChecker planChecker = PlanChecker.from(connectContext)
-                .analyze("select * from test_parts where (part = 1 and id <= 500) or (part = 3)")
+    public void prunePartitionWithOrPredicate() {
+        test("test_list_parts", "(part = 9 and id <= 500) or (part = 3)", 1);
+        test("test_range_parts", "(part = 1 and id <= 500) or (part = 3)", 2);
+    }
+
+    @Test
+    public void canNotPruneComplexPredicate() {
+        test("test_range_parts", "(part = 10) or (part + id = 1)", 4);
+        test("test_range_parts", "(part + id = 1) and (part = 4)", 1);
+    }
+
+    private void test(String table, String filter, int expectScanPartitionNum) {
+        PlanChecker.from(connectContext)
+                .analyze("select * from " + table + " where " + filter)
                 .rewrite()
                 .printlnTree()
                 .matchesFromRoot(
                     logicalFilter(
-                        logicalOlapScan().when(scan -> scan.getSelectedPartitionIds().size() == 2)
+                        logicalOlapScan().when(scan -> {
+                            Assertions.assertEquals(expectScanPartitionNum, scan.getSelectedPartitionIds().size());
+                            return true;
+                        })
                     )
                 );
     }

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.EliminateUninterestedPredicates.Context;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.TryEliminateUninterestedPredicates.Context;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -28,38 +28,40 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import java.util.Set;
 
 /**
- * EliminateUninterestedPredicates
+ * TryEliminateUninterestedPredicates
  *
  * this rewriter usually used to extract the partition columns related predicates,
- * and eliminate partition columns related predicate.
+ * and try to eliminate partition columns related predicate.
  *
  * e.g.
  *    (part = 1 and non_part = 'a') or (part = 2)
  * -> (part = 1 and true) or (part = 2)
  * -> (part = 1) or (part = 2)
+ *
+ * maybe eliminate failed in some special cases, e.g. (non_part + part) = 2.
+ * the key point is: if a predicate(return boolean type) only contains the uninterested slots, we can eliminate it.
  */
-public class EliminateUninterestedPredicates extends DefaultExpressionRewriter<Context> {
+public class TryEliminateUninterestedPredicates extends DefaultExpressionRewriter<Context> {
     private final Set<Slot> interestedSlots;
     private final ExpressionRewriteContext expressionRewriteContext;
 
-    private EliminateUninterestedPredicates(Set<Slot> interestedSlots, CascadesContext cascadesContext) {
+    private TryEliminateUninterestedPredicates(Set<Slot> interestedSlots, CascadesContext cascadesContext) {
         this.interestedSlots = interestedSlots;
         this.expressionRewriteContext = new ExpressionRewriteContext(cascadesContext);
     }
 
-    public static Expression process(Expression expression, Set<Slot> interestedSlots,
+    public static Expression rewrite(Expression expression, Set<Slot> interestedSlots,
             CascadesContext cascadesContext) {
         // before eliminate uninterested predicate, we must push down `Not` under CompoundPredicate
         expression = expression.accept(new SimplifyNotExprRule(), null);
-        return expression.accept(new EliminateUninterestedPredicates(interestedSlots, cascadesContext), new Context());
+        return expression.accept(new TryEliminateUninterestedPredicates(interestedSlots, cascadesContext), new Context());
     }
 
     @Override
-    public Expression visit(Expression expr, Context parentContext) {
+    public Expression visit(Expression originExpr, Context parentContext) {
         Context currentContext = new Context();
-
         // postorder traversal
-        expr = super.visit(expr, currentContext);
+        Expression expr = super.visit(originExpr, currentContext);
 
         // process predicate
         if (expr.getDataType().isBooleanType()) {
@@ -86,6 +88,12 @@ public class EliminateUninterestedPredicates extends DefaultExpressionRewriter<C
                 // -> true
                 expr = expr.accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
             }
+        } else {
+            //    ((uninterested slot b > 0) + 1) > 1
+            // -> (true + 1) > 1
+            // -> ((uninterested slot b > 0) + 1) > 1   (recover to origin expr because `true + 1` is not predicate)
+            // -> true                                  (not contains interested slot but contains uninterested slot)
+            expr = originExpr;
         }
 
         parentContext.childrenContainsInterestedSlots |= currentContext.childrenContainsInterestedSlots;

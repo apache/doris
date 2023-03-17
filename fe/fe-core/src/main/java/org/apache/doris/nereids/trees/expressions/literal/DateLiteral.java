@@ -39,6 +39,7 @@ import java.time.temporal.TemporalAccessor;
  * Date literal in Nereids.
  */
 public class DateLiteral extends Literal {
+    public static final String JAVA_DATE_FORMAT = "yyyy-MM-dd";
 
     protected static DateTimeFormatter DATE_FORMATTER = null;
     protected static DateTimeFormatter DATE_FORMATTER_TWO_DIGIT = null;

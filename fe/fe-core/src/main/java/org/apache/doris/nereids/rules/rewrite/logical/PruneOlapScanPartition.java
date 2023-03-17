@@ -20,11 +20,10 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.EliminateUninterestedPredicates;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.PartitionPredicateEvaluator;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.TryEliminateUninterestedPredicates;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -37,29 +36,26 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.PartitionLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.PartitionLiteral.PartitionWithLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.planner.ListPartitionPrunerV2;
-import org.apache.doris.planner.PartitionPruner;
-import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.planner.ScanNode.ColumnRanges;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Used to prune partition of olap scan, should execute after SwapProjectAndFilter, MergeConsecutiveFilters,
@@ -74,39 +70,29 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             LogicalOlapScan scan = filter.child();
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
+            if (partitionColumnNameSet.isEmpty()) {
+                return filter;
+            }
 
-            Set<Slot> partitionSlots = scan.getOutput()
+            Map<String, Slot> scanOutput = scan.getOutput()
                     .stream()
-                    .filter(slot -> partitionColumnNameSet.contains(slot.getName()))
-                    .collect(ImmutableSet.toImmutableSet());
-
-            Expression partitionColumnPredicate = EliminateUninterestedPredicates.process(
-                    filter.getPredicate(), partitionSlots, ctx.cascadesContext);
+                    .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
 
             PartitionInfo partitionInfo = table.getPartitionInfo();
-            if (partitionColumnNameSet.isEmpty()) {
-                return ctx.root;
-            }
-            Set<Expression> expressionList = filter.getConjuncts();
-            // TODO: Process all partition column for now, better to process required column only.
-            Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
-            for (String colName : partitionColumnNameSet) {
-                ColumnRange columnRange = createColumnRange(colName, expressionList);
-                columnNameToRange.put(colName, columnRange);
-            }
+            List<Slot> partitionSlots = partitionInfo.getPartitionColumns()
+                    .stream()
+                    .map(column -> scanOutput.get(column.getName().toLowerCase()))
+                    .collect(Collectors.toList());
 
-            Map<Long, PartitionItem> keyItemMap = partitionInfo.getIdToItem(false);
-            PartitionPruner partitionPruner = partitionInfo.getType().equals(PartitionType.RANGE)
-                    ? new RangePartitionPrunerV2(keyItemMap,
-                    partitionInfo.getPartitionColumns(), columnNameToRange) : new ListPartitionPrunerV2(keyItemMap,
-                    partitionInfo.getPartitionColumns(), columnNameToRange);
-            Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
-            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
-            if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
-                selectedPartitionId.retainAll(manuallySpecifiedPartitions);
-            }
-            LogicalOlapScan rewrittenScan =
-                    scan.withSelectedPartitionIds(new ArrayList<>(selectedPartitionId));
+            Expression partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
+                    filter.getPredicate(), ImmutableSet.copyOf(partitionSlots), ctx.cascadesContext);
+            List<PartitionWithLiteral> partitionWithLiterals =
+                    PartitionLiteral.toPartitionLiterals(partitionInfo, partitionSlots);
+
+            List<Long> prunedPartitionIds = PartitionPredicateEvaluator.evaluate(
+                    partitionSlots, partitionWithLiterals, partitionPredicate, ctx.cascadesContext);
+
+            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitionIds);
             return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }

@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Utils for Nereids.
@@ -254,5 +255,29 @@ public class Utils {
             }
         }
         Preconditions.checkState(false, "item not found in list");
+    }
+
+    /** allCombinations */
+    public static <T> List<List<T>> allCombinations(List<List<T>> lists) {
+        int size = lists.size();
+        if (size == 0) {
+            return ImmutableList.of();
+        }
+        List<T> first = lists.get(0);
+        if (size == 1) {
+            return first
+                    .stream()
+                    .map(ImmutableList::of)
+                    .collect(ImmutableList.toImmutableList());
+        }
+        List<List<T>> rest = lists.subList(1, size);
+        List<List<T>> combinationWithoutFirst = allCombinations(rest);
+        return first.stream()
+                .flatMap(firstValue -> combinationWithoutFirst.stream()
+                        .map(restList ->
+                                Stream.concat(Stream.of(firstValue), restList.stream())
+                                .collect(ImmutableList.toImmutableList())
+                        )
+                ).collect(ImmutableList.toImmutableList());
     }
 }

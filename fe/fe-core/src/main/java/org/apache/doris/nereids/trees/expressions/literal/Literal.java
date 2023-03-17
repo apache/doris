@@ -271,6 +271,48 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         return this instanceof StringLiteral || this instanceof CharLiteral || this instanceof VarcharLiteral;
     }
 
+    /** fromLegacyLiteral */
+    public static Literal fromLegacyLiteral(LiteralExpr literalExpr) {
+        DataType dataType = DataType.fromCatalogType(literalExpr.getType());
+        String stringValue = literalExpr.getStringValue();
+        if (dataType.isTinyIntType()) {
+            return new TinyIntLiteral(Byte.valueOf(stringValue).byteValue());
+        } else if (dataType.isSmallIntType()) {
+            return new SmallIntLiteral(Short.valueOf(stringValue).byteValue());
+        } else if (dataType.isIntegerType()) {
+            return new IntegerLiteral(Integer.valueOf(stringValue).byteValue());
+        } else if (dataType.isBigIntType()) {
+            return new BigIntLiteral(Long.valueOf(stringValue).byteValue());
+        } else if (dataType.isLargeIntType()) {
+            return new LargeIntLiteral(new BigInteger(stringValue));
+        } else if (dataType.isStringType()) {
+            return new StringLiteral(stringValue);
+        } else if (dataType.isCharType()) {
+            return new CharLiteral(stringValue, ((CharType) dataType).getLen());
+        } else if (dataType.isVarcharType()) {
+            return new VarcharLiteral(stringValue, ((VarcharType) dataType).getLen());
+        } else if (dataType.isFloatType()) {
+            return new FloatLiteral(Float.valueOf(stringValue));
+        } else if (dataType.isDoubleType()) {
+            return new DoubleLiteral(Double.valueOf(stringValue));
+        } else if (dataType.isDecimalV2Type()) {
+            return new DecimalLiteral((DecimalV2Type) dataType, new BigDecimal(stringValue));
+        } else if (dataType.isDecimalV3Type()) {
+            return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal(stringValue));
+        } else if (dataType.isDateType()) {
+            return new DateLiteral(stringValue);
+        } else if (dataType.isDateV2Type()) {
+            return new DateV2Literal(stringValue);
+        } else if (dataType.isDateTimeType()) {
+            return new DateTimeLiteral(stringValue);
+        } else if (dataType.isDateTimeV2Type()) {
+            return new DateTimeV2Literal(stringValue);
+        } else {
+            throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
+                    + " of legacy literal to nereids literal");
+        }
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
