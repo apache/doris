@@ -152,6 +152,7 @@ public class StoragePolicyTest {
         Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
 
         props.clear();
+        props.put(COOLDOWN_TTL, "");
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
         Assertions.assertEquals("errCode = 2, detailMessage = cooldown_datetime or cooldown_ttl must be set",
                 exception.getMessage());
