@@ -190,7 +190,7 @@ public class StoragePolicyTest {
         Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
         Assertions.assertEquals(3600, storagePolicy.getCooldownTtl());
         Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
-        props.remove(COOLDOWN_TTL);
+        props.put(COOLDOWN_TTL, "");
         props.put(COOLDOWN_DATETIME, "2023-01-01 00:00:00");
         Assertions.assertDoesNotThrow(() -> storagePolicy.modifyProperties(props));
         Assertions.assertEquals(-1, storagePolicy.getCooldownTtl());
