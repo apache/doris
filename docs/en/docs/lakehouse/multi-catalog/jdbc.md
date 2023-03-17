@@ -70,11 +70,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
    As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
 
-   | Doris    | PostgreSQL |
-   | -------- | ---------- |
-   | Catalog  | Database   |
-   | Database | Schema     |
-   | Table    | Table      |
+| Doris    | PostgreSQL |
+| -------- | ---------- |
+| Catalog  | Database   |
+| Database | Schema     |
+| Table    | Table      |
 
 3. Oracle
 
@@ -93,11 +93,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
    As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
 
-   | Doris    | Oracle |
-   | -------- | ---------- |
-   | Catalog  | Database   |
-   | Database | User       |
-   | Table    | Table      |
+| Doris    | Oracle |
+| -------- | ---------- |
+| Catalog  | Database   |
+| Database | User       |
+| Table    | Table      |
 
 4. Clickhouse
 
@@ -131,11 +131,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
    As for data mapping from SQLServer to Doris, one Database in Doris corresponds to one schema in the specified database in SQLServer (for example, "doris_test" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. The mapping relations are as follows:
 
-   | Doris    | SQLServer |
-   | -------- | --------- |
-   | Catalog  | Database  |
-   | Database | Schema    |
-   | Table    | Table     |
+| Doris    | SQLServer |
+| -------- | --------- |
+| Catalog  | Database  |
+| Database | Schema    |
+| Table    | Table     |
     
 6. Doris
 
@@ -155,6 +155,27 @@ CREATE CATALOG doris_catalog PROPERTIES (
 ```
 
 Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
+
+7. SAP_HANA
+
+<version since="dev"></version>
+
+```sql
+CREATE CATALOG hana_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+)
+```
+
+| Doris    | SAP_HANA |
+|----------|----------|
+| Catalog  | Database | 
+| Database | Schema   |
+| Table    | Table    |
 
 ### Parameter Description
 
@@ -348,9 +369,34 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | STRING | STRING | |
 | TEXT | STRING | |
 |Other| UNSUPPORTED |
+
+### SAP_HANA
+
+| SAP_HANA     | Doris                    | Comment                                                                                                            |
+|--------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
+| BOOLEAN      | BOOLEAN                  |                                                                                                                    |
+| TINYINT      | TINYINT                  |                                                                                                                    |
+| SMALLINT     | SMALLINT                 |                                                                                                                    |
+| INTERGER     | INT                      |                                                                                                                    |
+| BIGINT       | BIGINT                   |                                                                                                                    |
+| SMALLDECIMAL | DECIMALV3                |                                                                                                                    |
+| DECIMAL      | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
+| REAL         | FLOAT                    |                                                                                                                    |
+| DOUBLE       | DOUBLE                   |                                                                                                                    |
+| DATE         | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                         |
+| TIME         | TEXT                     |                                                                                                                    |
+| TIMESTAMP    | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
+| SECONDDATE   | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS                                                     |
+| VARCHAR      | TEXT                     |                                                                                                                    |
+| NVARCHAR     | TEXT                     |                                                                                                                    |
+| ALPHANUM     | TEXT                     |                                                                                                                    |
+| SHORTTEXT    | TEXT                     |                                                                                                                    |
+| CHAR         | CHAR                     |                                                                                                                    |
+| NCHAR        | CHAR                     |                                                                                                                    |
+
 ## FAQ
 
-1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse?
+1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse and SAP HANA?
 
    Currently, Doris supports MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse. We are planning to expand this list. Technically, any databases that support JDBC access can be connected to Doris in the form of JDBC external tables. You are more than welcome to be a Doris contributor to expedite this effort.
 

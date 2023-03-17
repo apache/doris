@@ -146,6 +146,18 @@ suite("create_table_use_partition_policy") {
     assertEquals(create_table_partition_use_created_policy_2.size(), 1);
 
     sql """
-    DROP TABLE create_table_partition_use_created_policy_2
+    DROP TABLE create_table_partition_use_created_policy_2;
+    """
+    sql """
+    DROP STORAGE POLICY test_create_table_partition_use_policy_1;
+    """
+    sql """
+    DROP STORAGE POLICY test_create_table_partition_use_policy_2;
+    """
+    sql """
+    DROP RESOURCE test_create_table_partition_use_resource_1
+    """
+    sql """
+    DROP RESOURCE test_create_table_partition_use_resource_2
     """
 }

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExecuteStmt;
@@ -609,7 +610,11 @@ public class StmtExecutor implements ProfileWriter {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                handleDdlStmt();
+                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
+                    handleDeleteStmt();
+                } else {
+                    handleDdlStmt();
+                }
             } else if (parsedStmt instanceof ShowStmt) {
                 handleShow();
             } else if (parsedStmt instanceof KillStmt) {
@@ -1235,7 +1240,7 @@ public class StmtExecutor implements ProfileWriter {
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner);
+        coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.setProfileWriter(this);
@@ -1581,7 +1586,7 @@ public class StmtExecutor implements ProfileWriter {
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
             try {
-                coord = new Coordinator(context, analyzer, planner);
+                coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
                 coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
                 coord.setQueryType(TQueryType.LOAD);
 
@@ -1934,10 +1939,23 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt = updateStmt.getInsertStmt();
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                LOG.warn("update data error, stmt={}", parsedStmt.toSql());
+                LOG.warn("update data error, stmt={}", updateStmt.toSql());
             }
         } catch (Exception e) {
             LOG.warn("update data error, stmt={}", parsedStmt.toSql(), e);
+        }
+    }
+
+    private void handleDeleteStmt() {
+        try {
+            DeleteStmt deleteStmt = (DeleteStmt) parsedStmt;
+            parsedStmt = deleteStmt.getInsertStmt();
+            execute();
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("delete data error, stmt={}", deleteStmt.toSql());
+            }
+        } catch (Exception e) {
+            LOG.warn("delete data error, stmt={}", parsedStmt.toSql(), e);
         }
     }
 
@@ -2059,7 +2077,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             planner.getFragments();
             RowBatch batch;
-            coord = new Coordinator(context, analyzer, planner);
+            coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));

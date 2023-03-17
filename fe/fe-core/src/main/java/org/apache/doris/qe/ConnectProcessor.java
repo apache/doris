@@ -55,6 +55,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -635,6 +636,10 @@ public class ConnectProcessor {
                 || executor.getParsedStmt() instanceof LogicalPlanAdapter
                 || executor.getParsedStmt() instanceof InsertStmt)) {
             executor.writeProfile(true);
+            StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
+            if (statsErrorEstimator != null) {
+                statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
+            }
         }
     }
 

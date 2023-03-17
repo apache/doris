@@ -2470,8 +2470,12 @@ public class Env {
         modifyFrontendHost(nodeName, destIp, "");
     }
 
-    public void modifyFrontendHostName(String nodeName, String destHostName) throws DdlException {
-        modifyFrontendHost(nodeName, "", destHostName);
+    public void modifyFrontendHostName(String srcIp, String destHostName) throws DdlException {
+        Frontend fe = getFeByIp(srcIp);
+        if (fe == null) {
+            throw new DdlException("frontend does not exist, ip:" + srcIp);
+        }
+        modifyFrontendHost(fe.getNodeName(), "", destHostName);
     }
 
     public void modifyFrontendHost(String nodeName, String destIp, String destHostName) throws DdlException {
@@ -2527,7 +2531,7 @@ public class Env {
                 haProtocol.removeElectableNode(fe.getNodeName());
                 removeHelperNode(ip, hostname, port);
                 BDBHA ha = (BDBHA) haProtocol;
-                ha.removeUnReadyElectableNode(nodeName, getFollowerCount());
+                ha.removeUnReadyElectableNode(fe.getNodeName(), getFollowerCount());
             }
             editLog.logRemoveFrontend(fe);
         } finally {
