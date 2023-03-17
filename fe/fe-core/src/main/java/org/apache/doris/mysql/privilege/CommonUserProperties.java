@@ -54,6 +54,7 @@ public class CommonUserProperties implements Writable {
     @SerializedName("queryTimeout")
     private int queryTimeout = -1;
 
+    @SerializedName("insertTimeout")
     private int insertTimeout = -1;
 
     private String[] sqlBlockRulesSplit = {};
