@@ -24,12 +24,8 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
-import org.apache.doris.thrift.TIcebergMetadataParams;
-import org.apache.doris.thrift.TIcebergMetadataType;
 import org.apache.doris.thrift.TMetaScanNode;
-import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -64,10 +60,8 @@ public class MetadataScanNode extends ScanNode {
     protected void toThrift(TPlanNode planNode) {
         planNode.setNodeType(TPlanNodeType.META_SCAN_NODE);
         TMetaScanNode metaScanNode = new TMetaScanNode();
-        metaScanNode.setCatalog(tvf.getMetadataTableName().getCtl());
-        metaScanNode.setDatabase(tvf.getMetadataTableName().getDb());
-        metaScanNode.setTable(tvf.getMetadataTableName().getTbl());
         metaScanNode.setTupleId(desc.getId().asInt());
+        metaScanNode.setMetadataType(this.tvf.getMetadataType());
         planNode.setMetaScanNode(metaScanNode);
     }
 
@@ -83,28 +77,18 @@ public class MetadataScanNode extends ScanNode {
 
     @Override
     public boolean needToCheckColumnPriv() {
-        return super.needToCheckColumnPriv();
+        return false;
     }
 
     private void buildScanRanges() {
-        if (tvf.getMetaType() == MetadataTableValuedFunction.MetaType.ICEBERG) {
-            IcebergTableValuedFunction icebergTvf = (IcebergTableValuedFunction) tvf;
-            // todo: split
-            TScanRangeLocations locations = createIcebergTvfLocations(icebergTvf);
-            scanRangeLocations.add(locations);
-        }
+        // todo: split
+        TScanRangeLocations locations = createMetaDataTvfLocations();
+        scanRangeLocations.add(locations);
     }
 
-    private TScanRangeLocations createIcebergTvfLocations(IcebergTableValuedFunction icebergTvf) {
+    private TScanRangeLocations createMetaDataTvfLocations() {
         TScanRange scanRange = new TScanRange();
-        TMetaScanRange metaScanRange = new TMetaScanRange();
-        // set iceberg metadata params
-        TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
-        int metadataType = icebergTvf.getMetaQueryType().ordinal();
-        icebergMetadataParams.setMetadataType(TIcebergMetadataType.findByValue(metadataType));
-
-        metaScanRange.setIcebergParams(icebergMetadataParams);
-        scanRange.setMetaScanRange(metaScanRange);
+        scanRange.setMetaScanRange(tvf.getMetaScanRange());
         // set location
         TScanRangeLocation location = new TScanRangeLocation();
         Backend backend = backendPolicy.getNextBe();
