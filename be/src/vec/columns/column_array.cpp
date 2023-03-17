@@ -242,8 +242,9 @@ const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos, size
     size_t array_size = unaligned_load<size_t>(pos);
     pos += sizeof(array_size);
 
-    for (size_t i = 0; i < array_size; ++i)
+    for (size_t i = 0; i < array_size; ++i) {
         pos = get_data().deserialize_and_insert_from_arena(pos, sz);
+    }
 
     get_offsets().push_back(get_offsets().back() + array_size);
     return pos;
