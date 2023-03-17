@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -30,14 +31,22 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * change scalar sub query containing agg to window function. such as:
@@ -62,37 +71,58 @@ import java.util.List;
  */
 
 public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
-    private static final ImmutableSet<Class<? extends AggregateFunction>> supportedFunction = ImmutableSet.of(
+    private static final ImmutableSet<Class<? extends AggregateFunction>> SUPPORTED_FUNCTION = ImmutableSet.of(
             Min.class, Max.class, Count.class, Sum.class, Avg.class
+    );
+    private static final ImmutableSet<Class<? extends LogicalPlan>> LEFT_SUPPORTED_PLAN = ImmutableSet.of(
+            LogicalOlapScan.class, LogicalLimit.class, LogicalJoin.class, LogicalProject.class
+    );
+    private static final ImmutableSet<Class<? extends LogicalPlan>> RIGHT_SUPPORTED_PLAN = ImmutableSet.of(
+            LogicalOlapScan.class, LogicalJoin.class, LogicalProject.class, LogicalAggregate.class, LogicalFilter.class
     );
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION.build(
-                        // logical apply to ensure there's scalar sub-query in outer scope and the sub-query contains a
-                        // aggregation.
-                        logicalApply(any(), logicalAggregate())
-                                .when(apply -> apply.getSubqueryExpr() instanceof ScalarSubquery)
-                                .when(apply -> checkCorrelatedSlot(apply.getCorrelationSlot()))
-                                .when(apply -> checkAggFunction(apply.getSubqueryExpr().getQueryPlan()))
-                                .then(apply -> {
+                        logicalFilter(logicalProject(logicalApply(any(), logicalAggregate())))
+                                .when(node -> {
+                                    LogicalApply apply = node.child().child();
+                                    return apply.isScalar() && apply.isCorrelated();
+                                })
+                                .then(node -> {
                                     return null;
                                 })
                 )
         );
     }
 
-    private boolean checkAggFunction(LogicalPlan subQuery) {
-        Preconditions.checkArgument(subQuery instanceof LogicalAggregate);
-        LogicalAggregate<Plan> aggregate = ((LogicalAggregate<Plan>) subQuery);
-        List<AggregateFunction> functionSet = ExpressionUtils.collectAll(aggregate.getExpressions(),
-                AggregateFunction.class::isInstance);
-        return supportedFunction.containsAll(functionSet);
+    // check children's nodes because query process will be changed
+    private boolean checkPlanType(LogicalPlan outerPlan, LogicalPlan innerPlan) {
+        return outerPlan.anyMatch(p -> LEFT_SUPPORTED_PLAN.contains(p.getClass()))
+                && innerPlan.anyMatch(p -> RIGHT_SUPPORTED_PLAN.contains(p.getClass()));
     }
 
-    private boolean checkCorrelatedSlot(List<Expression> correlatedSlots) {
-        return false;
+    // check aggregation of inner scope
+    private boolean checkAggType(LogicalPlan innerPlan) {
+        List<LogicalAggregate> aggSet = innerPlan.collectToList(LogicalAggregate.class::isInstance);
+        if (aggSet.size() > 1) {
+            // window functions don't support nesting.
+            return false;
+        }
+        return ((List<AggregateFunction>) ExpressionUtils.collectAll(
+                aggSet.get(0).getOutputExpressions(), AggregateFunction.class::isInstance))
+                .stream().allMatch(f -> SUPPORTED_FUNCTION.contains(f.getClass()) && !f.isDistinct());
+    }
+
+    // check if the relations of the outer's includes the inner's
+    private boolean checkRelation(LogicalPlan outerPlan, LogicalPlan innerPlan) {
+        List<TableIf> outerTables = outerPlan.collectToList(LogicalRelation.class::isInstance)
+                .stream().map(r -> ((LogicalRelation) r).getTable()).collect(Collectors.toList());
+        List<TableIf> innerTables = innerPlan.collectToList(LogicalRelation.class::isInstance)
+                .stream().map(r -> ((LogicalRelation) r).getTable()).collect(Collectors.toList());
+
+        // to check all of the relation is different.
     }
 }
 

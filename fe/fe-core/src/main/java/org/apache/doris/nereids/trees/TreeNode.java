@@ -223,6 +223,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * Collect the nodes that satisfied the predicate to list.
+     */
+    default <T> List<T> collectToList(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        ImmutableList.Builder<TreeNode<NODE_TYPE>> result = ImmutableList.builder();
+        foreach(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        });
+        return (List<T>) result.build();
+    }
+
+    /**
      * iterate top down and test predicate if contains any instance of the classes
      * @param types classes array
      * @return true if it has any instance of the types
