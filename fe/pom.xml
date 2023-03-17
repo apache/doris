@@ -158,6 +158,7 @@ under the License.
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>java-udf</module>
+        <module>microbench</module>
     </modules>
     <properties>
         <doris.home>${basedir}/../</doris.home>
