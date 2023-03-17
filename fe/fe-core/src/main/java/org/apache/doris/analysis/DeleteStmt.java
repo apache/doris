@@ -33,9 +33,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rewrite.BetweenToCompoundRule;
+import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.LinkedList;
@@ -43,11 +47,15 @@ import java.util.List;
 
 public class DeleteStmt extends DdlStmt {
 
+    private static final List<ExprRewriteRule> EXPR_NORMALIZE_RULES = ImmutableList.of(
+            BetweenToCompoundRule.INSTANCE
+    );
+
     private TableRef targetTableRef;
     private TableName tableName;
     private final PartitionNames partitionNames;
     private final FromClause fromClause;
-    private final Expr wherePredicate;
+    private Expr wherePredicate;
 
     private final List<Predicate> deleteConditions = new LinkedList<>();
 
@@ -108,6 +116,8 @@ public class DeleteStmt extends DdlStmt {
 
         // analyze predicate
         if (fromClause == null) {
+            ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
+            wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             analyzePredicate(wherePredicate);
         } else {
             constructInsertStmt();
