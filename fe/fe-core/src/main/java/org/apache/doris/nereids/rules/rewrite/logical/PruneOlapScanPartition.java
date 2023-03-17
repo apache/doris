@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.EliminateUninterestedPredicates;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -46,6 +48,7 @@ import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.planner.ScanNode.ColumnRanges;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -71,6 +74,15 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             LogicalOlapScan scan = filter.child();
             OlapTable table = scan.getTable();
             Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
+
+            Set<Slot> partitionSlots = scan.getOutput()
+                    .stream()
+                    .filter(slot -> partitionColumnNameSet.contains(slot.getName()))
+                    .collect(ImmutableSet.toImmutableSet());
+
+            Expression partitionColumnPredicate = EliminateUninterestedPredicates.process(
+                    filter.getPredicate(), partitionSlots, ctx.cascadesContext);
+
             PartitionInfo partitionInfo = table.getPartitionInfo();
             if (partitionColumnNameSet.isEmpty()) {
                 return ctx.root;

@@ -41,6 +41,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableSet;
@@ -55,7 +56,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-class PruneOlapScanPartitionTest implements MemoPatternMatchSupported {
+class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatternMatchSupported {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        useDatabase("test");
+
+        createTable("create table test_parts(id int, part int) "
+                + "partition by range(part) ("
+                + "  partition p1 values[('1'), ('2')),"
+                + "  partition p2 values[('2'), ('3')),"
+                + "  partition p3 values[('3'), ('4')),"
+                + "  partition p4 values[('4'), ('5'))"
+                + ") "
+                + "distributed by hash(id) "
+                + "properties ('replication_num'='1')");
+    }
 
     @Test
     void testOlapScanPartitionWithSingleColumnCase(@Mocked OlapTable olapTable) throws Exception {
@@ -168,6 +185,19 @@ class PruneOlapScanPartitionTest implements MemoPatternMatchSupported {
                                         .when(
                                                 olapScan -> olapScan.getSelectedPartitionIds().iterator().next() == 0L)
                         )
+                );
+    }
+
+    @Test
+    public void prunePartitionWithOrPredicate() throws Exception {
+        PlanChecker planChecker = PlanChecker.from(connectContext)
+                .analyze("select * from test_parts where (part = 1 and id <= 500) or (part = 3)")
+                .rewrite()
+                .printlnTree()
+                .matchesFromRoot(
+                    logicalFilter(
+                        logicalOlapScan().when(scan -> scan.getSelectedPartitionIds().size() == 2)
+                    )
                 );
     }
 }
