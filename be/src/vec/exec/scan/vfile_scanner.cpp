@@ -781,6 +781,11 @@ Status VFileScanner::_init_expr_ctxes() {
     // If last slot is_variant from stream plan which indicate table is dynamic schema
     _is_dynamic_schema =
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
+
+    // TODO: It should can move to scan node to process.
+    if (_vconjunct_ctx && _vconjunct_ctx->root()) {
+        _split_conjuncts(_vconjunct_ctx->root());
+    }
     return Status::OK();
 }
 
