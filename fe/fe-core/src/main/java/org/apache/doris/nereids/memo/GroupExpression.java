@@ -57,7 +57,7 @@ public class GroupExpression {
     private final BitSet ruleMasks;
     private boolean statDerived;
 
-    private long estOutputRowCount = -1;
+    private double estOutputRowCount = -1;
 
     //Record the rule that generate this plan. It's used for debugging
     private Rule fromRule;
@@ -301,16 +301,13 @@ public class GroupExpression {
         return new Statistics(child(idx).getStatistics());
     }
 
-    public void setEstOutputRowCount(long estOutputRowCount) {
+    public void setEstOutputRowCount(double estOutputRowCount) {
         this.estOutputRowCount = estOutputRowCount;
-    }
-
-    public long getEstOutputRowCount() {
-        return estOutputRowCount;
     }
 
     @Override
     public String toString() {
+        DecimalFormat format = new DecimalFormat("#,###.##");
         StringBuilder builder = new StringBuilder("id:");
         builder.append(id.asInt());
         if (ownerGroup == null) {
@@ -318,11 +315,8 @@ public class GroupExpression {
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
-
-        DecimalFormat decimalFormat = new DecimalFormat();
-        decimalFormat.setGroupingSize(3);
-        builder.append(" cost=").append(decimalFormat.format((long) cost));
-        builder.append(" estRows=").append(estOutputRowCount);
+        builder.append(" cost=").append(format.format((long) cost));
+        builder.append(" estRows=").append(format.format(estOutputRowCount));
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
