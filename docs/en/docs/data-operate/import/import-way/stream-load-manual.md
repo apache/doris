@@ -90,6 +90,16 @@ curl --location-trusted -u root -T date -H "label:123" http://abc.com:8030/api/t
 ```
 The detailed syntax for creating imports helps to execute ``HELP STREAM LOAD`` view. The following section focuses on the significance of creating some parameters of Stream load.
 
+**https method**
+
+If you have enabled https security connection in fe.conf, please refer to [FE Configuration Instructions](../../../admin-manual/config/fe-config) for details, you need to nominate the security certificate, or Skip security certificate checks, for example:
+
+Here we skip the certificate check (parameter: -k )
+
+```
+curl --location-trusted -u root -k -T date -H "label:123" http://abc.com:8030/api/test/date/_stream_load
+```
+
 **Signature parameters**
 
 + user/passwd
@@ -155,10 +165,10 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
     Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present.
     when the first column src_c1 of the original file corresponds to the dst_c1 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c2 column of the target table and the third column src_c3 of the original file corresponds to the dst_c3 column of the target table,which is written as follows:
     columns: dst_c1, dst_c2, dst_c3
-
+  
     when the first column src_c1 of the original file corresponds to the dst_c2 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c3 column of the target table and the third column src_c3 of the original file corresponds to the dst_c1 column of the target table,which is written as follows:
     columns: dst_c2, dst_c3, dst_c1
-
+  
     Example of expression transformation: There are two columns in the original file and two columns in the target table (c1, c2). However, both columns in the original file need to be transformed by functions to correspond to the two columns in the target table.
     columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
     Tmp_* is a placeholder, representing two original columns in the original file.
@@ -206,8 +216,8 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   }
   ```
     2. Trigger the commit operation on the transaction.
-    Note 1) requesting to fe and be both works
-    Note 2) `{table}` in url can be omit when commit
+      Note 1) requesting to fe and be both works
+      Note 2) `{table}` in url can be omit when commit
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -216,8 +226,8 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   }
   ```
     3. Trigger an abort operation on a transaction
-    Note 1) requesting to fe and be both works
-    Note 2) `{table}` in url can be omit when abort
+      Note 1) requesting to fe and be both works
+      Note 2) `{table}` in url can be omit when abort
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -409,7 +419,7 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 	        <version>4.5.13</version>
 	      </dependency>
 	  ```
- 
+
 * After enabling the Stream Load record on the BE, the record cannot be queried
 
   This is caused by the slowness of fetching records, you can try to adjust the following parameters:

@@ -92,6 +92,16 @@ curl --location-trusted -u root -T date -H "label:123" http://abc.com:8030/api/t
 
 创建导入的详细语法帮助执行 `HELP STREAM LOAD` 查看, 下面主要介绍创建 Stream Load 的部分参数意义。
 
+**https方式**
+
+如果你在 fe.conf 中配置了启用 https 安全连接方式，具体参照 [FE 配置说明](../../../admin-manual/config/fe-config)，你需要提名安全证书，或者跳过安全证书检查，例如：
+
+这里我们跳过证书检查(参数: -k )
+
+```
+curl --location-trusted -u root -k -T date -H "label:123" http://abc.com:8030/api/test/date/_stream_load
+```
+
 **签名参数**
 
 - user/passwd

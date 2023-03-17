@@ -643,6 +643,43 @@ Default：10240  （10K）
 
 http header size configuration parameter, the default value is 10K
 
+#### `jetty_is_enable_ssl`
+
+Default: false
+
+Whether to enable http ssl secure connection, it is not enabled by default, if enabled, you need to fill in the following parameters:
+
+```
+1. jetty_ssl_key_store
+2. jetty_ssl_key_store_password
+3. jetty_ssl_key_store_type
+4. jetty_ssl_key_store_alias
+```
+
+#### `jetty_ssl_key_store`
+
+Default: 
+
+  The path to the http ssl certificate.
+
+#### `jetty_ssl_key_store_password`
+
+Default: 
+
+http ssl certificate password
+
+#### `jetty_ssl_key_store_type`
+
+Default: 
+
+http ssl keystore type
+
+#### `jetty_ssl_key_store_alias`
+
+Default: 
+
+http ssl certificate alias
+
 #### `enable_tracing`
 
 Default：false

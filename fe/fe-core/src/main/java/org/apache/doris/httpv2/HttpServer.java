@@ -23,11 +23,20 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 import org.apache.doris.service.FrontendOptions;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jetty.server.HttpConfiguration;
+import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.ServerConnector;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.embedded.jetty.JettyServletWebServerFactory;
 import org.springframework.boot.web.servlet.ServletComponentScan;
+import org.springframework.boot.web.servlet.server.ServletWebServerFactory;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+import org.springframework.context.annotation.Bean;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,7 +45,7 @@ import java.util.Map;
 @EnableConfigurationProperties
 @ServletComponentScan
 public class HttpServer extends SpringBootServletInitializer {
-
+    private static final Logger LOG = LogManager.getLogger(HttpServer.class);
     private int port;
     private int acceptors;
     private int selectors;
@@ -46,6 +55,66 @@ public class HttpServer extends SpringBootServletInitializer {
     private int minThreads;
     private int maxThreads;
     private int maxHttpHeaderSize;
+
+    private boolean isEnableSSL;
+
+    private String keyStore;
+
+    private String keyStorePassword;
+
+    private String keyStoreType;
+
+    private String keyAlias;
+
+    private int sslPort;
+
+    public boolean isEnableSSL() {
+        return isEnableSSL;
+    }
+
+    public void setEnableSSL(boolean enableSSL) {
+        isEnableSSL = enableSSL;
+    }
+
+    public String getKeyStore() {
+        return keyStore;
+    }
+
+    public void setKeyStore(String keyStore) {
+        this.keyStore = keyStore;
+    }
+
+    public String getKeyStorePassword() {
+        return keyStorePassword;
+    }
+
+    public void setKeyStorePassword(String keyStorePassword) {
+        this.keyStorePassword = keyStorePassword;
+    }
+
+    public String getKeyStoreType() {
+        return keyStoreType;
+    }
+
+    public void setKeyStoreType(String keyStoreType) {
+        this.keyStoreType = keyStoreType;
+    }
+
+    public String getKeyAlias() {
+        return keyAlias;
+    }
+
+    public void setKeyAlias(String keyAlias) {
+        this.keyAlias = keyAlias;
+    }
+
+    public int getSslPort() {
+        return sslPort;
+    }
+
+    public void setSslPort(int sslPort) {
+        this.sslPort = sslPort;
+    }
 
     public int getMaxHttpHeaderSize() {
         return maxHttpHeaderSize;
@@ -105,6 +174,19 @@ public class HttpServer extends SpringBootServletInitializer {
             properties.put("server.address", "0.0.0.0");
         }
         properties.put("server.servlet.context-path", "/");
+        if (isEnableSSL) {
+            if (StringUtils.isAllEmpty(this.keyStore) || StringUtils.isAllEmpty(this.keyStoreType)
+                    || StringUtils.isAllEmpty(this.keyStorePassword) || StringUtils.isAllEmpty(this.keyAlias)) {
+                LOG.info("No http ssl authentication information is configured, "
+                        + "and the non-ssl mode is used to start by default");
+            } else {
+                properties.put("server.ssl.port", this.sslPort);
+                properties.put("server.ssl.key-store", this.keyStore);
+                properties.put("server.ssl.key-store-password", this.keyStorePassword);
+                properties.put("server.ssl.keyStoreType", this.keyStoreType);
+                properties.put("server.ssl.keyAlias", this.keyAlias);
+            }
+        }
         properties.put("spring.resources.static-locations", "classpath:/static");
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
@@ -139,4 +221,18 @@ public class HttpServer extends SpringBootServletInitializer {
                 .properties(properties)
                 .run(new String[]{});
     }
+
+    @Bean
+    public ServletWebServerFactory servletContainer() {
+        JettyServletWebServerFactory jetty = new JettyServletWebServerFactory();
+        jetty.addServerCustomizers(
+                server -> {
+                    HttpConfiguration httpConfiguration = new HttpConfiguration();
+                    httpConfiguration.setSecureScheme("https");
+                    ServerConnector connector = new ServerConnector(server);
+                    connector.addConnectionFactory(new HttpConnectionFactory(httpConfiguration));
+                    server.addConnector(connector); });
+        return jetty;
+    }
+
 }

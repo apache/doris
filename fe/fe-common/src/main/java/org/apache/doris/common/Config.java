@@ -387,6 +387,19 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_max_http_header_size = 10240;
 
     /**
+     * Whether to enable https
+     * It is not enabled by default, if it is enabled, related parameters need to be configured
+     */
+    @ConfField public static boolean jetty_is_enable_ssl = false;
+    /**
+     * Enable https configuration related parameters
+     */
+    @ConfField public static String jetty_ssl_key_store = "";
+    @ConfField public static String jetty_ssl_key_store_password = "";
+    @ConfField public static String jetty_ssl_key_store_type = "";
+    @ConfField public static String jetty_ssl_key_store_alias = "";
+
+    /**
      * Mini load disabled by default
      */
     @ConfField public static boolean disable_mini_load = true;

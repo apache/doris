@@ -165,6 +165,12 @@ public class PaloFe {
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
+                httpServer.setEnableSSL(Config.jetty_is_enable_ssl);
+                httpServer.setKeyStore(Config.jetty_ssl_key_store);
+                httpServer.setKeyStorePassword(Config.jetty_ssl_key_store_password);
+                httpServer.setKeyStoreType(Config.jetty_ssl_key_store_type);
+                httpServer.setKeyAlias(Config.jetty_ssl_key_store_alias);
+                httpServer.setSslPort(Config.jetty_ssl_port);
                 httpServer.start();
             }
 

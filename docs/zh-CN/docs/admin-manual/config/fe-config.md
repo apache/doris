@@ -643,6 +643,43 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 http header size 配置参数
 
+#### `jetty_is_enable_ssl`
+
+默认值：false  
+
+是否启用 http ssl 安全连接，默认不启用，如果启用需要填写下面几个参数：
+
+```
+1. jetty_ssl_key_store
+2. jetty_ssl_key_store_password
+3. jetty_ssl_key_store_type
+4. jetty_ssl_key_store_alias
+```
+
+#### `jetty_ssl_key_store`
+
+默认值：  
+
+ http ssl  证书的路径.
+
+#### `jetty_ssl_key_store_password`
+
+默认值：  
+
+http ssl 证书密码
+
+#### `jetty_ssl_key_store_type`
+
+默认值：  
+
+http ssl 秘钥库类型
+
+#### `jetty_ssl_key_store_alias`
+
+默认值：  
+
+http ssl 证书别名
+
 #### `enable_tracing`
 
 默认值：false
