@@ -33,6 +33,7 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -75,7 +76,7 @@ public class StoragePolicyTest {
     }
 
     @Test
-    public void testInit() {
+    public void testInit() throws Exception {
         StoragePolicy storagePolicy = new StoragePolicy(POLICY_ID, POLICY_NAME);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> storagePolicy.init(null, false));
@@ -130,17 +131,12 @@ public class StoragePolicyTest {
         Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy2.getStorageResource());
         Assertions.assertEquals(-1, storagePolicy2.getCooldownTtl());
         SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        Long cooldownTimestampMs = -1L;
-        try {
-            cooldownTimestampMs = df.parse("2023-01-01 00:00:00").getTime();
-        } catch (ParseException e) {
-            throw new RuntimeException(e);
-        }
+        Long cooldownTimestampMs = df.parse("2023-01-01 00:00:00").getTime();
         Assertions.assertEquals(cooldownTimestampMs, storagePolicy2.getCooldownTimestampMs());
     }
 
     @Test
-    public void testModify() {
+    public void testModify() throws Exception {
         StoragePolicy storagePolicy = new StoragePolicy(POLICY_ID, "policy3");
         Map<String, String> props = new HashMap<>();
         props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
@@ -190,17 +186,41 @@ public class StoragePolicyTest {
         Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
         Assertions.assertEquals(3600, storagePolicy.getCooldownTtl());
         Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
+        List<String> policyInfo = storagePolicy.getShowInfo();
+        Assertions.assertEquals("policy3", policyInfo.get(0));
+        Assertions.assertEquals("1", policyInfo.get(1));
+        Assertions.assertEquals(PolicyTypeEnum.STORAGE.name(), policyInfo.get(3));
+        Assertions.assertEquals(S3_RESOURCE_NAME, policyInfo.get(4));
+        Assertions.assertEquals("-1", policyInfo.get(5));
+        Assertions.assertEquals("3600", policyInfo.get(6));
         props.put(COOLDOWN_TTL, "");
         props.put(COOLDOWN_DATETIME, "2023-01-01 00:00:00");
         Assertions.assertDoesNotThrow(() -> storagePolicy.modifyProperties(props));
         Assertions.assertEquals(-1, storagePolicy.getCooldownTtl());
         SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        Long cooldownTimestampMs = -1L;
-        try {
-            cooldownTimestampMs = df.parse("2023-01-01 00:00:00").getTime();
-        } catch (ParseException e) {
-            throw new RuntimeException(e);
-        }
+        Long cooldownTimestampMs = df.parse("2023-01-01 00:00:00").getTime();
         Assertions.assertEquals(cooldownTimestampMs, storagePolicy.getCooldownTimestampMs());
+        policyInfo = storagePolicy.getShowInfo();
+        Assertions.assertEquals("policy3", policyInfo.get(0));
+        Assertions.assertEquals("1", policyInfo.get(1));
+        Assertions.assertEquals(PolicyTypeEnum.STORAGE.name(), policyInfo.get(3));
+        Assertions.assertEquals(S3_RESOURCE_NAME, policyInfo.get(4));
+        Assertions.assertEquals("2023-01-01 00:00:00", policyInfo.get(5));
+        Assertions.assertEquals("-1", policyInfo.get(6));
+    }
+
+    @Test
+    public void testGetSecondsByCooldownTtl() throws Exception {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> StoragePolicy.getSecondsByCooldownTtl("test"));
+        Assertions.assertEquals("errCode = 2, detailMessage = getSecByCooldownTtl failed", exception.getMessage());
+        exception = Assertions.assertThrows(AnalysisException.class,
+                () -> StoragePolicy.getSecondsByCooldownTtl("-100"));
+        Assertions.assertEquals("errCode = 2, detailMessage = cooldownTtl can't be less than 0",
+                exception.getMessage());
+        Assertions.assertEquals(864000, StoragePolicy.getSecondsByCooldownTtl("10d"));
+        Assertions.assertEquals(10800, StoragePolicy.getSecondsByCooldownTtl("3h"));
+        Assertions.assertEquals(86400 * 14, StoragePolicy.getSecondsByCooldownTtl("2 week"));
+        Assertions.assertEquals(14324, StoragePolicy.getSecondsByCooldownTtl("14324"));
     }
 }
