@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -43,7 +42,6 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -377,13 +375,6 @@ public class SelectStmt extends QueryStmt {
                     View view = (View) table;
                     view.getQueryStmt().getTables(analyzer, expandView, tableMap, parentViewNameSet);
                 } else {
-                    // check auth
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                                dbName + "." + tableName);
-                    }
                     tableMap.put(table.getId(), table);
                 }
             }

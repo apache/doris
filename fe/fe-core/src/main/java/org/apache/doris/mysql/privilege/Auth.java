@@ -317,6 +317,12 @@ public class Auth implements Writable {
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         // TODO: Support column priv
+        // we check if have tbl priv,until internal support col auth.
+        if (!checkTblPriv(currentUser, ctl, db, tbl, wanted)) {
+            throw new AuthorizationException(String.format(
+                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s].[%s].[%s]",
+                    currentUser, wanted, ctl, db, tbl));
+        }
     }
 
 
