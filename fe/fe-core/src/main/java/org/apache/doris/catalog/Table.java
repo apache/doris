@@ -184,6 +184,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
                 LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
                         name, timeout, unit.name(), rwLock.getOwner());
             }
+
             return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);

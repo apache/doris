@@ -801,9 +801,15 @@ public class StmtExecutor implements ProfileWriter {
             List<TableIf> tables = Lists.newArrayList(tableMap.values());
             int analyzeTimes = 2;
             for (int i = 1; i <= analyzeTimes; i++) {
+
                 MetaLockUtils.readLockTables(tables);
                 try {
+                    long startAnalysisTime = System.currentTimeMillis();
                     analyzeAndGenerateQueryPlan(tQueryOptions);
+                    long endAnalysisTime = System.currentTimeMillis();
+                    if (endAnalysisTime - startAnalysisTime > 10000) {
+                        LOG.info("yyyyy {}", endAnalysisTime - startAnalysisTime);
+                    }
                     break;
                 } catch (MVSelectFailedException e) {
                     /*
