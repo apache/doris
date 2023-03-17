@@ -524,6 +524,9 @@ public abstract class ScanNode extends PlanNode {
                     if (rhsExpr.isBound(desc.getId())) {
                         SlotDescriptor slotDesc = analyzer.addSlotDescriptor(outputTupleDesc);
                         slotDesc.initFromExpr(rhsExpr);
+                        if (rhsExpr instanceof SlotRef) {
+                            slotDesc.setSrcColumn(((SlotRef) rhsExpr).getColumn());
+                        }
                         slotDesc.setIsMaterialized(true);
                         slotDesc.materializeSrcExpr();
                         projectList.add(rhsExpr);
