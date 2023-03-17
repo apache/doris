@@ -40,6 +40,6 @@ suite("test_array_functions_of_array_difference") {
     sql """ INSERT INTO ${tableName} VALUES(7, [1111,12324,8674,123,3434,435,45,53,54,2]) """
 
 
-    qt_select "SELECT *, array_difference(k2) FROM ${tableName}"
+    qt_select "SELECT *, array_difference(k2) FROM ${tableName} order by k1"
 
 }
