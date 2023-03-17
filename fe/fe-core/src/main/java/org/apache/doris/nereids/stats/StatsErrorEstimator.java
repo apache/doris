@@ -21,10 +21,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -36,14 +39,19 @@ import java.util.regex.Pattern;
  * Used to estimate the bias of stats estimation.
  */
 public class StatsErrorEstimator {
-    private Map<Integer, Pair<Double, Double>> legacyPlanIdToPhysicalPlan;
+
+    @SerializedName("legacyPlanIdToPhysicalPlan")
+    private Map<Integer, Pair<Double, Double>> legacyPlanIdStats;
+
+    @SerializedName("qError")
+    private double qError;
 
     public StatsErrorEstimator() {
-        legacyPlanIdToPhysicalPlan = new HashMap<>();
+        legacyPlanIdStats = new HashMap<>();
     }
 
     public void updateLegacyPlanIdToPhysicalPlan(PlanNode planNode, AbstractPlan physicalPlan) {
-        legacyPlanIdToPhysicalPlan.put(planNode.getId().asInt(), Pair.of(physicalPlan.getStats().getRowCount(),
+        legacyPlanIdStats.put(planNode.getId().asInt(), Pair.of(physicalPlan.getStats().getRowCount(),
                 (double) 0));
     }
 
@@ -53,7 +61,7 @@ public class StatsErrorEstimator {
      */
     public double calculateQError() {
         double qError = Double.NEGATIVE_INFINITY;
-        for (Entry<Integer, Pair<Double, Double>> entry : legacyPlanIdToPhysicalPlan.entrySet()) {
+        for (Entry<Integer, Pair<Double, Double>> entry : legacyPlanIdStats.entrySet()) {
             double exactReturnedRows = entry.getValue().second;
             double estimateReturnedRows = entry.getValue().first;
             qError = Math.max(qError,
@@ -76,12 +84,19 @@ public class StatsErrorEstimator {
             }
             double rowsReturned = runtimeProfileNode.counters.stream()
                     .filter(p -> p.name.equals("RowsReturned")).mapToDouble(p -> (double) p.getValue()).sum();
-            Pair<Double, Double> pair = legacyPlanIdToPhysicalPlan.get(planId);
+            Pair<Double, Double> pair = legacyPlanIdStats.get(planId);
+            if (pair == null) {
+                continue;
+            }
             pair.second = pair.second + rowsReturned;
         }
-        double qError = calculateQError();
+        this.qError = calculateQError();
+        updateProfile(tUniqueId);
+    }
+
+    public void updateProfile(TUniqueId tUniqueId) {
         ProfileManager.getInstance()
-                .setQErrorToProfileElementObject(DebugUtil.printId(tUniqueId), qError);
+                .setStatsErrorEstimator(DebugUtil.printId(tUniqueId), this);
     }
 
     /**
@@ -110,5 +125,13 @@ public class StatsErrorEstimator {
 
     private double oneIfZero(double d) {
         return d == 0.0 ? 1.0 : d;
+    }
+
+    public double getQError() {
+        return qError;
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

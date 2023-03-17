@@ -92,7 +92,8 @@ enum TPrimitiveType {
   DECIMAL128I,
   JSONB,
   VARIANT,
-  UNSUPPORTED
+  UNSUPPORTED,
+  LAMBDA_FUNCTION
 }
 
 enum TTypeNodeType {
@@ -155,6 +156,7 @@ struct TTypeNode {
 struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
+    3: optional i64  byte_size
 }
 
 enum TAggregationType {
@@ -578,7 +580,8 @@ enum TOdbcTableType {
     SQLSERVER,
     REDIS,
     MONGODB,
-    CLICKHOUSE
+    CLICKHOUSE,
+    SAP_HANA
 }
 
 enum TKeysType {

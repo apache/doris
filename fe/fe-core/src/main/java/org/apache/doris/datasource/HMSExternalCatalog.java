@@ -53,6 +53,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     private long lastSyncedEventId;
+    public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
 
     /**
      * Default constructor for HMSExternalCatalog.

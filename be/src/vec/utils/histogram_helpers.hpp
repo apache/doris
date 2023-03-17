@@ -53,8 +53,8 @@ public:
  * @return true if the values can be assigned to the buckets, false otherwise.
  */
 template <typename T>
-static bool can_assign_into_buckets(const std::map<T, size_t>& value_map,
-                                    const size_t max_bucket_size, const size_t num_buckets) {
+bool can_assign_into_buckets(const std::map<T, size_t>& value_map, const size_t max_bucket_size,
+                             const size_t num_buckets) {
     if (value_map.empty()) {
         return false;
     };
@@ -91,8 +91,7 @@ static bool can_assign_into_buckets(const std::map<T, size_t>& value_map,
  * @return the maximum number of values that can fit into each bucket
  */
 template <typename T>
-static size_t calculate_bucket_max_values(const std::map<T, size_t>& value_map,
-                                          const size_t num_buckets) {
+size_t calculate_bucket_max_values(const std::map<T, size_t>& value_map, const size_t num_buckets) {
     // Ensure that the value map is not empty
     assert(!value_map.empty());
 
@@ -172,8 +171,8 @@ static size_t calculate_bucket_max_values(const std::map<T, size_t>& value_map,
  * @return True if the buckets were successfully built, false otherwise.
  */
 template <typename T>
-static bool build_histogram(std::vector<Bucket<T>>& buckets, const std::map<T, size_t>& ordered_map,
-                            const size_t max_num_buckets) {
+bool build_histogram(std::vector<Bucket<T>>& buckets, const std::map<T, size_t>& ordered_map,
+                     const size_t max_num_buckets) {
     // If the input map is empty, there is nothing to build.
     if (ordered_map.empty()) {
         return false;
@@ -242,8 +241,8 @@ static bool build_histogram(std::vector<Bucket<T>>& buckets, const std::map<T, s
 }
 
 template <typename T>
-static bool histogram_to_json(rapidjson::StringBuffer& buffer,
-                              const std::vector<Bucket<T>>& buckets, const DataTypePtr& data_type) {
+bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket<T>>& buckets,
+                       const DataTypePtr& data_type) {
     rapidjson::Document doc;
     doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();

@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -91,11 +91,11 @@ public class PhysicalHashJoin<
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult,
+            Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
+                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
     }
 
     @Override
@@ -110,19 +110,21 @@ public class PhysicalHashJoin<
                 "otherJoinCondition", otherJoinConjuncts,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
                 "MarkJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
-                "stats", statsDeriveResult);
+                "stats", statistics);
         if (hint != JoinHint.NONE) {
             args.add("hint");
             args.add(hint);
         }
-        return Utils.toSqlString("PhysicalHashJoin", args.toArray());
+        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdAsString(),
+                args.toArray());
     }
 
     @Override
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                getLogicalProperties(), children.get(0), children.get(1));
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
+                children.get(0), children.get(1));
     }
 
     @Override
@@ -139,10 +141,9 @@ public class PhysicalHashJoin<
                 Optional.empty(), logicalProperties.get(), left(), right());
     }
 
-    @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 }

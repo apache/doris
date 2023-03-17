@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.base.Suppliers;
@@ -58,7 +58,7 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
 
     protected abstract TableValuedFunctionIf toCatalogFunction();
 
-    public abstract StatsDeriveResult computeStats(List<Slot> slots);
+    public abstract Statistics computeStats(List<Slot> slots);
 
     public TVFProperties getTVFProperties() {
         return (TVFProperties) child(0);

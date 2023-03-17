@@ -64,6 +64,16 @@ visible_functions = [
     [['bitnot'], 'BIGINT', ['BIGINT'], ''],
     [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
 
+    # map functions
+    [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
+    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
+    [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'ALWAYS_NULLABLE', ['K', 'V']],
+    #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
+    [['map_keys'], 'ARRAY<K>', ['MAP<K, V>'], '', ['K', 'V']],
+    [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
+
     # array functions
     [['array'], 'ARRAY', ['BOOLEAN', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['array'], 'ARRAY', ['TINYINT', '...'], 'ALWAYS_NOT_NULLABLE'],
@@ -102,9 +112,6 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'DECIMAL128', ['ARRAY_DECIMAL128', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
-
-    # map element
-    [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
@@ -351,8 +358,8 @@ visible_functions = [
     [['array_sum'],     'DOUBLE',   ['ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
     [['array_sum'],     'DOUBLE',   ['ARRAY_DOUBLE'],   'ALWAYS_NULLABLE'],
     [['array_sum'],     'DECIMALV2',['ARRAY_DECIMALV2'], 'ALWAYS_NULLABLE'],
-    [['array_sum'],     'DECIMAL32',['ARRAY_DECIMAL32'], 'ALWAYS_NULLABLE'],
-    [['array_sum'],     'DECIMAL64',['ARRAY_DECIMAL64'], 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'DECIMAL128',['ARRAY_DECIMAL32'], 'ALWAYS_NULLABLE'],
+    [['array_sum'],     'DECIMAL128',['ARRAY_DECIMAL64'], 'ALWAYS_NULLABLE'],
     [['array_sum'],     'DECIMAL128',['ARRAY_DECIMAL128'], 'ALWAYS_NULLABLE'],
     [['array_avg'],     'DOUBLE',   ['ARRAY_BOOLEAN'],  'ALWAYS_NULLABLE'],
     [['array_avg'],     'DOUBLE',   ['ARRAY_TINYINT'],  'ALWAYS_NULLABLE'],
@@ -363,8 +370,8 @@ visible_functions = [
     [['array_avg'],     'DOUBLE',   ['ARRAY_FLOAT'],    'ALWAYS_NULLABLE'],
     [['array_avg'],     'DOUBLE',   ['ARRAY_DOUBLE'],   'ALWAYS_NULLABLE'],
     [['array_avg'],     'DECIMALV2',['ARRAY_DECIMALV2'], 'ALWAYS_NULLABLE'],
-    [['array_avg'],     'DECIMAL32',['ARRAY_DECIMAL32'], 'ALWAYS_NULLABLE'],
-    [['array_avg'],     'DECIMAL64',['ARRAY_DECIMAL64'], 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DECIMAL128',['ARRAY_DECIMAL32'], 'ALWAYS_NULLABLE'],
+    [['array_avg'],     'DECIMAL128',['ARRAY_DECIMAL64'], 'ALWAYS_NULLABLE'],
     [['array_avg'],     'DECIMAL128',['ARRAY_DECIMAL128'], 'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_BOOLEAN'],  'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_TINYINT'],  'ALWAYS_NULLABLE'],
@@ -375,8 +382,8 @@ visible_functions = [
     [['array_product'], 'DOUBLE',   ['ARRAY_FLOAT'],    'ALWAYS_NULLABLE'],
     [['array_product'], 'DOUBLE',   ['ARRAY_DOUBLE'],   'ALWAYS_NULLABLE'],
     [['array_product'], 'DECIMALV2',['ARRAY_DECIMALV2'], 'ALWAYS_NULLABLE'],
-    [['array_product'], 'DECIMAL32',['ARRAY_DECIMAL32'], 'ALWAYS_NULLABLE'],
-    [['array_product'], 'DECIMAL64',['ARRAY_DECIMAL64'], 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DECIMAL128',['ARRAY_DECIMAL32'], 'ALWAYS_NULLABLE'],
+    [['array_product'], 'DECIMAL128',['ARRAY_DECIMAL64'], 'ALWAYS_NULLABLE'],
     [['array_product'], 'DECIMAL128',['ARRAY_DECIMAL128'], 'ALWAYS_NULLABLE'],
 
     [['array_remove'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN', 'BOOLEAN'], ''],
@@ -584,6 +591,26 @@ visible_functions = [
     [['array_popfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
+    [['array_map'], 'ARRAY',   ['LAMBDA_FUNCTION', 'ARRAY', '...'], ''],
+
+    [['array_pushfront'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_SMALLINT',   ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_INT',        ['ARRAY_INT', 'INT'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_BIGINT',     ['ARRAY_BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_LARGEINT',   ['ARRAY_LARGEINT', 'LARGEINT'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DATETIME',   ['ARRAY_DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DATE',       ['ARRAY_DATE', 'DATE'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DATETIMEV2', ['ARRAY_DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DATEV2',     ['ARRAY_DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_FLOAT',      ['ARRAY_FLOAT', 'FLOAT'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DOUBLE',     ['ARRAY_DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DECIMALV2',  ['ARRAY_DECIMALV2', 'DECIMALV2'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DECIMAL32',  ['ARRAY_DECIMAL32', 'DECIMAL32'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DECIMAL64',  ['ARRAY_DECIMAL64', 'DECIMAL64'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    [['array_pushfront'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
     [['array_with_constant'], 'ARRAY_BOOLEAN', ['BIGINT', 'BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
     [['array_with_constant'], 'ARRAY_TINYINT', ['BIGINT', 'TINYINT'], 'ALWAYS_NOT_NULLABLE'],
@@ -1523,10 +1550,13 @@ visible_functions = [
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
     [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['bitmap_to_array'], 'ARRAY_BIGINT', ['BITMAP'], ''],
-    # quantile_function
-    [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], ''],
 
-    [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], ''],
+    # quantile_function
+    [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['to_quantile_state'], 'QUANTILE_STATE', ['DOUBLE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['to_quantile_state'], 'QUANTILE_STATE', ['FLOAT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['to_quantile_state'], 'QUANTILE_STATE', ['BIGINT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
 
 
     # hash functions

@@ -391,6 +391,7 @@ terminal String
     KW_HELP,
     KW_HLL,
     KW_HLL_UNION,
+    KW_HOSTNAME,
     KW_HOUR,
     KW_HUB,
     KW_IDENTIFIED,
@@ -624,7 +625,7 @@ terminal String
     KW_LINES,
     KW_IGNORE;
 
-terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER;
+terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER, ARROW;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
 terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
@@ -648,6 +649,8 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt;
+
+nonterminal FromClause opt_using_clause;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -685,6 +688,9 @@ nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
 nonterminal InsertSource insert_source;
 nonterminal UpdateStmt update_stmt;
+nonterminal List<BinaryPredicate> set_clause;
+nonterminal List<BinaryPredicate> assignment_list;
+nonterminal BinaryPredicate assignment;
 
 nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
@@ -751,6 +757,7 @@ nonterminal FunctionCallExpr column_slice;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
 nonterminal ArrayList<LateralViewRef> opt_lateral_view_ref_list, lateral_view_ref_list;
 nonterminal FromClause from_clause;
+nonterminal FromClause opt_from_clause;
 nonterminal TableRef table_ref;
 nonterminal TableRef base_table_ref;
 nonterminal LateralViewRef lateral_view_ref;
@@ -1207,6 +1214,10 @@ clean_stmt ::=
     {:
         RESULT = new CleanLabelStmt(db, label);
     :}
+    | KW_CLEAN KW_ALL KW_PROFILE
+    {:
+        RESULT = new CleanProfileStmt();
+    :}
     ;
 
 // plugin statement
@@ -1639,6 +1650,14 @@ alter_system_clause ::=
 	{:
 		RESULT = new ModifyBackendClause(hostPorts, properties);
 	:}
+    | KW_MODIFY KW_FRONTEND STRING_LITERAL:hostPort KW_HOSTNAME STRING_LITERAL:hostName
+    {:
+        RESULT = new ModifyFrontendHostNameClause(hostPort, hostName);
+    :}
+    | KW_MODIFY KW_BACKEND STRING_LITERAL:hostPort KW_HOSTNAME STRING_LITERAL:hostName
+    {:
+        RESULT = new ModifyBackendHostNameClause(hostPort, hostName);
+    :}
     ;
 
 // Sync Stmt
@@ -4168,9 +4187,20 @@ cancel_param ::=
 
 // Delete stmt
 delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames where_clause:wherePredicate
+    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames opt_using_clause:fromClause where_clause:wherePredicate
     {:
-        RESULT = new DeleteStmt(table, partitionNames, wherePredicate);
+        RESULT = new DeleteStmt(table, partitionNames, fromClause, wherePredicate);
+    :}
+    ;
+
+opt_using_clause ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_USING table_ref_list:l
+    {:
+        RESULT = new FromClause(l);
     :}
     ;
 
@@ -4445,9 +4475,48 @@ insert_source ::=
 
 // update stmt
 update_stmt ::=
-    KW_UPDATE table_name:tbl KW_SET expr_list:setExprs where_clause:whereClause
+    KW_UPDATE table_name:tbl set_clause:setClause opt_from_clause:fromClause where_clause:whereClause
     {:
-        RESULT = new UpdateStmt(tbl, setExprs, whereClause);
+        RESULT = new UpdateStmt(tbl, setClause, fromClause, whereClause);
+    :}
+    ;
+
+opt_from_clause ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | from_clause:fromClause
+    {:
+        RESULT = fromClause;
+    :}
+    ;
+
+set_clause ::=
+    KW_SET assignment_list:list
+    {:
+        RESULT = list;
+    :}
+    ;
+
+assignment_list ::=
+    assignment:a
+    {:
+      List<BinaryPredicate> list = new ArrayList<>();
+      list.add(a);
+      RESULT = list;
+    :}
+    | assignment_list:list COMMA assignment:a
+    {:
+      list.add(a);
+      RESULT = list;
+    :}
+    ;
+
+assignment ::=
+    column_ref:columnRef EQUAL expr:value
+    {:
+        RESULT = new BinaryPredicate(BinaryPredicate.Operator.EQ, columnRef, value);
     :}
     ;
 
@@ -5987,6 +6056,21 @@ function_call_expr ::=
     } else {
       RESULT = new FunctionCallExpr(fn_name, params);
     }
+  :}
+  | function_name:fn_name LPAREN ident:id ARROW expr:e COMMA function_params:params RPAREN
+  {: 
+    List<Expr> exprs = params.exprs();
+    LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, id, exprs);
+    exprs.add(lambda);
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs); 
+  :}
+  | function_name:fn_name LPAREN LPAREN ident:id COMMA ident_list:idList RPAREN ARROW expr:e COMMA function_params:params RPAREN
+  {:
+    List<Expr> exprs = params.exprs();
+    idList.add(0, id);
+    LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, idList, exprs);
+    exprs.add(lambda);
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs);
   :}
   ;
 

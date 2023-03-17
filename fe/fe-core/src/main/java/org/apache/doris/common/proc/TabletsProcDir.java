@@ -129,14 +129,10 @@ public class TabletsProcDir implements ProcDirInterface {
                         String host = (be == null ? Backend.DUMMY_IP : be.getIp());
                         int port = (be == null ? 0 : be.getHttpPort());
                         String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
-                        String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d",
-                                tabletId,
-                                replica.getSchemaHash());
+                        String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);
                         tabletInfo.add(metaUrl);
                         String compactionUrl = String.format(
-                                "http://" + hostPort + "/api/compaction/show?tablet_id=%d",
-                                tabletId,
-                                replica.getSchemaHash());
+                                "http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
                         tabletInfo.add(compactionUrl);
                         tabletInfo.add(tablet.getCooldownConf().first);
                         if (replica.getCooldownMetaId() == null) {

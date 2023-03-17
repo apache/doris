@@ -246,6 +246,7 @@ E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
+E(PIP_WAIT_FOR_SC, -3121);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
@@ -258,7 +259,7 @@ E(INVERTED_INDEX_NO_TERMS, -6005);
 // clang-format off
 // whether to capture stacktrace
 template <int code>
-static constexpr bool capture_stacktrace() {
+constexpr bool capture_stacktrace() {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
@@ -383,6 +384,7 @@ public:
     ERROR_CTOR(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
     ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
+    ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
     ERROR_CTOR(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)

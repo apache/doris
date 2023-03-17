@@ -1070,14 +1070,14 @@ public:
             if (auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 vector_vector(col1->get_chars(), col1->get_offsets(), col2->get_data(),
                               res->get_chars(), res->get_offsets(), null_map->get_data(),
-                              context->impl()->state()->repeat_max_num());
+                              context->state()->repeat_max_num());
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = std::min<int>(col2_const->get_int(0),
-                                           context->impl()->state()->repeat_max_num());
+                int repeat =
+                        std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -2020,8 +2020,8 @@ public:
 namespace MoneyFormat {
 
 template <typename T, size_t N>
-static StringRef do_money_format(FunctionContext* context, const T int_value,
-                                 const int32_t frac_value = 0) {
+StringRef do_money_format(FunctionContext* context, const T int_value,
+                          const int32_t frac_value = 0) {
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;

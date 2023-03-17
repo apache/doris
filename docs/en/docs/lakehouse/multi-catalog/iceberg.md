@@ -61,7 +61,7 @@ Access metadata with the iceberg API. The Hive, REST, Glue and other services ca
 
 </version>
 
-- Using Iceberg Hive Catalog
+#### Using Iceberg Hive Catalog
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -77,7 +77,7 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-- Using Iceberg Glue Catalog
+#### Using Iceberg Glue Catalog
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
@@ -96,6 +96,8 @@ CREATE CATALOG glue PROPERTIES (
 `glue.endpoint`: Glue Endpoint. See [AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
 
 `warehouse`: Glue Warehouse Location.  To determine the root path of the data warehouse in storage.
+
+The other properties can refer to [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 - Using Iceberg REST Catalog
 

@@ -146,7 +146,7 @@ int MysqlRowBuffer<is_binary_format>::reserve(int64_t size) {
 }
 
 template <typename T>
-static char* add_int(T data, char* pos, bool dynamic_mode) {
+char* add_int(T data, char* pos, bool dynamic_mode) {
     auto fi = fmt::format_int(data);
     int length = fi.size();
     if (!dynamic_mode) {
@@ -165,7 +165,7 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 }
 
 template <typename T>
-static char* add_float(T data, char* pos, bool dynamic_mode) {
+char* add_float(T data, char* pos, bool dynamic_mode) {
     int length = 0;
     if constexpr (std::is_same_v<T, float>) {
         length = FastFloatToBuffer(data, pos + !dynamic_mode);

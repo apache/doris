@@ -100,8 +100,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getIp());
-
-            info.add(NetUtils.getHostnameByIp(fe.getIp()));
+            if (Config.enable_fqdn_mode) {
+                info.add(fe.getHostName());
+            } else {
+                info.add(NetUtils.getHostnameByIp(fe.getIp()));
+            }
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 

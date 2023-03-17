@@ -27,7 +27,7 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.HashJoinNode;
@@ -60,7 +60,7 @@ public class RuntimeFilterTranslator {
         return context.getRuntimeFilterOnHashJoinNode(join);
     }
 
-    public List<Slot> getTargetOnScanNode(RelationId id) {
+    public List<Slot> getTargetOnScanNode(ObjectId id) {
         return context.getTargetOnOlapScanNodeMap().getOrDefault(id, Collections.emptyList());
     }
 

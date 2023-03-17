@@ -17,37 +17,33 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.LimitPhase;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
-import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-public class MergeLimitsTest {
+/**
+ * Tests for {@link MergeLimits}.
+ */
+class MergeLimitsTest implements MemoPatternMatchSupported {
     @Test
-    public void testMergeConsecutiveLimits() {
-        LogicalLimit limit3 = new LogicalLimit<>(3, 5, LimitPhase.ORIGIN, new UnboundRelation(
-                RelationUtil.newRelationId(), Lists.newArrayList("db", "t")));
-        LogicalLimit limit2 = new LogicalLimit<>(2, 0, LimitPhase.ORIGIN, limit3);
-        LogicalLimit limit1 = new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, limit2);
+    void testMergeLimits() {
+        LogicalPlan logicalLimit = new LogicalPlanBuilder(
+                new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "t")))
+                .limit(3, 5)
+                .limit(2, 0)
+                .limit(10, 0).build();
 
-        CascadesContext context = MemoTestUtils.createCascadesContext(limit1);
-        List<Rule> rules = Lists.newArrayList(new MergeLimits().build());
-        context.topDownRewrite(rules);
-        LogicalLimit limit = (LogicalLimit) context.getMemo().copyOut();
-
-        Assertions.assertEquals(2, limit.getLimit());
-        Assertions.assertEquals(5, limit.getOffset());
-        Assertions.assertEquals(1, limit.children().size());
-        Assertions.assertTrue(limit.child(0) instanceof UnboundRelation);
-
+        PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
+                .matches(
+                        logicalLimit(
+                                unboundRelation()
+                        ).when(limit -> limit.getLimit() == 2).when(limit -> limit.getOffset() == 5));
     }
 }

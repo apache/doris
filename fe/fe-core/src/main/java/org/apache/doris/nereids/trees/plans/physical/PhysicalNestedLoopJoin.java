@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
@@ -98,13 +98,13 @@ public class PhysicalNestedLoopJoin<
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult,
+            Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 // nested loop join ignores join hints.
                 JoinHint.NONE, markJoinSlotReference,
-                groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
+                groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
     }
 
     @Override
@@ -115,7 +115,7 @@ public class PhysicalNestedLoopJoin<
     @Override
     public String toString() {
         // TODO: Maybe we could pull up this to the abstract class in the future.
-        return Utils.toSqlString("PhysicalNestedLoopJoin",
+        return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdAsString(),
                 "type", joinType,
                 "otherJoinCondition", otherJoinConjuncts,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
@@ -127,8 +127,8 @@ public class PhysicalNestedLoopJoin<
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference,
-                getLogicalProperties(), children.get(0), children.get(1));
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
     }
 
     @Override
@@ -149,10 +149,10 @@ public class PhysicalNestedLoopJoin<
 
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
+            PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 
     public void addBitmapRuntimeFilterCondition(Expression expr) {

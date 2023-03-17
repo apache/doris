@@ -786,17 +786,17 @@ private:
 };
 
 template <class C, class FP>
-inline void swap(gscoped_ptr_malloc<C, FP>& a, gscoped_ptr_malloc<C, FP>& b) {
+void swap(gscoped_ptr_malloc<C, FP>& a, gscoped_ptr_malloc<C, FP>& b) {
     a.swap(b);
 }
 
 template <class C, class FP>
-inline bool operator==(C* p, const gscoped_ptr_malloc<C, FP>& b) {
+bool operator==(C* p, const gscoped_ptr_malloc<C, FP>& b) {
     return p == b.get();
 }
 
 template <class C, class FP>
-inline bool operator!=(C* p, const gscoped_ptr_malloc<C, FP>& b) {
+bool operator!=(C* p, const gscoped_ptr_malloc<C, FP>& b) {
     return p != b.get();
 }
 

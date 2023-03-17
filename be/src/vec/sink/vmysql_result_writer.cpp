@@ -62,7 +62,7 @@ template <bool is_binary_format>
 void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultRendTime", "AppendBatchTime");
+    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
 }
 
@@ -85,7 +85,8 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
 
     int buf_ret = 0;
 
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSONB) {
+    if constexpr (type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_VARCHAR ||
+                  type == TYPE_JSONB) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -116,6 +117,16 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     size_t size = hyperLogLog.max_serialized_size();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     hyperLogLog.serialize((uint8*)buf.get());
+                    buf_ret = rows_buffer[i].push_string(buf.get(), size);
+
+                } else if (column->is_quantile_state() && output_object_data()) {
+                    const vectorized::ColumnComplexType<QuantileStateDouble>* pColumnComplexType =
+                            assert_cast<const vectorized::ColumnComplexType<QuantileStateDouble>*>(
+                                    column.get());
+                    QuantileStateDouble quantileValue = pColumnComplexType->get_element(i);
+                    size_t size = quantileValue.get_serialized_size();
+                    std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+                    quantileValue.serialize((uint8_t*)buf.get());
                     buf_ret = rows_buffer[i].push_string(buf.get(), size);
                 } else {
                     buf_ret = rows_buffer[i].push_null();
@@ -728,6 +739,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             break;
         }
         case TYPE_HLL:
+        case TYPE_QUANTILE_STATE:
         case TYPE_OBJECT: {
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_OBJECT, true>(column_ptr, result,

@@ -114,7 +114,7 @@ public:
 
     // using template to simplify client cache management
     template <typename T>
-    ClientCache<T>* get_client_cache() {
+    inline ClientCache<T>* get_client_cache() {
         return nullptr;
     }
 

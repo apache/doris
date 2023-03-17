@@ -25,7 +25,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -52,7 +52,7 @@ public class SimplifyRangeTest {
 
     public SimplifyRangeTest() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+                new UnboundRelation(new ObjectId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
     }
 
@@ -87,7 +87,7 @@ public class SimplifyRangeTest {
         assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
-        assertRewrite("TA in (1,2,3) and TA > 1", "TA in (2,3)");
+        assertRewrite("TA in (1,2,3) and TA > 1", "((TA = 2) OR (TA = 3))");
         assertRewrite("TA in (1,2,3) or TA >= 1", "TA >= 1");
         assertRewrite("TA in (1)", "TA in (1)");
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");

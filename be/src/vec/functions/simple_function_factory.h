@@ -49,6 +49,7 @@ void register_function_math(SimpleFunctionFactory& factory);
 void register_function_modulo(SimpleFunctionFactory& factory);
 void register_function_bitmap(SimpleFunctionFactory& factory);
 void register_function_bitmap_variadic(SimpleFunctionFactory& factory);
+void register_function_quantile_state(SimpleFunctionFactory& factory);
 void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_non_nullable(SimpleFunctionFactory& factory);
@@ -80,6 +81,7 @@ void register_function_convert_tz(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
+void register_function_map(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -176,6 +178,7 @@ public:
         static SimpleFunctionFactory instance;
         std::call_once(oc, []() {
             register_function_bitmap(instance);
+            register_function_quantile_state(instance);
             register_function_bitmap_variadic(instance);
             register_function_hll_cardinality(instance);
             register_function_hll_empty(instance);
@@ -228,6 +231,7 @@ public:
             register_function_regexp_extract(instance);
             register_function_hex_variadic(instance);
             register_function_array(instance);
+            register_function_map(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);

@@ -40,6 +40,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -264,11 +265,12 @@ public class Coordinator {
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
+    private StatsErrorEstimator statsErrorEstimator;
+
     private static class BackendHash implements Funnel<Backend> {
         @Override
         public void funnel(Backend backend, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(backend.getIp().getBytes(StandardCharsets.UTF_8));
-            primitiveSink.putInt(backend.getBePort());
+            primitiveSink.putLong(backend.getId());
         }
     }
 
@@ -282,6 +284,12 @@ public class Coordinator {
                 primitiveSink.putLong(desc.size);
             }
         }
+    }
+
+    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+            StatsErrorEstimator statsErrorEstimator) {
+        this(context, analyzer, planner);
+        this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert
@@ -1578,6 +1586,10 @@ public class Coordinator {
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
+                // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
+                if (leftMostNode.getNumInstances() == 1) {
+                    exchangeInstances = 1;
+                }
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
@@ -1623,6 +1635,7 @@ public class Coordinator {
                 bucketShuffleJoinController.computeInstanceParam(fragment.getFragmentId(),
                         parallelExecInstanceNum, params);
             } else {
+                params.sharedScanOpt = true;
                 // case A
                 for (Entry<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> entry : fragmentExecParamsMap.get(
                         fragment.getFragmentId()).scanRangeAssignment.entrySet()) {
@@ -1631,13 +1644,22 @@ public class Coordinator {
 
                     for (Integer planNodeId : value.keySet()) {
                         List<TScanRangeParams> perNodeScanRanges = value.get(planNodeId);
-                        int expectedInstanceNum = 1;
-                        if (parallelExecInstanceNum > 1) {
-                            //the scan instance num should not larger than the tablets num
-                            expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                        List<List<TScanRangeParams>> perInstanceScanRanges = Lists.newArrayList();
+                        if (!enablePipelineEngine) {
+                            int expectedInstanceNum = 1;
+                            if (parallelExecInstanceNum > 1) {
+                                //the scan instance num should not larger than the tablets num
+                                expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
+                            }
+                            perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
+                                    expectedInstanceNum);
+                        } else {
+                            int expectedInstanceNum = Math.min(parallelExecInstanceNum,
+                                    leftMostNode.getNumInstances());
+                            for (int j = 0; j < Math.max(expectedInstanceNum, 1); j++) {
+                                perInstanceScanRanges.add(perNodeScanRanges);
+                            }
                         }
-                        List<List<TScanRangeParams>> perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
-                                expectedInstanceNum);
 
                         LOG.debug("scan range number per instance is: {}", perInstanceScanRanges.size());
 
@@ -2585,6 +2607,9 @@ public class Coordinator {
                 profile.update(params.profile);
             }
             this.done = params.done;
+            if (statsErrorEstimator != null) {
+                statsErrorEstimator.updateExactReturnedRows(params);
+            }
             return true;
         }
 
@@ -3035,6 +3060,8 @@ public class Coordinator {
         public List<FInstanceExecParam> instanceExecParams = Lists.newArrayList();
         public FragmentScanRangeAssignment scanRangeAssignment = new FragmentScanRangeAssignment();
 
+        public boolean sharedScanOpt = false;
+
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
         }
@@ -3126,6 +3153,7 @@ public class Coordinator {
                             fragment.isTransferQueryStatisticsWithEveryBatch());
                     params.setFragment(fragment.toThrift());
                     params.setLocalParams(Lists.newArrayList());
+                    params.setSharedScanOpt(sharedScanOpt);
                     res.put(instanceExecParam.host, params);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);

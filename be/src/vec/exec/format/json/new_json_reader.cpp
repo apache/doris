@@ -24,6 +24,7 @@
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -137,6 +138,9 @@ Status NewJsonReader::init_reader() {
     if (_is_dynamic_schema) {
         _json_parser = std::make_unique<vectorized::JSONDataParser<vectorized::SimdJSONParser>>();
     }
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+    }
     return Status::OK();
 }
 
@@ -149,7 +153,7 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     auto columns = block->mutate_columns();
 
-    while (columns.back()->size() < batch_size && !_reader_eof) {
+    while (columns.front()->size() < batch_size && !_reader_eof) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;
@@ -391,7 +395,8 @@ Status NewJsonReader::_read_json_column(std::vector<MutableColumnPtr>& columns,
 }
 
 Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
-                                          MutableColumnPtr& dynamic_column) {
+                                          std::vector<MutableColumnPtr>& columns,
+                                          const std::vector<SlotDescriptor*>& slot_descs) {
     size_t size = 0;
     // read a whole message
     SCOPED_TIMER(_file_read_timer);
@@ -412,14 +417,24 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
     }
 
     _bytes_read_counter += size;
-
+    MutableColumnPtr& dynamic_column = columns.back();
+    auto& column_object = assert_cast<vectorized::ColumnObject&>(*(dynamic_column.get()));
+    Defer __finalize_clousure([&] {
+        // Reached buffer size, unfold intermediate column object
+        size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+        if (column_object.size() >= batch_size || _reader_eof) {
+            column_object.finalize();
+            // unfold object columns for the purpose of extracting static columns and
+            // fill default values missing in static columns
+            schema_util::unfold_object(columns.size() - 1, columns, _slot_desc_index, slot_descs,
+                                       true /*cast to original column type*/);
+        }
+    });
     // read all data, then return
     if (size == 0 || *eof) {
         *is_empty_row = true;
         return Status::OK();
     }
-
-    auto& column_object = assert_cast<vectorized::ColumnObject&>(*(dynamic_column.get()));
     Status st = doris::vectorized::parse_json_to_variant(column_object, StringRef {json_str, size},
                                                          _json_parser.get());
     if (st.is<DATA_QUALITY_ERROR>()) {
@@ -451,10 +466,9 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
 Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof) {
-    MutableColumnPtr& dynamic_column = columns.back();
     bool valid = false;
     do {
-        Status st = _parse_dynamic_json(is_empty_row, eof, dynamic_column);
+        Status st = _parse_dynamic_json(is_empty_row, eof, columns, slot_descs);
         if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }

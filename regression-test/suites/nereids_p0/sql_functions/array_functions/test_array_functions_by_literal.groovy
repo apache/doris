@@ -17,8 +17,7 @@
 
 suite("test_array_functions_by_literal") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     // array_contains function
     // Nereids does't support array function
     // qt_sql "select array_contains([1,2,3], 1)"

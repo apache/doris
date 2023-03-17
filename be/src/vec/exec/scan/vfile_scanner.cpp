@@ -36,6 +36,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -59,9 +60,11 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
 
 Status VFileScanner::prepare(
         VExprContext** vconjunct_ctx_ptr,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, int>* colname_to_slot_id) {
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _colname_to_value_range = colname_to_value_range;
+    _col_name_to_slot_id = colname_to_slot_id;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
     _cast_to_input_block_timer =
@@ -101,34 +104,63 @@ Status VFileScanner::prepare(
     return Status::OK();
 }
 
+Status VFileScanner::_split_conjuncts(VExpr* conjunct_expr_root) {
+    static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
+    if (conjunct_expr_root != nullptr) {
+        if (is_leaf(conjunct_expr_root)) {
+            auto impl = conjunct_expr_root->get_impl();
+            // If impl is not null, which means this a conjuncts from runtime filter.
+            VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
+            VExprContext* new_ctx = _state->obj_pool()->add(new VExprContext(cur_expr));
+            _vconjunct_ctx->clone_fn_contexts(new_ctx);
+            RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
+            RETURN_IF_ERROR(new_ctx->open(_state));
+
+            std::vector<int> slot_ids;
+            _get_slot_ids(cur_expr, &slot_ids);
+            if (slot_ids.size() == 0) {
+                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
+                return Status::OK();
+            }
+            bool single_slot = true;
+            for (int i = 1; i < slot_ids.size(); i++) {
+                if (slot_ids[i] != slot_ids[0]) {
+                    single_slot = false;
+                    break;
+                }
+            }
+            if (single_slot) {
+                SlotId slot_id = slot_ids[0];
+                if (_slot_id_to_filter_conjuncts.find(slot_id) ==
+                    _slot_id_to_filter_conjuncts.end()) {
+                    _slot_id_to_filter_conjuncts.insert({slot_id, std::vector<VExprContext*>()});
+                }
+                _slot_id_to_filter_conjuncts[slot_id].emplace_back(new_ctx);
+            } else {
+                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
+            }
+        } else {
+            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[0]));
+            RETURN_IF_ERROR(_split_conjuncts(conjunct_expr_root->children()[1]));
+        }
+    }
+    return Status::OK();
+}
+
+void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
+    for (VExpr* child_expr : expr->children()) {
+        if (child_expr->is_slot_ref()) {
+            VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr);
+            slot_ids->emplace_back(slot_ref->slot_id());
+        }
+        _get_slot_ids(child_expr, slot_ids);
+    }
+}
+
 Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
-    return Status::OK();
-}
-
-Status VFileScanner::_handle_dynamic_block(Block* block) {
-    // finalize object column
-    auto obj = assert_cast<const ColumnObject*>(block->get_columns().back().get());
-    const_cast<ColumnObject*>(obj)->finalize();
-
-    // flatten object columns for the purpose of extracting static columns and
-    // fill default values missing in static columns
-    RETURN_IF_ERROR(schema_util::flatten_object(*block, true /*replace static columns*/));
-
-    bool need_issue_rpc = false;
-    for (const auto& name : block->get_names()) {
-        // missing column in base schema
-        if (!_full_base_schema_view->column_name_to_column.contains(name)) {
-            need_issue_rpc = true;
-        }
-    }
-    if (need_issue_rpc) {
-        // duplicated columns in _full_base_schema_view will be idempotent
-        RETURN_IF_ERROR(vectorized::schema_util::send_add_columns_rpc(
-                block->get_columns_with_type_and_name(), _full_base_schema_view.get()));
-    }
     return Status::OK();
 }
 
@@ -173,11 +205,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
-
-        if (_is_dynamic_schema) {
-            RETURN_IF_ERROR(_handle_dynamic_block(_src_block_ptr));
-        }
-
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -204,7 +231,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     //     state->update_num_rows_load_unselected(_counter.num_rows_unselected);
     //     _reset_counter();
     // }
-
     return Status::OK();
 }
 
@@ -258,8 +284,6 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
         return Status::OK();
     }
     if (_is_dynamic_schema) {
-        // Dynamic schema do not need cast from string,
-        // since it's already casted in ColumnObject
         return Status::OK();
     }
     SCOPED_TIMER(_cast_to_input_block_timer);
@@ -268,6 +292,10 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     for (auto& slot_desc : _input_tuple_desc->slots()) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             // skip columns which does not exist in file
+            continue;
+        }
+        if (slot_desc->type().is_variant_type()) {
+            // skip variant type
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
@@ -403,43 +431,20 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
 
-    // Set block dynamic, block maybe merge or add_rows
-    // in later process.
-    if (_is_dynamic_schema) {
-        block->set_block_type(BlockType::DYNAMIC);
-    }
-
     for (auto slot_desc : _output_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
         int dest_index = ctx_idx++;
-
         vectorized::ColumnPtr column_ptr;
-        if (_is_dynamic_schema) {
-            if (slot_desc->type().is_variant_type()) {
-                continue;
-            }
-            // cast column
-            auto& column_type_name = _src_block.get_by_position(dest_index);
-            auto dest_type = vectorized::DataTypeFactory::instance().create_data_type(
-                    slot_desc->type(), slot_desc->is_nullable());
-            if (!column_type_name.type->equals(*dest_type)) {
-                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name, dest_type,
-                                                                     &column_ptr));
-            } else {
-                column_ptr = std::move(column_type_name.column);
-            }
-        } else {
-            auto* ctx = _dest_vexpr_ctx[dest_index];
-            int result_column_id = -1;
-            // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-            column_ptr = _src_block.get_by_position(result_column_id).column;
-        }
+
+        auto* ctx = _dest_vexpr_ctx[dest_index];
+        int result_column_id = -1;
+        // PT1 => dest primitive type
+        RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
+        column_ptr = _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-
         DCHECK(column_ptr != nullptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
@@ -500,32 +505,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                                     slot_desc->col_name()));
     }
 
-    // handle dynamic generated columns
-    if (_full_base_schema_view && !_full_base_schema_view->empty()) {
-        CHECK(_is_dynamic_schema);
-        for (size_t i = block->columns(); i < _src_block.columns(); ++i) {
-            auto& column_type_name = _src_block.get_by_position(i);
-            // Column from schema change response
-            const TColumn& tcolumn =
-                    _full_base_schema_view->column_name_to_column[column_type_name.name];
-            auto original_type = vectorized::DataTypeFactory::instance().create_data_type(tcolumn);
-            // Detect type conflict, there may exist another load procedure, whitch has already added some columns
-            // but, this load detects different type, we go type conflict free path, always cast to original type
-            // TODO need to add type conflict abort feature
-            if (!column_type_name.type->equals(*original_type)) {
-                vectorized::ColumnPtr column_ptr;
-                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name,
-                                                                     original_type, &column_ptr));
-                column_type_name.column = column_ptr;
-                column_type_name.type = original_type;
-            }
-            DCHECK(column_type_name.column != nullptr);
-            block->insert(vectorized::ColumnWithTypeAndName(std::move(column_type_name.column),
-                                                            std::move(column_type_name.type),
-                                                            column_type_name.name));
-        }
-    }
-
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block.clear();
 
@@ -558,7 +537,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_PARQUET: {
             ParquetReader* parquet_reader = new ParquetReader(
                     _profile, _params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get());
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -569,14 +548,18 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache, _io_ctx.get());
-                init_status = iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
-                                                          _colname_to_value_range, _push_down_expr);
+                init_status = iceberg_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range, _push_down_expr,
+                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 std::vector<std::string> place_holder;
-                init_status = parquet_reader->init_reader(_file_col_names, place_holder,
-                                                          _colname_to_value_range, _push_down_expr);
+                init_status = parquet_reader->init_reader(
+                        _file_col_names, place_holder, _colname_to_value_range, _push_down_expr,
+                        _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 _cur_reader.reset((GenericReader*)parquet_reader);
             }
             break;
@@ -798,12 +781,6 @@ Status VFileScanner::_init_expr_ctxes() {
     // If last slot is_variant from stream plan which indicate table is dynamic schema
     _is_dynamic_schema =
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
-    if (_is_dynamic_schema) {
-        _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
-        _full_base_schema_view->db_name = _output_tuple_desc->table_desc()->database();
-        _full_base_schema_view->table_name = _output_tuple_desc->table_desc()->name();
-        _full_base_schema_view->table_id = _output_tuple_desc->table_desc()->table_id();
-    }
     return Status::OK();
 }
 
@@ -830,6 +807,20 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_push_down_expr) {
         _push_down_expr->close(state);
+    }
+
+    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
+        for (auto& ctx : v) {
+            if (ctx != nullptr) {
+                ctx->close(state);
+            }
+        }
+    }
+
+    for (auto* ctx : _not_single_slot_filter_conjuncts) {
+        if (ctx != nullptr) {
+            ctx->close(state);
+        }
     }
 
     if (config::enable_file_cache) {

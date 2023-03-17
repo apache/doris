@@ -66,6 +66,8 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _state = state;
+    _is_pipeline_scan = state->enable_pipeline_exec();
+    _shared_scan_opt = state->shared_scan_opt();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -92,6 +94,21 @@ Status VScanNode::prepare(RuntimeState* state) {
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
     }
+
+    if (_is_pipeline_scan) {
+        if (_shared_scan_opt) {
+            _shared_scanner_controller =
+                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            auto [should_create_scanner, queue_id] =
+                    _shared_scanner_controller->should_build_scanner_and_queue_id(id());
+            _should_create_scanner = should_create_scanner;
+            _context_queue_id = queue_id;
+        } else {
+            _should_create_scanner = true;
+            _context_queue_id = 0;
+        }
+    }
+
     return Status::OK();
 }
 
@@ -113,18 +130,37 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
-    if (_eos) {
-        return Status::OK();
+
+    if (_is_pipeline_scan) {
+        if (_should_create_scanner) {
+            auto status = !_eos ? _prepare_scanners() : Status::OK();
+            if (_scanner_ctx) {
+                DCHECK(!_eos && _num_scanners->value() > 0);
+                _scanner_ctx->set_max_queue_size(
+                        _shared_scan_opt ? std::max(state->query_parallel_instance_num(), 1) : 1);
+                RETURN_IF_ERROR(
+                        _state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+            }
+            if (_shared_scan_opt) {
+                _shared_scanner_controller->set_scanner_context(id(),
+                                                                _eos ? nullptr : _scanner_ctx);
+            }
+            RETURN_IF_ERROR(status);
+        } else if (_shared_scanner_controller->scanner_context_is_ready(id())) {
+            _scanner_ctx = _shared_scanner_controller->get_scanner_context(id());
+            if (!_scanner_ctx) {
+                _eos = true;
+            }
+        } else {
+            return Status::WaitForScannerContext("Need wait for scanner context create");
+        }
+    } else {
+        RETURN_IF_ERROR(!_eos ? _prepare_scanners() : Status::OK());
+        if (_scanner_ctx) {
+            RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+        }
     }
 
-    std::list<VScanner*> scanners;
-    RETURN_IF_ERROR(_init_scanners(&scanners));
-    if (scanners.empty()) {
-        _eos = true;
-    } else {
-        COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners));
-    }
     RETURN_IF_CANCELLED(state);
     _opened = true;
     return Status::OK();
@@ -163,7 +199,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }
 
     vectorized::BlockUPtr scan_block = nullptr;
-    RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(&scan_block, eos));
+    RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(state, &scan_block, eos, _context_queue_id));
     if (*eos) {
         DCHECK(scan_block == nullptr);
         return Status::OK();
@@ -184,12 +220,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
 Status VScanNode::_init_profile() {
     // 1. counters for scan node
-    auto* memory_usage = _runtime_profile->create_child("MemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
-    _queued_blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
-    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
-
     _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
@@ -201,30 +231,36 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
+    auto* memory_usage = _scanner_profile->create_child("MemoryUsage", true, true);
+    _runtime_profile->add_child(memory_usage, false, nullptr);
+    _queued_blocks_memory_usage =
+            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
+    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+    _newly_create_free_blocks_num =
+            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
+    // time of transfer thread to wait for block from scan thread
+    _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
+    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
+    _scanner_ctx_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerCtxSchedCount", TUnit::UNIT);
+
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _prefilter_timer = ADD_TIMER(_scanner_profile, "ScannerPrefilterTime");
     _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
-    _scanner_sched_counter = ADD_COUNTER(_runtime_profile, "ScannerSchedCount", TUnit::UNIT);
-    _scanner_ctx_sched_counter = ADD_COUNTER(_runtime_profile, "ScannerCtxSchedCount", TUnit::UNIT);
-    // time of transfer thread to wait for block from scan thread
-    _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
     _pre_alloc_free_blocks_num =
             ADD_COUNTER(_runtime_profile, "PreAllocFreeBlocksNum", TUnit::UNIT);
-    _newly_create_free_blocks_num =
-            ADD_COUNTER(_runtime_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
     return Status::OK();
 }
 
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
-    if (_state->enable_pipeline_exec()) {
+    if (_is_pipeline_scan) {
         _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
                                                            _output_tuple_desc, scanners, limit(),
                                                            _state->query_options().mem_limit / 20));
@@ -234,7 +270,6 @@ Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
                                               _state->query_options().mem_limit / 20));
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
-    RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     return Status::OK();
 }
 
@@ -374,10 +409,12 @@ Status VScanNode::close(RuntimeState* state) {
 void VScanNode::release_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
     if (_scanner_ctx.get()) {
-        // stop and wait the scanner scheduler to be done
-        // _scanner_ctx may not be created for some short circuit case.
-        _scanner_ctx->set_should_stop();
-        _scanner_ctx->clear_and_join();
+        if (!state->enable_pipeline_exec() || _should_create_scanner) {
+            // stop and wait the scanner scheduler to be done
+            // _scanner_ctx may not be created for some short circuit case.
+            _scanner_ctx->set_should_stop();
+            _scanner_ctx->clear_and_join(this, state);
+        }
     }
 
     for (auto& ctx : _runtime_filter_ctxs) {
@@ -410,6 +447,8 @@ Status VScanNode::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+
         auto type = slots[slot_idx]->type().type;
         if (slots[slot_idx]->type().type == TYPE_ARRAY) {
             type = slots[slot_idx]->type().children[0].type;
@@ -1318,4 +1357,16 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
     return PushDownType::ACCEPTABLE;
 }
 
+Status VScanNode::_prepare_scanners() {
+    std::list<VScanner*> scanners;
+    RETURN_IF_ERROR(_init_scanners(&scanners));
+    if (scanners.empty()) {
+        _eos = true;
+    } else {
+        COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
+        RETURN_IF_ERROR(_start_scanners(scanners));
+    }
+
+    return Status::OK();
+}
 } // namespace doris::vectorized

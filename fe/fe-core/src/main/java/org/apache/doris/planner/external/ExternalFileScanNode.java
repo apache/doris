@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SchemaChangeExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -113,7 +114,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private Type type = Type.QUERY;
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     // Only for load job.
     // Save all info about load attributes and files.
@@ -616,6 +617,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 String name = "jsonb_parse_" + nullable + "_error_to_null";
                 expr = new FunctionCallExpr(name, args);
                 expr.analyze(analyzer);
+            } else if (dstType == PrimitiveType.VARIANT) {
+                // Generate SchemaChange expr for dynamicly generating columns
+                TableIf targetTbl = desc.getTable();
+                expr = new SchemaChangeExpr((SlotRef) expr, (int) targetTbl.getId());
             } else {
                 expr = castToSlot(destSlotDesc, expr);
             }

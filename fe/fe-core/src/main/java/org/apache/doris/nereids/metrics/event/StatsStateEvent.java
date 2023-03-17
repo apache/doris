@@ -19,26 +19,26 @@ package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 /**
  * stats state event
  */
 public class StatsStateEvent extends StateEvent {
-    private final StatsDeriveResult statsDeriveResult;
+    private final Statistics statistics;
 
-    private StatsStateEvent(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
+    private StatsStateEvent(GroupExpression groupExpression, Statistics statistics) {
         super(groupExpression);
-        this.statsDeriveResult = statsDeriveResult;
+        this.statistics = statistics;
     }
 
-    public static StatsStateEvent of(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
+    public static StatsStateEvent of(GroupExpression groupExpression, Statistics statistics) {
         return checkConnectContext(StatsStateEvent.class)
-                ? new StatsStateEvent(groupExpression, statsDeriveResult) : null;
+                ? new StatsStateEvent(groupExpression, statistics) : null;
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("StatsStateEvent", "statsDeriveResult", statsDeriveResult);
+        return Utils.toSqlString("StatsStateEvent", "Statistics", statistics);
     }
 }
