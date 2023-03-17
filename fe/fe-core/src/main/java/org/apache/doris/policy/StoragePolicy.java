@@ -329,7 +329,8 @@ public class StoragePolicy extends Policy {
                 try {
                     cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
                 } catch (ParseException e) {
-                    throw new RuntimeException(e);
+                    throw new AnalysisException(String.format("cooldown_datetime format error: %s",
+                            properties.get(COOLDOWN_DATETIME)), e);
                 }
             }
         }
