@@ -246,7 +246,7 @@ public class ColumnPrivTest extends TestWithFeService {
                     PrivPredicate wanted) throws AuthorizationException {
                 if (currentUser.getQualifiedUser().contains("user1")) {
                     if (ctl.equals("test1")) {
-                        if (db.equals("db1")) {
+                        if (db.equals("default_cluster:db1")) {
                             if (tbl.equals("tbl11")) {
                                 if (cols.contains("a11")) {
                                     throw new AuthorizationException("Access deny to column a11");
