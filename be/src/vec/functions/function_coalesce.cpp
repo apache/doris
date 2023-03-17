@@ -68,9 +68,10 @@ public:
             const auto& arg_type = block.get_by_position(arguments[i]).type;
             filtered_args.push_back(arguments[i]);
             if (!arg_type->is_nullable()) {
-                if (i == 0) { //if the first column not null, return it's directly
+                if (i == 0) {
                     block.get_by_position(result).column =
-                            block.get_by_position(arguments[0]).column;
+                            block.get_by_position(arguments[0])
+                                    .column->clone_resized(input_rows_count);
                     return Status::OK();
                 } else {
                     break;
