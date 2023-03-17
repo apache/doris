@@ -129,7 +129,6 @@ public class DatabaseTransactionMgr {
 
     // count the number of running txns of database, except for the routine load txn
     private volatile int runningTxnNums = 0;
-    private volatile int runningTxnReplicaNums = 0;
 
     // count only the number of running routine load txns of database
     private volatile int runningRoutineLoadTxnNums = 0;
@@ -1115,20 +1114,6 @@ public class DatabaseTransactionMgr {
         updateTxnLabels(transactionState);
     }
 
-    public void registerTxnReplicas(long txnId, int replicaNum) throws UserException {
-        writeLock();
-        try {
-            TransactionState transactionState = idToRunningTransactionState.get(txnId);
-            if (transactionState == null) {
-                throw new UserException("running transaction not found, txnId=" + txnId);
-            }
-            transactionState.setReplicaNum(replicaNum);
-            runningTxnReplicaNums += replicaNum;
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public int getRunningTxnNum() {
         readLock();
         try {
@@ -1138,21 +1123,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public int getRunningTxnReplicaNum() {
-        readLock();
-        try {
-            return runningTxnReplicaNums;
-        } finally {
-            readUnlock();
-        }
-    }
-
     private void updateTxnLabels(TransactionState transactionState) {
-        Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
-        if (txnIds == null) {
-            txnIds = Sets.newHashSet();
-            labelToTxnIds.put(transactionState.getLabel(), txnIds);
-        }
+        Set<Long> txnIds = labelToTxnIds.computeIfAbsent(transactionState.getLabel(), k -> Sets.newHashSet());
         txnIds.add(transactionState.getTransactionId());
     }
 

@@ -688,18 +688,13 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public long getAllRunningTxnNum() {
-        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnNum()),
+        return updateTxnMetric(databaseTransactionMgr -> (long) databaseTransactionMgr.getRunningTxnNum(),
                 MetricRepo.DB_GAUGE_TXN_NUM);
-    }
-
-    public long getAllRunningTxnReplicaNum() {
-        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnReplicaNum()),
-                MetricRepo.DB_GAUGE_TXN_REPLICA_NUM);
     }
 
     public long getAllPublishTxnNum() {
         return updateTxnMetric(
-                databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getCommittedTxnList().size()),
+                databaseTransactionMgr -> (long) databaseTransactionMgr.getCommittedTxnList().size(),
                 MetricRepo.DB_GAUGE_PUBLISH_TXN_NUM);
     }
 
