@@ -38,7 +38,7 @@ import java.util.Map;
 /**
  * Test for StoragePolicy.
  **/
-@TestInstance(Lifecycle.PER_CLASS)
+@TestInstance(Lifecycle.PER_METHOD)
 public class StoragePolicyTest {
 
     public static final String STORAGE_RESOURCE = "storage_resource";
@@ -53,7 +53,7 @@ public class StoragePolicyTest {
     private static final String SPARK_RESOURCE_NAME = "spark_resource_test";
 
     @BeforeAll
-    protected final void beforeAll() throws DdlException {
+    protected static final void beforeAll() throws DdlException {
         S3Resource s3Resource = new S3Resource(S3_RESOURCE_NAME);
         S3Resource s3ResourceNoRootpath = new S3Resource("s3_resource_test_no_rootpath");
         S3Resource s3ResourceNoBucket = new S3Resource("s3_resource_test_no_bucket");
@@ -141,12 +141,12 @@ public class StoragePolicyTest {
 
     @Test
     public void testModify() {
-        StoragePolicy storagePolicy = new StoragePolicy(POLICY_ID, POLICY_NAME);
+        StoragePolicy storagePolicy = new StoragePolicy(POLICY_ID, "policy3");
         Map<String, String> props = new HashMap<>();
         props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
         props.put(COOLDOWN_TTL, "10d");
         Assertions.assertDoesNotThrow(() -> storagePolicy.init(props, false));
-        Assertions.assertEquals(POLICY_NAME, storagePolicy.getPolicyName());
+        Assertions.assertEquals("policy3", storagePolicy.getPolicyName());
         Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
         Assertions.assertEquals(864000, storagePolicy.getCooldownTtl());
         Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
@@ -185,7 +185,7 @@ public class StoragePolicyTest {
                 + "'s3_resource_test_no_bucket' resource", exception.getMessage());
         props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
         Assertions.assertDoesNotThrow(() -> storagePolicy.modifyProperties(props));
-        Assertions.assertEquals(POLICY_NAME, storagePolicy.getPolicyName());
+        Assertions.assertEquals("policy3", storagePolicy.getPolicyName());
         Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
         Assertions.assertEquals(3600, storagePolicy.getCooldownTtl());
         Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
