@@ -537,9 +537,10 @@ public class StmtExecutor implements ProfileWriter {
                         context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                         return;
                     }
-                    // limitations: partition_num, tablet_num, cardinality
+                    List<String> tableNames = new ArrayList<>();
                     List<ScanNode> scanNodeList = planner.getScanNodes();
                     for (ScanNode scanNode : scanNodeList) {
+                        // limitations: partition_num, tablet_num, cardinality
                         if (scanNode instanceof OlapScanNode) {
                             OlapScanNode olapScanNode = (OlapScanNode) scanNode;
                             Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
@@ -548,6 +549,13 @@ public class StmtExecutor implements ProfileWriter {
                                     olapScanNode.getCardinality(),
                                     context.getQualifiedUser());
                         }
+
+                        // set table names in fe.audit.log
+                        TableIf tableIf = scanNode.getTupleDesc().getTable();
+                        if (tableIf != null && !Strings.isNullOrEmpty(tableIf.getName())) {
+                            tableNames.add(tableIf.getName());
+                        }
+                        context.getAuditEventBuilder().setTables(String.join(",", tableNames));
                     }
                 }
 
