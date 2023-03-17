@@ -51,9 +51,9 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Thread)
 @Slf4j
 public abstract class AbstractMicrobenchmark {
-    static final int DEFAULT_WARMUP_ITERATIONS = 1;
+    static final int DEFAULT_WARMUP_ITERATIONS = 10;
 
-    static final int DEFAULT_MEASURE_ITERATIONS = 1;
+    static final int DEFAULT_MEASURE_ITERATIONS = 10;
 
     static final int DEFAULT_FORKS = 2;
 
@@ -107,7 +107,6 @@ public abstract class AbstractMicrobenchmark {
     }
 
     private static String getReportDir() {
-        System.setProperty("perfReportDir","/Users/calvinkirs/IdeaProjects/incubator-doris/fe/microbench/target/");
         return System.getProperty("perfReportDir");
     }
 
