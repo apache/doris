@@ -54,12 +54,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
 
     public DataProperty(TStorageMedium medium) {
         this.storageMedium = medium;
-        if (medium == TStorageMedium.SSD) {
-            long currentTimeMs = System.currentTimeMillis();
-            this.cooldownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
-        } else {
-            this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
-        }
+        this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
     }
 
