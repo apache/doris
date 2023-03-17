@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestInstance.Lifecycle;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -73,7 +75,7 @@ public class StoragePolicyTest {
     }
 
     @Test
-    public void testStoragePolicy() {
+    public void testInit() {
         StoragePolicy storagePolicy = new StoragePolicy(POLICY_ID, POLICY_NAME);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> storagePolicy.init(null, false));
@@ -116,6 +118,88 @@ public class StoragePolicyTest {
                 + "'s3_resource_test_no_bucket' resource", exception.getMessage());
         props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
         Assertions.assertDoesNotThrow(() -> storagePolicy.init(props, false));
+        Assertions.assertEquals(POLICY_NAME, storagePolicy.getPolicyName());
+        Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
+        Assertions.assertEquals(864000, storagePolicy.getCooldownTtl());
+        Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
+        StoragePolicy storagePolicy2 = new StoragePolicy(POLICY_ID, "policy2");
+        props.remove(COOLDOWN_TTL);
+        props.put(COOLDOWN_DATETIME, "2023-01-01 00:00:00");
+        Assertions.assertDoesNotThrow(() -> storagePolicy2.init(props, false));
+        Assertions.assertEquals("policy2", storagePolicy2.getPolicyName());
+        Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy2.getStorageResource());
+        Assertions.assertEquals(-1, storagePolicy2.getCooldownTtl());
+        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Long cooldownTimestampMs = -1L;
+        try {
+            cooldownTimestampMs = df.parse("2023-01-01 00:00:00").getTime();
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals(cooldownTimestampMs, storagePolicy2.getCooldownTimestampMs());
     }
 
+    @Test
+    public void testModify() {
+        StoragePolicy storagePolicy = new StoragePolicy(POLICY_ID, POLICY_NAME);
+        Map<String, String> props = new HashMap<>();
+        props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
+        props.put(COOLDOWN_TTL, "10d");
+        Assertions.assertDoesNotThrow(() -> storagePolicy.init(props, false));
+        Assertions.assertEquals(POLICY_NAME, storagePolicy.getPolicyName());
+        Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
+        Assertions.assertEquals(864000, storagePolicy.getCooldownTtl());
+        Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
+
+        props.clear();
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = cooldown_datetime or cooldown_ttl must be set",
+                exception.getMessage());
+        props.put(COOLDOWN_DATETIME, "2023-01-01 00:00:00");
+        props.put(COOLDOWN_TTL, "10d");
+        exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = cooldown_datetime and cooldown_ttl "
+                + "can't be set together.", exception.getMessage());
+        props.remove(COOLDOWN_TTL);
+        props.put(COOLDOWN_DATETIME, "test");
+        exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = cooldown_datetime format error: test",
+                exception.getMessage());
+        props.put(COOLDOWN_TTL, "1h");
+        props.remove(COOLDOWN_DATETIME);
+        props.put(STORAGE_RESOURCE, "test");
+        exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = storage resource doesn't exist: test",
+                exception.getMessage());
+        props.put(STORAGE_RESOURCE, SPARK_RESOURCE_NAME);
+        exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = current storage policy just support "
+                + "resource type S3_COOLDOWN", exception.getMessage());
+        props.put(STORAGE_RESOURCE, "s3_resource_test_no_rootpath");
+        exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = Missing [AWS_ROOT_PATH] in "
+                + "'s3_resource_test_no_rootpath' resource", exception.getMessage());
+        props.put(STORAGE_RESOURCE, "s3_resource_test_no_bucket");
+        exception = Assertions.assertThrows(AnalysisException.class, () -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals("errCode = 2, detailMessage = Missing [AWS_BUCKET] in "
+                + "'s3_resource_test_no_bucket' resource", exception.getMessage());
+        props.put(STORAGE_RESOURCE, S3_RESOURCE_NAME);
+        Assertions.assertDoesNotThrow(() -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals(POLICY_NAME, storagePolicy.getPolicyName());
+        Assertions.assertEquals(S3_RESOURCE_NAME, storagePolicy.getStorageResource());
+        Assertions.assertEquals(3600, storagePolicy.getCooldownTtl());
+        Assertions.assertEquals(-1, storagePolicy.getCooldownTimestampMs());
+        props.remove(COOLDOWN_TTL);
+        props.put(COOLDOWN_DATETIME, "2023-01-01 00:00:00");
+        Assertions.assertDoesNotThrow(() -> storagePolicy.modifyProperties(props));
+        Assertions.assertEquals(-1, storagePolicy.getCooldownTtl());
+        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Long cooldownTimestampMs = -1L;
+        try {
+            cooldownTimestampMs = df.parse("2023-01-01 00:00:00").getTime();
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals(cooldownTimestampMs, storagePolicy.getCooldownTimestampMs());
+    }
 }
