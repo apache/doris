@@ -293,7 +293,7 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(1, slot1Stats.numNulls);
+        Assertions.assertEquals(0.5, slot1Stats.numNulls);
     }
 
     @Test
@@ -323,6 +323,6 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(1, slot1Stats.numNulls);
+        Assertions.assertEquals(0.5, slot1Stats.numNulls);
     }
 }
