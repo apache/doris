@@ -41,12 +41,12 @@ TaskGroupPtr TaskGroupManager::get_task_group(uint64_t id) {
 
 void TaskGroupManager::_create_default_task_group() {
     _task_groups[DEFAULT_TG_ID] =
-            std::make_shared<TaskGroup>(DEFAULT_TG_ID, "default_rs", DEFAULT_TG_CPU_SHARE);
+            std::make_shared<TaskGroup>(DEFAULT_TG_ID, "default_tg", DEFAULT_TG_CPU_SHARE);
 }
 
 void TaskGroupManager::_create_short_task_group() {
     _task_groups[SHORT_TG_ID] =
-            std::make_shared<TaskGroup>(SHORT_TG_ID, "poc_rs", SHORT_TG_CPU_SHARE);
+            std::make_shared<TaskGroup>(SHORT_TG_ID, "short_tg", SHORT_TG_CPU_SHARE);
 }
 
-}
+} // namespace doris::taskgroup

@@ -677,7 +677,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             int ts = fragments_ctx->timeout_second;
             taskgroup::TaskGroupPtr tg;
             auto ts_id = taskgroup::TaskGroupManager::DEFAULT_TG_ID;
-            if (ts > 0 && ts <= taskgroup::TaskGroupManager::SHORT_QUERY_TIMEOUT_S) {
+            if (ts > 0 && ts <= config::pipeline_short_query_timeout_s) {
                 ts_id = taskgroup::TaskGroupManager::SHORT_TG_ID;
             }
             tg = taskgroup::TaskGroupManager::instance()->get_task_group(ts_id);
