@@ -212,7 +212,7 @@ public class StoragePolicyTest {
     public void testGetSecondsByCooldownTtl() throws Exception {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> StoragePolicy.getSecondsByCooldownTtl("test"));
-        Assertions.assertEquals("errCode = 2, detailMessage = getSecByCooldownTtl failed", exception.getMessage());
+        Assertions.assertEquals("errCode = 2, detailMessage = getSecByCooldownTtl failed.", exception.getMessage());
         exception = Assertions.assertThrows(AnalysisException.class,
                 () -> StoragePolicy.getSecondsByCooldownTtl("-100"));
         Assertions.assertEquals("errCode = 2, detailMessage = cooldownTtl can't be less than 0",
