@@ -168,7 +168,7 @@ public:
         size += _null_bitmap.getSizeInBytes(false);
         size += _reverted_index_size;
         size += _mem_index.size() * sizeof(CppType);
-        size += _arena.size();
+        size += _arena.allocated_size();
         return size;
     }
 

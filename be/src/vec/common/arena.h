@@ -88,6 +88,7 @@ private:
     /// Last contiguous chunk of memory.
     Chunk* head;
     size_t size_in_bytes;
+    size_t size_in_allocated;
 
     static size_t round_up_to_page_size(size_t s) { return (s + 4096 - 1) / 4096 * 4096; }
 
@@ -117,6 +118,7 @@ private:
 
     /// Add next contiguous chunk of memory with size not less than specified.
     void NO_INLINE add_chunk(size_t min_size) {
+        size_in_allocated += head->remaining();
         head = new Chunk(next_size(min_size + pad_right), head);
         size_in_bytes += head->size();
     }
@@ -131,7 +133,8 @@ public:
             : growth_factor(growth_factor_),
               linear_growth_threshold(linear_growth_threshold_),
               head(new Chunk(initial_size_, nullptr)),
-              size_in_bytes(head->size()) {}
+              size_in_bytes(head->size()),
+              size_in_allocated(0) {}
 
     ~Arena() { delete head; }
 
@@ -273,6 +276,8 @@ public:
 
     /// Size of chunks in bytes.
     size_t size() const { return size_in_bytes; }
+
+    size_t allocated_size() const { return size_in_allocated + head->remaining(); }
 
     size_t remaining_space_in_current_chunk() const { return head->remaining(); }
 };
