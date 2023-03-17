@@ -180,7 +180,8 @@ void Tablet::save_meta() {
 }
 
 Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                                  const std::vector<Version>& versions_to_delete) {
+                                  const std::vector<Version>& versions_to_delete,
+                                  bool is_incremental_clone) {
     LOG(INFO) << "begin to revise tablet. tablet=" << full_name()
               << ", rowsets_to_clone=" << rowsets_to_clone.size()
               << ", versions_to_delete=" << versions_to_delete.size();
@@ -213,13 +214,33 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
         _rowset_tree = std::move(new_rowset_tree);
         std::vector<RowsetSharedPtr> calc_delete_bitmap_rowsets;
         int64_t to_add_min_version = INT64_MAX;
+        int64_t to_add_max_version = INT64_MIN;
         for (auto& rs : rs_to_add) {
             if (to_add_min_version > rs->start_version()) {
                 to_add_min_version = rs->start_version();
             }
+            if (to_add_max_version < rs->end_version()) {
+                to_add_max_version = rs->end_version();
+            }
         }
         for (auto& [ver, rs] : _rs_version_map) {
-            if (ver.first >= to_add_min_version) {
+            if (is_incremental_clone && ver.first >= to_add_min_version) {
+                // From the rowset of to_add with smallest version, all other rowsets
+                // need to recalculate the delete bitmap
+                // For example:
+                // local tablet: [0-1] [2-5] [6-6] [9-10]
+                // clone tablet: [7-7] [8-8]
+                // new tablet:   [0-1] [2-5] [6-6] [7-7] [8-8] [9-10]
+                // [7-7] [8-8] [9-10] need to recalculate delete bitmap
+                calc_delete_bitmap_rowsets.push_back(rs);
+            } else if (!is_incremental_clone && ver.first > to_add_max_version) {
+                // the delete bitmap of to_add's rowsets has clone from remote when full clone.
+                // only other rowsets in local need to recalculate the delete bitmap.
+                // For example:
+                // local tablet: [0-1]x [2-5]x [6-6]x [7-7]x [9-10]
+                // clone tablet: [0-1]  [2-4]  [5-6]  [7-8]
+                // new tablet:   [0-1]  [2-4]  [5-6]  [7-8] [9-10]
+                // only [9-10] need to recalculate delete bitmap
                 calc_delete_bitmap_rowsets.push_back(rs);
             }
         }
