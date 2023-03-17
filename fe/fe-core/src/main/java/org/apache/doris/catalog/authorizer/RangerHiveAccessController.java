@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class RangerHiveAccessController implements CatalogAccessController {
     public static final String CLIENT_TYPE_DORIS = "doris";
@@ -61,14 +62,10 @@ public class RangerHiveAccessController implements CatalogAccessController {
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         String user = currentUser.getQualifiedUser();
-        if (user.indexOf(":") != -1) {
-            // user is as of form: default_cluster:user1, only use `user1`
-            request.setUser(user.split(":")[1]);
-        } else {
-            request.setUser(user);
-        }
+        request.setUser(ClusterNamespace.getNameFromFullName(user));
         Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
-        request.setUserRoles(roles);
+        request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
+                Collectors.toSet()));
         request.setAction(accessType.name());
         if (accessType == HiveAccessType.USE) {
             request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
