@@ -152,7 +152,6 @@ public class ConnectContextTest {
 
         // user query timeout
         ctx.setStartTime();
-        ctx.setUserQueryTimeout(1);
         now = ctx.getStartTime() + auth.getQueryTimeout(qualifiedUser) * 1000 + 1;
         ctx.setExecutor(executor);
         ctx.checkTimeout(now);
@@ -176,14 +175,12 @@ public class ConnectContextTest {
         // sleep no time out
         Assert.assertFalse(ctx.isKilled());
         ctx.setExecutor(executor);
-        ctx.setExecTimeout(ctx.getSessionVariable().getInsertTimeoutS());
         long now = ctx.getExecTimeout() * 1000L - 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
         // Timeout
         ctx.setExecutor(executor);
-        ctx.setExecTimeout(ctx.getSessionVariable().getInsertTimeoutS());
         now = ctx.getExecTimeout() * 1000L + 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
