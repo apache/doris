@@ -74,7 +74,7 @@ suite("aggregate_output_null") {
            ('z178NhOZ','b');
     """
 
-    qt_select """
+    order_qt_select """
         SELECT
             t2.a,
             t1.c,
