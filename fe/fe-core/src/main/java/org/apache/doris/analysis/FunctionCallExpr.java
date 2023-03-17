@@ -28,6 +28,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -64,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
@@ -77,6 +79,8 @@ public class FunctionCallExpr extends Expr {
             String.CASE_INSENSITIVE_ORDER)
             .add("round").add("round_bankers").add("ceil").add("floor")
             .add("truncate").add("dround").add("dceil").add("dfloor").build();
+
+    private final AtomicBoolean addOnce = new AtomicBoolean(false);
 
     static {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
@@ -1016,7 +1020,9 @@ public class FunctionCallExpr extends Expr {
                     }
                 }
             }
-            children.add(new StringLiteral(blockEncryptionMode));
+            if (!blockEncryptionMode.equals(children.get(children.size() - 1))) {
+                children.add(new StringLiteral(blockEncryptionMode));
+            }
         }
 
     }
@@ -1396,6 +1402,12 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(args.length - 1, i);
+                // map varargs special case map(key_type, value_type, ...)
+                if (i >= args.length && i >= 2 && args.length >= 2
+                        && fnName.getFunction().equalsIgnoreCase("map")) {
+                    ix = i % 2 == 0 ? 0 : 1;
+                }
+
                 if ((fnName.getFunction().equalsIgnoreCase("money_format") || fnName.getFunction()
                         .equalsIgnoreCase("histogram")
                         || fnName.getFunction().equalsIgnoreCase("hist"))
@@ -1515,6 +1527,10 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("array")) {
             if (children.size() > 0) {
                 this.type = new ArrayType(children.get(0).getType());
+            }
+        } else if (fnName.getFunction().equalsIgnoreCase("map")) {
+            if (children.size() > 1) {
+                this.type = new MapType(children.get(0).getType(), children.get(1).getType());
             }
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             if (children.get(1).getType().isArrayType() && (

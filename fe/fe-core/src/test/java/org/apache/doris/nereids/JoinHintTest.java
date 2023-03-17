@@ -117,14 +117,14 @@ class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupporte
                     physicalDistribute(
                             physicalProject(
                                     physicalHashJoin(
-                                            physicalDistribute(physicalHashJoin()).when(dis -> {
+                                            physicalHashJoin(physicalDistribute().when(dis -> {
                                                 DistributionSpec spec = dis.getDistributionSpec();
                                                 Assertions.assertTrue(spec instanceof DistributionSpecHash);
                                                 DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
                                                 Assertions.assertEquals(ShuffleType.ENFORCED,
                                                         hashSpec.getShuffleType());
                                                 return true;
-                                            }),
+                                            }), physicalDistribute()),
                                             physicalDistribute()
                                     ).when(join -> join.getHint() == JoinHint.SHUFFLE_RIGHT)
                             )

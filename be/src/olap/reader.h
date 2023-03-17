@@ -101,6 +101,11 @@ public:
         DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
+        // if rs_readers_segment_offsets is not empty, means we only scan
+        // [pair.first, pair.second) segment in rs_reader, only effective in dup key
+        // and pipeline
+        std::vector<std::pair<int, int>> rs_readers_segment_offsets;
+
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs

@@ -108,4 +108,10 @@ suite("add_table_policy_by_modify_partition") {
     sql """
     DROP TABLE IF EXISTS create_table_partition;
     """
+    sql """
+    DROP STORAGE POLICY created_create_table_partition_alter_policy
+    """
+    sql """
+    DROP RESOURCE test_modify_partition_table_use_resource
+    """
 }

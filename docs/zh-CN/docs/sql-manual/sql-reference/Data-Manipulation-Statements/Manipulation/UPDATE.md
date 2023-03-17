@@ -53,10 +53,6 @@ value:
 
 <version since="dev">
 
-UPDATE_FROM
-
-</version>
-
 ```sql
 UPDATE target_table
     SET assignment_list
@@ -64,6 +60,7 @@ UPDATE target_table
     WHERE condition
 ```
 
+</version>
 
 #### Required Parameters
 
@@ -83,13 +80,7 @@ UPDATE_FROM
 
 #### Note
 
-<version since="dev">
-
-UPDATE_FROM
-
-</version>
-
-当前 UPDATE 语句仅支持在 Unique 模型上的行更新。
+当前 UPDATE 语句仅支持在 UNIQUE KEY 模型上的行更新。
 
 ### Example
 
@@ -108,10 +99,6 @@ UPDATE test SET v1 = v1+1 WHERE k1=1;
 ```
 
 <version since="dev">
-
-UPDATE_FROM
-
-</version>
 
 3. 使用`t2`和`t3`表连接的结果，更新`t1`
 
@@ -169,6 +156,8 @@ UPDATE t1
 | 3  | 3  | 3  |    3.0 | 2000-01-03 |
 +----+----+----+--------+------------+
 ```
+
+</version>
 
 ### Keywords
 

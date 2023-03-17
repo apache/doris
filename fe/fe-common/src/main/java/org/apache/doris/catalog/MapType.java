@@ -130,24 +130,29 @@ public class MapType extends Type {
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
-        if (!(specificType instanceof MapType)) {
+        MapType specificMapType = null;
+        if (specificType instanceof MapType) {
+            specificMapType = (MapType) specificType;
+        } else if (!useSpecializedType) {
             throw new TypeException(specificType + " is not MapType");
         }
 
-        MapType specificMapType = (MapType) specificType;
         Type newKeyType = keyType;
         if (keyType.hasTemplateType()) {
             newKeyType = keyType.specializeTemplateType(
-                specificMapType.keyType, specializedTypeMap, useSpecializedType);
+                specificMapType != null ? specificMapType.keyType : specificType,
+                specializedTypeMap, useSpecializedType);
         }
         Type newValueType = valueType;
         if (valueType.hasTemplateType()) {
             newValueType = valueType.specializeTemplateType(
-                specificMapType.valueType, specializedTypeMap, useSpecializedType);
+                specificMapType != null ? specificMapType.valueType : specificType,
+                specializedTypeMap, useSpecializedType);
         }
 
         Type newMapType = new MapType(newKeyType, newValueType);
-        if (Type.canCastTo(specificType, newMapType)) {
+        if (Type.canCastTo(specificType, newMapType)
+                || (useSpecializedType && !(specificType instanceof MapType))) {
             return newMapType;
         } else {
             throw new TypeException(specificType + " can not cast to specialize type " + newMapType);

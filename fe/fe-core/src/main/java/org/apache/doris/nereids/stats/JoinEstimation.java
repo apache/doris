@@ -34,12 +34,9 @@ import java.util.stream.Collectors;
 public class JoinEstimation {
     private static Statistics estimateInnerJoin(Statistics crossJoinStats, List<Expression> joinConditions) {
         List<Pair<Expression, Double>> sortedJoinConditions = joinConditions.stream()
-                .map(expression -> Pair.of(expression, 0.0)).sorted((a, b) -> {
-                    double selA = estimateJoinConditionSel(crossJoinStats, a.first);
-                    a.second = selA;
-                    double selB = estimateJoinConditionSel(crossJoinStats, b.first);
-                    b.second = selB;
-                    double sub = selA - selB;
+                .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
+                .sorted((a, b) -> {
+                    double sub = a.second - b.second;
                     if (sub > 0) {
                         return -1;
                     } else if (sub < 0) {

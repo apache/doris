@@ -65,14 +65,12 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
                     Set<NamedExpression> acProjects = new HashSet<NamedExpression>(abProject.getProjects());
 
-                    bottomSemi.getHashJoinConjuncts().forEach(
-                            expression -> expression.getInputSlots().forEach(
-                                    slot -> {
-                                        if (aOutputExprIdSet.contains(slot.getExprId())) {
-                                            acProjects.add(slot);
-                                        }
-                                    })
-                    );
+                    bottomSemi.getConditionSlot()
+                            .forEach(slot -> {
+                                if (aOutputExprIdSet.contains(slot.getExprId())) {
+                                    acProjects.add(slot);
+                                }
+                            });
                     LogicalJoin newBottomSemi = (LogicalJoin) topSemi.withChildren(a, c);
                     newBottomSemi.getJoinReorderContext().copyFrom(bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
