@@ -154,7 +154,7 @@ suite("test_aggregate_collect") {
             ${tableName}
     """
 
-    qt_select """
+    order_qt_select """
         SELECT
             size(collect_set(c_bool,1)),
             size(collect_set(c_tinyint,1)),
@@ -177,7 +177,7 @@ suite("test_aggregate_collect") {
             ${tableName}
     """
 
-    qt_select """
+    order_qt_select """
         SELECT
             size(collect_list(c_bool,1)),
             size(collect_list(c_tinyint,1)),
@@ -449,7 +449,7 @@ suite("test_aggregate_collect") {
             ${tableName_11}
     """
 
-    qt_select """
+    order_qt_select """
         SELECT
             size(group_uniq_array(c_bool,1)),
             size(group_uniq_array(c_tinyint,1)),
@@ -472,7 +472,7 @@ suite("test_aggregate_collect") {
             ${tableName_11}
     """
 
-    qt_select """
+    order_qt_select """
         SELECT
             size(group_array(c_bool,1)),
             size(group_array(c_tinyint,1)),
@@ -613,7 +613,7 @@ suite("test_aggregate_collect") {
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName_12} (
             id int,
-	          level int,
+	        level int,
             dt datev2,
             num decimal(27,9)
         )
@@ -624,9 +624,9 @@ suite("test_aggregate_collect") {
         """
     sql "INSERT INTO ${tableName_12} values(1,10,'2022-11-1',6.8754576), (2,8,'2022-11-3',0.576), (2,10,'2022-11-2',1.234) ,(3,10,'2022-11-2',0.576) ,(5,29,'2022-11-2',6.8754576) ,(6,8,'2022-11-1',6.8754576)"
 
-    qt_select43 "select topn_array(level,2) from ${tableName_12}"
-    qt_select44 "select topn_array(level,2,100) from ${tableName_12}"
-    qt_select45 "select topn_array(dt,2,100) from ${tableName_12}"
-    qt_select46 "select topn_array(num,2,100) from ${tableName_12}"
+    order_qt_select43 "select topn_array(level,2) from ${tableName_12}"
+    order_qt_select44 "select topn_array(level,2,100) from ${tableName_12}"
+    order_qt_select45 "select topn_array(dt,2,100) from ${tableName_12}"
+    order_qt_select46 "select topn_array(num,2,100) from ${tableName_12}"
     sql "DROP TABLE IF EXISTS ${tableName_12}"
 }
