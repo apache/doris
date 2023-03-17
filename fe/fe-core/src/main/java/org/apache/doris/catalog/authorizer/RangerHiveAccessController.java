@@ -18,12 +18,12 @@
 package org.apache.doris.catalog.authorizer;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.Role;
 
 import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveAccessControlException;
 import org.apache.logging.log4j.LogManager;
@@ -36,7 +36,6 @@ import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,13 +67,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
         } else {
             request.setUser(user);
         }
-        Set<String> roles = new HashSet<>();
-        for (String role : currentUser.getRoles()) {
-            // default role is as of form: default_role_rbac_xxx@%, not useful for Ranger
-            if (!Role.isDefaultRoleName(role)) {
-                roles.add(role);
-            }
-        }
+        Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
         request.setUserRoles(roles);
         request.setAction(accessType.name());
         if (accessType == HiveAccessType.USE) {
@@ -91,7 +84,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
     }
 
     private void checkPrivileges(UserIdentity currentUser, HiveAccessType accessType,
-                                List<RangerHiveResource> hiveResources) throws AuthorizationException {
+            List<RangerHiveResource> hiveResources) throws AuthorizationException {
         List<RangerAccessRequest> requests = new ArrayList<>();
         for (RangerHiveResource resource : hiveResources) {
             RangerAccessRequestImpl request = createRequest(currentUser, accessType);
@@ -106,15 +99,15 @@ public class RangerHiveAccessController implements CatalogAccessController {
             if (!result.getIsAllowed()) {
                 LOG.debug(result.getReason());
                 throw new AuthorizationException(String.format(
-                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
-                    result.getAccessRequest().getUser(), accessType.name(),
-                    result.getAccessRequest().getResource().getAsString()));
+                        "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
+                        result.getAccessRequest().getUser(), accessType.name(),
+                        result.getAccessRequest().getResource().getAsString()));
             }
         }
     }
 
     private boolean checkPrivilege(UserIdentity currentUser, HiveAccessType accessType,
-                                  RangerHiveResource resource) {
+            RangerHiveResource resource) {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
 
@@ -139,7 +132,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
     }
 
     public String getFilterExpr(UserIdentity currentUser, HiveAccessType accessType,
-                              RangerHiveResource resource) throws HiveAccessControlException {
+            RangerHiveResource resource) throws HiveAccessControlException {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
@@ -148,7 +141,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
     }
 
     public void getColumnMask(UserIdentity currentUser, HiveAccessType accessType,
-                              RangerHiveResource resource) {
+            RangerHiveResource resource) {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
@@ -198,7 +191,7 @@ public class RangerHiveAccessController implements CatalogAccessController {
 
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-                              PrivPredicate wanted) throws AuthorizationException {
+            PrivPredicate wanted) throws AuthorizationException {
         List<RangerHiveResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,

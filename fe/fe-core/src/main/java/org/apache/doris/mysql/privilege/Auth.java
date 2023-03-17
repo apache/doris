@@ -183,8 +183,6 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         } finally {
             readUnlock();
         }
@@ -198,6 +196,15 @@ public class Auth implements Writable {
             return true;
         } catch (AuthenticationException e) {
             return false;
+        }
+    }
+
+    public Set<String> getRolesByUser(UserIdentity user, boolean showUserDefaultRole) {
+        readLock();
+        try {
+            return userRoleManager.getRolesByUser(user, showUserDefaultRole);
+        } finally {
+            readUnlock();
         }
     }
 
@@ -216,10 +223,6 @@ public class Auth implements Writable {
             } finally {
                 readUnlock();
             }
-        }
-        if (currentUser != null) {
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
-            currentUser.get(0).setRoles(roles);
         }
     }
 

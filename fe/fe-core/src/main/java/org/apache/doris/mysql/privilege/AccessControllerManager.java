@@ -20,8 +20,11 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.qe.ConnectContext;
@@ -56,8 +59,29 @@ public class AccessControllerManager {
     }
 
     private CatalogAccessController getAccessControllerOrDefault(String ctl) {
-        return ctlToCtlAccessController.getOrDefault(ctl, internalAccessController);
+        CatalogAccessController catalogAccessController = ctlToCtlAccessController.get(ctl);
+        if (catalogAccessController != null) {
+            return catalogAccessController;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
+        if (catalog != null && catalog instanceof ExternalCatalog) {
+            lazyLoadCtlAccessController((ExternalCatalog) catalog);
+            return ctlToCtlAccessController.get(ctl);
+        }
+
+        return internalAccessController;
     }
+
+    private synchronized void lazyLoadCtlAccessController(ExternalCatalog catalog) {
+        if (ctlToCtlAccessController.containsKey(catalog.getName())) {
+            return;
+        }
+        catalog.initAccessController();
+        if (!ctlToCtlAccessController.containsKey(catalog.getName())) {
+            ctlToCtlAccessController.put(catalog.getName(), internalAccessController);
+        }
+    }
+
 
     public boolean checkIfAccessControllerExist(String ctl) {
         return ctlToCtlAccessController.containsKey(ctl);
@@ -151,7 +175,8 @@ public class AccessControllerManager {
     }
 
     // ==== Column ====
-    public void checkColumnsPriv(UserIdentity currentUser, String ctl, HashMultimap<TableName, String> tableToColsMap,
+    public void checkColumnsPriv(UserIdentity currentUser, String
+            ctl, HashMultimap<TableName, String> tableToColsMap,
             PrivPredicate wanted) throws UserException {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
