@@ -64,6 +64,8 @@ public class UserProperty implements Writable {
     private static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
     private static final String PROP_EXEC_MEM_LIMIT = "exec_mem_limit";
     private static final String PROP_USER_QUERY_TIMEOUT = "query_timeout";
+
+    private static final String PROP_USER_INSERT_TIMEOUT = "insert_timeout";
     // advanced properties end
 
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
@@ -111,6 +113,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -133,8 +136,12 @@ public class UserProperty implements Writable {
         return this.commonProperties.getMaxConn();
     }
 
-    public long getQueryTimeout() {
+    public int getQueryTimeout() {
         return this.commonProperties.getQueryTimeout();
+    }
+
+    public int getInsertTimeout() {
+        return this.commonProperties.getInsertTimeout();
     }
 
     public long getMaxQueryInstances() {
@@ -170,7 +177,8 @@ public class UserProperty implements Writable {
         int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
         Set<Tag> resourceTags = this.commonProperties.getResourceTags();
         long execMemLimit = this.commonProperties.getExecMemLimit();
-        long queryTimeout = this.commonProperties.getQueryTimeout();
+        int queryTimeout = this.commonProperties.getQueryTimeout();
+        int insertTimeout = this.commonProperties.getInsertTimeout();
 
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
@@ -311,12 +319,21 @@ public class UserProperty implements Writable {
                 execMemLimit = getLongProperty(key, value, keyArr, PROP_EXEC_MEM_LIMIT);
             } else if (keyArr[0].equalsIgnoreCase(PROP_USER_QUERY_TIMEOUT)) {
                 if (keyArr.length != 1) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " format error");
+                    throw new DdlException(PROP_USER_QUERY_TIMEOUT + " format error");
                 }
                 try {
-                    queryTimeout = Long.parseLong(value);
+                    queryTimeout = Integer.parseInt(value);
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_USER_QUERY_TIMEOUT + " is not number");
+                }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_USER_INSERT_TIMEOUT)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_USER_INSERT_TIMEOUT + " format error");
+                }
+                try {
+                    insertTimeout = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_USER_INSERT_TIMEOUT + " is not number");
                 }
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
@@ -331,6 +348,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setResourceTags(resourceTags);
         this.commonProperties.setExecMemLimit(execMemLimit);
         this.commonProperties.setQueryTimeout(queryTimeout);
+        this.commonProperties.setInsertTimeout(insertTimeout);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -459,6 +477,9 @@ public class UserProperty implements Writable {
 
         // query timeout
         result.add(Lists.newArrayList(PROP_USER_QUERY_TIMEOUT, String.valueOf(commonProperties.getQueryTimeout())));
+
+        // insert timeout
+        result.add(Lists.newArrayList(PROP_USER_INSERT_TIMEOUT, String.valueOf(commonProperties.getInsertTimeout())));
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));

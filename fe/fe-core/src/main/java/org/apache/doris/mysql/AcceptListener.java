@@ -79,6 +79,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     context.setStartTime();
                     context.setUserQueryTimeout(
                             context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
+                    context.setUserInsertTimeout(
+                            context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
                     ConnectProcessor processor = new ConnectProcessor(context);
                     context.startAcceptQuery(processor);
                 } catch (AfterConnectedException e) {

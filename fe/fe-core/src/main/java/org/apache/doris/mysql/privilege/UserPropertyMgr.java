@@ -104,13 +104,22 @@ public class UserPropertyMgr implements Writable {
         property.update(properties);
     }
 
-    public long getQueryTimeout(String qualifiedUser) {
+    public int getQueryTimeout(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
         if (existProperty == null) {
             return 0;
         }
         return existProperty.getQueryTimeout();
+    }
+
+    public int getInsertTimeout(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return 0;
+        }
+        return existProperty.getInsertTimeout();
     }
 
     public long getMaxConn(String qualifiedUser) {
@@ -201,7 +210,7 @@ public class UserPropertyMgr implements Writable {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
         if (existProperty == null) {
-            return new String[]{};
+            return new String[] {};
         }
         return existProperty.getSqlBlockRules();
     }

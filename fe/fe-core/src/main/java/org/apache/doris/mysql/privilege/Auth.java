@@ -889,10 +889,19 @@ public class Auth implements Writable {
         }
     }
 
-    public long getQueryTimeout(String qualifiedUser) {
+    public int getQueryTimeout(String qualifiedUser) {
         readLock();
         try {
             return propertyMgr.getQueryTimeout(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getInsertTimeout(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInsertTimeout(qualifiedUser);
         } finally {
             readUnlock();
         }

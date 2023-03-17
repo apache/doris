@@ -155,8 +155,6 @@ public class ConnectContext {
     // This context is used for SSL connection between server and mysql client.
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
-    private long userQueryTimeout;
-
     /**
      * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
      * <p>
@@ -167,8 +165,12 @@ public class ConnectContext {
 
     private StatsErrorEstimator statsErrorEstimator;
 
-    public void setUserQueryTimeout(long queryTimeout) {
-        this.userQueryTimeout = queryTimeout;
+    public void setUserQueryTimeout(int queryTimeout) {
+        sessionVariable.setQueryTimeoutS(queryTimeout);
+    }
+
+    public void setUserInsertTimeout(int insertTimeout) {
+        sessionVariable.setInsertTimeoutS(insertTimeout);
     }
 
     private StatementContext statementContext;
@@ -658,7 +660,7 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeout() {
-        userQueryTimeout = Env.getCurrentEnv().getAuth().getQueryTimeout(qualifiedUser);
+        long userQueryTimeout = Env.getCurrentEnv().getAuth().getQueryTimeout(qualifiedUser);
         if (userQueryTimeout > 0) {
             // user-set query-timeout, has the highest priority
             executionTimeoutS = (int) userQueryTimeout;
