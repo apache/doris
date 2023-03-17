@@ -48,7 +48,18 @@ suite("bucket-shuffle-join") {
     """
 
     sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t1 values("1");"""
+    sql """insert into shuffle_join_t1 values("1");"""
     sql """insert into shuffle_join_t2 values("1","1","1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+    sql """insert into shuffle_join_t2 values("1","1","1");"""
+
+    sql """analyze table shuffle_join_t1;"""
+    sql """analyze table shuffle_join_t2;"""
+
+    Thread.sleep(2000)
 
     explain {
         sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.a;")
