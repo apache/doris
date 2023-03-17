@@ -1647,6 +1647,7 @@ visible_functions = [
     [['ST_Y'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
 
     [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+    [['ST_Angle_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
 
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
     [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],

@@ -208,6 +208,43 @@ struct StDistanceSphere {
     }
 };
 
+struct StAngleSphere {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_angel_sphere";
+    static const size_t NUM_ARGS = 4;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 4);
+        auto return_type = remove_nullable(block.get_data_type(result));
+
+        auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto y_lng = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto y_lat = block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
+
+        const auto size = x_lng->size();
+
+        MutableColumnPtr res = nullptr;
+        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
+        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
+
+        for (int row = 0; row < size; ++row) {
+            double angle = 0;
+            if (!GeoPoint::ComputeAngle(x_lng->operator[](row).get<Float64>(),
+                                           x_lat->operator[](row).get<Float64>(),
+                                           y_lng->operator[](row).get<Float64>(),
+                                           y_lat->operator[](row).get<Float64>(), &angle)) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            res->insert_data(const_cast<const char*>((char*)&angle), 0);
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+
 struct StCircle {
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_circle";
@@ -389,6 +426,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StX, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StY, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StDistanceSphere, DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StAngleSphere, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StContains, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
