@@ -53,16 +53,14 @@ value:
 
 <version since="dev">
 
-UPDATE_FROM
-
-</version>
-
 ```sql
 UPDATE target_table
     SET assignment_list
     [ FROM additional_tables]
     WHERE condition
 ```
+
+</version>
 
 #### Required Parameters
 
@@ -74,21 +72,13 @@ UPDATE target_table
 
 <version since="dev">
 
-UPDATE_FROM
++ FROM additional_tables: Specifies one or more tables to use for selecting rows to update or for setting new values. Note that if you want use target table here, you should give it a alias explicitly.
 
 </version>
-
-+ FROM additional_tables: Specifies one or more tables to use for selecting rows to update or for setting new values. Note that if you want use target table here, you should give it a alias explicitly.
 
 #### Note
 
-<version since="dev">
-
-UPDATE_FROM
-
-</version>
-
-The current UPDATE statement only supports row updates on the Unique model.
+The current UPDATE statement only supports row updates on the UNIQUE KEY model.
 
 ### Example
 
@@ -107,10 +97,6 @@ UPDATE test SET v1 = v1+1 WHERE k1=1;
 ```
 
 <version since="dev">
-
-UPDATE_FROM
-
-</version>
 
 3. use the result of `t2` join `t3` to update `t1`
 
@@ -168,6 +154,8 @@ the expect result is only update the row where id = 1 in table t1
 | 3  | 3  | 3  |    3.0 | 2000-01-03 |
 +----+----+----+--------+------------+
 ```
+
+</version>
 
 ### Keywords
 

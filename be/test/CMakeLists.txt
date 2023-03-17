@@ -129,7 +129,7 @@ set(OLAP_TEST_FILES
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
-    #olap/ordered_data_compaction_test.cpp
+    olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -269,7 +269,7 @@ set(VEC_TEST_FILES
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/utils/histogram_helpers_test.cpp
     vec/olap/char_type_padding_test.cpp
-    #vec/olap/vertical_compaction_test.cpp
+    vec/olap/vertical_compaction_test.cpp
     vec/jsonb/serialize_test.cpp
 )
 add_executable(doris_be_test

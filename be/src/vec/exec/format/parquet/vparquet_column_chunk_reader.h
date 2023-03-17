@@ -86,14 +86,13 @@ public:
 
     // Skip current page(will not read and parse) if the page is filtered by predicates.
     Status skip_page() {
+        Status res = Status::OK();
         _remaining_num_values = 0;
         if (_state == HEADER_PARSED) {
-            return _page_reader->skip_page();
+            res = _page_reader->skip_page();
         }
-        if (_state != DATA_LOADED) {
-            return Status::Corruption("Should parse page header to skip page");
-        }
-        return Status::OK();
+        _state = PAGE_SKIPPED;
+        return res;
     }
     // Skip some values(will not read and parse) in current page if the values are filtered by predicates.
     // when skip_data = false, the underlying decoder will not skip data,
@@ -124,7 +123,7 @@ public:
 
     // Decode values in current page into doris column.
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector);
+                         ColumnSelectVector& select_vector, bool is_dict_filter);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
@@ -134,6 +133,8 @@ public:
     level_t max_rep_level() const { return _max_rep_level; }
     level_t max_def_level() const { return _max_def_level; }
 
+    bool has_dict() const { return _has_dict; };
+
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
 
@@ -142,8 +143,23 @@ public:
         return _statistics;
     }
 
+    Status read_dict_values_to_column(MutableColumnPtr& doris_column) {
+        return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]
+                ->read_dict_values_to_column(doris_column);
+    }
+
+    Status get_dict_codes(const ColumnString* column_string, std::vector<int32_t>* dict_codes) {
+        return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]->get_dict_codes(
+                column_string, dict_codes);
+    }
+
+    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
+        return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]
+                ->convert_dict_column_to_string_column(dict_column);
+    }
+
 private:
-    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED };
+    enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);

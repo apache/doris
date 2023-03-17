@@ -214,7 +214,8 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
 }
 
 Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_column,
-                                        DataTypePtr& type, ColumnSelectVector& select_vector) {
+                                        DataTypePtr& type, ColumnSelectVector& select_vector,
+                                        bool is_dict_filter) {
     if (num_values == 0) {
         return Status::OK();
     }
@@ -271,12 +272,12 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
     }
-    return _chunk_reader->decode_values(data_column, type, select_vector);
+    return _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter);
 }
 
 Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                                ColumnSelectVector& select_vector, size_t batch_size,
-                                               size_t* read_rows, bool* eof) {
+                                               size_t* read_rows, bool* eof, bool is_dict_filter) {
     _rep_levels.resize(0);
     _def_levels.resize(0);
     size_t parsed_rows = 0;
@@ -373,7 +374,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
     }
-    RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, select_vector));
+    RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
     if (ancestor_nulls != 0) {
         _chunk_reader->skip_values(ancestor_nulls, false);
     }
@@ -384,10 +385,44 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
     return Status::OK();
 }
+Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_column,
+                                                      bool* has_dict) {
+    bool loaded;
+    RETURN_IF_ERROR(_try_load_dict_page(&loaded, has_dict));
+    if (loaded && has_dict) {
+        return _chunk_reader->read_dict_values_to_column(doris_column);
+    }
+    return Status::OK();
+}
+
+Status ScalarColumnReader::get_dict_codes(const ColumnString* column_string,
+                                          std::vector<int32_t>* dict_codes) {
+    return _chunk_reader->get_dict_codes(column_string, dict_codes);
+}
+
+MutableColumnPtr ScalarColumnReader::convert_dict_column_to_string_column(
+        const ColumnInt32* dict_column) {
+    return _chunk_reader->convert_dict_column_to_string_column(dict_column);
+}
+
+Status ScalarColumnReader::_try_load_dict_page(bool* loaded, bool* has_dict) {
+    *loaded = false;
+    *has_dict = false;
+    if (_chunk_reader->remaining_num_values() == 0) {
+        if (!_chunk_reader->has_next_page()) {
+            *loaded = false;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_chunk_reader->next_page());
+        *loaded = true;
+        *has_dict = _chunk_reader->has_dict();
+    }
+    return Status::OK();
+}
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             ColumnSelectVector& select_vector, size_t batch_size,
-                                            size_t* read_rows, bool* eof) {
+                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
     if (_chunk_reader->remaining_num_values() == 0) {
         if (!_chunk_reader->has_next_page()) {
             *eof = true;
@@ -398,7 +433,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     }
     if (_nested_column) {
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-        return _read_nested_column(doris_column, type, select_vector, batch_size, read_rows, eof);
+        return _read_nested_column(doris_column, type, select_vector, batch_size, read_rows, eof,
+                                   is_dict_filter);
     }
 
     // generate the row ranges that should be read
@@ -452,7 +488,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             if (skip_whole_batch) {
                 RETURN_IF_ERROR(_skip_values(read_values));
             } else {
-                RETURN_IF_ERROR(_read_values(read_values, doris_column, type, select_vector));
+                RETURN_IF_ERROR(_read_values(read_values, doris_column, type, select_vector,
+                                             is_dict_filter));
             }
             has_read += read_values;
             _current_row_index += read_values;
@@ -478,7 +515,7 @@ Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_read
 
 Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                            ColumnSelectVector& select_vector, size_t batch_size,
-                                           size_t* read_rows, bool* eof) {
+                                           size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -499,7 +536,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             const_cast<DataTypePtr&>(
                     (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
                             ->get_nested_type()),
-            select_vector, batch_size, read_rows, eof));
+            select_vector, batch_size, read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
     }
@@ -523,7 +560,7 @@ Status MapColumnReader::init(std::unique_ptr<ParquetColumnReader> key_reader,
 
 Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                          ColumnSelectVector& select_vector, size_t batch_size,
-                                         size_t* read_rows, bool* eof) {
+                                         size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -553,10 +590,11 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     bool key_eof = false;
     bool value_eof = false;
     RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, select_vector, batch_size,
-                                                  &key_rows, &key_eof));
+                                                  &key_rows, &key_eof, is_dict_filter));
     select_vector.reset();
     RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, select_vector,
-                                                    batch_size, &value_rows, &value_eof));
+                                                    batch_size, &value_rows, &value_eof,
+                                                    is_dict_filter));
     DCHECK_EQ(key_rows, value_rows);
     DCHECK_EQ(key_eof, value_eof);
     *read_rows = key_rows;
@@ -581,7 +619,7 @@ Status StructColumnReader::init(std::vector<std::unique_ptr<ParquetColumnReader>
 }
 Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                             ColumnSelectVector& select_vector, size_t batch_size,
-                                            size_t* read_rows, bool* eof) {
+                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -609,7 +647,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         size_t loop_rows = 0;
         bool loop_eof = false;
         _child_readers[i]->read_column_data(doris_field, doris_type, select_vector, batch_size,
-                                            &loop_rows, &loop_eof);
+                                            &loop_rows, &loop_eof, is_dict_filter);
         if (i != 0) {
             DCHECK_EQ(*read_rows, loop_rows);
             DCHECK_EQ(*eof, loop_eof);

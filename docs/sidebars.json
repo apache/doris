@@ -182,7 +182,8 @@
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
-                "advanced/hight-concurrent-point-query"
+                "advanced/hight-concurrent-point-query",
+                "advanced/nereids"
             ]
         },
         {

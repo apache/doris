@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.mysql.MysqlProto;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -334,41 +335,38 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             return 0;
         }
         // get and advance 1 byte
-        int len = data.get();
-        if (len < 251) {
+        int len = MysqlProto.readInt1(data);
+        if (len == 252) {
+            if (maxLen < 3) {
+                return 0;
+            }
+            // get and advance 2 bytes
+            return MysqlProto.readInt2(data);
+        } else if (len == 253) {
+            if (maxLen < 4) {
+                return 0;
+            }
+            // get and advance 3 bytes
+            return MysqlProto.readInt3(data);
+        } else if (len == 254) {
+            /*
+            In our client-server protocol all numbers bigger than 2^24
+            stored as 8 bytes with uint8korr. Here we always know that
+            parameter length is less than 2^4 so we don't look at the second
+            4 bytes. But still we need to obey the protocol hence 9 in the
+            assignment below.
+            */
+            if (maxLen < 9) {
+                return 0;
+            }
+            len = MysqlProto.readInt4(data);
+            MysqlProto.readFixedString(data, 4);
+            return len;
+        } else if (len == 255) {
+            return 0;
+        } else {
             return len;
         }
-        if (maxLen < 3) {
-            return 0;
-        }
-        if (len == 252) {
-            // get and advance 2 bytes
-            return data.getChar();
-        }
-        if (maxLen < 4) {
-            return 0;
-        }
-        if (len == 253) {
-            // get and advance 3 bytes
-            byte[] bytes = new byte[3];
-            data.get(bytes);
-            return ByteBuffer.wrap(bytes).getInt();
-        }
-        if (maxLen < 5) {
-            return 0;
-        }
-        // Must be 254 when here
-        /*
-          In our client-server protocol all numbers bigger than 2^24
-          stored as 8 bytes with uint8korr. Here we always know that
-          parameter length is less than 2^4 so don't look at the second
-          4 bytes. But still we need to obey the protocol hence 9 in the
-          assignment above.
-        */
-        int ret = data.getInt();
-        // advance more useless 4 bytes
-        data.getInt();
-        return ret;
     }
 
     @Override
