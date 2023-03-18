@@ -210,7 +210,7 @@ struct StDistanceSphere {
 
 struct StAngleSphere {
     static constexpr auto NEED_CONTEXT = false;
-    static constexpr auto NAME = "st_angel_sphere";
+    static constexpr auto NAME = "st_angle_sphere";
     static const size_t NUM_ARGS = 4;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 4);
