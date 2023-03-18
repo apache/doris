@@ -16,6 +16,7 @@
 // under the License.
 
 #include "task_group.h"
+
 #include "pipeline/pipeline_task.h"
 
 namespace doris {
@@ -30,7 +31,7 @@ pipeline::PipelineTask* TaskGroupEntity::take() {
     return task;
 }
 
-void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns)  {
+void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns) {
     auto v_time = runtime_ns / _tg->share();
     _vruntime_ns += v_time;
 }

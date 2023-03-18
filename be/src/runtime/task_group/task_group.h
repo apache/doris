@@ -29,14 +29,6 @@ class QueryFragmentsCtx;
 
 namespace taskgroup {
 
-class SchedEntity {
-
-};
-
-class TaskEntity {
-
-};
-
 class TaskGroup;
 
 class TaskGroupEntity {
@@ -86,5 +78,5 @@ private:
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 
-} // namespace resourcegroup
+} // namespace taskgroup
 } // namespace doris

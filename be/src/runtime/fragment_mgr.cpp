@@ -43,8 +43,8 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "runtime/thread_context.h"
 #include "runtime/task_group/task_group_manager.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
@@ -618,8 +618,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             fragments_ctx->set_rsc_info = true;
         }
 
-        fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(
-                pipeline);
+        fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(pipeline);
         fragments_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 

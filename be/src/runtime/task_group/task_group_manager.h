@@ -46,4 +46,4 @@ private:
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
 };
 
-}
+} // namespace doris::taskgroup

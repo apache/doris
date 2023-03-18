@@ -16,6 +16,7 @@
 // under the License.
 
 #include "task_queue.h"
+
 #include "runtime/task_group/task_group.h"
 
 namespace doris {
