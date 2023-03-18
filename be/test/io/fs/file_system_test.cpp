@@ -77,10 +77,10 @@ public:
         hdfs_prop.emplace("hadoop.username", username);
         hdfs_prop.emplace("username", username); // for broker hdfs
         hdfs_prop.emplace("dfs.nameservices", nameservices);
-        hdfs_prop.emplace("dfs.ha.namenodes.my_nameservice", nn);
-        hdfs_prop.emplace("dfs.namenode.rpc-address.my_nameservice.nn1", rpc1);
-        hdfs_prop.emplace("dfs.namenode.rpc-address.my_nameservice.nn2", rpc2);
-        hdfs_prop.emplace("dfs.client.failover.proxy.provider.my_nameservice", provider);
+        hdfs_prop.emplace("dfs.ha.namenodes." + nameservices, nn);
+        hdfs_prop.emplace("dfs.namenode.rpc-address." + nameservices + ".nn1", rpc1);
+        hdfs_prop.emplace("dfs.namenode.rpc-address." + nameservices + ".nn2", rpc2);
+        hdfs_prop.emplace("dfs.client.failover.proxy.provider." + nameservices, provider);
 
         broker_addr.__set_hostname(broker_ip);
         broker_addr.__set_port(broker_port);
