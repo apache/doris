@@ -17,9 +17,10 @@
 
 #include "io/fs/fs_utils.h"
 
-#include <sstream>
 #include <fmt/format.h>
 #include <hdfs/hdfs.h>
+
+#include <sstream>
 
 namespace doris {
 namespace io {

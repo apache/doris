@@ -166,7 +166,9 @@ protected:
         S3Conf s3_conf;
         std::shared_ptr<io::S3FileSystem> fs;
         Status st = io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs);
-        ASSERT_TRUE(st.ok()) << st;
+        // io::S3FileSystem::create will call connect, which will fail because s3_conf is empty.
+        // but it does affect the following unit test
+        ASSERT_FALSE(st.ok()) << st;
         rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
