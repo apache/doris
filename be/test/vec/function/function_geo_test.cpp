@@ -145,7 +145,7 @@ TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
         DataSet data_set = {
                 {{(double)116.35620117, (double)39.939093, (double)116.4274406433,
                   (double)39.9020987219},
-                 (double)7336.9135549995917},
+                 (double)0.0659823452409903},
                 {{(double)116.35620117, (double)39.939093, (double)116.4274406433, Null()}, Null()},
                 {{(double)116.35620117, (double)39.939093, Null(), (double)39.9020987219}, Null()},
                 {{(double)116.35620117, Null(), (double)116.4274406433, (double)39.9020987219},
