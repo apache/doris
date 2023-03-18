@@ -191,7 +191,7 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT name FROM sys.schemas");
                     break;
                 case JdbcResource.SAP_HANA:
-                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS");
+                    rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
                 default:
                     throw new JdbcClientException("Not supported jdbc type");
