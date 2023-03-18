@@ -22,6 +22,9 @@
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
+#include "http/http_response.h"
+#include "runtime/exec_env.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -35,7 +38,11 @@ void MetricsAction::handle(HttpRequest* req) {
     } else if (type == "json") {
         str = _metric_registry->to_json(with_tablet == "true");
     } else {
-        str = _metric_registry->to_prometheus(with_tablet == "true");
+        if (config::enable_bvar_metrics) {
+            str = DorisBvarMetrics::instance()->to_prometheus();
+        } else {
+            str = _metric_registry->to_prometheus(with_tablet == "true");
+        }
     }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");

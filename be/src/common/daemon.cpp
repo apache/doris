@@ -52,6 +52,7 @@
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -380,6 +381,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
+    DorisBvarMetrics::instance()->initialize();
 }
 
 void signal_handler(int signal) {
