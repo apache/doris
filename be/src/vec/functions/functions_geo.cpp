@@ -230,9 +230,9 @@ struct StAngleSphere {
         for (int row = 0; row < size; ++row) {
             double angle = 0;
             if (!GeoPoint::ComputeAngle(x_lng->operator[](row).get<Float64>(),
-                                           x_lat->operator[](row).get<Float64>(),
-                                           y_lng->operator[](row).get<Float64>(),
-                                           y_lat->operator[](row).get<Float64>(), &angle)) {
+                                        x_lat->operator[](row).get<Float64>(),
+                                        y_lng->operator[](row).get<Float64>(),
+                                        y_lat->operator[](row).get<Float64>(), &angle)) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -243,7 +243,6 @@ struct StAngleSphere {
         return Status::OK();
     }
 };
-
 
 struct StCircle {
     static constexpr auto NEED_CONTEXT = true;

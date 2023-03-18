@@ -306,8 +306,7 @@ bool GeoPoint::ComputeDistance(double x_lng, double x_lat, double y_lng, double 
     return true;
 }
 
-bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat,
-                            double* angle) {
+bool GeoPoint::ComputeAngle(double x_lng, double x_lat, double y_lng, double y_lat, double* angle) {
     S2LatLng x = S2LatLng::FromDegrees(x_lat, x_lng);
     if (!x.is_valid()) {
         return false;
