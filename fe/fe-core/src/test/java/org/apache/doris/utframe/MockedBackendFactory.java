@@ -40,6 +40,8 @@ import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
+import org.apache.doris.thrift.TFetchColIdsRequest;
+import org.apache.doris.thrift.TFetchColIdsResponse;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
@@ -294,6 +296,11 @@ public class MockedBackendFactory {
         @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
+        }
+
+        @Override
+        public TFetchColIdsResponse getColumnIdsByTabletIds(TFetchColIdsRequest request) throws TException {
+            return new TFetchColIdsResponse();
         }
     }
 

@@ -85,6 +85,7 @@ import org.apache.doris.transaction.TransactionState;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import scala.xml.Text$;
 
 import java.io.File;
 import java.io.IOException;
@@ -159,13 +160,13 @@ public class EditLog {
         try {
             switch (opCode) {
                 case OperationType.OP_SAVE_NEXTID: {
-                    String idString = ((Text) journal.getData()).toString();
+                    String idString = ((Text$) journal.getData()).toString();
                     long id = Long.parseLong(idString);
                     env.setNextId(id + 1);
                     break;
                 }
                 case OperationType.OP_SAVE_TRANSACTION_ID: {
-                    String idString = ((Text) journal.getData()).toString();
+                    String idString = ((Text$) journal.getData()).toString();
                     long id = Long.parseLong(idString);
                     Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
                     break;
@@ -764,6 +765,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);

@@ -29,6 +29,8 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
+import org.apache.doris.thrift.TFetchColIdsRequest;
+import org.apache.doris.thrift.TFetchColIdsResponse;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
@@ -214,6 +216,11 @@ public class GenericPoolTest {
         @Override
         public TCheckStorageFormatResult checkStorageFormat() throws TException {
             return new TCheckStorageFormatResult();
+        }
+
+        @Override
+        public TFetchColIdsResponse getColumnIdsByTabletIds(TFetchColIdsRequest request) throws TException {
+            return new TFetchColIdsResponse();
         }
     }
 
