@@ -28,6 +28,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -188,6 +189,7 @@ Status LocalFileWriter::_close(bool sync) {
 
     DorisMetrics::instance()->local_file_open_writing->increment(-1);
     DorisMetrics::instance()->file_created_total->increment(1);
+    g_adder_file_created_total.increment(1);
     DorisMetrics::instance()->local_bytes_written_total->increment(_bytes_appended);
 
     if (0 != ::close(_fd)) {

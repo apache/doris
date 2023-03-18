@@ -46,6 +46,7 @@
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
 #include "util/stopwatch.hpp"
@@ -1025,6 +1026,7 @@ void FragmentMgr::cancel_worker() {
             }
         }
         timeout_canceled_fragment_count->increment(to_cancel.size());
+        g_adder_timeout_canceled_fragment_count.increment(to_cancel.size());
         for (auto& id : to_cancel) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment "
