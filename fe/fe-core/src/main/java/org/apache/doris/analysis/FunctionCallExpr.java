@@ -1327,6 +1327,13 @@ public class FunctionCallExpr extends Expr {
                                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                         }
                     }
+                    // find from the internal database first, if not, then from the global functions
+                    if (fn == null) {
+                        Function searchDesc =
+                                new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+                        fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
+                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    }
                 }
             }
         }

@@ -29,14 +29,20 @@ public class DropFunctionStmt extends DdlStmt {
     private final boolean ifExists;
     private final FunctionName functionName;
     private final FunctionArgsDef argsDef;
+    private SetType type = SetType.DEFAULT;
 
     // set after analyzed
     private FunctionSearchDesc function;
 
-    public DropFunctionStmt(boolean ifExists, FunctionName functionName, FunctionArgsDef argsDef) {
+    public DropFunctionStmt(SetType type, boolean ifExists, FunctionName functionName, FunctionArgsDef argsDef) {
+        this.type = type;
         this.ifExists = ifExists;
         this.functionName = functionName;
         this.argsDef = argsDef;
+    }
+
+    public SetType getType() {
+        return type;
     }
 
     public boolean isIfExists() {
@@ -56,7 +62,7 @@ public class DropFunctionStmt extends DdlStmt {
         super.analyze(analyzer);
 
         // analyze function name
-        functionName.analyze(analyzer);
+        functionName.analyze(analyzer, this.type);
 
         // check operation privilege
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
