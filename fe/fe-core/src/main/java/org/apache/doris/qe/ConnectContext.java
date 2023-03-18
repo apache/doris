@@ -158,11 +158,15 @@ public class ConnectContext {
     private StatsErrorEstimator statsErrorEstimator;
 
     public void setUserQueryTimeout(int queryTimeout) {
-        sessionVariable.setQueryTimeoutS(queryTimeout);
+        if (queryTimeout > 0) {
+            sessionVariable.setQueryTimeoutS(queryTimeout);
+        }
     }
 
     public void setUserInsertTimeout(int insertTimeout) {
-        sessionVariable.setInsertTimeoutS(insertTimeout);
+        if (insertTimeout > 0) {
+            sessionVariable.setInsertTimeoutS(insertTimeout);
+        }
     }
 
     private StatementContext statementContext;
