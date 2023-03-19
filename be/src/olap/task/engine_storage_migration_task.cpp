@@ -43,9 +43,10 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
     std::shared_lock rdlock(_tablet->get_header_lock());
     // check if tablet is in cooldown, we don't support migration in this case
     if (_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
-        LOG(WARNING) << "tablet is in cooldown, not support snapshot. tablet="
+        LOG(WARNING) << "currently not support migrate tablet with cooldowned remote data. tablet="
                      << _tablet->tablet_id();
-        return Status::NotSupported("tablet is in cooldown, not support snapshot");
+        return Status::NotSupported(
+                "currently not support migrate tablet with cooldowned remote data");
     }
     const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
     if (last_version == nullptr) {
