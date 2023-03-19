@@ -51,7 +51,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return seed ^ (value + (seed << 6) + (seed >> 2));
     }
 
-    switch (type.type) {
+    switch (type) {
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_STRING:

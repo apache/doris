@@ -38,7 +38,7 @@ VDataStreamMgr::~VDataStreamMgr() {
 
 inline uint32_t VDataStreamMgr::get_hash_value(const TUniqueId& fragment_instance_id,
                                                PlanNodeId node_id) {
-    uint32_t value = HashUtil::hash((&fragment_instance_id.lo, 8, 0);
+    uint32_t value = HashUtil::hash(&fragment_instance_id.lo, 8, 0);
     value = HashUtil::hash(&fragment_instance_id.hi, 8, value);
     value = HashUtil::hash(&node_id, 4, value);
     return value;
