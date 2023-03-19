@@ -55,6 +55,7 @@ public:
         const auto& first_off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                 first_col_array.get_offsets_column());
 
+<<<<<<< HEAD
         const auto& nested_nullable_column = assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
         const auto nested_column = nested_nullable_column.get_nested_column_ptr();
         const size_t nested_column_size = nested_column->size();
@@ -68,14 +69,45 @@ public:
 
         for (size_t row = 0; row < nested_column_size; ++row) {
             if (nested_column_data[row] != 0) {
+=======
+        auto first_col = first_col_array.get_data_ptr();
+        const UInt8* first_nested_nullable_map_data = nullptr;
+        if (first_col_array.get_data_ptr()->is_nullable()) {
+            const auto& first_nested_nullable_column =
+                    assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
+            first_col = first_nested_nullable_column.get_nested_column_ptr();
+            first_nested_nullable_map_data =
+                    first_nested_nullable_column.get_null_map_data().data();
+        }
+        // 2. compute result
+        size_t size = first_col->size();
+        const auto& result_column = ColumnUInt8::create(size, 0);
+        auto& result_column_data = result_column->get_data();
+        const auto& result_offset_column = first_off_data.clone_resized(first_off_data.size());
+
+        const auto& first_col_data = check_and_get_column<ColumnUInt8>(*first_col)->get_data();
+        for (size_t row = 0; row < size; ++row) {
+            if (first_nested_nullable_map_data && first_nested_nullable_map_data[row]) {
+                result_column_data[row] = 0;
+            } else if (first_col_data[row] != 0) {
+>>>>>>> 5652bfb... support array exists
                 result_column_data[row] = 1;
             }
         }
 
+<<<<<<< HEAD
         const auto result_nullalble_column = ColumnNullable::create(result_column->assume_mutable(),
                                                                result_null_map->assume_mutable());
         const auto column_array = ColumnArray::create(result_nullalble_column->assume_mutable(),
                                                       result_offset_column->assume_mutable());
+=======
+        const auto nested_null_map = ColumnUInt8::create(size, 0);
+        const auto nested_null_column = ColumnNullable::create(result_column->assume_mutable(),
+                                                               nested_null_map->assume_mutable());
+        const auto column_array = ColumnArray::create(nested_null_column->assume_mutable(),
+                                                      result_offset_column->assume_mutable());
+        // const auto result_arr = ColumnNullable::create(column_array->assume_mutable(), first_outside_null_map->assume_mutable());
+>>>>>>> 5652bfb... support array exists
         block.replace_by_position(result, column_array->assume_mutable());
         return Status::OK();
     }

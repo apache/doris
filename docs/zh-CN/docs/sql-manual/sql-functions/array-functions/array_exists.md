@@ -26,7 +26,11 @@ under the License.
 
 ## array_exists
 
+<<<<<<< HEAD
 <version since="2.0">
+=======
+<version since="2.0.0">
+>>>>>>> 5652bfb... support array exists
 
 array_exists(lambda,array1,array2....)
 array_exists(array1)
@@ -49,7 +53,11 @@ array_exists(array1);
 
 ### example
 
+<<<<<<< HEAD
 ```sql
+=======
+```shell
+>>>>>>> 5652bfb... support array exists
 
 mysql [test]>select *, array_exists(x->x>1,[1,2,3]) from array_test2 order by id;
 +------+-----------------+-------------------------+-----------------------------------------------+
@@ -79,7 +87,11 @@ mysql [test]>select c_array1, c_array2, array_exists(x->abs(x)-1,[1,2,3]) from a
 +-----------------+-------------------------+----------------------------------------------------+
 | [1, 2, 3, 4, 5] | [10, 20, -40, 80, -100] | [0, 1, 1, 1, 1]                                    |
 | [6, 7, 8]       | [10, 12, 13]            | [1, 1, 1]                                          |
+<<<<<<< HEAD
 | [1, NULL]       | [-100]                  | [0, NULL]                                          |
+=======
+| [1, NULL]       | [-100]                  | [0, 0]                                             |
+>>>>>>> 5652bfb... support array exists
 | NULL            | NULL                    | NULL                                               |
 +-----------------+-------------------------+----------------------------------------------------+
 4 rows in set (0.02 sec)
@@ -101,7 +113,11 @@ mysql [test]>select *, array_exists(c_array1) from array_test2 order by id;
 +------+-----------------+-------------------------+--------------------------+
 |    1 | [1, 2, 3, 0, 5] | [10, 20, -40, 80, -100] | [1, 1, 1, 0, 1]          |
 |    2 | [6, 7, 8]       | [10, 12, 13]            | [1, 1, 1]                |
+<<<<<<< HEAD
 |    3 | [0, NULL]       | [-100]                  | [0, NULL]                |
+=======
+|    3 | [0, NULL]       | [-100]                  | [0, 0]                   |
+>>>>>>> 5652bfb... support array exists
 |    4 | NULL            | NULL                    | NULL                     |
 +------+-----------------+-------------------------+--------------------------+
 4 rows in set (0.02 sec)
