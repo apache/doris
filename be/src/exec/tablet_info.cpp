@@ -18,6 +18,7 @@
 #include "exec/tablet_info.h"
 
 #include "runtime/large_int_value.h"
+#include "runtime/raw_value.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
