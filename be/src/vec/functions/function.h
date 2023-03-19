@@ -47,6 +47,14 @@ template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
 
+struct NullPresence {
+    bool has_nullable = false;
+    bool has_null_constant = false;
+};
+
+NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
+[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
+
 /// The simplest executable object.
 /// Motivation:
 ///  * Prepare something heavy once before main execution loop instead of doing it for each block.
