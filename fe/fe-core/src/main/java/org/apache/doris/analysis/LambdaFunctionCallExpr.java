@@ -109,7 +109,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             Type[] newArgTypes = new Type[1];
             if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
                 List<Expr> params = new ArrayList<>();
-                for (int i = childSize - 1; i >= 0; --i) {
+                for (int i = 0; i <= childSize - 1; ++i) {
                     params.add(getChild(i));
                 }
                 LambdaFunctionCallExpr arrayMapFunc = new LambdaFunctionCallExpr("array_map",
