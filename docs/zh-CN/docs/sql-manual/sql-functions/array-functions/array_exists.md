@@ -27,10 +27,14 @@ under the License.
 ## array_exists
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 <version since="2.0">
 =======
 <version since="2.0.0">
 >>>>>>> 5652bfb... support array exists
+=======
+<version since="2.0">
+>>>>>>> 7be3540... fix
 
 array_exists(lambda,array1,array2....)
 array_exists(array1)
