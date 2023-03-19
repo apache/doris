@@ -140,6 +140,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
+        FunctionName fnName = getFnName();
+        if (LAMBDA_MAPPED_FUNCTION_SET.contains(fnName.getFunction().toLowerCase())) {
+            msg.node_type = TExprNodeType.FUNCTION_CALL;
+        } else {
+            msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
+        }
     }
 }
