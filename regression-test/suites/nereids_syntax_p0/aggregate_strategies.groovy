@@ -211,4 +211,6 @@ suite("aggregate_strategies") {
                 from numbers('number' = '10000', 'backend_num'='1')"""
         result([[10000L]])
     }
+
+    qt_sql_distinct_same_col """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
 }
