@@ -130,23 +130,6 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-<version since="dev">
-
-连接开启 Ranger 权限校验的 Hive Metastore 需要增加配置 & 配置环境：
-1. 创建 Catalog 时增加：
-
-```sql
-"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
-```
-2. 配置所有 FE 环境： 
-   a. 将 HMS conf 目录下的三个 Ranger 配置文件Copy到 <doris_home>/conf 目录下
-   b. 修改其中 ranger-<ranger_service_name>-security.xml 的属性 `ranger.plugin.hive.policy.cache.dir` 的值为一个可写目录
-   c. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties
-   d. 重启 FE
-
-</version>
-
 在 1.2.1 版本之后，我们也可以将这些信息通过创建一个 Resource 统一存储，然后在创建 Catalog 时使用这个 Resource。示例如下：
 	
 ```sql
@@ -207,3 +190,92 @@ CREATE CATALOG hive PROPERTIES (
 | `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |
+
+<version since="dev">
+
+## 使用Ranger进行权限校验
+</version>
+
+### 环境配置
+
+连接开启 Ranger 权限校验的 Hive Metastore 需要增加配置 & 配置环境：
+1. 创建 Catalog 时增加：
+
+```sql
+"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
+"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+```
+2. 配置所有 FE 环境：
+    
+   a. 将 HMS conf 目录下的三个 Ranger 配置文件Copy到 <doris_home>/conf 目录下。
+
+   b. 修改 ranger-<ranger_service_name>-security.xml 的属性,参考配置如下：
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    #缓存权限数据的目录，需要可写
+    <property>
+        <name>ranger.plugin.hive.policy.cache.dir</name>
+        <value>/mnt/datadisk0/zhangdong/rangerdata</value>
+    </property>
+    #定时拉取权限数据的时间间隔
+    <property>
+        <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+        <value>30000</value>
+    </property>
+
+    <property>
+        <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
+        <value>60000</value>
+    </property>
+
+    <property>
+        <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
+        <value>60000</value>
+    </property>
+
+    <property>
+        <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
+        <value></value>
+    </property>
+
+    <property>
+        <name>ranger.plugin.hive.policy.rest.url</name>
+        <value>http://172.21.0.32:6080</value>
+    </property>
+
+    <property>
+        <name>ranger.plugin.hive.policy.source.impl</name>
+        <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+    </property>
+
+    <property>
+        <name>ranger.plugin.hive.service.name</name>
+        <value>hive</value>
+    </property>
+
+    <property>
+        <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
+        <value>true</value>
+    </property>
+
+</configuration>
+```
+   c. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties
+
+   d. 重启 FE
+
+### 最佳实践
+
+1.在ranger端创建用户user1并授权db1.table1.col1的查询权限
+
+2.在ranger端创建角色role1并授权db1.table1.col2的查询权限
+
+3.在doris创建同名用户user1，user1将直接拥有db1.table1.col1的查询权限
+
+4.在doris创建同名角色role1，并将role1分配给user1，user1将同时拥有db1.table1.col1和col2的查询权限
+
+
+
+
