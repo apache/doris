@@ -486,14 +486,6 @@ public class TransactionState implements Writable {
         return tableIdList;
     }
 
-    public int getReplicaNum() {
-        return replicaNum;
-    }
-
-    public void setReplicaNum(int replicaNum) {
-        this.replicaNum = replicaNum;
-    }
-
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
         return idToTableCommitInfos;
     }

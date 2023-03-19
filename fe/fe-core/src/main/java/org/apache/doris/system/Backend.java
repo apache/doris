@@ -305,6 +305,10 @@ public class Backend implements Writable {
         this.httpPort = httpPort;
     }
 
+    public void setHostName(String hostName) {
+        this.hostName = hostName;
+    }
+
     public void setBeRpcPort(int beRpcPort) {
         this.beRpcPort = beRpcPort;
     }

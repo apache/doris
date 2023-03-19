@@ -36,27 +36,60 @@ This statement is used to conditionally delete data in the specified table (base
 
 This operation will also delete the data of the rollup index related to this base index.
 
-grammar:
+#### Syntax
 
-````SQL
-DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
+Syntax 1: This syntax can only specify filter predicates
+
+```SQL
+DELETE FROM table_name [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
 WHERE
-column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
-````
+column_name op { value | value_list } [ AND column_name op { value | value_list } ...];
+```
 
-illustrate:
+<version since="dev">
 
-1. The optional types of op include: =, >, <, >=, <=, !=, in, not in
-2. Only conditions on the key column can be specified when using AGGREGATE (UNIQUE) model.
-3. When the selected key column does not exist in a rollup, delete cannot be performed.
-4. Conditions can only have an "and" relationship. If you want to achieve an "or" relationship, you need to write the conditions in two DELETE statements.
-5. If it is a partitioned table, you can specify a partition. If not specified, Doris will infer partition from the given conditions. In two cases, Doris cannot infer the partition from conditions: 1) the conditions do not contain partition columns; 2) The operator of the partition column is not in. When a partition table does not specify the partition, or the partition cannot be inferred from the conditions, the session variable delete_without_partition needs to be true to make delete statement be applied to all partitions.
+Syntax 2：This syntax can only used on UNIQUE KEY model
 
-Notice:
+```sql
+DELETE FROM table_name
+    [PARTITION partition_name | PARTITIONS (partition_name [, partition_name])]
+    [USING additional_tables]
+    WHERE condition
+```
 
-1. This statement may reduce query efficiency for a period of time after execution.
-2. The degree of impact depends on the number of delete conditions specified in the statement.
-3. The more conditions you specify, the greater the impact.
+</version>
+
+#### Required Parameters
+
++ table_name: Specifies the table from which rows are removed.
++ column_name: column belong to table_name
++ op: Logical comparison operator, The optional types of op include: =, >, <, >=, <=, !=, in, not in
++ value | value_list: value or value list used for logial comparison
+
+<version since="dev">
+
++ WHERE condition: Specifies a condition to use to select rows for removal
+
+</version>
+
+
+#### Optional Parameters
+
++ PARTITION partition_name | PARTITIONS (partition_name [, partition_name]): Specifies the partition or partitions to select rows for removal
+
+<version since="dev">
+
++ USING additional_tables: If you need to refer to additional tables in the WHERE clause to help identify the rows to be removed, then specify those table names in the USING clause. You can also use the USING clause to specify subqueries that identify the rows to be removed.
+
+</version>
+
+#### Note
+
+1. Only conditions on the key column can be specified when using AGGREGATE (UNIQUE) model.
+2. When the selected key column does not exist in a rollup, delete cannot be performed.
+3. Wheny you use syntax 1, conditions can only have an "and" relationship. If you want to achieve an "or" relationship, you need to write the conditions in two DELETE statements.
+4. <version since="1.2" type="inline"> In syntax 1, if it is a partitioned table, you can specify a partition. If not specified, Doris will infer partition from the given conditions. In two cases, Doris cannot infer the partition from conditions: 1) the conditions do not contain partition columns; 2) The operator of the partition column is not in. When a partition table does not specify the partition, or the partition cannot be inferred from the conditions, the session variable delete_without_partition needs to be true to make delete statement be applied to all partitions.</version>
+5. This statement may reduce query efficiency for a period of time after execution. The degree of impact depends on the number of delete conditions specified in the statement. The more conditions you specify, the greater the impact.
 
 ### Example
 
@@ -80,6 +113,65 @@ Notice:
    DELETE FROM my_table PARTITIONS (p1, p2)
    WHERE k1 >= 3 AND k2 = "abc";
    ````
+
+<version since="dev">
+
+4. use the result of `t2` join `t3` to romve rows from `t1`
+
+```sql
+-- create t1, t2, t3 tables
+CREATE TABLE t1
+  (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
+UNIQUE KEY (id)
+DISTRIBUTED BY HASH (id)
+PROPERTIES('replication_num'='1', "function_column.sequence_col" = "c4");
+
+CREATE TABLE t2
+  (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
+DISTRIBUTED BY HASH (id)
+PROPERTIES('replication_num'='1');
+
+CREATE TABLE t3
+  (id INT)
+DISTRIBUTED BY HASH (id)
+PROPERTIES('replication_num'='1');
+
+-- insert data
+INSERT INTO t1 VALUES
+  (1, 1, '1', 1.0, '2000-01-01'),
+  (2, 2, '2', 2.0, '2000-01-02'),
+  (3, 3, '3', 3.0, '2000-01-03');
+
+INSERT INTO t2 VALUES
+  (1, 10, '10', 10.0, '2000-01-10'),
+  (2, 20, '20', 20.0, '2000-01-20'),
+  (3, 30, '30', 30.0, '2000-01-30'),
+  (4, 4, '4', 4.0, '2000-01-04'),
+  (5, 5, '5', 5.0, '2000-01-05');
+
+INSERT INTO t3 VALUES
+  (1),
+  (4),
+  (5);
+
+-- remove rows from t1
+DELETE FROM t1
+  USING t2 INNER JOIN t3 ON t2.id = t3.id
+  WHERE t1.id = t2.id;
+```
+
+the expect result is only remove the row where id = 1 in table t1
+
+```
++----+----+----+--------+------------+
+| id | c1 | c2 | c3     | c4         |
++----+----+----+--------+------------+
+| 2  | 2  | 2  |    2.0 | 2000-01-02 |
+| 3  | 3  | 3  |    3.0 | 2000-01-03 |
++----+----+----+--------+------------+
+```
+
+</version>
 
 ### Keywords
 

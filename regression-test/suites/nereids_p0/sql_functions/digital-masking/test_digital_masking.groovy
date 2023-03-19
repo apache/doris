@@ -17,8 +17,7 @@
 
 suite("test_digital_masking") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     qt_sql """ select digital_masking(13812345678) """
 
 }

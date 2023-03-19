@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.nereids.stats.StatsErrorEstimator;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -99,7 +100,7 @@ public class ProfileManager {
             Arrays.asList(ANALYSIS_TIME, PLAN_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME,
               WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME));
 
-    private class ProfileElement {
+    public static class ProfileElement {
         public ProfileElement(RuntimeProfile profile) {
             this.profile = profile;
         }
@@ -111,7 +112,7 @@ public class ProfileManager {
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
-        public double qError;
+        public StatsErrorEstimator statsErrorEstimator;
 
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
@@ -123,14 +124,13 @@ public class ProfileManager {
             return profileContent;
         }
 
-        public double getqError() {
-            return qError;
+        public double getError() {
+            return statsErrorEstimator.getQError();
         }
 
-        public void setqError(double qError) {
-            this.qError = qError;
+        public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
+            this.statsErrorEstimator = statsErrorEstimator;
         }
-
     }
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -202,10 +202,10 @@ public class ProfileManager {
                     + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
         }
 
+        writeLock.lock();
         // a profile may be updated multiple times in queryIdToProfileMap,
         // and only needs to be inserted into the queryIdDeque for the first time.
         queryIdToProfileMap.put(key, element);
-        writeLock.lock();
         try {
             if (!queryIdDeque.contains(key)) {
                 if (queryIdDeque.size() >= Config.max_query_profile_num) {
@@ -229,7 +229,7 @@ public class ProfileManager {
         try {
             Iterator reverse = queryIdDeque.descendingIterator();
             while (reverse.hasNext()) {
-                String  queryId = (String) reverse.next();
+                String queryId = (String) reverse.next();
                 ProfileElement profileElement = queryIdToProfileMap.get(queryId);
                 if (profileElement == null) {
                     continue;
@@ -387,10 +387,20 @@ public class ProfileManager {
         }
     }
 
-    public void setQErrorToProfileElementObject(String queryId, double qError) {
+    public void setStatsErrorEstimator(String queryId, StatsErrorEstimator statsErrorEstimator) {
         ProfileElement profileElement = findProfileElementObject(queryId);
         if (profileElement != null) {
-            profileElement.setqError(qError);
+            profileElement.setStatsErrorEstimator(statsErrorEstimator);
+        }
+    }
+
+    public void cleanProfile() {
+        writeLock.lock();
+        try {
+            queryIdToProfileMap.clear();
+            queryIdDeque.clear();
+        } finally {
+            writeLock.unlock();
         }
     }
 }

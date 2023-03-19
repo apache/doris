@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_aggregate_collect") {
-
-    sql "set enable_vectorized_engine = true"
-
     def tableName = "collect_test"
     def tableCTAS1 = "collect_set_test_ctas1"
     def tableCTAS2 = "collect_set_test_ctas2"
@@ -402,8 +399,8 @@ suite("test_aggregate_collect") {
             '2022-12-09', '2022-12-09', '2022-12-09 22:23:23', '2022-12-09 22:23:24.999999', 'not null')
     """
 
-    sql """
-        SELECT * FROM ${tableName_11}
+    qt_select """
+        SELECT * FROM ${tableName_11} ORDER BY c_id, c_tinyint, c_char;
     """
 
     sql """

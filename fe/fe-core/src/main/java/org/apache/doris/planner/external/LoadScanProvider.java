@@ -138,7 +138,7 @@ public class LoadScanProvider implements FileScanProviderIf {
     }
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
+    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
         Preconditions.checkNotNull(fileGroupInfo);
         fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);

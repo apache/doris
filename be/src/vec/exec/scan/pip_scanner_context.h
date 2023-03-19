@@ -84,7 +84,6 @@ public:
 
     void set_max_queue_size(int max_queue_size) override {
         for (int i = 0; i < max_queue_size; ++i) {
-            _blocks_queue_empty.emplace_back(true);
             _queue_mutexs.emplace_back(new std::mutex);
             _blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
         }
@@ -92,7 +91,6 @@ public:
 
 private:
     int _next_queue_to_feed = 0;
-    std::vector<bool> _blocks_queue_empty;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
 };

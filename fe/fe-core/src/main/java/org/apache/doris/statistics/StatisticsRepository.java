@@ -79,7 +79,7 @@ public class StatisticsRepository {
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.DEFAULT;
+            return ColumnStatistic.UNKNOWN;
         }
         return ColumnStatistic.fromResultRow(resultRow);
     }
@@ -203,7 +203,7 @@ public class StatisticsRepository {
         Histogram histogram = Env.getCurrentEnv().getStatisticsCache()
                 .getHistogram(objects.table.getId(), -1, colName);
 
-        Statistic statistic = new Statistic();
+        ColumnLevelStatisticCache statistic = new ColumnLevelStatisticCache();
         statistic.setHistogram(histogram);
         statistic.setColumnStatistic(builder.build());
 

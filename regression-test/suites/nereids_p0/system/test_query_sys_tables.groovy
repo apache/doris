@@ -17,8 +17,7 @@
 
 suite("test_query_sys_tables", "query,p0") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def dbName1 = "test_query_sys_db_1"
     def dbName2 = "test_query_sys_db_2"
     def dbName3 = "test_query_sys_db_3"

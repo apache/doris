@@ -73,7 +73,7 @@ public class PartitionNames implements ParseNode, Writable {
             throw new AnalysisException("No partition specified in partition lists");
         }
         // check if partition name is not empty string
-        if (partitionNames.stream().anyMatch(entity -> Strings.isNullOrEmpty(entity))) {
+        if (partitionNames.stream().anyMatch(Strings::isNullOrEmpty)) {
             throw new AnalysisException("there are empty partition name");
         }
     }

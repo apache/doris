@@ -97,6 +97,11 @@ public class OdbcTable extends Table {
         return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
     }
 
+    private static String saphanaProperName(String name) {
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
+    }
+
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
@@ -107,6 +112,8 @@ public class OdbcTable extends Table {
                 return psqlProperName(name);
             case ORACLE:
                 return oracleProperName(name);
+            case SAP_HANA:
+                return saphanaProperName(name);
             default:
                 return name;
         }

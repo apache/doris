@@ -17,7 +17,7 @@
 
 #include "vec/exprs/vexpr_context.h"
 
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 #include "util/stack_util.h"
 #include "vec/exprs/vexpr.h"
 
@@ -76,7 +76,7 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
 
     *new_ctx = state->obj_pool()->add(new VExprContext(_root));
     for (auto& _fn_context : _fn_contexts) {
-        (*new_ctx)->_fn_contexts.push_back(_fn_context->impl()->clone());
+        (*new_ctx)->_fn_contexts.push_back(_fn_context->clone());
     }
 
     (*new_ctx)->_is_clone = true;
@@ -88,16 +88,15 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
 
 void VExprContext::clone_fn_contexts(VExprContext* other) {
     for (auto& _fn_context : _fn_contexts) {
-        other->_fn_contexts.push_back(_fn_context->impl()->clone());
+        other->_fn_contexts.push_back(_fn_context->clone());
     }
 }
 
 int VExprContext::register_function_context(RuntimeState* state,
                                             const doris::TypeDescriptor& return_type,
                                             const std::vector<doris::TypeDescriptor>& arg_types) {
-    _fn_contexts.push_back(FunctionContextImpl::create_context(state, return_type, arg_types));
-    _fn_contexts.back()->impl()->set_check_overflow_for_decimal(
-            state->check_overflow_for_decimal());
+    _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
+    _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return _fn_contexts.size() - 1;
 }
 

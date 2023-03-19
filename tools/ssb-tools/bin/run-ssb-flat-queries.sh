@@ -103,10 +103,6 @@ run_sql() {
 
 echo '============================================'
 echo "optimize some session variables before run, and then restore it after run."
-origin_enable_vectorized_engine=$(
-    set -e
-    run_sql 'select @@enable_vectorized_engine;' | sed -n '3p'
-)
 origin_parallel_fragment_exec_instance_num=$(
     set -e
     run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
@@ -119,7 +115,6 @@ origin_batch_size=$(
     set -e
     run_sql 'select @@batch_size;' | sed -n '3p'
 )
-run_sql "set global enable_vectorized_engine=1;"
 run_sql "set global parallel_fragment_exec_instance_num=8;"
 run_sql "set global exec_mem_limit=8G;"
 run_sql "set global batch_size=4096;"
@@ -143,7 +138,6 @@ echo "total time: ${sum} seconds"
 
 echo '============================================'
 echo "restore session variables"
-run_sql "set global enable_vectorized_engine=${origin_enable_vectorized_engine};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel_fragment_exec_instance_num};"
 run_sql "set global exec_mem_limit=${origin_exec_mem_limit};"
 run_sql "set global batch_size=${origin_batch_size};"

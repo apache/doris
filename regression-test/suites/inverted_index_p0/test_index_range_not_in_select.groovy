@@ -28,8 +28,6 @@ suite("test_index_range_not_in_select", "inverted_index_select"){
     def int_colume1 = "age"
     def key = ""
 
-    sql "set enable_vectorized_engine=true"
-
     def test_index_table_not_in_with_different_data_model = { Tb_name, data_model, key_columes ->
 
         //generate key set
@@ -83,6 +81,8 @@ suite("test_index_range_not_in_select", "inverted_index_select"){
                 alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
                 alter_res = alter_res.toString()
                 if(alter_res.contains("FINISHED")) {
+                    sleep(3000) // wait change table state to normal
+                    logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                     break
                 }
                 useTime = t

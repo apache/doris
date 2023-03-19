@@ -168,7 +168,8 @@ for table_name in ${!table_columns[*]}; do
 
     # 要批量执行的命令放在大括号内, 后台运行
     {
-        for file in "${TPCDS_DATA_DIR}/${table_name}"*.dat; do
+        for file in "${TPCDS_DATA_DIR}/${table_name}"_{1..100}_*.dat; do
+            if ! [[ -f "${file}" ]]; then continue; fi
             ret=$(curl \
                 --location-trusted \
                 -u "${USER}":"${PASSWORD:=}" \
@@ -179,10 +180,9 @@ for table_name in ${!table_columns[*]}; do
             if [[ $(echo "${ret}" | jq ".Status") == '"Success"' ]]; then
                 echo "----loaded ${file}"
             else
-                echo -e "\033[31m----load ${file} FAIL...\033[0m"
+                echo -e "\033[31m----load ${file} FAIL...\n${ret}\033[0m"
             fi
         done
-        sleep 2
         # 归还令牌, 即进程结束后，再写入一行，使挂起的循环继续执行
         echo >&3
     } &

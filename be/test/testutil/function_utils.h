@@ -19,7 +19,6 @@
 #include <vector>
 
 #include "udf/udf.h"
-#include "udf/udf_internal.h"
 
 namespace doris {
 

@@ -1698,6 +1698,34 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return null;
     }
 
+    /*
+     * this function is used be lambda function to find lambda argument.
+     * and replace a new ColumnRefExpr
+     */
+    public void replaceExpr(String colName, ColumnRefExpr slotRefs, List<Expr> slotExpr) {
+        for (int i = 0; i < children.size(); ++i) {
+            children.get(i).replaceExpr(colName, slotRefs, slotExpr);
+            if (children.get(i).findSlotRefByName(colName)) {
+                slotExpr.add(slotRefs);
+                setChild(i, slotRefs);
+                break;
+            }
+        }
+    }
+
+    private boolean findSlotRefByName(String colName) {
+        if (this instanceof SlotRef) {
+            SlotRef slot = (SlotRef) this;
+            if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+
+
     /**
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.

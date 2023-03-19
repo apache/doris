@@ -23,7 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -43,7 +43,7 @@ public abstract class PhysicalBinary<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_T
 
     public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
-            @Nullable StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
+            @Nullable Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
     }
 }

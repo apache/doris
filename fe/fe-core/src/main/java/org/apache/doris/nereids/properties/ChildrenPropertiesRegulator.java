@@ -194,7 +194,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
         Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
                 currentCost,
-                CostCalculator.calculateCost(enforcer),
+                CostCalculator.calculateCost(enforcer, Lists.newArrayList(childOutput)),
                 0);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,

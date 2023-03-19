@@ -63,7 +63,11 @@ public:
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx);
+            VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const std::unordered_map<std::string, int>* colname_to_slot_id,
+            const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts);
 
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE };
 

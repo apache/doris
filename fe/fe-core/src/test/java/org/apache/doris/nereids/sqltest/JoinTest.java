@@ -84,8 +84,8 @@ public class JoinTest extends SqlTestBase {
     @Test
     void testBucketJoinWithAgg() {
         String sql = "select * from "
-                + "(select count(id) as cnt from T2 group by id) T1 inner join"
-                + "(select count(id) as cnt from T2 group by id) T2 "
+                + "(select distinct id as cnt from T2) T1 inner join"
+                + "(select distinct id as cnt from T2) T2 "
                 + "on T1.cnt = T2.cnt";
         PhysicalPlan plan = PlanChecker.from(connectContext)
                 .analyze(sql)

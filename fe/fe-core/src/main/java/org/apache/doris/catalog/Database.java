@@ -567,14 +567,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         Text.writeString(out, attachDbName);
 
         // write functions
-        out.writeInt(name2Function.size());
-        for (Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            out.writeInt(entry.getValue().size());
-            for (Function function : entry.getValue()) {
-                function.write(out);
-            }
-        }
+        FunctionUtil.write(out, name2Function);
 
         // write encryptKeys
         dbEncryptKey.write(out);
@@ -606,17 +599,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
-        int numEntries = in.readInt();
-        for (int i = 0; i < numEntries; ++i) {
-            String name = Text.readString(in);
-            ImmutableList.Builder<Function> builder = ImmutableList.builder();
-            int numFunctions = in.readInt();
-            for (int j = 0; j < numFunctions; ++j) {
-                builder.add(Function.read(in));
-            }
-
-            name2Function.put(name, builder.build());
-        }
+        FunctionUtil.readFields(in, name2Function);
 
         // read encryptKeys
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
@@ -695,140 +678,43 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
         function.checkWritable();
-        if (addFunctionImpl(function, ifNotExists, false)) {
+        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
         }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
-            addFunctionImpl(function, false, true);
+            FunctionUtil.addFunctionImpl(function, false, true, name2Function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * @param function
-     * @param ifNotExists
-     * @param isReplay
-     * @return return true if we do add the function, otherwise, return false.
-     * @throws UserException
-     */
-    private boolean addFunctionImpl(Function function, boolean ifNotExists, boolean isReplay) throws UserException {
-        String functionName = function.getFunctionName().getFunction();
-        List<Function> existFuncs = name2Function.get(functionName);
-        if (!isReplay) {
-            if (existFuncs != null) {
-                for (Function existFunc : existFuncs) {
-                    if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
-                        if (ifNotExists) {
-                            LOG.debug("function already exists");
-                            return false;
-                        }
-                        throw new UserException("function already exists");
-                    }
-                }
-            }
-            // Get function id for this UDF, use CatalogIdGenerator. Only get function id
-            // when isReplay is false
-            long functionId = Env.getCurrentEnv().getNextId();
-            function.setId(functionId);
-        }
-
-        ImmutableList.Builder<Function> builder = ImmutableList.builder();
-        if (existFuncs != null) {
-            builder.addAll(existFuncs);
-        }
-        builder.add(function);
-        name2Function.put(functionName, builder.build());
-        return true;
-    }
-
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (dropFunctionImpl(function, ifExists)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            dropFunctionImpl(functionSearchDesc, false);
+            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * @param function
-     * @param ifExists
-     * @return return true if we do drop the function, otherwise, return false.
-     * @throws UserException
-     */
-    private boolean dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        String functionName = function.getName().getFunction();
-        List<Function> existFuncs = name2Function.get(functionName);
-        if (existFuncs == null) {
-            if (ifExists) {
-                LOG.debug("function name does not exist: " + functionName);
-                return false;
-            }
-            throw new UserException("function name does not exist: " + functionName);
-        }
-        boolean isFound = false;
-        ImmutableList.Builder<Function> builder = ImmutableList.builder();
-        for (Function existFunc : existFuncs) {
-            if (function.isIdentical(existFunc)) {
-                isFound = true;
-            } else {
-                builder.add(existFunc);
-            }
-        }
-        if (!isFound) {
-            if (ifExists) {
-                LOG.debug("function does not exist: " + function);
-                return false;
-            }
-            throw new UserException("function does not exist: " + function);
-        }
-        ImmutableList<Function> newFunctions = builder.build();
-        if (newFunctions.isEmpty()) {
-            name2Function.remove(functionName);
-        } else {
-            name2Function.put(functionName, newFunctions);
-        }
-        return true;
-    }
-
     public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
-        List<Function> fns = name2Function.get(desc.getFunctionName().getFunction());
-        if (fns == null) {
-            return null;
-        }
-        return Function.getFunction(fns, desc, mode);
+        return FunctionUtil.getFunction(desc, mode, name2Function);
     }
 
     public synchronized Function getFunction(FunctionSearchDesc function) throws AnalysisException {
-        String functionName = function.getName().getFunction();
-        List<Function> existFuncs = name2Function.get(functionName);
-        if (existFuncs == null) {
-            throw new AnalysisException("Unknown function, function=" + function.toString());
-        }
-
-        for (Function existFunc : existFuncs) {
-            if (function.isIdentical(existFunc)) {
-                return existFunc;
-            }
-        }
-        throw new AnalysisException("Unknown function, function=" + function.toString());
+        return FunctionUtil.getFunction(function, name2Function);
     }
 
     public synchronized List<Function> getFunctions() {
-        List<Function> functions = Lists.newArrayList();
-        for (Map.Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
-            functions.addAll(entry.getValue());
-        }
-        return functions;
+        return FunctionUtil.getFunctions(name2Function);
     }
 
     public boolean isInfoSchemaDb() {

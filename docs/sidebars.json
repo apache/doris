@@ -182,7 +182,8 @@
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
-                "advanced/hight-concurrent-point-query"
+                "advanced/hight-concurrent-point-query",
+                "advanced/nereids"
             ]
         },
         {
@@ -273,6 +274,7 @@
                                 "sql-manual/sql-functions/array-functions/array",
                                 "sql-manual/sql-functions/array-functions/array_max",
                                 "sql-manual/sql-functions/array-functions/array_min",
+                                "sql-manual/sql-functions/array-functions/array_map",
                                 "sql-manual/sql-functions/array-functions/array_avg",
                                 "sql-manual/sql-functions/array-functions/array_sum",
                                 "sql-manual/sql-functions/array-functions/array_size",
@@ -545,6 +547,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate",
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate_count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_hash64"
                             ]
                         },
