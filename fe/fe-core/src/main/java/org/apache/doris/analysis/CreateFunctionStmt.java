@@ -95,6 +95,7 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
+    private SetType type = SetType.DEFAULT;
     private final boolean ifNotExists;
     private final FunctionName functionName;
     private final boolean isAggregate;
@@ -119,9 +120,10 @@ public class CreateFunctionStmt extends DdlStmt {
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
 
-    public CreateFunctionStmt(boolean ifNotExists, boolean isAggregate, FunctionName functionName,
-            FunctionArgsDef argsDef,
-            TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+    public CreateFunctionStmt(SetType type, boolean ifNotExists, boolean isAggregate, FunctionName functionName,
+                              FunctionArgsDef argsDef,
+                              TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+        this.type = type;
         this.ifNotExists = ifNotExists;
         this.functionName = functionName;
         this.isAggregate = isAggregate;
@@ -138,8 +140,9 @@ public class CreateFunctionStmt extends DdlStmt {
         this.originFunction = null;
     }
 
-    public CreateFunctionStmt(boolean ifNotExists, FunctionName functionName, FunctionArgsDef argsDef,
+    public CreateFunctionStmt(SetType type, boolean ifNotExists, FunctionName functionName, FunctionArgsDef argsDef,
             List<String> parameters, Expr originFunction) {
+        this.type = type;
         this.ifNotExists = ifNotExists;
         this.functionName = functionName;
         this.isAlias = true;
@@ -153,6 +156,10 @@ public class CreateFunctionStmt extends DdlStmt {
         this.isAggregate = false;
         this.returnType = new TypeDef(Type.VARCHAR);
         this.properties = ImmutableSortedMap.of();
+    }
+
+    public SetType getType() {
+        return type;
     }
 
     public boolean isIfNotExists() {
@@ -205,7 +212,7 @@ public class CreateFunctionStmt extends DdlStmt {
 
     private void analyzeCommon(Analyzer analyzer) throws AnalysisException {
         // check function name
-        functionName.analyze(analyzer);
+        functionName.analyze(analyzer, this.type);
 
         // check operation privilege
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {

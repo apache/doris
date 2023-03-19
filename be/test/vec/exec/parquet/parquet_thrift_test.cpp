@@ -26,6 +26,7 @@
 #include "io/buffered_reader.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
 #include "vec/common/string_ref.h"
@@ -226,6 +227,74 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     }
 }
 
+// Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
+// use columndesc
+static doris::TupleDescriptor* create_tuple_desc(
+        doris::ObjectPool* pool, std::vector<doris::SchemaScanner::ColumnDesc>& column_descs) {
+    using namespace doris;
+    int null_column = 0;
+    for (int i = 0; i < column_descs.size(); ++i) {
+        if (column_descs[i].is_null) {
+            null_column++;
+        }
+    }
+
+    int offset = (null_column + 7) / 8;
+    std::vector<SlotDescriptor*> slots;
+    int null_byte = 0;
+    int null_bit = 0;
+
+    for (int i = 0; i < column_descs.size(); ++i) {
+        TSlotDescriptor t_slot_desc;
+        if (column_descs[i].type == TYPE_DECIMALV2) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        } else {
+            TypeDescriptor descriptor(column_descs[i].type);
+            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+                descriptor.precision = column_descs[i].precision;
+                descriptor.scale = column_descs[i].scale;
+            }
+            t_slot_desc.__set_slotType(descriptor.to_thrift());
+        }
+        t_slot_desc.__set_colName(column_descs[i].name);
+        t_slot_desc.__set_columnPos(i);
+        t_slot_desc.__set_byteOffset(offset);
+
+        if (column_descs[i].is_null) {
+            t_slot_desc.__set_nullIndicatorByte(null_byte);
+            t_slot_desc.__set_nullIndicatorBit(null_bit);
+            null_bit = (null_bit + 1) % 8;
+
+            if (0 == null_bit) {
+                null_byte++;
+            }
+        } else {
+            t_slot_desc.__set_nullIndicatorByte(0);
+            t_slot_desc.__set_nullIndicatorBit(-1);
+        }
+
+        t_slot_desc.id = i;
+        t_slot_desc.__set_slotIdx(i);
+        t_slot_desc.__set_isMaterialized(true);
+
+        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
+        slots.push_back(slot);
+        offset += column_descs[i].size;
+    }
+
+    TTupleDescriptor t_tuple_desc;
+    t_tuple_desc.__set_byteSize(offset);
+    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
+    doris::TupleDescriptor* tuple_desc =
+            pool->add(new (std::nothrow) doris::TupleDescriptor(t_tuple_desc));
+
+    for (int i = 0; i < slots.size(); ++i) {
+        tuple_desc->add_slot(slots[i]);
+    }
+
+    return tuple_desc;
+}
+
 static void create_block(std::unique_ptr<vectorized::Block>& block) {
     // Current supported column type:
     std::vector<SchemaScanner::ColumnDesc> column_descs = {
@@ -247,11 +316,9 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
-    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
-    SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
-    auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
+    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
+    auto tuple_slots = tuple_desc->slots();
     block.reset(new vectorized::Block());
     for (const auto& slot_desc : tuple_slots) {
         auto data_type = slot_desc->get_data_type_ptr();
@@ -347,7 +414,7 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
 }
 
 TEST_F(ParquetThriftReaderTest, group_reader) {
-    std::vector<SchemaScanner::ColumnDesc> column_descs = {
+    std::vector<doris::SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -362,11 +429,9 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
-    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
-    SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool);
-    auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
+    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
+    auto tuple_slots = tuple_desc->slots();
 
     TSlotDescriptor tslot_desc;
     {

@@ -397,6 +397,8 @@ private:
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     vector<uint16_t> _sel_rowid_idx;
+
+    std::unique_ptr<ObjectPool> _pool;
 };
 
 } // namespace segment_v2

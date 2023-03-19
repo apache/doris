@@ -489,9 +489,9 @@ struct BitmapAndNotCount {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using TData = std::vector<BitmapValue>;
-    using ResTData = typename ColumnVector<Int64>::Container;
+    using ResTData = typename ColumnVector<Int64>::Container::value_type;
 
-    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static Status vector_vector(const TData& lvec, const TData& rvec, ResTData* res) {
         size_t size = lvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -499,6 +499,153 @@ struct BitmapAndNotCount {
             mid_data &= rvec[i];
             res[i] = lvec[i].andnot_cardinality(mid_data);
             mid_data.clear();
+        }
+        return Status::OK();
+    }
+};
+
+void update_bitmap_op_count(int64_t* __restrict count, const NullMap& null_map) {
+    static constexpr int64_t flags[2] = {-1, 0};
+    size_t size = null_map.size();
+    auto* __restrict null_map_data = null_map.data();
+    for (size_t i = 0; i < size; ++i) {
+        count[i] &= flags[null_map_data[i]];
+    }
+}
+
+// for bitmap_and_count, bitmap_xor_count and bitmap_and_not_count,
+// result is 0 for rows that if any column is null value
+ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
+                                            const ColumnNumbers& args, size_t result,
+                                            size_t input_rows_count) {
+    auto* nullable = assert_cast<const ColumnNullable*>(src.get());
+    ColumnPtr src_not_nullable = nullable->get_nested_column_ptr();
+    MutableColumnPtr src_not_nullable_mutable = (*std::move(src_not_nullable)).assume_mutable();
+    auto* __restrict count_data =
+            assert_cast<ColumnInt64*>(src_not_nullable_mutable.get())->get_data().data();
+
+    for (const auto& arg : args) {
+        const ColumnWithTypeAndName& elem = block.get_by_position(arg);
+        if (!elem.type->is_nullable()) {
+            continue;
+        }
+
+        bool is_const = is_column_const(*elem.column);
+        /// Const Nullable that are NULL.
+        if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
+            return block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+        }
+        if (is_const) {
+            continue;
+        }
+
+        if (auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get())) {
+            const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
+            const NullMap& src_null_map =
+                    assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
+
+            update_bitmap_op_count(count_data, src_null_map);
+        }
+    }
+
+    return src;
+}
+
+Status execute_bitmap_op_count_null_to_zero(
+        FunctionContext* context, Block& block, const ColumnNumbers& arguments, size_t result,
+        size_t input_rows_count,
+        const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
+                exec_impl_func) {
+    NullPresence null_presence = get_null_presence(block, arguments);
+
+    if (null_presence.has_null_constant) {
+        block.get_by_position(result).column =
+                block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+    } else if (null_presence.has_nullable) {
+        auto [temporary_block, new_args, new_result] =
+                create_block_with_nested_columns(block, arguments, result);
+        RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,
+                                       temporary_block.rows()));
+        block.get_by_position(result).column = handle_bitmap_op_count_null_value(
+                temporary_block.get_by_position(new_result).column, block, arguments, result,
+                input_rows_count);
+    } else {
+        return exec_impl_func(context, block, arguments, result, input_rows_count);
+    }
+    return Status::OK();
+}
+
+class FunctionBitmapAndNotCount : public IFunction {
+public:
+    using LeftDataType = DataTypeBitMap;
+    using RightDataType = DataTypeBitMap;
+    using ResultDataType = typename BitmapAndNotCount<LeftDataType, RightDataType>::ResultDataType;
+
+    static constexpr auto name = "bitmap_and_not_count";
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapAndNotCount>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        bool return_nullable = false;
+        // result is nullable only when any columns is nullable for bitmap_and_not_count
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            if (arguments[i]->is_nullable()) {
+                return_nullable = true;
+                break;
+            }
+        }
+        auto result_type = std::make_shared<ResultDataType>();
+        return return_nullable ? make_nullable(result_type) : result_type;
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override {
+        // for bitmap_and_not_count, result is always not null, and if the bitmap op result is null,
+        // the count is 0
+        return false;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_EQ(arguments.size(), 2);
+
+        return execute_bitmap_op_count_null_to_zero(
+                context, block, arguments, result, input_rows_count,
+                std::bind((Status(FunctionBitmapAndNotCount::*)(
+                                  FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)) &
+                                  FunctionBitmapAndNotCount::execute_impl_internal,
+                          this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+                          std::placeholders::_4, std::placeholders::_5));
+    }
+
+    Status execute_impl_internal(FunctionContext* context, Block& block,
+                                 const ColumnNumbers& arguments, size_t result,
+                                 size_t input_rows_count) {
+        const auto& left = block.get_by_position(arguments[0]);
+        auto lcol = left.column->convert_to_full_column_if_const();
+        const auto& right = block.get_by_position(arguments[1]);
+        auto rcol = right.column->convert_to_full_column_if_const();
+
+        using ResultType = typename ResultDataType::FieldType;
+        using ColVecResult = ColumnVector<ResultType>;
+
+        typename ColVecResult::MutablePtr col_res = ColVecResult::create();
+        auto& vec_res = col_res->get_data();
+        vec_res.resize(block.rows());
+
+        const ColumnBitmap* l_bitmap_col = assert_cast<const ColumnBitmap*>(lcol.get());
+        const ColumnBitmap* r_bitmap_col = assert_cast<const ColumnBitmap*>(rcol.get());
+        BitmapAndNotCount<LeftDataType, RightDataType>::vector_vector(
+                l_bitmap_col->get_data(), r_bitmap_col->get_data(), vec_res.data());
+
+        auto& result_info = block.get_by_position(result);
+        if (result_info.type->is_nullable()) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res),
+                                                   ColumnUInt8::create(input_rows_count, 0)));
+        } else {
+            block.replace_by_position(result, std::move(col_res));
         }
         return Status::OK();
     }
@@ -780,8 +927,6 @@ using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
 using FunctionBitmapAndNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapAndNot, NameBitmapAndNot>;
-using FunctionBitmapAndNotCount = FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap,
-                                                       BitmapAndNotCount, NameBitmapAndNotCount>;
 using FunctionBitmapContains =
         FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapContains, NameBitmapContains>;
 

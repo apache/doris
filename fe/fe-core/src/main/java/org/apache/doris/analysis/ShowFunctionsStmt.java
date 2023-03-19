@@ -51,7 +51,8 @@ public class ShowFunctionsStmt extends ShowStmt {
 
     private Expr expr;
 
-    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild, Expr expr) {
+    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild,
+            Expr expr) {
         this.dbName = dbName;
         this.isBuiltin = isBuiltin;
         this.isVerbose = isVerbose;
