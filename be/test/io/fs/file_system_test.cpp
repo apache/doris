@@ -493,7 +493,7 @@ TEST_F(FileSystemTest, TestS3FileSystem) {
     S3Conf s3_conf;
     S3URI s3_uri(s3_location);
     CHECK_STATUS_OK(s3_uri.parse());
-    CHECK_STATUS_OK(ClientFactory::convert_properties_to_s3_conf(s3_prop, s3_uri, &s3_conf));
+    CHECK_STATUS_OK(S3ClientFactory::convert_properties_to_s3_conf(s3_prop, s3_uri, &s3_conf));
     std::shared_ptr<io::S3FileSystem> fs;
     CHECK_STATUS_OK(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
 

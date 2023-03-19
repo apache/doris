@@ -57,7 +57,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
         S3URI s3_uri(path);
         RETURN_IF_ERROR(s3_uri.parse());
         S3Conf s3_conf;
-        RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
+        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
         std::shared_ptr<io::S3FileSystem> fs;
         RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
@@ -146,7 +146,7 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     S3URI s3_uri(path);
     RETURN_IF_ERROR(s3_uri.parse());
     S3Conf s3_conf;
-    RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
+    RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
     std::shared_ptr<io::S3FileSystem> fs;
     RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
     RETURN_IF_ERROR(fs->open_file(path, reader_options, reader));

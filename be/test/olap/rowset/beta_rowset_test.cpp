@@ -233,8 +233,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
     std::string resource_id = "10000";
     std::shared_ptr<io::S3FileSystem> fs;
     ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
-    Aws::SDKOptions aws_options = Aws::SDKOptions {};
-    Aws::InitAPI(aws_options);
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
@@ -281,8 +279,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
-
-    Aws::ShutdownAPI(aws_options);
 }
 
 } // namespace doris
