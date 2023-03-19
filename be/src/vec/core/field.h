@@ -147,12 +147,7 @@ public:
         memcpy(data, x.data, size);
     }
 
-    JsonbField(JsonbField&& x) {
-        if (data) {
-            delete[] data;
-        }
-        data = x.data;
-        size = x.size;
+    JsonbField(JsonbField&& x) : data(x.data), size(x.size) {
         x.data = nullptr;
         x.size = 0;
     }
