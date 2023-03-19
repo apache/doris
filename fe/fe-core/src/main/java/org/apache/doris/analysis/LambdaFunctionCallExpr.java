@@ -33,7 +33,10 @@ import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_map").build();
+            String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_exists").build();
+
+    public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
+            String.CASE_INSENSITIVE_ORDER).add("array_exists").build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
@@ -96,6 +99,40 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
+        } else if (fnName.getFunction().equalsIgnoreCase("array_exists")) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 1) {
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
+            }
+            // array_exists(x->x>3, [1,2,3,6,34,3,11])
+            // ---> array_exists(array_map(x->x>3, [1,2,3,6,34,3,11]))
+            Type[] newArgTypes = new Type[1];
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                List<Expr> params = new ArrayList<>();
+                for (int i = childSize - 1; i >= 0; --i) {
+                    params.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayMapFunc = new LambdaFunctionCallExpr("array_map",
+                        params);
+                arrayMapFunc.analyzeImpl(analyzer);
+                Expr castExpr = arrayMapFunc.castTo(ArrayType.create(Type.BOOLEAN, true));
+                this.clearChildren();
+                this.addChild(castExpr);
+                newArgTypes[0] = castExpr.getType();
+            }
+
+            if (!(getChild(0) instanceof CastExpr)) {
+                Expr castExpr = getChild(0).castTo(ArrayType.create(Type.BOOLEAN, true));
+                this.setChild(0, castExpr);
+                newArgTypes[0] = castExpr.getType();
+            }
+
+            fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                LOG.warn("fn {} not exists", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
+            fn.setReturnType(getChild(0).getType());
         }
         this.type = fn.getReturnType();
     }

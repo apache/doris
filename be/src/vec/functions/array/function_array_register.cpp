@@ -22,6 +22,7 @@
 
 namespace doris::vectorized {
 
+void register_function_array_exists(SimpleFunctionFactory&);
 void register_function_array_element(SimpleFunctionFactory&);
 void register_function_array_index(SimpleFunctionFactory&);
 void register_function_array_size(SimpleFunctionFactory&);
