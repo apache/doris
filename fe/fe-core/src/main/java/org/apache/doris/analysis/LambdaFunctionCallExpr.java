@@ -34,11 +34,7 @@ import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
-<<<<<<< HEAD
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").build();
-=======
-            String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_exists").build();
->>>>>>> 5652bfb... support array exists
 
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").build();
@@ -113,11 +109,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             Type[] newArgTypes = new Type[1];
             if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
                 List<Expr> params = new ArrayList<>();
-<<<<<<< HEAD
                 for (int i = 0; i <= childSize - 1; ++i) {
-=======
-                for (int i = childSize - 1; i >= 0; --i) {
->>>>>>> 5652bfb... support array exists
                     params.add(getChild(i));
                 }
                 LambdaFunctionCallExpr arrayMapFunc = new LambdaFunctionCallExpr("array_map",
@@ -142,7 +134,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(getChild(0).getType());
-<<<<<<< HEAD
         } else if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() != 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
@@ -178,8 +169,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-=======
->>>>>>> 5652bfb... support array exists
         }
         this.type = fn.getReturnType();
     }

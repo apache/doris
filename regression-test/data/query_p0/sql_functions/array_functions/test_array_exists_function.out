@@ -45,11 +45,7 @@
 []
 
 -- !select_9 --
-<<<<<<< HEAD
 [NULL]
-=======
-[0]
->>>>>>> 5652bfb... support array exists
 
 -- !select_10 --
 [1, 0]
@@ -73,8 +69,4 @@
 []
 
 -- !select_15 --
-<<<<<<< HEAD
 [NULL, 1, 1]
-=======
-[0, 1, 1]
->>>>>>> 5652bfb... support array exists
