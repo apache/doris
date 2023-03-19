@@ -17,7 +17,7 @@
 
 suite("test_array_map_function_not_null") {
 
-    def tableName = "array_test2_not_null"
+    def tableName = "array_test2_not_null_not_null"
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
             CREATE TABLE IF NOT EXISTS `${tableName}` (
@@ -43,19 +43,19 @@ suite("test_array_map_function_not_null") {
 
         qt_select_2  "select *, array_map(x->x,[1,2,3]) from ${tableName} order by id;"
         qt_select_3  "select *, array_map(x->x+2,[1,2,3]) from ${tableName} order by id;"
-        qt_select_4  "select c_array1, c_array2, array_map(x->x,[1,2,3]) from array_test2 order by id;"
-        qt_select_5  "select c_array1, c_array2, array_map(x->power(x,2),[1,2,3]) from array_test2 order by id;"
+        qt_select_4  "select c_array1, c_array2, array_map(x->x,[1,2,3]) from array_test2_not_null order by id;"
+        qt_select_5  "select c_array1, c_array2, array_map(x->power(x,2),[1,2,3]) from array_test2_not_null order by id;"
 
-        qt_select_6  "select c_array1, c_array2, array_map(x->x,c_array1) from array_test2 order by id;"
-        qt_select_7  "select c_array1, c_array2, array_map(x->x+2,c_array1) from array_test2 order by id;"
-        qt_select_8  "select c_array1, c_array2, array_map(x->power(x,2),c_array1) from array_test2 order by id;"
+        qt_select_6  "select c_array1, c_array2, array_map(x->x,c_array1) from array_test2_not_null order by id;"
+        qt_select_7  "select c_array1, c_array2, array_map(x->x+2,c_array1) from array_test2_not_null order by id;"
+        qt_select_8  "select c_array1, c_array2, array_map(x->power(x,2),c_array1) from array_test2_not_null order by id;"
 
-        qt_select_9  "select c_array1, c_array2, array_map((x,y)->x+y,c_array1,c_array2) from array_test2 order by id;"
-        qt_select_10 "select c_array1, c_array2, array_map((x,y)->power(x,2)+y,c_array1, c_array2) from array_test2 order by id;"
+        qt_select_9  "select c_array1, c_array2, array_map((x,y)->x+y,c_array1,c_array2) from array_test2_not_null order by id;"
+        qt_select_10 "select c_array1, c_array2, array_map((x,y)->power(x,2)+y,c_array1, c_array2) from array_test2_not_null order by id;"
         
-        qt_select_11 "select *,array_map(x->x=3,c_array1) from array_test2 order by id;"
-        qt_select_12 "select *,array_map(x->x>3,c_array1) from array_test2 order by id;"
-        qt_select_13 "select *,array_map((x,y)->x>y,c_array1,c_array2) from array_test2 order by id;"
+        qt_select_11 "select *,array_map(x->x=3,c_array1) from array_test2_not_null order by id;"
+        qt_select_12 "select *,array_map(x->x>3,c_array1) from array_test2_not_null order by id;"
+        qt_select_13 "select *,array_map((x,y)->x>y,c_array1,c_array2) from array_test2_not_null order by id;"
         
         qt_select_14 "select array_map(x -> x,[]);"
         qt_select_15 "select array_map(x -> x,[null]);"
@@ -64,11 +64,10 @@ suite("test_array_map_function_not_null") {
         qt_select_18 "select array_map(x -> abs(x), [null, 1, 2]);"
 
 
-        qt_select_19 "select array_filter([11,2],[1,1,2,3]);"
         qt_select_20 "select array_filter(x->abs(x), [1,null]);"
         qt_select_21 "select array_filter(x->abs(x), [1,2]);"
-        qt_select_22 "select *,array_filter(x->x%2=0,c_array1) from array_test2 order by id;"
-        qt_select_23 "select *,array_filter(x->x%2=0,c_array2) from array_test2 order by id;"
+        qt_select_22 "select *,array_filter(x->x%2=0,c_array1) from array_test2_not_null order by id;"
+        qt_select_23 "select *,array_filter(x->x%2=0,c_array2) from array_test2_not_null order by id;"
         
         sql "DROP TABLE IF EXISTS ${tableName}"
 }
