@@ -26,7 +26,7 @@ under the License.
 
 ## array_exists
 
-<version since="2.0.0">
+<version since="2.0">
 
 array_exists(lambda,array1,array2....)
 array_exists(array1)
