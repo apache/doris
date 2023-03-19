@@ -602,3 +602,30 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
     | 10000000     |
     +--------------+
     ```
+***
+
+#### 关于语句执行超时控制的补充说明
+
+* 控制手段
+
+    目前doris支持通过`variable`和`user property`两种体系来进行超时控制。其中均包含`qeury_timeout`和`insert_timeout`。
+
+* 优先次序
+
+    超时生效的优先级次序是：`session variable` > `user property` > `global variable` > `default value`
+
+    较高优先级的变量未设置时，会自动采用下一个优先级的数值。
+
+* 相关语义
+
+    `query_timeout`用于控制所有语句的超时，`insert_timeout`特定用于控制 INSERT 语句的超时，在执行 INSERT 语句时，超时时间会取
+    
+    `query_timeout`和`insert_timeout`中的最大值。
+
+    `user property`中的`query_timeout`和`insert_timeout`只能由 ADMIN 用户对目标用户予以指定，其语义在于改变被指定用户的默认超时时间，
+    
+    并且不具备`quota`语义。
+
+* 注意事项
+
+    `user property`设置的超时时间需要客户端重连后触发。

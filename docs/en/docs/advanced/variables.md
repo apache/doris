@@ -616,3 +616,29 @@ Translated with www.DeepL.com/Translator (free version)
     | 10000000     |
     +--------------+
     ```
+
+***
+
+#### Supplementary instructions on statement execution timeout control
+
+* Means of control
+
+     Currently doris supports timeout control through `variable` and `user property` two systems. Both include `qeury_timeout` and `insert_timeout`.
+
+* Priority
+
+     The order of priority for timeout to take effect is: `session variable` > `user property` > `global variable` > `default value`
+
+     When a variable with a higher priority is not set, the value of the next priority is automatically adopted.
+
+* Related semantics
+
+     `query_timeout` is used to control the timeout of all statements, and `insert_timeout` is specifically used to control the timeout of the INSERT statement. When the INSERT statement is executed, the timeout time will take
+    
+     The maximum value of `query_timeout` and `insert_timeout`.
+
+     `query_timeout` and `insert_timeout` in `user property` can only be specified by the ADMIN user for the target user, and its semantics is to change the default timeout time of the specified user, and it does not have `quota` semantics.
+
+* Precautions
+
+     The timeout set by `user property` needs to be triggered after the client reconnects.
