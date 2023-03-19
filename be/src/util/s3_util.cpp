@@ -177,8 +177,8 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
             s3_conf.use_virtual_addressing);
 }
 
-Status S3ClientFactory::convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
-                                                    const S3URI& s3_uri, S3Conf* s3_conf) {
+Status S3ClientFactory::convert_properties_to_s3_conf(
+        const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
     if (!is_s3_conf_valid(prop)) {
         return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
     }
