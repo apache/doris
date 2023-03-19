@@ -77,7 +77,7 @@ suite("test_alter_table_column") {
     sql "insert into ${tbName1} values(1,1,10,20);"
     sql "insert into ${tbName1} values(1,1,30,40);"
     qt_sql "desc ${tbName1};"
-    qt_sql "select * from ${tbName1};"
+    qt_sql "select * from ${tbName1} order by k1,k2,value1,value2 desc;"
     sql "DROP TABLE ${tbName1} FORCE;"
 
     def tbName2 = "alter_table_column_agg"
@@ -155,7 +155,7 @@ suite("test_alter_table_column") {
     
     Thread.sleep(200)
     qt_sql "desc ${tbNameAddArray};"
-    qt_sql "select * from ${tbNameAddArray};"
+    qt_sql "select * from ${tbNameAddArray} order by k1 desc;"
     sql "DROP TABLE ${tbNameAddArray} FORCE;"
 
     // vector search
