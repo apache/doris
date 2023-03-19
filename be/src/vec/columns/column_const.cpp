@@ -131,8 +131,7 @@ void ColumnConst::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::P
         }
     } else {
         for (int i = 0; i < hashes.size(); ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, TypeDescriptor {type},
-                                             hashes[i]);
+            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
         }
     }
 }

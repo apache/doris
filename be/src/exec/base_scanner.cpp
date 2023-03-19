@@ -23,7 +23,6 @@
 #include "common/utils.h"
 #include "exec/exec_node.h"
 #include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/data_types/data_type_factory.hpp"
 

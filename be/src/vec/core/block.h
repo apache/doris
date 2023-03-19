@@ -42,7 +42,6 @@ namespace doris {
 class RowDescriptor;
 class Status;
 class TupleDescriptor;
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -371,8 +370,6 @@ public:
 
 private:
     void erase_impl(size_t position);
-    bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
-                             const IColumn* column_with_type_and_name, int row);
 };
 
 using Blocks = std::vector<Block>;

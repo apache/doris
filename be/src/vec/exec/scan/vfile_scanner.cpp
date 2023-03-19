@@ -28,7 +28,6 @@
 #include "io/cache/block/block_file_cache_profile.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
