@@ -62,3 +62,24 @@ v1
 -- !sql --
 "\\n\\b\\r\\t"
 
+-- !sql --
+doris
+
+-- !sql --
+open-quoted"
+
+-- !sql --
+"open-quoted
+
+-- !sql --
+\N
+
+-- !sql --
+Dorris\	ishere\n
+
+-- !sql --
+Dorris\	ishere\n
+
+-- !sql --
+DORIS
+
