@@ -825,17 +825,6 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     return Status::OK();
 }
 
-inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,
-                                       const StringRef& data_ref, const IColumn* column, int row) {
-    if (type_desc.type != TYPE_ARRAY) {
-        return data_ref.data == nullptr;
-    } else {
-        Field array;
-        column->get(row, array);
-        return array.is_null();
-    }
-}
-
 MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
                            bool ignore_trivial_slot) {
     for (auto tuple_desc : tuple_descs) {
