@@ -168,7 +168,7 @@ We are pleased to announce the release of Apache Doris 1.xx.
 Apache Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
 
 The release is available at:
-http://doris.apache.org/master/zh-CN/downloads/downloads.html
+https://doris.apache.org/download/
 
 Thanks to everyone who has contributed to this release, and the release note can be found here:
 https://github.com/apache/doris/releases
