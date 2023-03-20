@@ -618,13 +618,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
      * Subclasses need to override this.
      */
     public void finalize(Analyzer analyzer) throws UserException {
-        for (PlanNode child : children) {
-            child.finalize(analyzer);
-        }
-        computeNumNodes();
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            computeOldCardinality();
-        }
         for (Expr expr : conjuncts) {
             Set<SlotRef> slotRefs = new HashSet<>();
             expr.getSlotRefsBoundByTupleIds(tupleIds, slotRefs);
@@ -634,6 +627,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             for (TupleId tupleId : tupleIds) {
                 analyzer.getTupleDesc(tupleId).computeMemLayout();
             }
+        }
+
+        for (PlanNode child : children) {
+            child.finalize(analyzer);
+        }
+        computeNumNodes();
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            computeOldCardinality();
         }
     }
 
