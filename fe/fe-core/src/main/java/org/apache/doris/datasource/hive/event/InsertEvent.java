@@ -18,10 +18,11 @@
 
 package org.apache.doris.datasource.hive.event;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.InsertMessage;
