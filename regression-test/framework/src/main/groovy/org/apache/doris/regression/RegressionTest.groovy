@@ -97,9 +97,9 @@ class RegressionTest {
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
 
         BasicThreadFactory queryScriptFactory = new BasicThreadFactory.Builder()
-            .namingPattern("query-script-thread-%d")
-            .priority(Thread.MAX_PRIORITY)
-            .build();
+                .namingPattern("query-script-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
         queryScriptExecutors = Executors.newCachedThreadPool(queryScriptFactory)
 
         BasicThreadFactory loadScriptFactory = new BasicThreadFactory.Builder()
@@ -123,9 +123,9 @@ class RegressionTest {
 
 
         BasicThreadFactory queryActionFactory = new BasicThreadFactory.Builder()
-            .namingPattern("action-thread-%d")
-            .priority(Thread.MAX_PRIORITY)
-            .build();
+                .namingPattern("action-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
         queryActionExecutors = Executors.newCachedThreadPool(queryActionFactory)
 
         BasicThreadFactory loadActionFactory = new BasicThreadFactory.Builder()
@@ -195,7 +195,7 @@ class RegressionTest {
     }
 
     static void runScripts(Config config, Recorder recorder,
-                           Predicate<String> directoryFilter, Predicate<String> loadFileNameFilter,Predicate<String> otherQueryFileNameFilter,Predicate<String> queryDependLoadFileNameFilter, Boolean containLoad=true) {
+                           Predicate<String> directoryFilter, Predicate<String> loadFileNameFilter,Predicate<String> otherQueryFileNameFilter,Predicate<String> queryDependLoadFileNameFilter,boolean containLoad) {
         def loadScriptSources = findScriptSources(config.suitePath, directoryFilter, loadFileNameFilter)
         def otherQueryScriptSources = findScriptSources(config.suitePath, directoryFilter, otherQueryFileNameFilter)
         def queryDependLoadScriptSources = findScriptSources(config.suitePath, directoryFilter, queryDependLoadFileNameFilter)
@@ -219,19 +219,25 @@ class RegressionTest {
             }
             otherQueryFutures.add(future)
         }
+
         if(containLoad){
             loadScriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
                 def future = loadScriptExecutors.submit {
-                runScript(config, source, recorder, true)
+                    runScript(config, source, recorder,true)
                 }
-            loadFutures.add(future)
+                loadFutures.add(future)
             }
-        }else{
+
+        }else {
             loadScriptSources.eachWithIndex { source, i ->
-            def future = queryScriptExecutors.submit {
-                runScript(config, source, recorder, false)
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+                def future = queryScriptExecutors.submit {
+                    runScript(config, source, recorder,false)
+                }
+                loadFutures.add(future)
             }
-            loadFutures.add(future)
+
         }
 
         // wait all scripts
@@ -302,12 +308,12 @@ class RegressionTest {
             }
 
             log.info('Start run all scripts asynchronous')
-            runScripts(config, recorder, directoryFilter, {fileName -> fileName in loadSources}, {fileName -> fileName in otherQuerySources},{ fileName -> fileName in queryDependLoadSources})
+            runScripts(config, recorder, directoryFilter, {fileName -> fileName in loadSources}, {fileName -> fileName in otherQuerySources},{ fileName -> fileName in queryDependLoadSources}, true)
             log.info("---------------------------------------------------------")
         }else {
             log.info('Start to run scripts')
             runScripts(config, recorder, directoryFilter,
-                    { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" },{ fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "ignore-this-file" },{ fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "ignore-this-file" }, false)
+                    { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" },{ fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "ignore-this-file" },{ fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "ignore-this-file" },false)
         }
 
         return recorder
@@ -318,13 +324,13 @@ class RegressionTest {
             return true
         }
         if (!config.suiteWildcard.isEmpty() && !config.suiteWildcard.any {
-                    suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
-                }) {
+            suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
+        }) {
             return false
         }
         if (!config.excludeSuiteWildcard.isEmpty() && config.excludeSuiteWildcard.any {
-                    excludeSuiteWildcard -> Wildcard.match(suiteName, excludeSuiteWildcard)
-                }) {
+            excludeSuiteWildcard -> Wildcard.match(suiteName, excludeSuiteWildcard)
+        }) {
             return false
         }
         return true
