@@ -23,6 +23,7 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <gtest/gtest_prod.h>
 
 #include "common/status.h"
 #include "gen_cpp/DorisExternalService_types.h"
@@ -176,6 +177,8 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
+
+    FRIEND_TEST(FragmentMgrTest, pipelineDuplicated);
 };
 
 } // namespace doris

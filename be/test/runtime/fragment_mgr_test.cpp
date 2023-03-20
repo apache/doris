@@ -136,4 +136,21 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
     }
 }
 
+TEST_F(FragmentMgrTest, pipelineDuplicated) {
+    FragmentMgr mgr(nullptr);
+    TPipelineInstanceParams instanceParams;
+    instanceParams.fragment_instance_id = TUniqueId();
+    instanceParams.fragment_instance_id.__set_hi(100);
+    instanceParams.fragment_instance_id.__set_lo(200);
+    TPipelineFragmentParams params;
+    params.local_params.push_back(instanceParams);
+    // mock duplicated
+    mgr._pipeline_map[instanceParams.fragment_instance_id] = nullptr;
+    auto size = mgr._pipeline_map.size();
+
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_EQ(mgr._pipeline_map.size(), size);
+    EXPECT_EQ(mgr._pipeline_map.count(instanceParams.fragment_instance_id), 1);
+}
+
 } // namespace doris

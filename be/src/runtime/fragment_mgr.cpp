@@ -870,12 +870,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     for (size_t i = 0; i < params.local_params.size(); i++) {
         const auto& local_params = params.local_params[i];
-
         const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
         {
             std::lock_guard<std::mutex> lock(_lock);
-            auto iter = _fragment_map.find(fragment_instance_id);
-            if (iter != _fragment_map.end()) {
+            if (_pipeline_map.find(fragment_instance_id) != _pipeline_map.end()) {
                 // Duplicated
                 continue;
             }
