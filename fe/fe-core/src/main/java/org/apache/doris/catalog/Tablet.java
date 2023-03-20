@@ -490,11 +490,14 @@ public class Tablet extends MetaObject implements Writable {
             currentAllocMap.put(backend.getLocationTag(), (short) (curNum + 1));
         }
 
+        // 0. We can not choose a good replica as src to repair this tablet.
+        if (aliveAndVersionComplete == 0) {
+            return Pair.of(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
+        }
+
         // 1. alive replicas are not enough
         int aliveBackendsNum = aliveBeIdsInCluster.size();
-        if (alive == 0) {
-            return Pair.of(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
-        } else if (alive < replicationNum && replicas.size() >= aliveBackendsNum
+        if (alive < replicationNum && replicas.size() >= aliveBackendsNum
                 && aliveBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
             // so there can be available backend for us to create a new replica.
@@ -513,9 +516,7 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 2. version complete replicas are not enough
-        if (aliveAndVersionComplete == 0) {
-            return Pair.of(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
-        } else if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
+        if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
             return Pair.of(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.HIGH);
         } else if (aliveAndVersionComplete < replicationNum) {
             return Pair.of(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
