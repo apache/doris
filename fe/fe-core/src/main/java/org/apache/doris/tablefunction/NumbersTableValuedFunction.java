@@ -17,14 +17,10 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.planner.DataGenScanNode;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataGenFunctionName;
 import org.apache.doris.thrift.TDataGenScanRange;
@@ -140,10 +136,5 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
             res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
         }
         return res;
-    }
-
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new DataGenScanNode(id, desc, "DataGenScanNode", this);
     }
 }

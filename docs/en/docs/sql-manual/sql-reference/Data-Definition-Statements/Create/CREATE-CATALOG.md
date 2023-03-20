@@ -124,6 +124,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 
 	```sql
 	-- 1.2.0+ Version
+	-- The first way 
 	CREATE RESOURCE mysql_resource PROPERTIES (
 		"type"="jdbc",
 		"user"="root",
@@ -134,8 +135,18 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
-	-- 1.2.0 Version
+	-- The second way
 	CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"user"="root",
+		"password"="123456",
+		"jdbc_url" = "jdbc:mysql://127.0.0.1:3316/doris_test?useSSL=false",
+		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+		"driver_class" = "com.mysql.cj.jdbc.Driver"
+	);
+ 	
+	-- 1.2.0 Version
+ 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
 		"jdbc.user"="root",
 		"jdbc.password"="123456",
@@ -159,21 +170,21 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG jdbc WITH RESOURCE pg_resource;
 
-	-- The second way, note: keys have 'jdbc' prefix in front.
+	-- The second way
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"jdbc.user"="postgres",
-		"jdbc.password"="123456",
-		"jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
-		"jdbc.driver_url" = "file:///path/to/postgresql-42.5.1.jar",
-		"jdbc.driver_class" = "org.postgresql.Driver"
+		"user"="postgres",
+		"password"="123456",
+		"jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+		"driver_url" = "file:///path/to/postgresql-42.5.1.jar",
+		"driver_class" = "org.postgresql.Driver"
 	);
 	```
 
 	**clickhouse**
 
 	```sql
-	-- 1.2.0+ Version
+	-- The first way
 	CREATE RESOURCE clickhouse_resource PROPERTIES (
 		"type"="jdbc",
 		"user"="default",
@@ -184,11 +195,14 @@ CREATE CATALOG catalog_name PROPERTIES (
 	)
 	CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
 	
-	-- 1.2.0 Version
+	-- The second way
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
-		...
+		"user"="default",
+		"password"="123456",
+		"jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+		"driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+		"driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
 	)
 	```
 
@@ -205,14 +219,14 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG jdbc WITH RESOURCE oracle_resource;
 
-	-- The second way, note: keys have 'jdbc' prefix in front.
+	-- The second way
 	CREATE CATALOG jdbc PROPERTIES (
 		"type"="jdbc",
-		"jdbc.user"="doris",
-		"jdbc.password"="123456",
-		"jdbc.jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-		"jdbc.driver_url" = "file:///path/to/ojdbc6.jar",
-		"jdbc.driver_class" = "oracle.jdbc.driver.OracleDriver"
+		"user"="doris",
+		"password"="123456",
+		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+		"driver_url" = "file:///path/to/ojdbc6.jar",
+		"driver_class" = "oracle.jdbc.driver.OracleDriver"
 	);	
 	```
 
@@ -229,16 +243,40 @@ CREATE CATALOG catalog_name PROPERTIES (
 	);
 	CREATE CATALOG sqlserver_catlog WITH RESOURCE sqlserver_resource;
 
-	-- The second way, note: keys have 'jdbc' prefix in front.
+	-- The second way
 	CREATE CATALOG sqlserver_catlog PROPERTIES (
 		"type"="jdbc",
-		"jdbc.user"="SA",
-		"jdbc.password"="Doris123456",
-		"jdbc.jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
-		"jdbc.driver_url" = "file:///path/to/mssql-jdbc-11.2.3.jre8.jar",
-		"jdbc.driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+		"user"="SA",
+		"password"="Doris123456",
+		"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+		"driver_url" = "file:///path/to/mssql-jdbc-11.2.3.jre8.jar",
+		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 	);	
 	```
+
+   **SAP_HANA**
+   ```sql
+   -- The first way
+   CREATE RESOURCE saphana_resource PROPERTIES (
+       "type"="jdbc",
+       "user"="SYSTEM",
+       "password"="SAPHANA",
+       "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+       "driver_url" = "file:///path/to/ngdbc.jar",
+       "driver_class" = "com.sap.db.jdbc.Driver"
+   );
+   CREATE CATALOG saphana_catlog WITH RESOURCE saphana_resource;
+
+   -- The second way
+	CREATE CATALOG saphana_catalog PROPERTIES (
+       "type"="jdbc",
+       "user"="SYSTEM",
+       "password"="SAPHANA",
+       "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+       "driver_url" = "file:///path/to/ngdbc.jar",
+       "driver_class" = "com.sap.db.jdbc.Driver"
+	);
+   ```
 
 ### Keywords
 

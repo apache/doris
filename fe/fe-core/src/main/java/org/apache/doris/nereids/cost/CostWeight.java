@@ -37,9 +37,11 @@ public class CostWeight {
     static final double CPU_WEIGHT = 1;
     static final double MEMORY_WEIGHT = 1;
     static final double NETWORK_WEIGHT = 1.5;
+    static final double DELAY = 0.5;
     final double cpuWeight;
     final double memoryWeight;
     final double networkWeight;
+    final double ioWeight;
     /*
      * About PENALTY:
      * Except stats information, there are some special criteria in doris.
@@ -62,10 +64,20 @@ public class CostWeight {
         this.memoryWeight = memoryWeight;
         this.networkWeight = networkWeight;
         this.penaltyWeight = penaltyWeight;
+        this.ioWeight = 1;
     }
 
     public static CostWeight get() {
         return new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
                 ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
+    }
+
+    //TODO: add it in session variable
+    public static double getDelay() {
+        return DELAY;
+    }
+
+    public double weightSum(double cpuCost, double ioCost, double netCost) {
+        return cpuCost * cpuWeight + ioCost * ioWeight + netCost * networkWeight;
     }
 }

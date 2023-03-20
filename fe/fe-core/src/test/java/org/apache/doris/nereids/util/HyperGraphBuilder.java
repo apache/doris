@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
@@ -33,7 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
@@ -187,13 +186,14 @@ public class HyperGraphBuilder {
     private void injectRowcount(Group group) {
         if (!group.isJoinGroup()) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
-            HashMap<Id, ColumnStatistic> slotIdToColumnStats = new HashMap<Id, ColumnStatistic>();
+            HashMap<Expression, ColumnStatistic> slotIdToColumnStats = new HashMap<Expression, ColumnStatistic>();
             int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
             for (Slot slot : scanPlan.getOutput()) {
-                slotIdToColumnStats.put(slot.getExprId(),
-                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0, 0, null, null, true));
+                slotIdToColumnStats.put(slot,
+                        new ColumnStatistic(count, count, 0, 0, 0, 0,
+                                0, 0, null, null, true, null));
             }
-            StatsDeriveResult stats = new StatsDeriveResult(count, slotIdToColumnStats);
+            Statistics stats = new Statistics(count, slotIdToColumnStats);
             group.setStatistics(stats);
             return;
         }

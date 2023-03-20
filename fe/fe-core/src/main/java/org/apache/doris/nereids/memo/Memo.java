@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -693,21 +693,27 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group).append("\n");
+            builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
-            StatsDeriveResult stats = group.getStatistics();
+            Statistics stats = group.getStatistics();
             if (stats != null && !group.getLogicalExpressions().isEmpty()
                     && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
-                for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
+                for (Entry e : stats.columnStatistics().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
             }
-            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
-            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                builder.append("  ").append(groupExpression.toString()).append("\n");
-            }
+
+            builder.append("  lowest Plan(cost, properties, plan)");
+            group.getAllProperties().forEach(
+                    prop -> {
+                        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
+                        if (costAndGroupExpression.isPresent()) {
+                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
+                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                        }
+                    }
+            );
+            builder.append("\n");
         }
         return builder.toString();
     }
@@ -778,7 +784,7 @@ public class Memo {
         }
         List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
         permute(children, 0, childrenId, new ArrayList<>());
-        Cost cost = CostCalculator.calculateCost(groupExpression);
+        Cost cost = CostCalculator.calculateCost(groupExpression, inputProperties);
         for (Pair<Long, List<Integer>> c : childrenId) {
             Cost totalCost = cost;
             for (int i = 0; i < children.size(); i++) {

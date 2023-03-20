@@ -199,6 +199,9 @@ private:
         } else if (check_column<ColumnDecimal64>(*nested_column)) {
             res = _execute_number_expanded<Decimal64, Decimal64>(offsets, *nested_column,
                                                                  nested_null_map);
+        } else if (check_column<ColumnDecimal128I>(*nested_column)) {
+            res = _execute_number_expanded<Decimal128I, Decimal128I>(offsets, *nested_column,
+                                                                     nested_null_map);
         } else if (check_column<ColumnDecimal128>(*nested_column)) {
             res = _execute_number_expanded<Decimal128, Decimal128>(offsets, *nested_column,
                                                                    nested_null_map);

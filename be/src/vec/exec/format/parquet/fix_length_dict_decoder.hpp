@@ -20,6 +20,7 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/parquet/decoder.h"
 
 namespace doris::vectorized {
 
@@ -31,7 +32,7 @@ public:
     ~FixLengthDictDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (doris_column->is_column_dictionary() &&
             assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
@@ -43,11 +44,22 @@ public:
             assert_cast<ColumnDictI32&>(*doris_column)
                     .insert_many_dict_data(&dict_items[0], dict_items.size());
         }
+        if (doris_column->is_column_dictionary()) {
+            ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
+            if (dict_column.dict_size() == 0) {
+                std::vector<StringRef> dict_items;
+                dict_items.reserve(_dict_items.size());
+                for (int i = 0; i < _dict_items.size(); ++i) {
+                    dict_items.emplace_back((char*)(&_dict_items[i]), _type_length);
+                }
+                dict_column.insert_many_dict_data(&dict_items[0], dict_items.size());
+            }
+        }
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
-        if (doris_column->is_column_dictionary()) {
-            return _decode_dict_values(doris_column, select_vector);
+        if (doris_column->is_column_dictionary() || is_dict_filter) {
+            return _decode_dict_values(doris_column, select_vector, is_dict_filter);
         }
 
         TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
@@ -364,7 +376,7 @@ public:
     ~FixLengthDictDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (doris_column->is_column_dictionary() &&
             assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
@@ -379,8 +391,8 @@ public:
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 
-        if (doris_column->is_column_dictionary()) {
-            return _decode_dict_values(doris_column, select_vector);
+        if (doris_column->is_column_dictionary() || is_dict_filter) {
+            return _decode_dict_values(doris_column, select_vector, is_dict_filter);
         }
 
         TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
@@ -434,11 +446,45 @@ public:
         _dict = std::move(dict);
         char* dict_item_address = reinterpret_cast<char*>(_dict.get());
         _dict_items.resize(num_values);
+        _dict_value_to_code.reserve(num_values);
         for (size_t i = 0; i < num_values; ++i) {
             _dict_items[i] = dict_item_address;
+            _dict_value_to_code[StringRef(_dict_items[i], _type_length)] = i;
             dict_item_address += _type_length;
         }
         return Status::OK();
+    }
+
+    Status read_dict_values_to_column(MutableColumnPtr& doris_column) override {
+        size_t dict_items_size = _dict_items.size();
+        std::vector<StringRef> dict_values(dict_items_size);
+        for (size_t i = 0; i < dict_items_size; ++i) {
+            dict_values.emplace_back(_dict_items[i], _type_length);
+        }
+        doris_column->insert_many_strings(&dict_values[0], dict_items_size);
+        return Status::OK();
+    }
+
+    Status get_dict_codes(const ColumnString* string_column,
+                          std::vector<int32_t>* dict_codes) override {
+        size_t size = string_column->size();
+        dict_codes->reserve(size);
+        for (int i = 0; i < size; ++i) {
+            StringRef dict_value = string_column->get_data_at(i);
+            dict_codes->emplace_back(_dict_value_to_code[dict_value]);
+        }
+        return Status::OK();
+    }
+
+    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
+        auto res = ColumnString::create();
+        std::vector<StringRef> dict_values(dict_column->size());
+        const auto& data = dict_column->get_data();
+        for (size_t i = 0; i < dict_column->size(); ++i) {
+            dict_values.emplace_back(_dict_items[data[i]], _type_length);
+        }
+        res->insert_many_strings(&dict_values[0], dict_values.size());
+        return res;
     }
 
 protected:
@@ -528,6 +574,7 @@ protected:
 
     // For dictionary encoding
     std::vector<char*> _dict_items;
+    std::unordered_map<StringRef, int32_t> _dict_value_to_code;
 };
 
 } // namespace doris::vectorized

@@ -43,56 +43,6 @@
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
-// PrimitiveType->TExprNodeType
-// TODO: use constexpr if we use c++14
-TExprNodeType::type get_expr_node_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-        return TExprNodeType::BOOL_LITERAL;
-
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-        return TExprNodeType::INT_LITERAL;
-
-    case TYPE_LARGEINT:
-        return TExprNodeType::LARGE_INT_LITERAL;
-        break;
-
-    case TYPE_NULL:
-        return TExprNodeType::NULL_LITERAL;
-
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_TIME:
-    case TYPE_TIMEV2:
-        return TExprNodeType::FLOAT_LITERAL;
-        break;
-
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMALV2:
-        return TExprNodeType::DECIMAL_LITERAL;
-
-    case TYPE_DATETIME:
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
-        return TExprNodeType::DATE_LITERAL;
-
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_HLL:
-    case TYPE_OBJECT:
-    case TYPE_STRING:
-        return TExprNodeType::STRING_LITERAL;
-
-    default:
-        DCHECK(false) << "Invalid type.";
-        return TExprNodeType::NULL_LITERAL;
-    }
-}
 
 // PrimitiveType-> PColumnType
 // TODO: use constexpr if we use c++14
@@ -930,8 +880,8 @@ public:
         case TYPE_DATE: {
             auto& min_val_ref = minmax_filter->min_val().stringval();
             auto& max_val_ref = minmax_filter->max_val().stringval();
-            DateTimeValue min_val;
-            DateTimeValue max_val;
+            vectorized::VecDateTimeValue min_val;
+            vectorized::VecDateTimeValue max_val;
             min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
             max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
             return _context.minmax_func->assign(&min_val, &max_val);
@@ -1679,9 +1629,9 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_DATE:
     case TYPE_DATETIME: {
         char convert_buffer[30];
-        reinterpret_cast<const DateTimeValue*>(min_data)->to_string(convert_buffer);
+        reinterpret_cast<const vectorized::VecDateTimeValue*>(min_data)->to_string(convert_buffer);
         filter->mutable_min_val()->set_stringval(convert_buffer);
-        reinterpret_cast<const DateTimeValue*>(max_data)->to_string(convert_buffer);
+        reinterpret_cast<const vectorized::VecDateTimeValue*>(max_data)->to_string(convert_buffer);
         filter->mutable_max_val()->set_stringval(convert_buffer);
         return;
     }

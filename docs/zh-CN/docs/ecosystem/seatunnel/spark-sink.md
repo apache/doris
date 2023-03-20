@@ -35,7 +35,7 @@ under the License.
 ## Spark Sink Doris
 
 ### 插件代码
-Spark Sink Doris 的插件代码在[这里](https://github.com/apache/incubator-seatunnel/tree/dev/seatunnel-connectors/seatunnel-connectors-spark/seatunnel-connector-spark-doris)
+Spark Sink Doris 的插件代码在[这里](https://github.com/apache/incubator-seatunnel)
 ### 参数列表
 | 参数名 | 参数类型 | 是否必要 | 默认值 | 引擎类型 |
 | --- | --- | --- | --- | --- |

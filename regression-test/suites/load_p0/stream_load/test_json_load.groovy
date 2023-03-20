@@ -531,7 +531,21 @@ suite("test_json_load", "p0") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
-    
+
+    // case19: test case sensitive json load
+     try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_test_table1.call(testTable)
+        load_json_data.call('test_json_load_case19', 'false', 'true', 'json', 'Id, cIty, CodE', '',
+                '', '', '', 'case_sensitive_json.json', false, 2)
+        sql "sync"
+        qt_select19 "select * from ${testTable} order by id"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {

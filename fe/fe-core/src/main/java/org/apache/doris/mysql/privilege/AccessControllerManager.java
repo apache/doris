@@ -20,6 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * AccessControllerManager is the entry point of privilege authentication.
@@ -101,7 +103,7 @@ public class AccessControllerManager {
         return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
     }
 
-    private boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         return getAccessControllerOrDefault(ctl).checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
     }
@@ -156,6 +158,18 @@ public class AccessControllerManager {
         for (TableName tableName : tableToColsMap.keySet()) {
             accessController.checkColsPriv(hasGlobal, currentUser, ctl, tableName.getDb(),
                     tableName.getTbl(), tableToColsMap.get(tableName), wanted);
+        }
+    }
+
+    public boolean checkColumnsPriv(UserIdentity currentUser, String db, String tbl, Set<String> cols,
+            PrivPredicate wanted) {
+        boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
+        CatalogAccessController accessController = getAccessControllerOrDefault(Auth.DEFAULT_CATALOG);
+        try {
+            accessController.checkColsPriv(hasGlobal, currentUser, Auth.DEFAULT_CATALOG, db, tbl, cols, wanted);
+            return true;
+        } catch (AuthorizationException e) {
+            return false;
         }
     }
 

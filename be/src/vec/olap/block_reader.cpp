@@ -75,10 +75,17 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
 
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
-    for (auto& rs_reader : read_params.rs_readers) {
+    DCHECK(read_params.rs_readers_segment_offsets.empty() ||
+           read_params.rs_readers_segment_offsets.size() == read_params.rs_readers.size());
+
+    bool is_empty = read_params.rs_readers_segment_offsets.empty();
+    for (int i = 0; i < read_params.rs_readers.size(); ++i) {
+        auto& rs_reader = read_params.rs_readers[i];
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_NOT_OK(rs_reader->init(&_reader_context));
+            RETURN_NOT_OK(rs_reader->init(
+                    &_reader_context,
+                    is_empty ? std::pair {0, 0} : read_params.rs_readers_segment_offsets[i]));
         }
         Status res = _vcollect_iter.add_child(rs_reader);
         if (!res.ok() && !res.is<END_OF_FILE>()) {

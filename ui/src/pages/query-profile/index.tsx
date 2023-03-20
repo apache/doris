@@ -23,6 +23,7 @@ import {queryProfile} from 'Src/api/api';
 import Table from 'Src/components/table';
 import {useHistory} from 'react-router-dom';
 import {Result} from '@src/interfaces/http.interface';
+import {replaceToTxt} from 'Src/utils/utils';
 
 const {Text, Title} = Typography;
 export default function QueryProfile(params: any) {
@@ -75,12 +76,13 @@ export default function QueryProfile(params: any) {
         history.push('/QueryProfile/');
     }
 
-    function download(profile) {
-        const blob = new Blob([JSON.stringify(profile)], {
-            type: "text/plain"
+    function download(profile: string) {
+        const profileTxt = replaceToTxt(profile);
+        const blob = new Blob([profileTxt], {
+            type: "text/plain",
         });
         const tagA = document.createElement("a");
-        tagA.download = `profile_${(new Date()).valueOf()}.txt`;
+        tagA.download = `profile_${new Date().valueOf()}.txt`;
         tagA.style.display = "none";
         tagA.href = URL.createObjectURL(blob);
         document.body.appendChild(tagA);

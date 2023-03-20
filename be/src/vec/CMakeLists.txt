@@ -46,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
   aggregate_functions/aggregate_function_histogram.cpp
+  aggregate_functions/aggregate_function_quantile_state.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_struct.cpp
@@ -95,6 +96,7 @@ set(VEC_FILES
   data_types/data_type_string.cpp
   data_types/data_type_decimal.cpp
   data_types/data_type_map.cpp
+  data_types/data_type_quantilestate.cpp
   data_types/get_least_supertype.cpp
   data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
@@ -152,11 +154,13 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/vschema_change_expr.cpp
   exprs/table_function/table_function_factory.cpp
   exprs/table_function/vexplode.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
+  exprs/lambda_function/varray_map_function.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
@@ -182,6 +186,8 @@ set(VEC_FILES
   functions/array/function_array_with_constant.cpp
   functions/array/function_array_apply.cpp
   functions/array/function_array_concat.cpp
+  functions/array/function_array_pushfront.cpp
+  functions/function_map.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -247,6 +253,7 @@ set(VEC_FILES
   functions/function_running_difference.cpp
   functions/function_width_bucket.cpp
   functions/match.cpp
+  functions/function_quantile_state.cpp
   
   jsonb/serialize.cpp
   olap/vgeneric_iterators.cpp
@@ -313,13 +320,14 @@ set(VEC_FILES
   exec/format/table/iceberg_reader.cpp
   exec/format/file_reader/new_plain_text_line_reader.cpp
   exec/format/file_reader/new_plain_binary_line_reader.cpp
+  exec/format/parquet/delta_bit_pack_decoder.cpp
+  exec/format/parquet/bool_rle_decoder.cpp
   )
 
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
-            exec/scan/mysql_scanner.cpp
-            )
+            exec/scan/mysql_scanner.cpp)
 endif ()
 
 add_library(Vec STATIC

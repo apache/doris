@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to run TPC-DS 99 queries
+# This script is used to run TPC-DS 103 queries
 ##############################################################
 
 set -eo pipefail
@@ -33,7 +33,7 @@ TPCDS_QUERIES_DIR="${CURDIR}/../queries"
 
 usage() {
     echo "
-This script is used to run TPC-DS 99 queries, 
+This script is used to run TPC-DS 103 queries, 
 will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
 Usage: $0 
   "

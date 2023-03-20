@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "vec/columns/column_const.h"
+#include "vec/columns/columns_number.h"
 #ifdef __SSE4_1__
 #include <smmintrin.h>
 #else
@@ -500,17 +502,18 @@ public:
 
     static Status get_scale_arg(const ColumnWithTypeAndName& arguments, Int16* scale) {
         const IColumn& scale_column = *arguments.column;
-        if (!is_column_const(scale_column)) {
-            return Status::InvalidArgument("2nd argument for function {} should be constant", name);
-        }
 
-        Field scale_field = assert_cast<const ColumnConst&>(scale_column).get_field();
+        Int32 scale64 = static_cast<const ColumnInt32*>(
+                                &(is_column_const(scale_column)
+                                          ? static_cast<const ColumnConst*>(&scale_column)
+                                                    ->get_data_column()
+                                          : scale_column))
+                                ->get_element(0);
 
-        Int64 scale64 = scale_field.get<Int64>();
         if (scale64 > std::numeric_limits<Int16>::max() ||
             scale64 < std::numeric_limits<Int16>::min()) {
-            return Status::InvalidArgument("Scale argument for function {} is too large: {}", name,
-                                           scale64);
+            return Status::InvalidArgument("Scale argument for function {} is out of bound: {}",
+                                           name, scale64);
         }
 
         *scale = scale64;

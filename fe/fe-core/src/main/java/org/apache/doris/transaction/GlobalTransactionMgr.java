@@ -335,11 +335,24 @@ public class GlobalTransactionMgr implements Writable {
             return !dbTransactionMgr.getCommittedTxnList().isEmpty();
         }
 
-        for (TransactionState transactionState : dbTransactionMgr.getCommittedTxnList()) {
+        List<TransactionState> committedTxnList = dbTransactionMgr.getCommittedTxnList();
+        for (TransactionState transactionState : committedTxnList) {
             if (transactionState.getTableIdList().contains(tableId)) {
                 if (partitionId == null) {
                     return true;
-                } else if (transactionState.getTableCommitInfo(tableId).getPartitionCommitInfo(partitionId) != null) {
+                }
+                TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tableId);
+                if (tableCommitInfo == null) {
+                    // FIXME: this is a bug, should not happen
+                    // If table id is in transaction state's table list, and it is COMMITTED,
+                    // table commit info should not be null.
+                    // return true to avoid following process.
+                    LOG.warn("unexpected error. tableCommitInfo is null. dbId: {} tableId: {}, partitionId: {},"
+                                    + " transactionState: {}",
+                            dbId, tableId, partitionId, transactionState);
+                    return true;
+                }
+                if (tableCommitInfo.getPartitionCommitInfo(partitionId) != null) {
                     return true;
                 }
             }
@@ -656,18 +669,13 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public long getAllRunningTxnNum() {
-        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnNum()),
+        return updateTxnMetric(databaseTransactionMgr -> (long) databaseTransactionMgr.getRunningTxnNum(),
                 MetricRepo.DB_GAUGE_TXN_NUM);
-    }
-
-    public long getAllRunningTxnReplicaNum() {
-        return updateTxnMetric(databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getRunningTxnReplicaNum()),
-                MetricRepo.DB_GAUGE_TXN_REPLICA_NUM);
     }
 
     public long getAllPublishTxnNum() {
         return updateTxnMetric(
-                databaseTransactionMgr -> Long.valueOf(databaseTransactionMgr.getCommittedTxnList().size()),
+                databaseTransactionMgr -> (long) databaseTransactionMgr.getCommittedTxnList().size(),
                 MetricRepo.DB_GAUGE_PUBLISH_TXN_NUM);
     }
 

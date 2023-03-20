@@ -197,7 +197,7 @@ const char PATH_SEPARATOR = '/';
 // a compiler error here.
 //
 #include <stdarg.h>
-inline void va_copy(va_list& a, va_list& b) {
+void va_copy(va_list& a, va_list& b) {
     a = b;
 }
 

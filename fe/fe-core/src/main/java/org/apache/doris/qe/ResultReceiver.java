@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -96,7 +97,8 @@ public class ResultReceiver {
                 rowBatch.setQueryStatistics(pResult.getQueryStatistics());
 
                 if (packetIdx != pResult.getPacketSeq()) {
-                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.getPacketSeq());
+                    LOG.warn("finistId={}, receive packet failed, expect={}, receive={}",
+                            DebugUtil.printId(finstId), packetIdx, pResult.getPacketSeq());
                     status.setRpcStatus("receive error packet");
                     return null;
                 }
@@ -105,7 +107,7 @@ public class ResultReceiver {
                 isDone = pResult.getEos();
 
                 if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
-                    LOG.info("get first empty rowbatch");
+                    LOG.info("finistId={}, get first empty rowbatch", DebugUtil.printId(finstId));
                     rowBatch.setEos(false);
                     return rowBatch;
                 } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
@@ -119,11 +121,11 @@ public class ResultReceiver {
                 }
             }
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception, finstId={}", finstId, e);
+            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception, finstId={}", finstId, e);
+            LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(finstId), e);
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
@@ -132,7 +134,7 @@ public class ResultReceiver {
                 SimpleScheduler.addToBlacklist(backendId, e.getMessage());
             }
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout, finstId={}", finstId, e);
+            LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
             status.setStatus("query timeout");
         } finally {
             synchronized (this) {

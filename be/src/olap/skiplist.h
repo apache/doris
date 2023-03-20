@@ -209,30 +209,30 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(con
 }
 
 template <typename Key, class Comparator>
-inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
+SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
     list_ = list;
     node_ = nullptr;
 }
 
 template <typename Key, class Comparator>
-inline bool SkipList<Key, Comparator>::Iterator::Valid() const {
+bool SkipList<Key, Comparator>::Iterator::Valid() const {
     return node_ != nullptr;
 }
 
 template <typename Key, class Comparator>
-inline const Key& SkipList<Key, Comparator>::Iterator::key() const {
+const Key& SkipList<Key, Comparator>::Iterator::key() const {
     DCHECK(Valid());
     return node_->key;
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::Next() {
+void SkipList<Key, Comparator>::Iterator::Next() {
     DCHECK(Valid());
     node_ = node_->Next(0);
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::Prev() {
+void SkipList<Key, Comparator>::Iterator::Prev() {
     // Instead of using explicit "prev" links, we just search for the
     // last node that falls before key.
     DCHECK(Valid());
@@ -243,17 +243,17 @@ inline void SkipList<Key, Comparator>::Iterator::Prev() {
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
+void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
     node_ = list_->FindGreaterOrEqual(target, nullptr);
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
+void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
     node_ = list_->head_->Next(0);
 }
 
 template <typename Key, class Comparator>
-inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
+void SkipList<Key, Comparator>::Iterator::SeekToLast() {
     node_ = list_->FindLast();
     if (node_ == list_->head_) {
         node_ = nullptr;

@@ -277,9 +277,8 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::BOOLEAN, orc::PredicateDataType::BOOLEAN}};
 
 template <typename CppType>
-static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
-                                                             const void* value, int precision,
-                                                             int scale) {
+std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, const void* value,
+                                                      int precision, int scale) {
     try {
         switch (type->getKind()) {
         case orc::TypeKind::BOOLEAN:
@@ -326,8 +325,8 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
         case orc::TypeKind::DATE: {
             int64_t day_offset;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
-            if constexpr (std::is_same_v<CppType, DateTimeValue>) {
-                const DateTimeValue date_v1 = *reinterpret_cast<const DateTimeValue*>(value);
+            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                const VecDateTimeValue date_v1 = *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_day civil_date(date_v1.year(), date_v1.month(), date_v1.day());
                 day_offset =
                         cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
@@ -345,13 +344,14 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
             int32_t nanos;
             static const cctz::time_zone utc0 = cctz::utc_time_zone();
             // TODO: ColumnValueRange has lost the precision of microsecond
-            if constexpr (std::is_same_v<CppType, DateTimeValue>) {
-                const DateTimeValue datetime_v1 = *reinterpret_cast<const DateTimeValue*>(value);
+            if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                const VecDateTimeValue datetime_v1 =
+                        *reinterpret_cast<const VecDateTimeValue*>(value);
                 cctz::civil_second civil_seconds(datetime_v1.year(), datetime_v1.month(),
                                                  datetime_v1.day(), datetime_v1.hour(),
                                                  datetime_v1.minute(), datetime_v1.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
-                nanos = datetime_v1.microsecond() * 1000;
+                nanos = 0;
             } else {
                 const DateV2Value<DateTimeV2ValueType> datetime_v2 =
                         *reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(value);
@@ -375,7 +375,7 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
 }
 
 template <PrimitiveType primitive_type>
-static std::vector<OrcPredicate> value_range_to_predicate(
+std::vector<OrcPredicate> value_range_to_predicate(
         const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     std::vector<OrcPredicate> predicates;

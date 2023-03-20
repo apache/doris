@@ -17,8 +17,7 @@
 
 suite("test_cast_array_functions_by_literal") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     // array functions only supported in vectorized engine
     test {
         // char to int is ok

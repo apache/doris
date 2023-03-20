@@ -55,7 +55,8 @@ public:
 };
 
 template <>
-inline char* Helper::write_to<DateTimeValue>(const DateTimeValue& v, char* dest) {
+char* Helper::write_to<vectorized::VecDateTimeValue>(const vectorized::VecDateTimeValue& v,
+                                                     char* dest) {
     DateTimeVal value;
     v.to_datetime_val(&value);
     *(int64_t*)dest = value.packed_time;
@@ -66,7 +67,7 @@ inline char* Helper::write_to<DateTimeValue>(const DateTimeValue& v, char* dest)
 }
 
 template <>
-inline char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
+char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
     __int128 value = v.value();
     memcpy(dest, &value, DECIMAL_BYTE_SIZE);
     dest += DECIMAL_BYTE_SIZE;
@@ -74,7 +75,7 @@ inline char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* des
 }
 
 template <>
-inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
+char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
     *(int32_t*)dest = v.size;
     dest += 4;
     memcpy(dest, v.data, v.size);
@@ -83,7 +84,7 @@ inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 }
 
 template <>
-inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
+char* Helper::write_to<std::string>(const std::string& v, char* dest) {
     *(uint32_t*)dest = v.size();
     dest += 4;
     memcpy(dest, v.c_str(), v.size());
@@ -93,39 +94,41 @@ inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
 // write_to end
 
 template <>
-inline int32_t Helper::serialize_size<DateTimeValue>(const DateTimeValue& v) {
+int32_t Helper::serialize_size<vectorized::VecDateTimeValue>(
+        const vectorized::VecDateTimeValue& v) {
     return Helper::DATETIME_PACKED_TIME_BYTE_SIZE + Helper::DATETIME_TYPE_BYTE_SIZE;
 }
 
 template <>
-inline int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
+int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
     return Helper::DECIMAL_BYTE_SIZE;
 }
 
 template <>
-inline int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
+int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
     return v.size + 4;
 }
 
 template <>
-inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
+int32_t Helper::serialize_size<std::string>(const std::string& v) {
     return v.size() + 4;
 }
 // serialize_size end
 
 template <>
-inline void Helper::read_from<DateTimeValue>(const char** src, DateTimeValue* result) {
+void Helper::read_from<vectorized::VecDateTimeValue>(const char** src,
+                                                     vectorized::VecDateTimeValue* result) {
     DateTimeVal value;
     value.is_null = false;
     value.packed_time = *(int64_t*)(*src);
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
     value.type = *(int*)(*src);
     *src += DATETIME_TYPE_BYTE_SIZE;
-    *result = DateTimeValue::from_datetime_val(value);
+    *result = vectorized::VecDateTimeValue::from_datetime_val(value);
 }
 
 template <>
-inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result) {
+void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result) {
     __int128 v = 0;
     memcpy(&v, *src, DECIMAL_BYTE_SIZE);
     *src += DECIMAL_BYTE_SIZE;
@@ -133,7 +136,7 @@ inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* 
 }
 
 template <>
-inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
+void Helper::read_from<StringRef>(const char** src, StringRef* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
     *result = StringRef((char*)*src, length);
@@ -141,14 +144,13 @@ inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
 }
 
 template <>
-inline void Helper::read_from<std::string>(const char** src, std::string* result) {
+void Helper::read_from<std::string>(const char** src, std::string* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
     *result = std::string((char*)*src, length);
     *src += length;
 }
 // read_from end
-
 } // namespace detail
 
 // Calculate the intersection of two or more bitmaps
@@ -238,7 +240,7 @@ public:
         }
     }
 
-private:
+protected:
     std::map<T, BitmapValue> _bitmaps;
 };
 
@@ -325,7 +327,7 @@ public:
         }
     }
 
-private:
+protected:
     phmap::flat_hash_map<std::string, BitmapValue> _bitmaps;
 };
 

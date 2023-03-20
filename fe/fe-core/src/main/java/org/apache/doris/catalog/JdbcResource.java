@@ -67,12 +67,14 @@ public class JdbcResource extends Resource {
     public static final String JDBC_ORACLE = "jdbc:oracle";
     public static final String JDBC_SQLSERVER = "jdbc:sqlserver";
     public static final String JDBC_CLICKHOUSE = "jdbc:clickhouse";
+    public static final String JDBC_SAP_HANA = "jdbc:sap";
 
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
     public static final String SQLSERVER = "SQLSERVER";
     public static final String CLICKHOUSE = "CLICKHOUSE";
+    public static final String SAP_HANA = "SAP_HANA";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -259,6 +261,8 @@ public class JdbcResource extends Resource {
             return SQLSERVER;
         } else if (url.startsWith(JDBC_CLICKHOUSE)) {
             return CLICKHOUSE;
+        } else if (url.startsWith(JDBC_SAP_HANA)) {
+            return SAP_HANA;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
@@ -323,7 +327,6 @@ public class JdbcResource extends Resource {
      *
      * @param jdbcUrl
      * @param params
-     * @param value
      * @return
      */
     private static String checkAndSetJdbcParam(String jdbcUrl, String params, String expectedVal) {

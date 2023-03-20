@@ -154,6 +154,8 @@ struct ArrayAggregateImpl {
             execute_type<Int128>(res, type, data, offsets) ||
             execute_type<Float32>(res, type, data, offsets) ||
             execute_type<Float64>(res, type, data, offsets) ||
+            execute_type<Decimal32>(res, type, data, offsets) ||
+            execute_type<Decimal64>(res, type, data, offsets) ||
             execute_type<Decimal128>(res, type, data, offsets) ||
             execute_type<Decimal128I>(res, type, data, offsets) ||
             execute_type<Date>(res, type, data, offsets) ||

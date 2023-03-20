@@ -102,6 +102,7 @@ public abstract class Type {
     public static final ScalarType CHAR = ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
     public static final ScalarType QUANTILE_STATE = new ScalarType(PrimitiveType.QUANTILE_STATE);
+    public static final ScalarType LAMBDA_FUNCTION = new ScalarType(PrimitiveType.LAMBDA_FUNCTION);
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType MAP = new MapType();
@@ -181,6 +182,9 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+        arraySubTypes.add(DECIMAL32);
+        arraySubTypes.add(DECIMAL64);
+        arraySubTypes.add(DECIMAL128);
 
         mapSubTypes = Lists.newArrayList();
         mapSubTypes.add(BOOLEAN);
@@ -402,6 +406,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.QUANTILE_STATE);
     }
 
+    public boolean isLambdaFunctionType() {
+        return isScalarType(PrimitiveType.LAMBDA_FUNCTION);
+    }
+
     public boolean isObjectStored() {
         return isHllType() || isBitmapType() || isQuantileStateType();
     }
@@ -604,12 +612,9 @@ public abstract class Type {
             return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
         }
         if (t1.isComplexType() || t2.isComplexType()) {
-            if (t1.isArrayType() && t2.isArrayType()) {
+            if ((t1.isArrayType() && t2.isArrayType()) || (t1.isMapType() && t2.isMapType())
+                    || (t1.isStructType() && t2.isStructType())) {
                 return t1.matchesType(t2);
-            } else if (t1.isMapType() && t2.isMapType()) {
-                return true;
-            } else if (t1.isStructType() && t2.isStructType()) {
-                return true;
             }
             return false;
         }
@@ -807,6 +812,8 @@ public abstract class Type {
                 return Type.QUANTILE_STATE;
             case VARIANT:
                 return new VariantType();
+            case LAMBDA_FUNCTION:
+                return Type.LAMBDA_FUNCTION;
             default:
                 return null;
         }
@@ -1582,7 +1589,8 @@ public abstract class Type {
                         || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
                         || t1 == PrimitiveType.TEMPLATE || t2 == PrimitiveType.TEMPLATE
                         || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED
-                        || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT) {
+                        || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT
+                        || t1 == PrimitiveType.LAMBDA_FUNCTION || t2 == PrimitiveType.LAMBDA_FUNCTION) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);

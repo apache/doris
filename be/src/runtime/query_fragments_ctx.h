@@ -33,6 +33,7 @@
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
+#include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
 
@@ -44,8 +45,9 @@ class QueryFragmentsCtx {
 public:
     QueryFragmentsCtx(int total_fragment_num, ExecEnv* exec_env)
             : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
-        _start_time = DateTimeValue::local_time();
+        _start_time = vectorized::VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
+        _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     }
 
     ~QueryFragmentsCtx() {
@@ -69,7 +71,7 @@ public:
 
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const DateTimeValue& now) const {
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
         }
@@ -122,6 +124,10 @@ public:
         return _shared_hash_table_controller;
     }
 
+    std::shared_ptr<vectorized::SharedScannerController> get_shared_scanner_controller() {
+        return _shared_scanner_controller;
+    }
+
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
 public:
@@ -150,7 +156,7 @@ public:
 
 private:
     ExecEnv* _exec_env;
-    DateTimeValue _start_time;
+    vectorized::VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -167,6 +173,7 @@ private:
     std::atomic<bool> _is_cancelled {false};
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
 };
 

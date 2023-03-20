@@ -47,6 +47,14 @@ template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
 
+struct NullPresence {
+    bool has_nullable = false;
+    bool has_null_constant = false;
+};
+
+NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
+[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
+
 /// The simplest executable object.
 /// Motivation:
 ///  * Prepare something heavy once before main execution loop instead of doing it for each block.
@@ -90,7 +98,7 @@ protected:
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
-      *  arguments are converted to ordinary columns with single value, then function is executed as usual,
+      *  arguments are converted to ordinary columns with single value which is not const, then function is executed as usual,
       *  and then the result is converted to constant column.
       */
     virtual bool use_default_implementation_for_constants() const { return false; }
@@ -102,6 +110,7 @@ protected:
     virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
 
     /** Some arguments could remain constant during this implementation.
+      * Every argument required const must write here and no checks elsewhere.
       */
     virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
 
@@ -116,6 +125,9 @@ private:
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
                                                    const ColumnNumbers& arguments, size_t result,
                                                    size_t input_rows_count, bool dry_run);
+    Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
+                                          const ColumnNumbers& args, size_t result,
+                                          size_t input_rows_count, bool dry_run);
 };
 
 /// Function with known arguments and return type.
@@ -298,41 +310,8 @@ public:
                // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
                (return_type->is_nullable() && func_return_type->is_nullable() &&
                 is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
-               (is_date_or_datetime(
-                        return_type->is_nullable()
-                                ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                : return_type) &&
-                is_date_or_datetime(get_return_type(arguments)->is_nullable()
-                                            ? ((DataTypeNullable*)get_return_type(arguments).get())
-                                                      ->get_nested_type()
-                                            : get_return_type(arguments))) ||
-               (is_date_v2_or_datetime_v2(
-                        return_type->is_nullable()
-                                ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                : return_type) &&
-                is_date_v2_or_datetime_v2(
-                        get_return_type(arguments)->is_nullable()
-                                ? ((DataTypeNullable*)get_return_type(arguments).get())
-                                          ->get_nested_type()
-                                : get_return_type(arguments))) ||
-               // For some date functions such as str_to_date(string, string), return_type will
-               // be datetimev2 if users enable datev2 but get_return_type(arguments) will still
-               // return datetime. We need keep backward compatibility here.
-               (is_date_v2_or_datetime_v2(
-                        return_type->is_nullable()
-                                ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                : return_type) &&
-                is_date_or_datetime(get_return_type(arguments)->is_nullable()
-                                            ? ((DataTypeNullable*)get_return_type(arguments).get())
-                                                      ->get_nested_type()
-                                            : get_return_type(arguments))) ||
-               (is_decimal(return_type->is_nullable()
-                                   ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                   : return_type) &&
-                is_decimal(get_return_type(arguments)->is_nullable()
-                                   ? ((DataTypeNullable*)get_return_type(arguments).get())
-                                             ->get_nested_type()
-                                   : get_return_type(arguments))))
+               is_date_or_datetime_or_decimal(return_type, func_return_type) ||
+               is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))
                 << " for function '" << this->get_name() << "' with " << return_type->get_name()
                 << " and " << func_return_type->get_name();
 
@@ -400,6 +379,11 @@ protected:
 private:
     DataTypePtr get_return_type_without_low_cardinality(
             const ColumnsWithTypeAndName& arguments) const;
+
+    bool is_date_or_datetime_or_decimal(const DataTypePtr& return_type,
+                                        const DataTypePtr& func_return_type) const;
+    bool is_array_nested_type_date_or_datetime_or_decimal(
+            const DataTypePtr& return_type, const DataTypePtr& func_return_type) const;
 };
 
 /// Previous function interface.

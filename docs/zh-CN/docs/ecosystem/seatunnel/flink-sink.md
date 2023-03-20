@@ -28,7 +28,7 @@ under the License.
 最新版本的 [Apache SeaTunnel (原 waterdrop )](https://seatunnel.apache.org/zh-CN/) 已经支持 Doris 的连接器, SeaTunnel 可以通过 Spark 引擎和 Flink 引擎同步数据至 Doris 中.
 
 ## Flink Sink Doris(2.x)
-Seatunnel Flink Sink Doris [插件代码](https://github.com/apache/incubator-seatunnel/tree/dev/seatunnel-connectors/seatunnel-connectors-flink/seatunnel-connector-flink-doris)
+Seatunnel Flink Sink Doris [插件代码](https://github.com/apache/incubator-seatunnel)
 ### 参数列表
 | 配置项 | 类型 | 必填 | 默认值 | 支持引擎 |
 | --- | --- | --- | --- | --- |

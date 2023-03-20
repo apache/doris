@@ -23,8 +23,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -58,7 +58,7 @@ public class RuntimeFilterContext {
     private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
 
     // olap scan node that contains target of a runtime filter.
-    private final Map<RelationId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
+    private final Map<ObjectId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
 
     private final List<org.apache.doris.planner.RuntimeFilter> legacyFilters = Lists.newArrayList();
 
@@ -70,7 +70,7 @@ public class RuntimeFilterContext {
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
     // you can see disjoint set data structure to learn the processing detailed.
-    private final Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = Maps.newHashMap();
+    private final Map<NamedExpression, Pair<ObjectId, Slot>> aliasTransferMap = Maps.newHashMap();
 
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
@@ -117,7 +117,7 @@ public class RuntimeFilterContext {
         }
     }
 
-    public void setTargetsOnScanNode(RelationId id, Slot slot) {
+    public void setTargetsOnScanNode(ObjectId id, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
     }
 
@@ -125,7 +125,7 @@ public class RuntimeFilterContext {
         return exprIdToOlapScanNodeSlotRef;
     }
 
-    public Map<NamedExpression, Pair<RelationId, Slot>> getAliasTransferMap() {
+    public Map<NamedExpression, Pair<ObjectId, Slot>> getAliasTransferMap() {
         return aliasTransferMap;
     }
 
@@ -146,7 +146,7 @@ public class RuntimeFilterContext {
         return targetExprIdToFilter;
     }
 
-    public Map<RelationId, List<Slot>> getTargetOnOlapScanNodeMap() {
+    public Map<ObjectId, List<Slot>> getTargetOnOlapScanNodeMap() {
         return targetOnOlapScanNodeMap;
     }
 

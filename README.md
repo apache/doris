@@ -37,7 +37,7 @@ Apache Doris is an easy-to-use, high-performance and real-time analytical databa
 All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
 
 
-🎉 Version 1.2.2 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.2.2) here. 
+🎉 Version 1.2.3 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.2.3) here. 
 
 🎉 Version 1.1.5 released now. It is a LTS(Long-term Support) release based on version 1.1. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.1.5) here. 
 
@@ -119,7 +119,7 @@ Apache Doris uses Adaptive Query Execution technology to dynamically adjust the 
 In terms of optimizers, Doris uses a combination of CBO and RBO. RBO supports constant folding, subquery rewriting, predicate pushdown and CBO supports Join Reorder. The Doris CBO is under continuous optimization for more accurate statistical information collection and derivation, and more accurate cost model prediction.
 
 
-**Technical Overview**: 🔗[Introduction to Apache Doris](https://doris.apache.org/docs/summary/basic-summary)
+**Technical Overview**: 🔗[Introduction to Apache Doris](https://doris.apache.org/docs/dev/summary/basic-summary)
 
 ## 🎆 Why choose Apache Doris?
 
@@ -152,7 +152,7 @@ We deeply appreciate 🔗[community contributors](https://github.com/apache/dori
 
 Apache Doris now has a wide user base in China and around the world, and as of today, **Apache Doris is used in production environments in thousands of companies worldwide.** More than 80% of the top 50 Internet companies in China in terms of market capitalization or valuation have been using Apache Doris for a long time, including Baidu, Meituan, Xiaomi, Jingdong, Bytedance, Tencent, NetEase, Kwai, Sina, 360, Mihoyo, and Ke Holdings. It is also widely used in some traditional industries such as finance, energy, manufacturing, and telecommunications.
 
-The users of Apache Doris: 🔗[https://doris.apache.org/users](https://doris.apache.org/users)
+The users of Apache Doris: 🔗[Users](https://doris.apache.org/users)
 
 Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://github.com/apache/doris/issues/10229)
  
@@ -160,7 +160,7 @@ Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://gi
 
 ### 📚 Docs
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/get-starting/)  
+All Documentation   🔗[Docs](https://doris.apache.org/docs/dev/get-starting/)  
 
 ### ⬇️ Download 
 
@@ -168,11 +168,11 @@ All release and binary version 🔗[Download](https://doris.apache.org/download)
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/install/source-install/compilation)
+See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation/)
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/install-deploy) 
+See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/install-deploy) 
 
 ## 🧩 Components
 
@@ -216,7 +216,7 @@ Contact us through the following mailing list.
 
 ## 🧰 Links
 
-* Apache Doris Official Website - [https://doris.apache.org](https://doris.apache.org)
+* Apache Doris Official Website - [Site](https://doris.apache.org)
 * Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
 * Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-1h153f1ar-sTJB_QahY1SHvZdtPFoIOQ)
 * Twitter - [Follow @doris_apache](https://twitter.com/doris_apache)

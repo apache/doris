@@ -62,6 +62,7 @@ public enum PrimitiveType {
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2),
+    LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION),
 
     // sizeof(CollectionValue)
     ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),

@@ -26,14 +26,17 @@ import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.text.DecimalFormat;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +57,10 @@ public class GroupExpression {
     private final BitSet ruleMasks;
     private boolean statDerived;
 
-    private long estOutputRowCount = -1;
+    private double estOutputRowCount = -1;
+
+    //Record the rule that generate this plan. It's used for debugging
+    private Rule fromRule;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     // key is the physical properties the group expression support for its parent
@@ -67,6 +73,8 @@ public class GroupExpression {
 
     // After mergeGroup(), source Group was cleaned up, but it may be in the Job Stack. So use this to mark and skip it.
     private boolean isUnused = false;
+
+    private ObjectId id = StatementScopeIdGenerator.newObjectId();
 
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
@@ -97,6 +105,10 @@ public class GroupExpression {
 
     public int arity() {
         return children.size();
+    }
+
+    public void setFromRule(Rule rule) {
+        this.fromRule = rule;
     }
 
     public Group getOwnerGroup() {
@@ -285,30 +297,26 @@ public class GroupExpression {
         return Objects.hash(children, plan);
     }
 
-    public StatsDeriveResult childStatistics(int idx) {
-        return new StatsDeriveResult(child(idx).getStatistics());
+    public Statistics childStatistics(int idx) {
+        return new Statistics(child(idx).getStatistics());
     }
 
-    public void setEstOutputRowCount(long estOutputRowCount) {
+    public void setEstOutputRowCount(double estOutputRowCount) {
         this.estOutputRowCount = estOutputRowCount;
-    }
-
-    public long getEstOutputRowCount() {
-        return estOutputRowCount;
     }
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        DecimalFormat format = new DecimalFormat("#,###.##");
+        StringBuilder builder = new StringBuilder("id:");
+        builder.append(id.asInt());
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
-
-        builder.append(" cost=").append((long) cost);
-
-        builder.append(" estRows=").append(estOutputRowCount);
+        builder.append(" cost=").append(format.format((long) cost));
+        builder.append(" estRows=").append(format.format(estOutputRowCount));
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");

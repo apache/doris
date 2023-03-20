@@ -183,8 +183,10 @@ public class StreamLoadPlanner {
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // alaways nullable
-            slotDesc.setIsNullable(true);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
+            slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
 
@@ -229,7 +231,7 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout(),
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
         olapTableSink.complete();
 

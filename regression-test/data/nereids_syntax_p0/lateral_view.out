@@ -58,69 +58,69 @@
 -- !column_prune --
 0	1	["abc", "def"]	[1.1,2.2]
 0	1	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
 0	1	["abc", "def"]	[1.1,2.2]
 0	1	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
+0	1	["abc", "def"]	valid
+0	1	["abc", "def"]	valid
 0	1	valid	[1.1,2.2]
 0	1	valid	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	valid
+0	2	["abc", "def"]	valid
 0	2	valid	[1.1,2.2]
 0	2	valid	[1.1,2.2]
+1	1	["abc", "def"]	valid
+1	1	["abc", "def"]	valid
 1	1	valid	[1.1,2.2]
 1	1	valid	[1.1,2.2]
+1	2	["abc", "def"]	valid
+1	2	["abc", "def"]	valid
 1	2	valid	[1.1,2.2]
 1	2	valid	[1.1,2.2]
-0	1	["abc", "def"]	valid
-0	2	["abc", "def"]	valid
-0	1	["abc", "def"]	valid
-0	2	["abc", "def"]	valid
-1	1	["abc", "def"]	valid
-1	2	["abc", "def"]	valid
-1	1	["abc", "def"]	valid
-1	2	["abc", "def"]	valid
+2	1	["abc", "def"]	valid
 2	1	["abc", "def"]	valid
 2	2	["abc", "def"]	valid
-2	1	["abc", "def"]	valid
 2	2	["abc", "def"]	valid
+3	1	["abc", "def"]	valid
 3	1	["abc", "def"]	valid
 3	2	["abc", "def"]	valid
-3	1	["abc", "def"]	valid
 3	2	["abc", "def"]	valid
 
 -- !alias_query --
 0	1	["abc", "def"]	[1.1,2.2]
 0	1	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
 0	1	["abc", "def"]	[1.1,2.2]
 0	1	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
-0	2	["abc", "def"]	[1.1,2.2]
+0	1	["abc", "def"]	valid
+0	1	["abc", "def"]	valid
 0	1	valid	[1.1,2.2]
 0	1	valid	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	[1.1,2.2]
+0	2	["abc", "def"]	valid
+0	2	["abc", "def"]	valid
 0	2	valid	[1.1,2.2]
 0	2	valid	[1.1,2.2]
+1	1	["abc", "def"]	valid
+1	1	["abc", "def"]	valid
 1	1	valid	[1.1,2.2]
 1	1	valid	[1.1,2.2]
+1	2	["abc", "def"]	valid
+1	2	["abc", "def"]	valid
 1	2	valid	[1.1,2.2]
 1	2	valid	[1.1,2.2]
-0	1	["abc", "def"]	valid
-0	2	["abc", "def"]	valid
-0	1	["abc", "def"]	valid
-0	2	["abc", "def"]	valid
-1	1	["abc", "def"]	valid
-1	2	["abc", "def"]	valid
-1	1	["abc", "def"]	valid
-1	2	["abc", "def"]	valid
+2	1	["abc", "def"]	valid
 2	1	["abc", "def"]	valid
 2	2	["abc", "def"]	valid
-2	1	["abc", "def"]	valid
 2	2	["abc", "def"]	valid
+3	1	["abc", "def"]	valid
 3	1	["abc", "def"]	valid
 3	2	["abc", "def"]	valid
-3	1	["abc", "def"]	valid
 3	2	["abc", "def"]	valid
 
 -- !function_nested --

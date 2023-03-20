@@ -140,8 +140,8 @@ static const std::string INVALID_NULL_VALUE =
     } while (false)
 
 template <typename T>
-static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
-                            bool pure_doc_value) {
+Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
+                     bool pure_doc_value) {
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         return Status::OK();
@@ -173,8 +173,8 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 }
 
 template <typename T, typename RT>
-static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
-                                 RT* slot) {
+Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
+                          RT* slot) {
     constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
     T dt_val;
     if (is_date_str) {
@@ -238,8 +238,8 @@ static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type
 }
 
 template <typename T, typename RT>
-static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                           RT* slot) {
+Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                    RT* slot) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
@@ -265,8 +265,8 @@ static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool
     }
 }
 template <typename T, typename RT>
-static Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
-                            vectorized::IColumn* col_ptr) {
+Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                     vectorized::IColumn* col_ptr) {
     RT data;
     RETURN_IF_ERROR((get_date_int<T, RT>(col, type, pure_doc_value, &data)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
@@ -274,8 +274,8 @@ static Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, boo
 }
 
 template <typename T>
-static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
-                              bool pure_doc_value) {
+Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
+                       bool pure_doc_value) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
@@ -301,8 +301,8 @@ static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, v
 }
 
 template <typename T>
-static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
-                                 vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
+                          vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber() && nullable) {
         T value = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
@@ -331,8 +331,8 @@ static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type
 }
 
 template <typename T>
-static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
-                               vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
+                        vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
     if (col.IsNumber()) {
         T value = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);

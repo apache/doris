@@ -47,24 +47,14 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     private final Set<Expression> conjuncts;
 
-    private final boolean singleTableExpressionExtracted;
-
     public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), false, Optional.empty(), child);
+        this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalFilter(Set<Expression> conjuncts, boolean singleTableExpressionExtracted,
-            CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), singleTableExpressionExtracted,
-                Optional.empty(), child);
-    }
-
-    public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
-            boolean singleTableExpressionExtracted,
+    private LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
-        this.singleTableExpressionExtracted = singleTableExpressionExtracted;
     }
 
     @Override
@@ -78,18 +68,13 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public List<Plan> extraPlans() {
-        if (conjuncts != null) {
-            return conjuncts.stream().map(Expression::children)
-                    .flatMap(Collection::stream)
-                    .flatMap(m -> {
-                        if (m instanceof SubqueryExpr) {
-                            return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
-                        } else {
-                            return new LogicalFilter<Plan>(ImmutableSet.of(m), child()).extraPlans().stream();
-                        }
-                    }).collect(Collectors.toList());
-        }
-        return ImmutableList.of();
+        return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
+            if (m instanceof SubqueryExpr) {
+                return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
+            } else {
+                return new LogicalFilter<Plan>(ImmutableSet.of(m), child()).extraPlans().stream();
+            }
+        }).collect(Collectors.toList());
     }
 
     @Override
@@ -99,7 +84,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalFilter",
+        return Utils.toSqlString("LogicalFilter[" + id.asInt() + "]",
                 "predicates", getPredicate()
         );
     }
@@ -113,13 +98,12 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             return false;
         }
         LogicalFilter that = (LogicalFilter) o;
-        return conjuncts.equals(that.conjuncts)
-                && singleTableExpressionExtracted == that.singleTableExpressionExtracted;
+        return conjuncts.equals(that.conjuncts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(conjuncts, singleTableExpressionExtracted);
+        return Objects.hash(conjuncts);
     }
 
     @Override
@@ -130,23 +114,16 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(conjuncts, singleTableExpressionExtracted, children.get(0));
+        return new LogicalFilter<>(conjuncts, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFilter<>(conjuncts, groupExpression, singleTableExpressionExtracted,
-                Optional.of(getLogicalProperties()), child());
+        return new LogicalFilter<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFilter<>(conjuncts, Optional.empty(),
-                singleTableExpressionExtracted,
-                logicalProperties, child());
-    }
-
-    public boolean isSingleTableExpressionExtracted() {
-        return singleTableExpressionExtracted;
+        return new LogicalFilter<>(conjuncts, Optional.empty(), logicalProperties, child());
     }
 }

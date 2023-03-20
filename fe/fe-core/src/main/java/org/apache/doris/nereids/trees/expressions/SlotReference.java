@@ -43,15 +43,15 @@ public class SlotReference extends Slot {
     private final Column column;
 
     public SlotReference(String name, DataType dataType) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of(), null);
+        this(StatementScopeIdGenerator.newExprId(), name, dataType, true, ImmutableList.of(), null);
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of(), null);
+        this(StatementScopeIdGenerator.newExprId(), name, dataType, nullable, ImmutableList.of(), null);
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier, null);
+        this(StatementScopeIdGenerator.newExprId(), name, dataType, nullable, qualifier, null);
     }
 
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
@@ -84,7 +84,7 @@ public class SlotReference extends Slot {
 
     public static SlotReference fromColumn(Column column, List<String> qualifier) {
         DataType dataType = DataType.fromCatalogType(column.getType());
-        return new SlotReference(NamedExpressionUtil.newExprId(), column.getName(), dataType,
+        return new SlotReference(StatementScopeIdGenerator.newExprId(), column.getName(), dataType,
                 column.isAllowNull(), qualifier, column);
     }
 

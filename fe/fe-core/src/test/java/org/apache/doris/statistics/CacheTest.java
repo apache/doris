@@ -48,18 +48,18 @@ public class CacheTest extends TestWithFeService {
                     try {
                         Thread.sleep(50);
                     } catch (InterruptedException e) {
-                        return ColumnStatistic.DEFAULT;
+                        return ColumnStatistic.UNKNOWN;
                     }
-                    return ColumnStatistic.DEFAULT;
+                    return ColumnStatistic.UNKNOWN;
                 });
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
+        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
         Thread.sleep(100);
         c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
+        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
     }
 
     @Test
@@ -120,7 +120,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
-        Assertions.assertEquals(ColumnStatistic.DEFAULT, columnStatistic);
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
         Thread.sleep(1000);
         columnStatistic = statisticsCache.getColumnStatistics(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);
@@ -186,12 +186,6 @@ public class CacheTest extends TestWithFeService {
 
         StatisticsCache statisticsCache = new StatisticsCache();
         Histogram histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals(Histogram.DEFAULT, histogram);
-        Thread.sleep(1000);
-        histogram = statisticsCache.getHistogram(0, "col");
-        Assertions.assertEquals("DATETIME", histogram.dataType.toString());
-        Assertions.assertEquals(5, histogram.numBuckets);
-        Assertions.assertEquals(0.2, histogram.sampleRate);
-        Assertions.assertEquals(5, histogram.buckets.size());
+        Assertions.assertEquals(null, histogram);
     }
 }

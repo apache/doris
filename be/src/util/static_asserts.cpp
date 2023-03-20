@@ -29,10 +29,7 @@ class UnusedClass {
 private:
     static_assert(sizeof(StringRef) == 16);
     static_assert(offsetof(StringRef, size) == 8);
-    // Datetime value
-    static_assert(sizeof(DateTimeValue) == 16);
     static_assert(sizeof(doris::vectorized::VecDateTimeValue) == 8);
-    // static_assert(offsetof(DateTimeValue, _year) == 8);
 };
 
 } // namespace doris
