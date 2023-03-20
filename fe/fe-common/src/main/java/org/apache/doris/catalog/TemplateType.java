@@ -20,9 +20,13 @@ package org.apache.doris.catalog;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,8 +38,16 @@ public class TemplateType extends Type {
     @SerializedName(value = "name")
     private final String name;
 
-    public TemplateType(String name) {
+    @SerializedName(value = "isVariadic")
+    private final boolean isVariadic;
+
+    public TemplateType(String name, boolean isVariadic) {
         this.name = name;
+        this.isVariadic = isVariadic;
+    }
+
+    public TemplateType(String name) {
+        this(name, false);
     }
 
     @Override
@@ -49,7 +61,7 @@ public class TemplateType extends Type {
             return false;
         }
         TemplateType o = (TemplateType) other;
-        return o.name.equals(name);
+        return o.name.equals(name) && o.isVariadic == isVariadic;
     }
 
     @Override
@@ -61,6 +73,11 @@ public class TemplateType extends Type {
     @Override
     public boolean hasTemplateType() {
         return true;
+    }
+
+    @Override
+    public boolean needExpandTemplateType() {
+        return isVariadic;
     }
 
     @Override
@@ -92,6 +109,31 @@ public class TemplateType extends Type {
             specializedTypeMap.put(name, specificType);
         }
         return specializedTypeMap.get(name);
+    }
+
+    @Override
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap)
+            throws TypeException {
+        Preconditions.checkState(isVariadic);
+        expandSizeMap.computeIfAbsent(name, k -> args.length);
+        if (expandSizeMap.get(name) != args.length) {
+            throw new TypeException(
+                    String.format("can not expand variadic template type %s to %s size since it's "
+                            + "already expand as %s size", name, args.length, expandSizeMap.get(name)));
+        }
+    }
+
+    @Override
+    public List<Type> expandVariadicTemplateType(Map<String, Integer> expandSizeMap) {
+        if (needExpandTemplateType() && expandSizeMap.containsKey(name)) {
+            List<Type> types = Lists.newArrayList();
+            int size = expandSizeMap.get(name);
+            for (int index = 0; index < size; index++) {
+                types.add(new TemplateType(name + "_" + index));
+            }
+            return types;
+        }
+        return Lists.newArrayList(this);
     }
 
     @Override

@@ -524,7 +524,12 @@ public abstract class Type {
         return false;
     }
 
-    // return a new type without template type, by specialize tempalte type in this type
+    // only used for struct type and variadic template type
+    public boolean needExpandTemplateType() {
+        return false;
+    }
+
+    // return a new type without template type, by specialize template type in this type
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
                                        boolean useSpecializedType) throws TypeException {
         if (hasTemplateType()) {
@@ -533,6 +538,22 @@ public abstract class Type {
         } else {
             return this;
         }
+    }
+
+    /**
+     * Only used for struct type and variadic template type,
+     * collect variadic template's expand size based on the input arguments
+     */
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap)
+            throws TypeException {
+    }
+
+    /**
+     * Only used for struct type and variadic template type,
+     * Do expand variadic template type
+     */
+    public List<Type> expandVariadicTemplateType(Map<String, Integer> expandSizeMap) {
+        return Lists.newArrayList(this);
     }
 
     /**

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.io.output.NullOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,6 +41,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -845,6 +847,47 @@ public class Function implements Writable {
         }
 
         return false;
+    }
+
+    public boolean hasVariadicTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.needExpandTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void expandVariadicTemplate(Type[] args) throws TypeException {
+        // collect expand size of variadic template
+        Map<String, Integer> expandSizeMap = Maps.newHashMap();
+        for (int i = argTypes.length - 1; i >= 0; i--) {
+            if (argTypes[i].hasTemplateType()) {
+                if (argTypes[i].needExpandTemplateType()) {
+                    argTypes[i].collectTemplateExpandSize(
+                            Arrays.copyOfRange(args, i, args.length), expandSizeMap);
+                }
+            }
+        }
+
+        // expand the variadic template in arg types
+        List<Type> newArgTypes = Lists.newArrayList();
+        for (int i = 0; i < argTypes.length - 1; i++) {
+            if (argTypes[i].needExpandTemplateType()) {
+                newArgTypes.addAll(argTypes[i].expandVariadicTemplateType(expandSizeMap));
+            } else {
+                newArgTypes.add(argTypes[i]);
+            }
+        }
+        argTypes = newArgTypes.toArray(new Type[0]);
+
+        // expand the variadic template in ret type
+        if (retType.needExpandTemplateType()) {
+            List<Type> newRetType = retType.expandVariadicTemplateType(expandSizeMap);
+            Preconditions.checkState(newRetType.size() == 1);
+            retType = newRetType.get(0);
+        }
     }
 
     @Override

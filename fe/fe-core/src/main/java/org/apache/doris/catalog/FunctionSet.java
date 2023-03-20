@@ -37,6 +37,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -1227,9 +1228,14 @@ public class FunctionSet<T> {
 
         List<Function> normalFunctions = Lists.newArrayList();
         List<Function> templateFunctions = Lists.newArrayList();
+        List<Function> variadicTemplateFunctions = Lists.newArrayList();
         for (Function fn : fns) {
             if (fn.hasTemplateArg()) {
-                templateFunctions.add(fn);
+                if (!fn.hasVariadicTemplateArg()) {
+                    templateFunctions.add(fn);
+                } else {
+                    variadicTemplateFunctions.add(fn);
+                }
             } else {
                 normalFunctions.add(fn);
             }
@@ -1244,12 +1250,29 @@ public class FunctionSet<T> {
         // then specialize template functions and try them
         List<Function> specializedTemplateFunctions = Lists.newArrayList();
         for (Function f : templateFunctions) {
-            f = FunctionSet.specializeTemplateFunction(f, desc);
+            f = FunctionSet.specializeTemplateFunction(f, desc, false);
             if (f != null) {
                 specializedTemplateFunctions.add(f);
             }
         }
-        return getFunction(desc, mode, specializedTemplateFunctions);
+
+        // try template function second
+        fn = getFunction(desc, mode, specializedTemplateFunctions);
+        if (fn != null) {
+            return fn;
+        }
+
+        // then specialize variadic template function and try them
+        List<Function> specializedVariadicTemplateFunctions = Lists.newArrayList();
+        for (Function f : variadicTemplateFunctions) {
+            f = FunctionSet.specializeTemplateFunction(f, desc, true);
+            if (f != null) {
+                specializedVariadicTemplateFunctions.add(f);
+            }
+        }
+
+        // try variadic template function
+        return getFunction(desc, mode, specializedVariadicTemplateFunctions);
     }
 
     private Function getFunction(Function desc, Function.CompareMode mode, List<Function> fns) {
@@ -1292,7 +1315,7 @@ public class FunctionSet<T> {
         return null;
     }
 
-    public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction) {
+    public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
             LOG.debug("templateFunction signature: " + templateFunction.signatureString()
@@ -1300,6 +1323,9 @@ public class FunctionSet<T> {
             LOG.debug("requestFunction signature: " + requestFunction.signatureString()
                         + "  return: " + requestFunction.getReturnType());
             Function specializedFunction = templateFunction;
+            if (isVariadic) {
+                templateFunction.expandVariadicTemplate(requestFunction.getArgs());
+            }
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
                 specializedFunction = new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()),
@@ -1312,12 +1338,10 @@ public class FunctionSet<T> {
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
             for (int i = 0; i < args.length; i++) {
                 if (args[i].hasTemplateType()) {
-                    hasTemplateType = true;
                     args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
                 }
             }
             if (specializedFunction.getReturnType().hasTemplateType()) {
-                hasTemplateType = true;
                 specializedFunction.setReturnType(
                         specializedFunction.getReturnType().specializeTemplateType(
                         requestFunction.getReturnType(), specializedTypeMap, true));

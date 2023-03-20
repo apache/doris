@@ -117,6 +117,8 @@ def generate_fe_datatype(str_type, template_types):
     # process template
     if str_type in template_types:
         return 'new TemplateType("{0}")'.format(str_type)
+    else if "..." + str_type in template_types:
+        return 'new TemplateType("{0}", true)'.format(str_type)
 
     # process Array, Map, Struct template
     template_start = str_type.find('<')
