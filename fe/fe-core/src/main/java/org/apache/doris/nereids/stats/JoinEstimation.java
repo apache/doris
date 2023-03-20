@@ -39,9 +39,9 @@ public class JoinEstimation {
                 .sorted((a, b) -> {
                     double sub = a.second - b.second;
                     if (sub > 0) {
-                        return -1;
-                    } else if (sub < 0) {
                         return 1;
+                    } else if (sub < 0) {
+                        return -1;
                     } else {
                         return 0;
                     }
