@@ -49,7 +49,7 @@ array_exists(array1);
 
 ### example
 
-```shell
+```sql
 
 mysql [test]>select *, array_exists(x->x>1,[1,2,3]) from array_test2 order by id;
 +------+-----------------+-------------------------+-----------------------------------------------+
