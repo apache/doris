@@ -135,7 +135,6 @@ set(OLAP_TEST_FILES
 set(RUNTIME_TEST_FILES
     # runtime/result_buffer_mgr_test.cpp
     # runtime/parallel_executor_test.cpp
-    # runtime/datetime_value_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/tmp_file_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
