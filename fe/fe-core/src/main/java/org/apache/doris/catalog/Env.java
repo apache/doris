@@ -1403,6 +1403,7 @@ public class Env {
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
             LOG.info("deploy manager {} start", deployManager.getName());
             deployManager.start();
+            deployManager.startListener();
         }
         // start routine load scheduler
         routineLoadScheduler.start();
