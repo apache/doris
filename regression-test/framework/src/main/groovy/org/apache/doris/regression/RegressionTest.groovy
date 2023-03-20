@@ -48,9 +48,15 @@ class RegressionTest {
     static ClassLoader classloader
     static CompilerConfiguration compileConfig
     static GroovyShell shell
-    static ExecutorService scriptExecutors
-    static ExecutorService suiteExecutors
-    static ExecutorService actionExecutors
+    static ExecutorService queryScriptExecutors
+    static ExecutorService loadScriptExecutors
+
+    static ExecutorService loadSuiteExecutors
+    static ExecutorService querySuiteExecutors
+
+    static ExecutorService loadActionExecutors
+    static ExecutorService queryActionExecutors
+
     static ThreadLocal<Integer> threadLoadedClassNum = new ThreadLocal<>()
     static final int cleanLoadedClassesThreshold = 20
 
@@ -68,9 +74,15 @@ class RegressionTest {
             Recorder recorder = runScripts(config)
             success = printResult(config, recorder)
         }
-        actionExecutors.shutdown()
-        suiteExecutors.shutdown()
-        scriptExecutors.shutdown()
+        loadActionExecutors.shutdown()
+        queryActionExecutors.shutdown()
+
+        loadSuiteExecutors.shutdown()
+        querySuiteExecutors.shutdown()
+
+        queryScriptExecutors.shutdown()
+        loadScriptExecutors.shutdown()
+
         log.info("Test finished")
         if (!success) {
             System.exit(1)
@@ -84,23 +96,43 @@ class RegressionTest {
         compileConfig.setScriptBaseClass((SuiteScript as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
 
-        BasicThreadFactory scriptFactory = new BasicThreadFactory.Builder()
-            .namingPattern("script-thread-%d")
+        BasicThreadFactory queryScriptFactory = new BasicThreadFactory.Builder()
+            .namingPattern("query-script-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        scriptExecutors = Executors.newFixedThreadPool(config.parallel, scriptFactory)
+        queryScriptExecutors = Executors.newCachedThreadPool(queryScriptFactory)
 
-        BasicThreadFactory suiteFactory = new BasicThreadFactory.Builder()
-            .namingPattern("suite-thread-%d")
-            .priority(Thread.MAX_PRIORITY)
-            .build();
-        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
+        BasicThreadFactory loadScriptFactory = new BasicThreadFactory.Builder()
+                .namingPattern("load-script-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
+        loadScriptExecutors = Executors.newFixedThreadPool(6, loadScriptFactory)
 
-        BasicThreadFactory actionFactory = new BasicThreadFactory.Builder()
+
+        BasicThreadFactory loadSuiteFactory = new BasicThreadFactory.Builder()
+                .namingPattern("load-suite-action-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
+        loadSuiteExecutors = Executors.newFixedThreadPool(6, loadSuiteFactory)
+
+        BasicThreadFactory querySuiteFactory = new BasicThreadFactory.Builder()
+                .namingPattern("query-suite-action-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
+        querySuiteExecutors = Executors.newCachedThreadPool(querySuiteFactory)
+
+
+        BasicThreadFactory queryActionFactory = new BasicThreadFactory.Builder()
             .namingPattern("action-thread-%d")
             .priority(Thread.MAX_PRIORITY)
             .build();
-        actionExecutors = Executors.newFixedThreadPool(config.actionParallel, actionFactory)
+        queryActionExecutors = Executors.newCachedThreadPool(queryActionFactory)
+
+        BasicThreadFactory loadActionFactory = new BasicThreadFactory.Builder()
+                .namingPattern("action-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
+        loadActionExecutors = Executors.newFixedThreadPool(6,loadActionFactory)
 
         loadPlugins(config)
     }
@@ -131,87 +163,141 @@ class RegressionTest {
         return sources
     }
 
-    static void runScript(Config config, ScriptSource source, Recorder recorder) {
+    static void runScript(Config config, ScriptSource source, Recorder recorder, Boolean isLoad = false) {
         def suiteFilter = { String suiteName, String groupName ->
             canRun(config, suiteName, groupName)
         }
         def file = source.getFile()
         def eventListeners = getEventListeners(config, recorder)
-        new ScriptContext(file, suiteExecutors, actionExecutors,
-                config, eventListeners, suiteFilter).start { scriptContext ->
-            try {
-                SuiteScript suiteScript = source.toScript(scriptContext, shell)
-                suiteScript.run()
-            } finally {
-                // avoid jvm metaspace oom
-                cleanLoadedClassesIfNecessary()
+        if(isLoad){
+            new ScriptContext(file, loadSuiteExecutors, loadActionExecutors,
+                    config, eventListeners, suiteFilter).start { scriptContext ->
+                try {
+                    SuiteScript suiteScript = source.toScript(scriptContext, shell)
+                    suiteScript.run()
+                } finally {
+                    // avoid jvm metaspace oom
+                    cleanLoadedClassesIfNecessary()
+                }
+            }
+        }else {
+            new ScriptContext(file, querySuiteExecutors, queryActionExecutors,
+                    config, eventListeners, suiteFilter).start { scriptContext ->
+                try {
+                    SuiteScript suiteScript = source.toScript(scriptContext, shell)
+                    suiteScript.run()
+                } finally {
+                    // avoid jvm metaspace oom
+                    cleanLoadedClassesIfNecessary()
+                }
             }
         }
     }
 
     static void runScripts(Config config, Recorder recorder,
-                           Predicate<String> directoryFilter, Predicate<String> fileNameFilter) {
-        def scriptSources = findScriptSources(config.suitePath, directoryFilter, fileNameFilter)
+                           Predicate<String> directoryFilter, Predicate<String> loadFileNameFilter,Predicate<String> otherQueryFileNameFilter,Predicate<String> queryDependLoadFileNameFilter) {
+        def loadScriptSources = findScriptSources(config.suitePath, directoryFilter, loadFileNameFilter)
+        def otherQueryScriptSources = findScriptSources(config.suitePath, directoryFilter, otherQueryFileNameFilter)
+        def queryDependLoadScriptSources = findScriptSources(config.suitePath, directoryFilter, queryDependLoadFileNameFilter)
+
         if (config.randomOrder) {
-            Collections.shuffle(scriptSources)
+            Collections.shuffle(loadScriptSources)
+            Collections.shuffle(otherQueryScriptSources)
+            Collections.shuffle(queryDependLoadScriptSources)
+
         }
 //        int totalFile = scriptSources.size()
 
-        List<Future> futures = Lists.newArrayList()
-        scriptSources.eachWithIndex { source, i ->
+        List<Future> loadFutures = Lists.newArrayList()
+        List<Future> otherQueryFutures = Lists.newArrayList()
+        List<Future> queryDependLoadFutures = Lists.newArrayList()
+
+        otherQueryScriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
-            def future = scriptExecutors.submit {
+            def future = queryScriptExecutors.submit {
                 runScript(config, source, recorder)
             }
-            futures.add(future)
+            otherQueryFutures.add(future)
+        }
+
+        loadScriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+            def future = loadScriptExecutors.submit {
+                runScript(config, source, recorder,true)
+            }
+            loadFutures.add(future)
         }
 
         // wait all scripts
-        for (Future future : futures) {
+        for (Future future : loadFutures) {
             try {
                 future.get()
             } catch (Throwable t) {
                 // do nothing, because already save to Recorder
             }
         }
+
+        queryDependLoadScriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+            def future = queryScriptExecutors.submit {
+                runScript(config, source, recorder)
+            }
+            queryDependLoadFutures.add(future)
+        }
+        // wait all scripts
+        for (Future future : otherQueryFutures) {
+            try {
+                future.get()
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
+            }
+        }
+        // wait all scripts
+        for (Future future : queryDependLoadFutures) {
+            try {
+                future.get()
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
+            }
+        }
+
     }
 
     static Recorder runScripts(Config config) {
         def recorder = new Recorder()
         def directoryFilter = config.getDirectoryFilter()
         if (!config.withOutLoadData) {
-            List<String> load_sources = new ArrayList<>()
-            List<String> other_sources = new ArrayList<>()
+            List<String> loadSources = new ArrayList<>()
+            List<String> queryDependLoadSources = new ArrayList<>()
+            List<String> otherQuerySources = new ArrayList<>()
 
             new File(config.suitePath).eachDir { dir ->
                 {
-                    List<String> load_temp_sources = new ArrayList<>()
-                    List<String> other_temp_sources = new ArrayList<>()
-                    load_temp_sources.clear()
-                    other_temp_sources.clear()
+                    List<String> loadTempSources = new ArrayList<>()
+                    List<String> queryTempSources = new ArrayList<>()
+
+                    loadTempSources.clear()
+                    queryTempSources.clear()
+
                     dir.eachFileRecurse { f ->
                         if (f.name.contains("load")) {
-                            load_temp_sources.add(f.name)
+                            loadTempSources.add(f.name)
                         }else{
-                            other_temp_sources.add(f.name)
+                            queryTempSources.add(f.name)
                         }
                     }
-                    if (load_temp_sources) {
-                        load_sources.addAll(load_temp_sources)
-                        other_sources.addAll(other_temp_sources)
+                    if (loadTempSources) {
+                        loadSources.addAll(loadTempSources)
+                        queryDependLoadSources.addAll(queryTempSources)
                     }else {
-                        load_sources.addAll(other_temp_sources)
+                        otherQuerySources.addAll(queryTempSources)
                     }
                 }
             }
 
             log.info('Start run suites that do not contain the load file in the directory and run  all load scripts asynchronous')
-            runScripts(config, recorder, directoryFilter, {fileName -> fileName in load_sources})
-
+            runScripts(config, recorder, directoryFilter, {fileName -> fileName in loadSources}, {fileName -> fileName in otherQuerySources},{ fileName -> fileName in queryDependLoadSources})
             log.info("---------------------------------------------------------")
-
-            log.info('Start to run the remaining suite containing the load file')
-            runScripts(config, recorder, directoryFilter, { fileName -> fileName in other_sources})
         }else {
             log.info('Start to run scripts')
             runScripts(config, recorder, directoryFilter,
@@ -330,7 +416,7 @@ class RegressionTest {
         }
         pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
-                ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
+                ScriptContext context = new ScriptContext(it, querySuiteExecutors, queryActionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
                 context.start({
