@@ -88,22 +88,6 @@ std::string BetaRowset::local_segment_path_segcompacted(const std::string& table
     return fmt::format("{}/{}_{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end);
 }
 
-std::string BetaRowset::inverted_index_file_path(const string& rowset_dir,
-                                                 const RowsetId& rowset_id, int segment_id,
-                                                 int64_t index_id) {
-    // {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}_{index_id}.idx
-    return fmt::format("{}/{}_{}_{}.idx", rowset_dir, rowset_id.to_string(), segment_id, index_id);
-}
-
-std::string BetaRowset::local_inverted_index_path_segcompacted(const string& tablet_path,
-                                                               const RowsetId& rowset_id,
-                                                               int64_t begin, int64_t end,
-                                                               int64_t index_id) {
-    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{begin_seg}-{end_seg}_{index_id}.idx
-    return fmt::format("{}/{}_{}-{}_{}.idx", tablet_path, rowset_id.to_string(), begin, end,
-                       index_id);
-}
-
 BetaRowset::BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
                        const RowsetMetaSharedPtr& rowset_meta)
         : Rowset(schema, tablet_path, rowset_meta) {

@@ -20,6 +20,8 @@
 #include <memory>
 #include <string>
 
+#include "olap/olap_common.h"
+
 namespace doris {
 namespace segment_v2 {
 
@@ -30,6 +32,14 @@ public:
     static const std::string get_temporary_bkd_index_data_file_name() { return "bkd"; }
     static const std::string get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }
     static const std::string get_temporary_bkd_index_file_name() { return "bkd_index"; }
+    static std::string inverted_index_file_path(const std::string& rowset_dir,
+                                                const RowsetId& rowset_id, int segment_id,
+                                                int64_t index_id);
+
+    static std::string local_inverted_index_path_segcompacted(const std::string& tablet_path,
+                                                              const RowsetId& rowset_id,
+                                                              int64_t begin, int64_t end,
+                                                              int64_t index_id);
 };
 
 } // namespace segment_v2
