@@ -64,7 +64,7 @@ public:
             : DeltaDecoder(new FixLengthPlainDecoder(physical_type)) {}
     ~DeltaBitPackDecoder() override = default;
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         // decode values
         _values.resize(non_null_size);
@@ -75,7 +75,8 @@ public:
         _data->size = _values.size() * _type_length;
         // set decoded value with fix plain decoder
         init_values_converter();
-        return _type_converted_decoder->decode_values(doris_column, data_type, select_vector);
+        return _type_converted_decoder->decode_values(doris_column, data_type, select_vector,
+                                                      is_dict_filter);
     }
 
     Status decode(T* buffer, int num_values, int* out_num_values) {
@@ -155,7 +156,7 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t num_values = select_vector.num_values();
         size_t null_count = select_vector.num_nulls();
         // init read buffer
@@ -222,7 +223,7 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override {
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t num_values = select_vector.num_values();
         size_t null_count = select_vector.num_nulls();
         _values.resize(num_values - null_count);

@@ -119,7 +119,8 @@ public class PhysicalNestedLoopJoin<
                 "type", joinType,
                 "otherJoinCondition", otherJoinConjuncts,
                 "isMarkJoin", markJoinSlotReference.isPresent(),
-                "markJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty"
+                "markJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
+                "stats", statistics
         );
     }
 

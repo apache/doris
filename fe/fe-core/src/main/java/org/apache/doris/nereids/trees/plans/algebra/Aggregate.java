@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
@@ -47,10 +47,10 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
         return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
     }
 
-    default Set<Expression> getDistinctArguments() {
+    default List<Expression> getDistinctArguments() {
         return getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
-                .collect(ImmutableSet.toImmutableSet());
+                .collect(ImmutableList.toImmutableList());
     }
 }
