@@ -15,17 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "env/env.h"
+#include "io/fs/err_utils.h"
 
-#include "env/env_posix.h"
+#include <fmt/format.h>
+#include <hdfs/hdfs.h>
+
+#include <sstream>
 
 namespace doris {
+namespace io {
 
-std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
-
-// Default Posix Env
-Env* Env::Default() {
-    return _posix_env.get();
+std::string errno_to_str() {
+    char buf[1024];
+    return fmt::format("({}), {}", errno, strerror_r(errno, buf, 1024));
 }
 
-} // end namespace doris
+std::string errcode_to_str(const std::error_code& ec) {
+    return fmt::format("({}), {}", ec.value(), ec.message());
+}
+
+std::string hdfs_error() {
+    std::stringstream ss;
+    char buf[1024];
+    ss << "(" << errno << "), " << strerror_r(errno, buf, 1024);
+    ss << ", reason: " << hdfsGetLastError();
+    return ss.str();
+}
+
+} // namespace io
+} // namespace doris

@@ -69,11 +69,15 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -732,21 +736,46 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         if (detailLevel == TExplainLevel.VERBOSE) {
             output.append(prefix).append("backends:").append("\n");
+            Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
+            // 1. group by backend id
             for (TScanRangeLocations locations : scanRangeLocations) {
-                output.append(prefix).append("  ").append(locations.getLocations().get(0).backend_id).append("\n");
-                List<TFileRangeDesc> files = locations.getScanRange().getExtScanRange().getFileScanRange().getRanges();
-                for (int i = 0; i < 3; i++) {
-                    if (i >= files.size()) {
-                        break;
+                scanRangeLocationsMap.putAll(locations.getLocations().get(0).backend_id,
+                        locations.getScanRange().getExtScanRange().getFileScanRange().getRanges());
+            }
+            for (long beId : scanRangeLocationsMap.keySet()) {
+                output.append(prefix).append("  ").append(beId).append("\n");
+                List<TFileRangeDesc> fileRangeDescs = Lists.newArrayList(scanRangeLocationsMap.get(beId));
+                // 2. sort by file start offset
+                Collections.sort(fileRangeDescs, new Comparator<TFileRangeDesc>() {
+                    @Override
+                    public int compare(TFileRangeDesc o1, TFileRangeDesc o2) {
+                        return Long.compare(o1.getStartOffset(), o2.getStartOffset());
                     }
-                    TFileRangeDesc file = files.get(i);
+                });
+                // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
+                int size = fileRangeDescs.size();
+                if (size <= 4) {
+                    for (TFileRangeDesc file : fileRangeDescs) {
+                        output.append(prefix).append("    ").append(file.getPath())
+                                .append(" start: ").append(file.getStartOffset())
+                                .append(" length: ").append(file.getFileSize())
+                                .append("\n");
+                    }
+                } else {
+                    for (int i = 0; i < 3; i++) {
+                        TFileRangeDesc file = fileRangeDescs.get(i);
+                        output.append(prefix).append("    ").append(file.getPath())
+                                .append(" start: ").append(file.getStartOffset())
+                                .append(" length: ").append(file.getFileSize())
+                                .append("\n");
+                    }
+                    int other = size - 4;
+                    output.append(prefix).append("    ... other ").append(other).append(" files ...\n");
+                    TFileRangeDesc file = fileRangeDescs.get(size - 1);
                     output.append(prefix).append("    ").append(file.getPath())
                             .append(" start: ").append(file.getStartOffset())
                             .append(" length: ").append(file.getFileSize())
                             .append("\n");
-                }
-                if (files.size() > 3) {
-                    output.append(prefix).append("    ...other ").append(files.size() - 3).append(" files\n");
                 }
             }
         }

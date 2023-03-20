@@ -15,27 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/fs_utils.h"
+#pragma once
 
-#include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
+#include <string>
+#include <system_error>
 
 namespace doris {
 namespace io {
 
-Status read_file_to_string(FileSystemSPtr fs, const Path& file, std::string* content) {
-    FileReaderSPtr file_reader;
-    RETURN_IF_ERROR(fs->open_file(file, &file_reader));
-    size_t file_size = file_reader->size();
-    content->resize(file_size);
-    size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader->read_at(0, {*content}, &bytes_read));
-    if (bytes_read != file_size) {
-        return Status::IOError("failed to read file {} to string. bytes read: {}, file size: {}",
-                               file.native(), bytes_read, file_size);
-    }
-    return file_reader->close();
-}
+std::string errno_to_str();
+std::string errcode_to_str(const std::error_code& ec);
+std::string hdfs_error();
 
 } // namespace io
 } // namespace doris

@@ -32,6 +32,16 @@ class PooledThreadExecutor;
 namespace doris {
 namespace io {
 
+// File system for S3 compatible object storage
+// When creating S3FileSystem, all required info should be set in S3Conf,
+// such as ak, sk, region, endpoint, bucket.
+// And the root_path of S3FileSystem is s3_conf.prefix.
+// When using S3FileSystem, it accepts 2 kinds of path:
+//  1. Full path: s3://bucket/path/to/file.txt
+//      In this case, the root_path is not used.
+//  2. only key: path/to/file.txt
+//      In this case, the final key will be "prefix + path/to/file.txt"
+//
 // This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
@@ -48,13 +58,13 @@ public:
 protected:
     Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const Path& file, FileReaderSPtr* reader) override;
-    Status create_directory_impl(const Path& dir) override;
+    Status open_file_internal(const Path& file, int64_t file_size, FileReaderSPtr* reader) override;
+    Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
     Status batch_delete_impl(const std::vector<Path>& files) override;
     Status exists_impl(const Path& path, bool* res) const override;
-    Status file_size_impl(const Path& file, size_t* file_size) const override;
+    Status file_size_impl(const Path& file, int64_t* file_size) const override;
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override;
     Status rename_impl(const Path& orig_name, const Path& new_name) override;
@@ -70,8 +80,15 @@ protected:
     Status direct_download_impl(const Path& remote_file, std::string* content) override;
 
     Path absolute_path(const Path& path) const override {
-        // do nothing
-        return path;
+        if (path.string().find("://") != std::string::npos) {
+            // the path is with schema, which means this is a full path like:
+            // s3://bucket/path/to/file.txt
+            // so no need to concat with prefix
+            return path;
+        } else {
+            // path with no schema
+            return _root_path / path;
+        }
     }
 
 private:

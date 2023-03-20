@@ -24,6 +24,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "gutil/hash/hash.h"
 
 namespace Aws {
 namespace S3 {
@@ -63,6 +64,21 @@ struct S3Conf {
                 ak, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
                 connect_timeout_ms, use_virtual_addressing);
     }
+
+    uint64_t get_hash() const {
+        uint64_t hash_code = 0;
+        hash_code += Fingerprint(ak);
+        hash_code += Fingerprint(sk);
+        hash_code += Fingerprint(endpoint);
+        hash_code += Fingerprint(region);
+        hash_code += Fingerprint(bucket);
+        hash_code += Fingerprint(prefix);
+        hash_code += Fingerprint(max_connections);
+        hash_code += Fingerprint(request_timeout_ms);
+        hash_code += Fingerprint(connect_timeout_ms);
+        hash_code += Fingerprint(use_virtual_addressing);
+        return hash_code;
+    }
 };
 
 class S3ClientFactory {
@@ -70,8 +86,6 @@ public:
     ~S3ClientFactory();
 
     static S3ClientFactory& instance();
-
-    std::shared_ptr<Aws::S3::S3Client> create(const std::map<std::string, std::string>& prop);
 
     std::shared_ptr<Aws::S3::S3Client> create(const S3Conf& s3_conf);
 
@@ -86,6 +100,8 @@ private:
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
+    std::mutex _lock;
+    std::unordered_map<uint64_t, std::shared_ptr<Aws::S3::S3Client>> _cache;
 };
 
 } // end namespace doris

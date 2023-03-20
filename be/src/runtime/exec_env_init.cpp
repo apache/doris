@@ -43,7 +43,6 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/tmp_file_mgr.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
@@ -123,7 +122,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
                                     config::query_cache_elasticity_size_mb);
     _master_info = new TMasterInfo();
     _load_path_mgr = new LoadPathMgr(this);
-    _tmp_file_mgr = new TmpFileMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
@@ -258,7 +256,6 @@ Status ExecEnv::_init_mem_env() {
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
-    RETURN_IF_ERROR(_tmp_file_mgr->init());
     RETURN_IF_ERROR(_block_spill_mgr->init());
 
     // 5. init chunk allocator
@@ -338,7 +335,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_load_channel_mgr);
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);
-    SAFE_DELETE(_tmp_file_mgr);
     SAFE_DELETE(_load_path_mgr);
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_pipeline_task_scheduler);

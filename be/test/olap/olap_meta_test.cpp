@@ -23,8 +23,8 @@
 #include <sstream>
 #include <string>
 
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
-#include "util/file_utils.h"
 
 using std::string;
 
@@ -35,8 +35,7 @@ class OlapMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
         _root_path = "./ut_dir/olap_meta_test";
-        FileUtils::remove_all(_root_path);
-        FileUtils::create_dir(_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(_root_path).ok());
 
         _meta = new OlapMeta(_root_path);
         Status s = _meta->init();
@@ -46,7 +45,7 @@ public:
 
     virtual void TearDown() {
         delete _meta;
-        FileUtils::remove_all(_root_path);
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_root_path).ok());
     }
 
 private:

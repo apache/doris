@@ -31,7 +31,6 @@
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
-#include "util/file_cache.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {

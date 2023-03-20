@@ -46,7 +46,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "common/utils.h"
-#include "env/env.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"

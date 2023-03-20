@@ -33,8 +33,6 @@
 #include <string>
 #include <vector>
 
-#include "util/file_utils.h"
-
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
 #include <lzo/lzo1x.h>
@@ -44,7 +42,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
@@ -492,19 +489,14 @@ Status read_write_test_file(const string& test_file_path) {
     return io::global_local_filesystem()->delete_file(test_file_path);
 }
 
-bool check_datapath_rw(const string& path) {
-    if (!FileUtils::check_exist(path)) return false;
-    string file_path = path + "/.read_write_test_file";
-    try {
-        Status res = read_write_test_file(file_path);
-        return res.ok();
-    } catch (...) {
-        // do nothing
+Status check_datapath_rw(const string& path) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (!exists) {
+        return Status::IOError("path does not exist: {}", path);
     }
-    LOG(WARNING) << "error when try to read and write temp file under the data path and return "
-                    "false. [path="
-                 << path << "]";
-    return false;
+    string file_path = path + "/.read_write_test_file";
+    return read_write_test_file(file_path);
 }
 
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance

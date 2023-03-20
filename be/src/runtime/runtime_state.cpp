@@ -34,7 +34,6 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
