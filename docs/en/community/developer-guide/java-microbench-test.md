@@ -79,5 +79,15 @@ public class BenchmarkExample extends AbstractMicrobenchmark {
 }
 
 ```
+
+You can run benchmarks just like normal unit tests, and you can also run benchmarks through packaged jar packages.
+
+```shell
+mvn clean package
+# Run the benchmark for all tests (not recommended)
+java -jar doris-microbench-0.15.0-SNAPSHOT.jar
+# Run the benchmark for the specified test
+java -jar doris-microbench-0.15.0-SNAPSHOT.jar BenchmarkExample
+```
 more information about JMH, please refer to [JMH](http://openjdk.java.net/projects/code-tools/jmh/)
 

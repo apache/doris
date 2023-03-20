@@ -72,5 +72,15 @@ public class BenchmarkExample extends AbstractMicrobenchmark {
 }
 
 ```
+
+你可以像运行普通的单元测试一样来运行基准测试，同时你也可以通过打包好的 jar 包来运行基准测试。
+
+```shell
+mvn clean package
+# 运行基准测试所有测试（不建议）
+java -jar doris-microbench-0.15.0-SNAPSHOT.jar 
+# 运行基准测试指定测试
+java -jar doris-microbench-0.15.0-SNAPSHOT.jar BenchmarkExample
+```
 更多使用方法请参考 [JMH 官方文档](http://openjdk.java.net/projects/code-tools/jmh/)
 
