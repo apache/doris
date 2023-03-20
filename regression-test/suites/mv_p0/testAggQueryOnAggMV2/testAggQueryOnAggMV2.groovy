@@ -49,7 +49,7 @@ suite ("testAggQueryOnAggMV2") {
         sql("select * from emps order by empid;")
         contains "(emps)"
     }
-    qt_select_star "select * from emps order by empid;"
+    qt_select_star "select * from emps order by empid, salary;"
 
    explain {
         sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where (sum_salary * 2) > 3 order by deptno ;")
