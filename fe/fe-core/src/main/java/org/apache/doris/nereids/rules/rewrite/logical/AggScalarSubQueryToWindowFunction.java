@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -296,6 +297,11 @@ public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
         @Override
         public Boolean visitLiteral(Literal literal, Expression expr) {
             return isSameOperator(literal, expr, literal.getValue(), ((Literal) expr).getValue());
+        }
+
+        @Override
+        public Boolean visitEqualTo(EqualTo equalTo, Expression expr) {
+            return equalTo.accept(this, expr) || equalTo.commute().accept(this, expr);
         }
     }
 }
