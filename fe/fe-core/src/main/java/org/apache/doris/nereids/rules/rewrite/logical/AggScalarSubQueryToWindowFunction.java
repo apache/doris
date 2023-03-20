@@ -57,7 +57,6 @@ import com.google.common.collect.Sets;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -138,16 +137,19 @@ public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
                 AggregateFunction.class::isInstance).get(0));
         WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
                 function);
-        Slot aggOutSlot = apply.right().getOutput().get(0);
-        Map<Boolean, List<Expression>> conjunctGroup = node.getConjuncts().stream()
-                .collect(Collectors.groupingBy(e -> e.anyMatch(t -> t instanceof Slot
-                && ((Slot) t).getExprId().equals(aggOutSlot.getExprId()))));
 
         Alias aggOut = ((Alias) apply.right().getOutputExpressions().get(0))
                 .withChildren(ImmutableList.of(windowFunction));
-        LogicalFilter newFilter = new LogicalFilter<>(ImmutableSet.copyOf(conjunctGroup.get(false)), apply.left());
+        Expression windowFilterConjunct = apply.getSubCorrespondingConject().get();
+        if (windowFilterConjunct.child(0) instanceof Alias
+                && ((Alias) windowFilterConjunct.child(0)).getExprId().equals(aggOut.getExprId())) {
+            windowFilterConjunct.withChildren(windowFunction, windowFilterConjunct.child(1));
+        } else {
+            windowFilterConjunct.withChildren(windowFilterConjunct.child(0), windowFunction);
+        }
+        LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
         LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(aggOut), newFilter);
-        LogicalFilter windowFilter = new LogicalFilter(ImmutableSet.copyOf(conjunctGroup.get(true)), newWindow);
+        LogicalFilter windowFilter = new LogicalFilter(ImmutableSet.of(windowFilterConjunct), newWindow);
         return node.child().withChildren(windowFilter);
     }
 

@@ -20,19 +20,26 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implements MemoPatternMatchSupported {
     @Test
     public void testRewriteSubQueryToWindowFunction() {
-        Plan plan = PlanChecker.from(createCascadesContext(TPCHUtils.Q2))
+        Assertions.assertTrue(PlanChecker.from(createCascadesContext(TPCHUtils.Q2))
                 .analyze(TPCHUtils.Q2)
                 .applyTopDown(new AggScalarSubQueryToWindowFunction())
-                .getPlan();
+                .getPlan()
+                .anyMatch(LogicalWindow.class::isInstance));
 
-        System.out.println(plan.treeString());
+        Assertions.assertTrue(PlanChecker.from(createCascadesContext(TPCHUtils.Q17))
+                .analyze(TPCHUtils.Q17)
+                .applyTopDown(new AggScalarSubQueryToWindowFunction())
+                .getPlan()
+                .anyMatch(LogicalWindow.class::isInstance));
     }
 }
