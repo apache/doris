@@ -26,6 +26,12 @@ under the License.
 
 # 背景
 
+<version since="1.2.2">
+
+DISTRIBUTED BY ... BUCKETS auto
+
+</version>
+
 用户经常设置不合适的bucket，导致各种问题，这里提供一种方式，来自动设置分桶数。暂时而言只对olap表生效
 
 # 实现

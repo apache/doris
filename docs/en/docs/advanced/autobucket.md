@@ -26,6 +26,12 @@ under the License.
 
 # Background
 
+<version since="1.2.2">
+
+DISTRIBUTED BY ... BUCKETS auto
+
+</version>
+
 Users often set inappropriate buckets, leading to various problems. For now, it only works for olap tables
 
 # Implementation
