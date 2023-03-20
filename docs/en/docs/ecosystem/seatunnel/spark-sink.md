@@ -35,6 +35,9 @@ In fact,seatunnel load data by stream load function.Everyone is welcome to use
 [Seatunnel install](https://interestinglab.github.io/seatunnel-docs/#/zh-cn/v2/flink/installation)
 
 ## Spark Sink Doris
+
+Seatunnel Spark Sink Doris [plugin code](https://github.com/apache/incubator-seatunnel)
+
 ### Options
 | name | type | required | default value | engine |
 | --- | --- | --- | --- | --- |

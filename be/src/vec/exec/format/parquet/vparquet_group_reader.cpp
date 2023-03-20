@@ -769,13 +769,14 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         }
 
         // 4. Rewrite conjuncts.
-        _rewrite_dict_conjuncts(dict_codes, slot_id);
+        _rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable());
         ++it;
     }
     return Status::OK();
 }
 
-Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id) {
+Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id,
+                                               bool is_nullable) {
     VExpr* root;
     if (dict_codes.size() == 1) {
         {
@@ -800,6 +801,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             texpr_node.__set_fn(fn);
             texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
+            texpr_node.__set_is_nullable(is_nullable);
             root = _obj_pool->add(new VectorizedFnCall(texpr_node));
         }
         {
@@ -821,6 +823,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             TIntLiteral int_literal;
             int_literal.__set_value(dict_codes[0]);
             texpr_node.__set_int_literal(int_literal);
+            texpr_node.__set_is_nullable(is_nullable);
             VExpr* literal_expr = _obj_pool->add(new VLiteral(texpr_node));
             root->add_child(literal_expr);
         }
@@ -834,6 +837,8 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             node.__set_opcode(TExprOpcode::FILTER_IN);
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(TExprOpcode::FILTER_IN);
+            // VdirectInPredicate assume is_nullable = false.
+            node.__set_is_nullable(false);
 
             root = _obj_pool->add(new vectorized::VDirectInPredicate(node));
             std::shared_ptr<HybridSetBase> hybrid_set(create_set(PrimitiveType::TYPE_INT));

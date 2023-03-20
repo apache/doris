@@ -147,7 +147,7 @@ private:
                              const tparquet::ColumnMetaData& column_metadata);
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
-    Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id);
+    Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
     Status _execute_conjuncts(const std::vector<VExprContext*>& ctxs,
                               const std::vector<IColumn::Filter*>& filters, Block* block,

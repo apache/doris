@@ -588,7 +588,9 @@ public class MasterImpl {
 
     private void finishAlterInvertedIndexTask(AgentTask task) {
         AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-        LOG.info("beigin finish AlterInvertedIndexTask, Jobtype: {}", alterInvertedIndexTask.getJobType());
+        LOG.info("beigin finish AlterInvertedIndexTask: {}, JobId: {}, Jobtype: {}",
+                alterInvertedIndexTask.getSignature(), alterInvertedIndexTask.getJobId(),
+                alterInvertedIndexTask.getJobType());
         // TODO: more check
         alterInvertedIndexTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INVERTED_INDEX, task.getSignature());
