@@ -36,6 +36,7 @@
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -113,8 +114,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         for (auto column : schema->columns()) {
             if (schema->has_inverted_index(column.unique_id())) {
                 auto index_id = schema->get_inverted_index(column.unique_id())->index_id();
-                auto idx_path = BetaRowset::inverted_index_file_path(ctx.rowset_dir, ctx.rowset_id,
-                                                                     i, index_id);
+                auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
+                        ctx.rowset_dir, ctx.rowset_id, i, index_id);
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                 RETURN_NOT_OK_LOG(fs->delete_file(idx_path),
                                   strings::Substitute("Failed to delete file=$0", idx_path));
