@@ -15,25 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("query_p1") {
-    def dbName = "regression_load_from_big_lateral_view"
-    sql "DROP DATABASE IF EXISTS ${dbName}"
-    sql "CREATE DATABASE ${dbName}"
-    sql "USE ${dbName}"
-    sql """
-        CREATE TABLE IF NOT EXISTS `test` (
-        `k1` smallint NULL,
-        `k2` int NULL,
-        `k3` bigint NULL,
-        `k4` largeint NULL
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`k1`,`k2`,`k3`,`k4`)
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-        PROPERTIES("replication_num" = "1");
-        """
+package org.apache.doris.common.annotation;
 
-    sql """insert into test select e1,e1,e1,e1 from (select 1 k1) as t lateral view explode_numbers(100000000) tmp1 as e1;"""
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-    qt_sql """select count(*) from test;"""
+// You can use this annotation when throw exception the program will exit.
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface NoException {
 }
-

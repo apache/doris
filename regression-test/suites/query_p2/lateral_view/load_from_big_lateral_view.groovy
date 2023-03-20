@@ -15,24 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("load_from_big_lateral_view") {
+    def dbName = "regression_load_from_big_lateral_view"
+    sql "DROP DATABASE IF EXISTS ${dbName}"
+    sql "CREATE DATABASE ${dbName}"
+    sql "USE ${dbName}"
+    sql """
+        CREATE TABLE IF NOT EXISTS `test` (
+        `k1` smallint NULL,
+        `k2` int NULL,
+        `k3` bigint NULL,
+        `k4` largeint NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`,`k2`,`k3`,`k4`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
 
-#include <memory>
+    sql """insert into test select e1,e1,e1,e1 from (select 1 k1) as t lateral view explode_numbers(100000000) tmp1 as e1;"""
 
-#include "common/status.h"
+    qt_sql """select count(*) from test;"""
+}
 
-namespace arrow {
-
-class Schema;
-class MemoryPool;
-class RecordBatch;
-
-} // namespace arrow
-
-namespace doris {
-class Schema;
-
-// Convert Doris Schema to Arrow Schema.
-Status convert_to_arrow_schema(const Schema& row_desc, std::shared_ptr<arrow::Schema>* result);
-
-} // namespace doris

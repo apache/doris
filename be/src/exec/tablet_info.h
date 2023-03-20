@@ -29,7 +29,6 @@
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
 #include "vec/core/block.h"
 
 namespace doris {
