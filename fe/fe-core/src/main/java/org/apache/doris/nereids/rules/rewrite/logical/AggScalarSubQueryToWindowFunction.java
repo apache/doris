@@ -281,7 +281,7 @@ public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
         }
 
         private boolean isSameOperator(Expression expression, Expression expression1, Object... o) {
-            return isClassMatch(expression, expression1) && isSameObjects(o) && isSameChild(expression, expression1);
+            return isSameObjects(o) && isSameChild(expression, expression1);
         }
 
         @Override
@@ -291,17 +291,20 @@ public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
 
         @Override
         public Boolean visitNamedExpression(NamedExpression namedExpression, Expression expr) {
-            return isSameOperator(namedExpression, expr, namedExpression.getName(), ((NamedExpression) expr).getName());
+            return isClassMatch(namedExpression, expr)
+                    && isSameOperator(namedExpression, expr, namedExpression.getName(),
+                    ((NamedExpression) expr).getName());
         }
 
         @Override
         public Boolean visitLiteral(Literal literal, Expression expr) {
-            return isSameOperator(literal, expr, literal.getValue(), ((Literal) expr).getValue());
+            return isClassMatch(literal, expr)
+                    && isSameOperator(literal, expr, literal.getValue(), ((Literal) expr).getValue());
         }
 
         @Override
         public Boolean visitEqualTo(EqualTo equalTo, Expression expr) {
-            return equalTo.accept(this, expr) || equalTo.commute().accept(this, expr);
+            return isSameChild(equalTo, expr) || isSameChild(equalTo.commute(), expr);
         }
     }
 }

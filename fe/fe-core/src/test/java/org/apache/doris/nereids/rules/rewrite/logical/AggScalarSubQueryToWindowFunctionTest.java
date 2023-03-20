@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
