@@ -78,11 +78,11 @@ f14889
 001704a395d
 
 -- !q10 --
-000e888	false
-001cdb810	true
-00709e	true
-007bfcf60a24445	true
-0082f975744410	false
+00	false
+00	true
+00	true
+000e642c1c7444ec8329a	true
+001704a395d	true
 
 -- !q11 --
 54078	8184

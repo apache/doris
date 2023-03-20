@@ -40,7 +40,7 @@ suite("test_external_catalog_glue_table", "p2") {
             qt_q07 """ select glue_char from iceberg_glue_types order by glue_int limit 5 """
             qt_q08 """ select glue_varchar from iceberg_glue_types order by glue_varchar limit 5 """
             qt_q09 """ select glue_string from iceberg_glue_types order by glue_string limit 5 """
-            qt_q10 """ select glue_varchar, glue_bool from iceberg_glue_types order by glue_varchar limit 5 """
+            qt_q10 """ select glue_string, glue_bool from iceberg_glue_types order by glue_string limit 5 """
             qt_q11 """ select glue_int,glue_smallint from iceberg_glue_types where glue_int > 2000 and glue_smallint < 10000 order by glue_int limit 10 """
             qt_q12 """ select glue_smallint from iceberg_glue_types where glue_smallint is null order by glue_smallint limit 3 """
             qt_q13 """ select glue_smallint from iceberg_glue_types where glue_smallint is not null order by glue_smallint limit 10 """
