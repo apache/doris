@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/utils.h"
@@ -847,6 +848,15 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+}
+
+Status TabletSchema::have_column(const std::string& field_name) const {
+    if (!_field_name_to_index.count(field_name)) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "Not found field_name, field_name:{}, schema:{}", field_name,
+                get_all_field_names());
+    }
+    return Status::OK();
 }
 
 const TabletColumn& TabletSchema::column(const std::string& field_name) const {
