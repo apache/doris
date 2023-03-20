@@ -27,6 +27,7 @@ namespace doris::vectorized {
 class LambdaFunctionFactory;
 
 void register_function_array_map(LambdaFunctionFactory& factory);
+void register_function_array_mapped(LambdaFunctionFactory& factory);
 
 class LambdaFunctionFactory {
     using Creator = std::function<LambdaFunctionPtr()>;
@@ -34,11 +35,13 @@ class LambdaFunctionFactory {
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
+        LOG(WARNING) << "aaaaaaaaa " << name;
         function_creators[name] = ptr;
     }
 
     template <class Function>
     void register_function() {
+        LOG(WARNING) << "aaaaaaaaa " << Function::name;
         register_function(Function::name, &Function::create);
     }
 
@@ -58,7 +61,10 @@ public:
     static LambdaFunctionFactory& instance() {
         static std::once_flag oc;
         static LambdaFunctionFactory instance;
-        std::call_once(oc, []() { register_function_array_map(instance); });
+        std::call_once(oc, []() { 
+            register_function_array_map(instance); 
+            register_function_array_mapped(instance);    
+        });
         return instance;
     }
 };

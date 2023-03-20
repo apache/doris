@@ -29,11 +29,12 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_map").build();
+            String.CASE_INSENSITIVE_ORDER).add("array_map", "array_min", "array_max").build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
@@ -96,6 +97,47 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
+        } else if (fnName.getFunction().equalsIgnoreCase("array_max")
+                || fnName.getFunction().equalsIgnoreCase("array_min")) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 1) {
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least one param");
+            }
+
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                // map to array_map
+                List<Expr> mapParams = new ArrayList<>();
+                for (int i = 0; i <= childSize - 1; ++i) {
+                    mapParams.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayMapFunc = new LambdaFunctionCallExpr("array_map", mapParams);
+                // generate FunctionCallExpr to compute fn
+                List<Expr> resultParams = new ArrayList<>();
+                resultParams.add(arrayMapFunc);
+                FunctionCallExpr arrayFunc = new FunctionCallExpr(fnName.getFunction(), resultParams);
+                // reconstruct current function to get result data
+                this.clearChildren();
+                this.addChild(arrayFunc);
+            }
+
+            if (this.children.size() == 1 && !(getChild(0) instanceof LambdaFunctionExpr)) {
+                getChild(0).analyzeImpl(analyzer);
+
+                Type[] newArgTypes = new Type[1];
+                newArgTypes[0] = ArrayType.create(getChild(0).getType(), true);
+
+                fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
+                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                if (fn == null) {
+                    LOG.warn("fn {} not exists", this.toSqlImpl());
+                    throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+                }
+                fn.setReturnType(getChild(0).getType());
+            }
+
+            if (fn == null) {
+                LOG.warn("fn {} not exists {}", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
         }
         this.type = fn.getReturnType();
     }
