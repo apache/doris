@@ -1119,8 +1119,13 @@ public class OlapScanNode extends ScanNode {
 
     @Override
     public int getNumInstances() {
+        // In pipeline exec engine, the instance num equals be_num * parallel instance.
+        // so here we need count distinct be_num to do the work. make sure get right instance
         if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            long numBackend = result.stream().flatMap(rangeLoc -> rangeLoc.getLocations().stream())
+                        .map(loc -> loc.backend_id).distinct().count();
+            return (int) (parallelInstance * numBackend);
         }
         return result.size();
     }

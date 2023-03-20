@@ -67,7 +67,7 @@ suite("add_table_policy_by_alter_table") {
             CREATE STORAGE POLICY created_create_table_alter_policy
             PROPERTIES(
             "storage_resource" = "test_create_alter_table_use_resource",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call("created_create_table_alter_policy"), true)
@@ -103,7 +103,7 @@ suite("add_table_policy_by_alter_table") {
             CREATE STORAGE POLICY created_create_table_alter_policy_1
             PROPERTIES(
             "storage_resource" = "test_create_alter_table_use_resource_1",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "2025-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call("created_create_table_alter_policy_1"), true)
@@ -129,4 +129,13 @@ suite("add_table_policy_by_alter_table") {
     sql """
     DROP TABLE create_table_not_have_policy;
     """
+
+    sql """
+    DROP STORAGE POLICY created_create_table_alter_policy_1;
+    """
+
+    sql """
+    DROP RESOURCE test_create_alter_table_use_resource_1;
+    """
+
 }

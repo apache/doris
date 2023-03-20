@@ -18,7 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -27,37 +32,58 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.LinkedList;
 import java.util.List;
 
 public class DeleteStmt extends DdlStmt {
-    private final TableName tbl;
+    private final TableName tableName;
     private final PartitionNames partitionNames;
-    private Expr wherePredicate;
+    private final FromClause fromClause;
+    private final Expr wherePredicate;
 
-    private List<Predicate> deleteConditions;
+    private final List<Predicate> deleteConditions = new LinkedList<>();
+
+    private InsertStmt insertStmt;
+    private Table targetTable;
+    private final List<SelectListItem> selectListItems = Lists.newArrayList();
+    private final List<String> cols = Lists.newArrayList();
 
     public DeleteStmt(TableName tableName, PartitionNames partitionNames, Expr wherePredicate) {
-        this.tbl = tableName;
+        this(tableName, partitionNames, null, wherePredicate);
+    }
+
+    public DeleteStmt(TableName tableName, PartitionNames partitionNames, FromClause fromClause, Expr wherePredicate) {
+        this.tableName = tableName;
         this.partitionNames = partitionNames;
+        this.fromClause = fromClause;
         this.wherePredicate = wherePredicate;
-        this.deleteConditions = new LinkedList<Predicate>();
     }
 
     public String getTableName() {
-        return tbl.getTbl();
+        return tableName.getTbl();
     }
 
     public String getDbName() {
-        return tbl.getDb();
+        return tableName.getDb();
     }
 
     public List<String> getPartitionNames() {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
+    }
+
+    public FromClause getFromClause() {
+        return fromClause;
+    }
+
+    public InsertStmt getInsertStmt() {
+        return insertStmt;
     }
 
     public List<Predicate> getDeleteConditions() {
@@ -68,13 +94,7 @@ public class DeleteStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        if (tbl == null) {
-            throw new AnalysisException("Table is not set");
-        }
-
-        tbl.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
+        analyzeTargetTable(analyzer);
 
         if (partitionNames != null) {
             partitionNames.analyze(analyzer);
@@ -83,23 +103,108 @@ public class DeleteStmt extends DdlStmt {
             }
         }
 
-        if (wherePredicate == null) {
-            throw new AnalysisException("Where clause is not set");
-        }
-
         // analyze predicate
-        analyzePredicate(wherePredicate);
-
-        // check access
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                                                                PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tbl.getDb() + ": " + tbl.getTbl());
+        if (fromClause == null) {
+            analyzePredicate(wherePredicate);
+        } else {
+            constructInsertStmt();
         }
     }
 
-    private void analyzePredicate(Expr predicate) throws AnalysisException {
+    private void constructInsertStmt() throws AnalysisException {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Delete is forbidden since current session is in debug mode."
+                    + " Please check the following session variables: "
+                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+        }
+        for (Column column : targetTable.getColumns()) {
+            Expr expr;
+            if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                expr = new BoolLiteral(true);
+            } else if (column.isKey() || !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
+                expr = new SlotRef(tableName, column.getName());
+            } else {
+                continue;
+            }
+            selectListItems.add(new SelectListItem(expr, null));
+            cols.add(column.getName());
+        }
+
+        FromClause fromUsedInInsert;
+        TableRef tableRef = new TableRef(tableName, null, partitionNames);
+        if (fromClause == null) {
+            fromUsedInInsert = new FromClause(Lists.newArrayList(tableRef));
+        } else {
+            fromUsedInInsert = fromClause.clone();
+            fromUsedInInsert.getTableRefs().add(0, tableRef);
+        }
+        SelectStmt selectStmt = new SelectStmt(
+                // select list
+                new SelectList(selectListItems, false),
+                // from clause
+                fromUsedInInsert,
+                // where expr
+                wherePredicate,
+                // group by
+                null,
+                // having
+                null,
+                // order by
+                null,
+                // limit
+                LimitElement.NO_LIMIT
+        );
+
+        insertStmt = new InsertStmt(
+                new InsertTarget(tableName, null),
+                null,
+                cols,
+                new InsertSource(selectStmt),
+                null);
+    }
+
+    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
+        // step1: analyze table name and origin table alias
+        if (tableName == null) {
+            throw new AnalysisException("Table is not set");
+        }
+        tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+        // check load privilege, select privilege will check when analyze insert stmt
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), tableName.getDb() + ": " + tableName.getTbl());
+        }
+
+        // step2: resolve table name with catalog, only unique olap table could be updated with using
+        String dbName = tableName.getDb();
+        String targetTableName = tableName.getTbl();
+        Preconditions.checkNotNull(dbName);
+        Preconditions.checkNotNull(targetTableName);
+        Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        targetTable = database.getTableOrAnalysisException(tableName.getTbl());
+        if (fromClause != null && (targetTable.getType() != Table.TableType.OLAP
+                || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS)) {
+            throw new AnalysisException("Only unique table could use delete with using.");
+        }
+
+        // step3: register table to ensure we could analyze column name on the left side of set exprs.
+        targetTable.readLock();
+        try {
+            analyzer.registerOlapTable(targetTable, tableName, null);
+        } finally {
+            targetTable.readUnlock();
+        }
+    }
+
+    @VisibleForTesting
+    void analyzePredicate(Expr predicate) throws AnalysisException {
+        if (predicate == null) {
+            throw new AnalysisException("Where clause is not set");
+        }
         if (predicate instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
             Expr leftExpr = binaryPredicate.getChild(0);
@@ -154,7 +259,7 @@ public class DeleteStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DELETE FROM ").append(tbl.toSql());
+        sb.append("DELETE FROM ").append(tableName.toSql());
         if (partitionNames != null) {
             sb.append(" PARTITION (");
             sb.append(Joiner.on(", ").join(partitionNames.getPartitionNames()));
@@ -163,5 +268,4 @@ public class DeleteStmt extends DdlStmt {
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
     }
-
 }

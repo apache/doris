@@ -119,6 +119,7 @@ suite("test_alter_table_column_nullable") {
     while (max_try_secs--) {
         String res = getJobState(tbName)
         if (res == "CANCELLED") {
+            sleep(3000)
             break
         } else {
             Thread.sleep(2000)

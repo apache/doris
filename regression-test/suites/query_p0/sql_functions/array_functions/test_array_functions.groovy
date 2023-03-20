@@ -198,6 +198,7 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_pushfront(k8, cast('2023-03-05' as datev2)) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_pushfront(k10, cast('2023-03-08 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_pushfront(k10, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushfront(k12, null) FROM ${tableName} ORDER BY k1"
 
     qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
     

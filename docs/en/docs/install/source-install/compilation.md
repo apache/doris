@@ -137,7 +137,7 @@ This topic is about how to compile Doris from source.
      >
      > If you are using `build-env-for-0.15.0` or the subsequent versions for the first time, use the following command when compiling:
      >
-     > `sh build.sh --clean --be --fe --ui`
+     > `sh build.sh --clean --be --fe`
      >
      > This is we have upgraded the thrift (0.9 -> 0.13) for  `build-env-for-0.15.0` and the subsequent versions. That means you need to use the --clean command to force the use of the new version of thrift to generate code files, otherwise it will result in code incompatibility.
 

@@ -580,7 +580,8 @@ enum TOdbcTableType {
     SQLSERVER,
     REDIS,
     MONGODB,
-    CLICKHOUSE
+    CLICKHOUSE,
+    SAP_HANA
 }
 
 enum TKeysType {
@@ -654,6 +655,14 @@ enum TMergeType {
 enum TSortType {
     LEXICAL,
     ZORDER, 
+}
+
+enum TMetadataType {
+  ICEBERG
+}
+
+enum TIcebergQueryType {
+  SNAPSHOTS
 }
 
 // represent a user identity

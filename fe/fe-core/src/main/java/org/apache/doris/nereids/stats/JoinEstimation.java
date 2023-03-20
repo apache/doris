@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
@@ -34,12 +35,9 @@ import java.util.stream.Collectors;
 public class JoinEstimation {
     private static Statistics estimateInnerJoin(Statistics crossJoinStats, List<Expression> joinConditions) {
         List<Pair<Expression, Double>> sortedJoinConditions = joinConditions.stream()
-                .map(expression -> Pair.of(expression, 0.0)).sorted((a, b) -> {
-                    double selA = estimateJoinConditionSel(crossJoinStats, a.first);
-                    a.second = selA;
-                    double selB = estimateJoinConditionSel(crossJoinStats, b.first);
-                    b.second = selB;
-                    double sub = selA - selB;
+                .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
+                .sorted((a, b) -> {
+                    double sub = a.second - b.second;
                     if (sub > 0) {
                         return -1;
                     } else if (sub < 0) {
@@ -73,6 +71,11 @@ public class JoinEstimation {
                 .build();
         List<Expression> joinConditions = join.getHashJoinConjuncts();
         Statistics innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            FilterEstimation filterEstimation = new FilterEstimation();
+            innerJoinStats = filterEstimation.estimate(
+                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        }
         innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
         innerJoinStats.setPenalty(0);
         double rowCount;

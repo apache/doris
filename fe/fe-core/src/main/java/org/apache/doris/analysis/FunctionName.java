@@ -135,7 +135,7 @@ public class FunctionName implements Writable {
         return db;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze(Analyzer analyzer, SetType type) throws AnalysisException {
         if (fn.length() == 0) {
             throw new AnalysisException("Function name can not be empty.");
         }
@@ -150,7 +150,7 @@ public class FunctionName implements Writable {
         }
         if (db == null) {
             db = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(db)) {
+            if (Strings.isNullOrEmpty(db) && type != SetType.GLOBAL) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {

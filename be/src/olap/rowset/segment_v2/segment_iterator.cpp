@@ -157,7 +157,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
           _lazy_materialization_read(false),
           _inited(false),
           _estimate_row_size(true),
-          _wait_times_estimate_row_size(10) {}
+          _wait_times_estimate_row_size(10),
+          _pool(new ObjectPool) {}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -173,9 +174,18 @@ SegmentIterator::~SegmentIterator() {
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     _opts = opts;
-    if (!opts.column_predicates.empty()) {
-        _col_predicates = opts.column_predicates;
+
+    for (auto& predicate : opts.column_predicates) {
+        if (predicate->need_to_clone()) {
+            ColumnPredicate* cloned;
+            predicate->clone(&cloned);
+            _pool->add(cloned);
+            _col_predicates.emplace_back(cloned);
+        } else {
+            _col_predicates.emplace_back(predicate);
+        }
     }
+
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
     if (!opts.column_predicates_except_leafnode_of_andnode.empty()) {

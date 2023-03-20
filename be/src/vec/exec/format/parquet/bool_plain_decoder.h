@@ -37,7 +37,7 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
 
     Status skip_values(size_t num_values) override;
 

@@ -37,7 +37,7 @@ DROP FUNCTION
 语法：
 
 ```sql
-DROP FUNCTION function_name
+DROP [GLOBAL] FUNCTION function_name
     (arg_type [, ...])
 ```
 
@@ -53,6 +53,11 @@ DROP FUNCTION function_name
    ```sql
    DROP FUNCTION my_add(INT, INT)
    ```
+2. 删除掉一个全局函数
+
+    ```sql
+    DROP GLOBAL FUNCTION my_add(INT, INT)
+    ````      
 
 ### Keywords
 

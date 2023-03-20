@@ -15,24 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common.annotation;
 
-#include <memory>
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-#include "common/status.h"
-
-namespace arrow {
-
-class Schema;
-class MemoryPool;
-class RecordBatch;
-
-} // namespace arrow
-
-namespace doris {
-class Schema;
-
-// Convert Doris Schema to Arrow Schema.
-Status convert_to_arrow_schema(const Schema& row_desc, std::shared_ptr<arrow::Schema>* result);
-
-} // namespace doris
+// You can use this annotation when throw exception the program will exit.
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface NoException {
+}
