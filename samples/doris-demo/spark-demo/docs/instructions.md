@@ -29,7 +29,7 @@ org.apache.doris.demo.spark.DorisSparkConnectionExampleScala
 
 **Note:** Because the Spark doris connector jar file is not in the Maven central repository, you need to compile it separately and add to the classpath of your project. Refer to the compilation and use of Spark doris connector: 
 
-[Spark doris connector](https://doris.apache.org/master/zh-CN/extending-doris/spark-doris-connector.html)
+[Spark doris connector](https://doris.apache.org/docs/dev/ecosystem/spark-doris-connector)
 
 
 1. First, create a table in doris with any mysql client
