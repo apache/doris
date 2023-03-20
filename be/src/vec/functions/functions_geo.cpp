@@ -78,10 +78,9 @@ struct StAsText {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = remove_nullable(block.get_data_type(result));
 
-        auto input = block.get_by_position(arguments[0]).column;
+        auto& input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
-        auto col = input->convert_to_full_column_if_const();
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
@@ -89,7 +88,7 @@ struct StAsText {
 
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
-            auto shape_value = col->get_data_at(row);
+            auto shape_value = input->get_data_at(row);
             shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
 
             if (shape == nullptr) {
@@ -113,10 +112,9 @@ struct StX {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = remove_nullable(block.get_data_type(result));
 
-        auto input = block.get_by_position(arguments[0]).column;
+        auto& input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
-        auto col = input->convert_to_full_column_if_const();
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
@@ -124,7 +122,7 @@ struct StX {
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
-            auto point_value = col->get_data_at(row);
+            auto point_value = input->get_data_at(row);
             auto pt = point.decode_from(point_value.data, point_value.size);
 
             if (!pt) {
@@ -148,10 +146,9 @@ struct StY {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = remove_nullable(block.get_data_type(result));
 
-        auto input = block.get_by_position(arguments[0]).column;
+        auto& input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
-        auto col = input->convert_to_full_column_if_const();
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
@@ -159,7 +156,7 @@ struct StY {
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
-            auto point_value = col->get_data_at(row);
+            auto point_value = input->get_data_at(row);
             auto pt = point.decode_from(point_value.data, point_value.size);
 
             if (!pt) {
@@ -352,7 +349,7 @@ struct StGeoFromText {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = remove_nullable(block.get_data_type(result));
-        auto geo = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);

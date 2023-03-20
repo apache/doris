@@ -16,8 +16,7 @@
 // under the License.
 suite("test_select_stddev_variance_window") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "stddev_variance_window"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

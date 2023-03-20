@@ -111,7 +111,15 @@ public:
 
     // Reads a vlq encoded int from the stream.  The encoded int must start at the
     // beginning of a byte. Return false if there were not enough bytes in the buffer.
-    bool GetVlqInt(int32_t* v);
+    bool GetVlqInt(uint32_t* v);
+    // Reads a zigzag encoded int `into` v.
+    bool GetZigZagVlqInt(int32_t* v);
+
+    // Reads a vlq encoded int from the stream.  The encoded int must start at the
+    // beginning of a byte. Return false if there were not enough bytes in the buffer.
+    bool GetVlqInt(uint64_t* v);
+    // Reads a zigzag encoded int `into` v.
+    bool GetZigZagVlqInt(int64_t* v);
 
     // Returns the number of bytes left in the stream, not including the current byte (i.e.,
     // there may be an additional fraction of a byte).
@@ -123,11 +131,17 @@ public:
     // Rewind the stream by 'num_bits' bits
     void Rewind(int num_bits);
 
+    // Advance the stream by 'num_bits' bits
+    bool Advance(int64_t num_bits);
+
     // Seek to a specific bit in the buffer
     void SeekToBit(unsigned int stream_position);
 
     // Maximum byte length of a vlq encoded int
     static const int MAX_VLQ_BYTE_LEN = 5;
+
+    // Maximum byte length of a vlq encoded int64
+    static const int MAX_VLQ_BYTE_LEN_FOR_INT64 = 10;
 
     bool is_initialized() const { return buffer_ != nullptr; }
 

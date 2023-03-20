@@ -33,7 +33,7 @@ under the License.
 
 Convert STR to DATE type by format specified, if the conversion result does not return NULL
 
-The format format supported is consistent with date_format
+The `format` supported is consistent with [date_format](date_format.md)
 
 ### example
 

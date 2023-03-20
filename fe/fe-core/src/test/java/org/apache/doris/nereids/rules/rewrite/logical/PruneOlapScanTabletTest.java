@@ -29,7 +29,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -41,7 +40,9 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
@@ -54,10 +55,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class PruneOlapScanTabletTest {
+class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
 
     @Test
-    public void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
+    void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
             @Mocked Partition partition, @Mocked MaterializedIndex index,
             @Mocked HashDistributionInfo distributionInfo) {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
@@ -153,11 +154,12 @@ public class PruneOlapScanTabletTest {
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());
 
-        CascadesContext context = MemoTestUtils.createCascadesContext(filter);
-        context.topDownRewrite(ImmutableList.of(new PruneOlapScanTablet().build()));
-
-        LogicalFilter<LogicalOlapScan> filter1 = ((LogicalFilter<LogicalOlapScan>) context.getMemo().copyOut());
-        LogicalOlapScan olapScan = filter1.child();
-        Assertions.assertEquals(19, olapScan.getSelectedTabletIds().size());
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new PruneOlapScanTablet())
+                .matches(
+                        logicalFilter(
+                                logicalOlapScan().when(scan -> scan.getSelectedTabletIds().size() == 19)
+                        )
+                );
     }
 }

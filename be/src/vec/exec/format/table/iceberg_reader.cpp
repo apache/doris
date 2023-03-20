@@ -63,7 +63,11 @@ Status IcebergTableReader::init_reader(
         const std::vector<std::string>& file_col_names,
         const std::unordered_map<int, std::string>& col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        VExprContext* vconjunct_ctx) {
+        VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+        const RowDescriptor* row_descriptor,
+        const std::unordered_map<std::string, int>* colname_to_slot_id,
+        const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts) {
     ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
     _col_id_name_map = col_id_name_map;
     _file_col_names = file_col_names;
@@ -73,8 +77,10 @@ Status IcebergTableReader::init_reader(
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
-    Status status = parquet_reader->init_reader(_all_required_col_names, _not_in_file_col_names,
-                                                &_new_colname_to_value_range, vconjunct_ctx);
+    Status status = parquet_reader->init_reader(
+            _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
+            vconjunct_ctx, tuple_descriptor, row_descriptor, colname_to_slot_id,
+            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     return status;
 }
 
@@ -181,7 +187,7 @@ Status IcebergTableReader::_position_delete(
             delete_range.file_size = -1;
             ParquetReader delete_reader(_profile, _params, delete_range, 102400,
                                         const_cast<cctz::time_zone*>(&_state->timezone_obj()),
-                                        _io_ctx);
+                                        _io_ctx, _state);
             if (!init_schema) {
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;
@@ -191,6 +197,7 @@ Status IcebergTableReader::_position_delete(
                 return nullptr;
             }
             create_status = delete_reader.init_reader(delete_file_col_names, _not_in_file_col_names,
+                                                      nullptr, nullptr, nullptr, nullptr, nullptr,
                                                       nullptr, nullptr, false);
             if (!create_status.ok()) {
                 return nullptr;

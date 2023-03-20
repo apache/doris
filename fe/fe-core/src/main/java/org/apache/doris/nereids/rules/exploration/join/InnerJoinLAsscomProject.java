@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.base.Preconditions;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -67,7 +65,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
-                    Set<Slot> cOutputSet = c.getOutputSet();
+                    Set<ExprId> cExprIdSet = c.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, b);
@@ -83,30 +81,30 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
                     List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
-                    Preconditions.checkState(!newTopHashConjuncts.isEmpty(), "newTopHashConjuncts is empty");
-                    if (newBottomHashConjuncts.size() == 0) {
-                        return null;
-                    }
 
                     /* ********** split OtherConjuncts ********** */
                     Map<Boolean, List<Expression>> splitOtherConjuncts = splitConjunctsWithAlias(
-                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
-                            bExprIdSet);
+                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopOtherConjuncts = splitOtherConjuncts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
+
+                    if (newBottomOtherConjuncts.isEmpty() && newBottomHashConjuncts.isEmpty()) {
+                        return null;
+                    }
 
                     // Add all slots used by OnCondition when projects not empty.
                     Set<ExprId> aExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(a, aProjects);
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
-                                    bottomJoin.getHashJoinConjuncts().stream(),
-                                    bottomJoin.getHashJoinConjuncts().stream())
+                                    newTopHashConjuncts.stream(),
+                                    newTopOtherConjuncts.stream())
                             .flatMap(onExpr -> onExpr.getInputSlots().stream())
+                            .filter(slot -> !cExprIdSet.contains(slot.getExprId()))
                             .collect(Collectors.partitioningBy(
                                     slot -> aExprIdSet.contains(slot.getExprId()), Collectors.toSet()));
                     JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(true), aProjects);
                     JoinReorderUtils.addSlotsUsedByOn(abOnUsedSlots.get(false), bProjects);
 
-                    aProjects.addAll(cOutputSet);
+                    aProjects.addAll(c.getOutput());
 
                     /* ********** new Plan ********** */
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,

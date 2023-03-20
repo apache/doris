@@ -36,6 +36,9 @@ class HyperLogLog;
 struct decimal12_t;
 struct uint24_t;
 
+template <typename T>
+class QuantileState;
+
 namespace vectorized {
 
 /// Data types for representing elementary values from a database in RAM.
@@ -85,6 +88,7 @@ enum class TypeIndex {
     Map,
     Struct,
     VARIANT,
+    QuantileState,
 };
 
 struct Consted {
@@ -204,6 +208,11 @@ struct TypeName<BitmapValue> {
 template <>
 struct TypeName<HyperLogLog> {
     static const char* get() { return "HLL"; }
+};
+
+template <>
+struct TypeName<QuantileState<double>> {
+    static const char* get() { return "QuantileState"; }
 };
 
 template <typename T>
@@ -604,6 +613,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "JSONB";
     case TypeIndex::Struct:
         return "Struct";
+    case TypeIndex::QuantileState:
+        return TypeName<QuantileState<double>>::get();
     }
 
     __builtin_unreachable();

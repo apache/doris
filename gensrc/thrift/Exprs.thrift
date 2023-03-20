@@ -66,6 +66,14 @@ enum TExprNodeType {
 
   // for struct
   STRUCT_LITERAL,
+
+  // for schema change
+  SCHEMA_CHANGE_EXPR,
+  // for lambda function expr
+  LAMBDA_FUNCTION_EXPR,
+  LAMBDA_FUNCTION_CALL_EXPR,
+  // for column_ref expr
+  COLUMN_REF,
 }
 
 //enum TAggregationOp {
@@ -152,6 +160,11 @@ struct TSlotRef {
   3: optional i32 col_unique_id
 }
 
+struct TColumnRef {
+  1: optional Types.TSlotId column_id
+  2: optional string column_name
+}
+
 struct TStringLiteral {
   1: required string value;
 }
@@ -172,6 +185,11 @@ struct TFunctionCallExpr {
   // If set, this aggregate function udf has varargs and this is the index for the
   // first variable argument.
   2: optional i32 vararg_start_idx
+}
+
+struct TSchemaChangeExpr {
+  // target schema change table
+  1: optional i64 table_id 
 }
 
 // This is essentially a union over the subclasses of Expr.
@@ -214,6 +232,9 @@ struct TExprNode {
   29: optional bool is_nullable
   
   30: optional TJsonLiteral json_literal
+  31: optional TSchemaChangeExpr schema_change_expr 
+
+  32: optional TColumnRef column_ref 
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

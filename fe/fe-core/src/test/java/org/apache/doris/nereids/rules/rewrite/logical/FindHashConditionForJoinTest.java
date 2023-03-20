@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,12 +29,12 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -54,9 +52,9 @@ import java.util.Optional;
  *       -hashJoinConjuncts={A.x=B.x, A.y+1=B.y}
  *       -otherJoinCondition="A.x=1 and (A.x=1 or B.x=A.x) and A.x>B.x"
  */
-class FindHashConditionForJoinTest {
+class FindHashConditionForJoinTest implements MemoPatternMatchSupported {
     @Test
-    public void testFindHashCondition() {
+    void testFindHashCondition() {
         Plan student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
                 ImmutableList.of(""));
         Plan score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score,
@@ -77,20 +75,12 @@ class FindHashConditionForJoinTest {
         List<Expression> expr = ImmutableList.of(eq1, eq2, eq3, or, less);
         LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
                 expr, JoinHint.NONE, Optional.empty(), student, score);
-        CascadesContext context = MemoTestUtils.createCascadesContext(join);
-        List<Rule> rules = Lists.newArrayList(new FindHashConditionForJoin().build());
 
-        context.topDownRewrite(rules);
-        Plan plan = context.getMemo().copyOut();
-        LogicalJoin after = (LogicalJoin) plan;
-        Assertions.assertEquals(after.getHashJoinConjuncts().size(), 2);
-        Assertions.assertTrue(after.getHashJoinConjuncts().contains(eq1));
-        Assertions.assertTrue(after.getHashJoinConjuncts().contains(eq3));
-        List<Expression> others = after.getOtherJoinConjuncts();
-        Assertions.assertEquals(others.size(), 3);
-        Assertions.assertTrue(others.contains(less));
-        Assertions.assertTrue(others.contains(eq2));
-        Assertions.assertTrue(others.contains(less));
+        PlanChecker.from(new ConnectContext(), join)
+                        .applyTopDown(new FindHashConditionForJoin())
+                        .matches(
+                            logicalJoin()
+                                    .when(j -> j.getHashJoinConjuncts().equals(ImmutableList.of(eq1, eq3)))
+                                    .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(eq2, or, less))));
     }
-
 }

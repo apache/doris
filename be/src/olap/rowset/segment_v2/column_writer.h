@@ -21,6 +21,7 @@
 
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
+#include "olap/field.h"            // for Field
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer

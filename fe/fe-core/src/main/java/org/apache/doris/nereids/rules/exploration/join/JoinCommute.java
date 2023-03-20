@@ -67,7 +67,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                     }
 
                     return newJoin;
-                }).toRule(RuleType.LOGICAL_JOIN_COMMUTATE);
+                }).toRule(RuleType.LOGICAL_JOIN_COMMUTE);
     }
 
     enum SwapType {

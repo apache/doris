@@ -77,7 +77,7 @@ public:
         env->DeleteGlobalRef(executor_obj);
     }
 
-    Status init_udaf(const TFunction& fn) {
+    Status init_udaf(const TFunction& fn, const std::string& local_location) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf init_udaf function");
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
@@ -87,10 +87,6 @@ public:
         // Add a scoped cleanup jni reference object. This cleans up local refs made below.
         JniLocalFrame jni_frame;
         {
-            std::string local_location;
-            auto function_cache = UserFunctionCache::instance();
-            RETURN_IF_ERROR(function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
-                                                        &local_location));
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn);
             ctor_params.__set_location(local_location);
@@ -255,6 +251,14 @@ public:
         jboolean res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                 \
                                                         executor_result_id, to.size() - 1, place); \
         while (res != JNI_TRUE) {                                                                  \
+            /*Add this check is now, the agg function can't deal with the return status, */        \
+            /*even we return a bad status, nobody could deal with it,*/                            \
+            /*so add this limit avoid std::bad_alloc, (1024<<10) is enough*/                       \
+            /*but this maybe get a mistake of result,when could handle exception need removethis*/ \
+            if (increase_buffer_size == 10) {                                                      \
+                return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",      \
+                                                 increase_buffer_size, buffer_size);               \
+            }                                                                                      \
             increase_buffer_size++;                                                                \
             buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);               \
             chars.resize(buffer_size);                                                             \
@@ -294,6 +298,10 @@ public:
             jboolean res = env->CallNonvirtualBooleanMethod(                                       \
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
+                if (increase_buffer_size == 10) {                                                  \
+                    return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",  \
+                                                     increase_buffer_size, buffer_size);           \
+                }                                                                                  \
                 increase_buffer_size++;                                                            \
                 buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
                 null_map_data.resize(buffer_size);                                                 \
@@ -312,6 +320,10 @@ public:
             jboolean res = env->CallNonvirtualBooleanMethod(                                       \
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
+                if (increase_buffer_size == 10) {                                                  \
+                    return Status::MemoryAllocFailed("memory allocate failed, buffer:{},size:{}",  \
+                                                     increase_buffer_size, buffer_size);           \
+                }                                                                                  \
                 increase_buffer_size++;                                                            \
                 buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
                 null_map_data.resize(buffer_size);                                                 \
@@ -414,14 +426,14 @@ public:
     //So need to check as soon as possible, before call Data function
     Status check_udaf(const TFunction& fn) {
         auto function_cache = UserFunctionCache::instance();
-        return function_cache->check_jar(fn.id, fn.hdfs_location, fn.checksum);
+        return function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum, &_local_location);
     }
 
     void create(AggregateDataPtr __restrict place) const override {
         if (_first_created) {
             new (place) Data(argument_types.size());
             Status status = Status::OK();
-            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn));
+            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn, _local_location));
             _first_created = false;
             _exec_place = place;
         }
@@ -499,6 +511,7 @@ private:
     DataTypePtr _return_type;
     mutable bool _first_created;
     mutable AggregateDataPtr _exec_place;
+    std::string _local_location;
 };
 
 } // namespace doris::vectorized

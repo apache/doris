@@ -21,7 +21,7 @@
 
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf_internal.h"
+#include "udf/udf.h"
 
 namespace doris {
 
@@ -33,7 +33,7 @@ FunctionUtils::FunctionUtils() {
     _state = new RuntimeState(globals);
     doris::TypeDescriptor return_type;
     std::vector<doris::TypeDescriptor> arg_types;
-    _fn_ctx = FunctionContextImpl::create_context(_state, return_type, arg_types);
+    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
 }
 
 FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
@@ -44,7 +44,7 @@ FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
     _state = new RuntimeState(globals);
-    _fn_ctx = FunctionContextImpl::create_context(_state, return_type, arg_types);
+    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
 }
 
 FunctionUtils::~FunctionUtils() {

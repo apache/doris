@@ -17,8 +17,7 @@
 
 suite("test_multiply") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def tableName = "test_multiply"
     sql """DROP TABLE IF EXISTS `${tableName}`"""
     sql """ CREATE TABLE `${tableName}` (
@@ -30,6 +29,6 @@ suite("test_multiply") {
 
     sql """ insert into `${tableName}` values(1,null,2.2); """
     sql """ insert into `${tableName}` values(1,0,0); """
-    qt_select """ select COALESCE(col2, 0) * COALESCE(col3, 0) from `${tableName}`; """
-    qt_select """ select col2 * col3 from `${tableName}`; """
+    order_qt_select """ select COALESCE(col2, 0) * COALESCE(col3, 0) from `${tableName}`; """
+    order_qt_select """ select col2 * col3 from `${tableName}`; """
 }

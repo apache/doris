@@ -110,8 +110,7 @@ PARTITION BY LIST(`city`)
 (
     PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
     PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
-    PARTITION `p_jp` VALUES IN ("Tokyo"),
-    PARTITION `default`
+    PARTITION `p_jp` VALUES IN ("Tokyo")
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES

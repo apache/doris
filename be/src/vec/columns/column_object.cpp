@@ -199,13 +199,9 @@ public:
         return 0;
     }
     size_t operator()(const Int64& x) {
-        // Only support Int32 and Int64
+        // Only Int64 at present
         field_types.insert(FieldType::Int64);
-        if (x <= std::numeric_limits<Int32>::max() && x >= std::numeric_limits<Int32>::min()) {
-            type_indexes.insert(TypeIndex::Int32);
-        } else {
-            type_indexes.insert(TypeIndex::Int64);
-        }
+        type_indexes.insert(TypeIndex::Int64);
         return 0;
     }
     size_t operator()(const Null&) {
@@ -829,7 +825,6 @@ bool ColumnObject::is_finalized() const {
 }
 
 void ColumnObject::finalize() {
-    size_t old_size = size();
     Subcolumns new_subcolumns;
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -842,12 +837,12 @@ void ColumnObject::finalize() {
     }
     /// If all subcolumns were skipped add a dummy subcolumn,
     /// because Tuple type must have at least one element.
-    if (new_subcolumns.empty()) {
-        new_subcolumns.add(
-                PathInData {COLUMN_NAME_DUMMY},
-                Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
-                           is_nullable});
-    }
+    // if (new_subcolumns.empty()) {
+    //     new_subcolumns.add(
+    //             PathInData {COLUMN_NAME_DUMMY},
+    //             Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
+    //                        is_nullable});
+    // }
     std::swap(subcolumns, new_subcolumns);
 }
 
@@ -864,7 +859,6 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
 
 void ColumnObject::strip_outer_array() {
     assert(is_finalized());
-    size_t old_size = size();
     Subcolumns new_subcolumns;
     for (auto&& entry : subcolumns) {
         auto base_column = get_base_column_of_array(entry->data.get_finalized_column_ptr());
@@ -873,13 +867,110 @@ void ColumnObject::strip_outer_array() {
     }
     /// If all subcolumns were skipped add a dummy subcolumn,
     /// because Tuple type must have at least one element.
-    if (new_subcolumns.empty()) {
-        new_subcolumns.add(
-                PathInData {COLUMN_NAME_DUMMY},
-                Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
-                           is_nullable});
-    }
+    // if (new_subcolumns.empty()) {
+    //     new_subcolumns.add(
+    //             PathInData {COLUMN_NAME_DUMMY},
+    //             Subcolumn {static_cast<MutableColumnPtr&&>(ColumnUInt8::create(old_size, 0)),
+    //                        is_nullable});
+    // }
     std::swap(subcolumns, new_subcolumns);
+}
+
+ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
+    DCHECK(is_finalized());
+    auto new_column = ColumnObject::create(true);
+    for (auto& entry : subcolumns) {
+        auto subcolumn = entry->data.get_finalized_column().filter(filter, count);
+        new_column->add_sub_column(entry->path, std::move(subcolumn));
+    }
+    return new_column;
+}
+
+size_t ColumnObject::filter(const Filter& filter) {
+    DCHECK(is_finalized());
+    for (auto& entry : subcolumns) {
+        num_rows = entry->data.get_finalized_column().filter(filter);
+    }
+    return num_rows;
+}
+
+template <typename ColumnInserterFn>
+void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, size_t row_cnt,
+                                    ColumnInserterFn inserter) {
+    CHECK(dst.is_finalized() && src.is_finalized());
+    // Use rows() here instead of size(), since size() will check_consistency
+    // but we could not check_consistency since num_rows will be upgraded even
+    // if src and dst is empty, we just increase the num_rows of dst and fill
+    // num_rows of default values when meet new data
+    size_t num_rows = dst.rows();
+    bool need_inc_row_num = true;
+    for (auto& entry : dst.get_subcolumns()) {
+        const auto* src_subcol = src.get_subcolumn(entry->path);
+        if (src_subcol == nullptr) {
+            entry->data.get_finalized_column().insert_many_defaults(row_cnt);
+        } else {
+            // TODO handle type confict here， like ColumnObject before
+            CHECK(entry->data.get_least_common_type()->equals(
+                    *src_subcol->get_least_common_type()));
+            const auto& src_column = src_subcol->get_finalized_column();
+            inserter(src_column, &entry->data.get_finalized_column());
+        }
+    }
+    for (const auto& entry : src.get_subcolumns()) {
+        // encounter a new column
+        const auto* dst_subcol = dst.get_subcolumn(entry->path);
+        if (dst_subcol == nullptr) {
+            auto type = entry->data.get_least_common_type();
+            auto new_column = type->create_column();
+            new_column->insert_many_defaults(num_rows);
+            inserter(entry->data.get_finalized_column(), new_column.get());
+            if (dst.empty()) {
+                // add_sub_column updated num_rows of dst object
+                need_inc_row_num = false;
+            }
+            dst.add_sub_column(entry->path, std::move(new_column));
+        }
+    }
+    num_rows += row_cnt;
+    if (need_inc_row_num) {
+        dst.incr_num_rows(row_cnt);
+    }
+#ifndef NDEBUG
+    // Check all columns rows matched
+    for (const auto& entry : dst.get_subcolumns()) {
+        DCHECK_EQ(entry->data.get_finalized_column().size(), num_rows);
+    }
+#endif
+}
+
+void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
+    // insert_range_from with alignment
+    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
+    align_variant_by_name_and_type(*this, src_column, length,
+                                   [start, length](const IColumn& src, IColumn* dst) {
+                                       dst->insert_range_from(src, start, length);
+                                   });
+}
+
+void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
+                                           const IColumn::Selector& selector) const {
+    // append by selector with alignment
+    ColumnObject& dst_column = *assert_cast<ColumnObject*>(res.get());
+    align_variant_by_name_and_type(dst_column, *this, selector.size(),
+                                   [&selector](const IColumn& src, IColumn* dst) {
+                                       auto mutable_dst = dst->assume_mutable();
+                                       src.append_data_by_selector(mutable_dst, selector);
+                                   });
+}
+
+void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                       const int* indices_end) {
+    // insert_indices_from with alignment
+    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
+    align_variant_by_name_and_type(*this, src_column, indices_end - indices_begin,
+                                   [indices_begin, indices_end](const IColumn& src, IColumn* dst) {
+                                       dst->insert_indices_from(src, indices_begin, indices_end);
+                                   });
 }
 
 } // namespace doris::vectorized

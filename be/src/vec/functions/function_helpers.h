@@ -75,12 +75,12 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
 
 /// Transform anything to Field.
 template <typename T>
-inline std::enable_if_t<!IsDecimalNumber<T>, Field> to_field(const T& x) {
+std::enable_if_t<!IsDecimalNumber<T>, Field> to_field(const T& x) {
     return Field(NearestFieldType<T>(x));
 }
 
 template <typename T>
-inline std::enable_if_t<IsDecimalNumber<T>, Field> to_field(const T& x, UInt32 scale) {
+std::enable_if_t<IsDecimalNumber<T>, Field> to_field(const T& x, UInt32 scale) {
     return Field(NearestFieldType<T>(x, scale));
 }
 

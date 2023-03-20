@@ -256,6 +256,9 @@ public class ScalarFunction extends Function {
                 case JSONB:
                     beFn.append("_jsonb_val");
                     break;
+                case LAMBDA_FUNCTION:
+                    beFn.append("_lambda_function");
+                    break;
                 case DATE:
                 case DATETIME:
                 case DATEV2:

@@ -17,8 +17,7 @@
 
 suite("test_window_function") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
-    sql "SET enable_fallback_to_original_planner=false" 
+    sql "SET enable_fallback_to_original_planner=false"
     def windowFunctionTable1 = "test_window_function1"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable1} """
     sql """ create table if not exists ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime not null, closing_date1 datetimev2 not null, closing_date2 datetimev2(3) not null, closing_date3 datetimev2(6) not null) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """

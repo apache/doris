@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -90,10 +90,10 @@ public abstract class AbstractPhysicalJoin<
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties,
-            StatsDeriveResult statsDeriveResult,
+            Statistics statistics,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);

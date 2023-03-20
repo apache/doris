@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -1697,6 +1698,34 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return null;
     }
 
+    /*
+     * this function is used be lambda function to find lambda argument.
+     * and replace a new ColumnRefExpr
+     */
+    public void replaceExpr(String colName, ColumnRefExpr slotRefs, List<Expr> slotExpr) {
+        for (int i = 0; i < children.size(); ++i) {
+            children.get(i).replaceExpr(colName, slotRefs, slotExpr);
+            if (children.get(i).findSlotRefByName(colName)) {
+                slotExpr.add(slotRefs);
+                setChild(i, slotRefs);
+                break;
+            }
+        }
+    }
+
+    private boolean findSlotRefByName(String colName) {
+        if (this instanceof SlotRef) {
+            SlotRef slot = (SlotRef) this;
+            if (slot.getColumnName() != null && slot.getColumnName().equals(colName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+
+
+
     /**
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
@@ -2201,9 +2230,27 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                         return Type.DECIMAL128;
                     } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
                         return Type.DATETIMEV2;
+                    } else if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
+                        return getActualArrayType((ArrayType) type);
                     }
                     return type;
                 }).toArray(Type[]::new);
+    }
+
+    private ArrayType getActualArrayType(ArrayType originArrayType) {
+        // Now we only support single-level array nesting.
+        // Multi-layer array nesting will be supported in the future.
+        Type type = originArrayType.getItemType();
+        if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
+            return new ArrayType(Type.DECIMAL32);
+        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
+            return new ArrayType(Type.DECIMAL64);
+        } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+            return new ArrayType(Type.DECIMAL128);
+        } else if (type.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
+            return new ArrayType(Type.DATETIMEV2);
+        }
+        return originArrayType;
     }
 
     public boolean refToCountStar() {

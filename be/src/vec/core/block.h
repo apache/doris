@@ -42,22 +42,8 @@ namespace doris {
 class RowDescriptor;
 class Status;
 class TupleDescriptor;
-struct TypeDescriptor;
 
 namespace vectorized {
-
-// DYNAMIC block is a special type of Block.
-// It could extends it's structure by align with
-// other blocks by add_rows, merge, append_block_by_selector ...
-// eg.
-// BlockA: A(int) | B(double) | C(float) | D(string)
-// BlockB: E(date) | F(int)
-// when BlockA.add_rows/merge/... with BlockB
-// then BlockA structure will become:
-// A(int) | B(double) | C(float) | D(string) | E(date) | F(int)
-// Both E & F are added to BlockA with same rows, and missing columns are
-// filled with default values
-enum class BlockType { NORMAL, DYNAMIC };
 
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
@@ -79,7 +65,6 @@ private:
     int64_t _decompressed_bytes = 0;
 
     mutable int64_t _compress_time_ns = 0;
-    BlockType _type {BlockType::NORMAL};
 
 public:
     Block() = default;
@@ -162,9 +147,6 @@ public:
         auto& element = this->get_by_position(position);
         element.column = element.column->convert_to_full_column_if_const();
     }
-
-    void set_block_type(BlockType type) { _type = type; }
-    BlockType get_block_type() { return _type; }
 
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
@@ -388,8 +370,6 @@ public:
 
 private:
     void erase_impl(size_t position);
-    bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
-                             const IColumn* column_with_type_and_name, int row);
 };
 
 using Blocks = std::vector<Block>;
@@ -405,12 +385,8 @@ private:
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
-    BlockType _type {BlockType::NORMAL};
 
 public:
-    void set_block_type(BlockType type) { _type = type; }
-    BlockType get_block_type() { return _type; }
-
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);
     }
@@ -423,15 +399,13 @@ public:
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()),
               _data_types(block->get_data_types()),
-              _names(block->get_names()),
-              _type(block->get_block_type()) {
+              _names(block->get_names()) {
         initialize_index_by_name();
     }
     MutableBlock(Block&& block)
             : _columns(block.mutate_columns()),
               _data_types(block.get_data_types()),
-              _names(block.get_names()),
-              _type(block.get_block_type()) {
+              _names(block.get_names()) {
         initialize_index_by_name();
     }
 
@@ -439,7 +413,6 @@ public:
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
-        _type = m_block.get_block_type();
         initialize_index_by_name();
     }
 
@@ -503,7 +476,6 @@ public:
     template <typename T>
     void merge(T&& block) {
         // merge is not supported in dynamic block
-        DCHECK(_type != BlockType::DYNAMIC);
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
             _names = block.get_names();

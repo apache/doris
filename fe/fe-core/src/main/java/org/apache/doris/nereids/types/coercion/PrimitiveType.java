@@ -30,8 +30,4 @@ public abstract class PrimitiveType extends DataType {
         return simpleString().toUpperCase(Locale.ROOT);
     }
 
-    @Override
-    public int width() {
-        throw new RuntimeException("Unimplemented exception");
-    }
 }

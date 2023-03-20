@@ -480,7 +480,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx));
+            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx, nullptr));
             break;
         }
         case TFileFormatType::FORMAT_ORC: {

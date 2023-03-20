@@ -17,8 +17,6 @@
 
 suite("test_dynamic_table", "dynamic_table"){
 
-    sql """ SET enable_vectorized_engine=true; """
-
     def create_none_dynamic_table_result = "fail"
     try {
         sql """

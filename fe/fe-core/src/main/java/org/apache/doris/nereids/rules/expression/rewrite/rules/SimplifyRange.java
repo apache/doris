@@ -44,6 +44,7 @@ import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +60,7 @@ import java.util.stream.Collectors;
  * a > 1 or a > 2 => a > 1
  * a in (1,2,3) and a > 1 => a in (2,3)
  * a in (1,2,3) and a in (3,4,5) => a = 3
- * a in(1,2,3) and a in (4,5,6) => false
+ * a in (1,2,3) and a in (4,5,6) => false
  * The logic is as follows:
  * 1. for `And` expression.
  *    1. extract conjunctions then build `ValueDesc` for each conjunction
@@ -402,8 +403,13 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public Expression toExpression() {
+            // NOTICE: it's related with `InPredicateToEqualToRule`
+            // They are same processes, so must change synchronously.
             if (values.size() == 1) {
                 return new EqualTo(reference, values.iterator().next());
+            } else if (values.size() == 2) {
+                Iterator<Literal> iterator = values.iterator();
+                return new Or(new EqualTo(reference, iterator.next()), new EqualTo(reference, iterator.next()));
             } else {
                 return new InPredicate(reference, Lists.newArrayList(values));
             }

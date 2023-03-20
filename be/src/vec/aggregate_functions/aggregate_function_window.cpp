@@ -59,8 +59,8 @@ AggregateFunctionPtr create_aggregate_function_ntile(const std::string& name,
 template <template <typename> class AggregateFunctionTemplate,
           template <typename ColVecType, bool, bool> class Data, template <typename> class Impl,
           bool result_is_nullable, bool arg_is_nullable>
-static IAggregateFunction* create_function_lead_lag_first_last(const String& name,
-                                                               const DataTypes& argument_types) {
+IAggregateFunction* create_function_lead_lag_first_last(const String& name,
+                                                        const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 

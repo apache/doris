@@ -45,8 +45,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnPtr src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr& src_column = block.get_by_position(arguments[0]).column;
         if (const ColumnString* col_string = check_and_get_column<ColumnString>(src_column.get())) {
             auto col_res = ColumnString::create();
             ReverseImpl::vector(col_string->get_chars(), col_string->get_offsets(),

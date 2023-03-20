@@ -52,6 +52,9 @@ Status ColumnChunkReader::init() {
 }
 
 Status ColumnChunkReader::next_page() {
+    if (_state == HEADER_PARSED) {
+        return Status::OK();
+    }
     if (UNLIKELY(_state == NOT_INIT)) {
         return Status::Corruption("Should initialize chunk reader");
     }
@@ -258,16 +261,16 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 }
 
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                        ColumnSelectVector& select_vector) {
+                                        ColumnSelectVector& select_vector, bool is_dict_filter) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    if (UNLIKELY(doris_column->is_column_dictionary() && !_has_dict)) {
+    if (UNLIKELY((doris_column->is_column_dictionary() || is_dict_filter) && !_has_dict)) {
         return Status::IOError("Not dictionary coded");
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
         return Status::IOError("Decode too many values in current page");
     }
     _remaining_num_values -= select_vector.num_values();
-    return _page_decoder->decode_values(doris_column, data_type, select_vector);
+    return _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter);
 }
 
 int32_t ColumnChunkReader::_get_type_length() {

@@ -115,6 +115,12 @@ private:
     // in block
     void serialize_block_to_row_column(vectorized::Block& block);
 
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    void unfold_variant_column(vectorized::Block& block);
+
 private:
     TabletSharedPtr _tablet;
     const KeysType _keys_type;

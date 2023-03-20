@@ -106,6 +106,7 @@ message PGenericType {
         JSONB = 31;
         DECIMAL128I = 32;
         VARIANT = 33;
+        QUANTILE_STATE = 34;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

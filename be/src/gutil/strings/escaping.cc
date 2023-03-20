@@ -1697,7 +1697,7 @@ static char hex_char[] = "0123456789abcdef";
 // or a string.  This works because we use the [] operator to access
 // individual characters at a time.
 template <typename T>
-static void a2b_hex_t(const char* a, T b, int num) {
+void a2b_hex_t(const char* a, T b, int num) {
     for (int i = 0; i < num; i++) {
         b[i] = (hex_value[a[i * 2] & 0xFF] << 4) + (hex_value[a[i * 2 + 1] & 0xFF]);
     }
@@ -1725,7 +1725,7 @@ string a2b_bin(const string& a, bool byte_order_msb) {
 // or a string.  This works because we use the [] operator to access
 // individual characters at a time.
 template <typename T>
-static void b2a_hex_t(const unsigned char* b, T a, int num) {
+void b2a_hex_t(const unsigned char* b, T a, int num) {
     for (int i = 0; i < num; i++) {
         a[i * 2 + 0] = hex_char[b[i] >> 4];
         a[i * 2 + 1] = hex_char[b[i] & 0xf];

@@ -80,6 +80,20 @@ public class ScalarType extends Type {
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
     public static final int MAX_DATETIMEV2_SCALE = 6;
 
+    private long byteSize = -1;
+
+
+    /**
+     * Set byte size of expression
+     */
+    public void setByteSize(long byteSize) {
+        this.byteSize = byteSize;
+    }
+
+    public long getByteSize() {
+        return byteSize;
+    }
+
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
     private final PrimitiveType type;
@@ -166,6 +180,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
+            case LAMBDA_FUNCTION:
+                return LAMBDA_FUNCTION;
             case DATE:
                 return DATE;
             case DATETIME:
@@ -232,6 +248,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case "QUANTILE_STATE":
                 return QUANTILE_STATE;
+            case "LAMBDA_FUNCTION":
+                return LAMBDA_FUNCTION;
             case "DATE":
                 return DATE;
             case "DATETIME":
@@ -605,6 +623,7 @@ public class ScalarType extends Type {
             case BITMAP:
             case VARIANT:
             case QUANTILE_STATE:
+            case LAMBDA_FUNCTION:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
@@ -638,6 +657,7 @@ public class ScalarType extends Type {
         node.setType(TTypeNodeType.SCALAR);
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
+        container.setByteSize(byteSize);
 
         switch (type) {
             case VARCHAR:

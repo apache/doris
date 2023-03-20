@@ -73,7 +73,7 @@ public class SemiJoinSemiJoinTranspose extends OneExplorationRuleFactory {
                     Plan newBottomJoin = topJoin.withChildren(a, c);
                     Plan newTopJoin = bottomJoin.withChildren(newBottomJoin, b);
                     return newTopJoin;
-                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE);
+                }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANSPOSE);
     }
 
     private boolean typeChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topJoin) {
