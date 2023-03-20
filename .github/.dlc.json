@@ -8,6 +8,9 @@
           },
           {
             "pattern": "^/images/2021073014"
+          },
+          {
+            "pattern": "^./fe/fe-core/src/test/resources/data/show_help/"
           }
 
         ],
