@@ -5,7 +5,11 @@
           },
           {
             "pattern": "^http://pgp.mit.edu:11371"
+          },
+          {
+            "pattern": "^/images/2021073014"
           }
+
         ],
         "replacementPatterns": [
           {
