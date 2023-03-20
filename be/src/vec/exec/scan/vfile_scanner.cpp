@@ -455,9 +455,10 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
                         (!_src_block.get_by_position(_dest_slot_to_src_slot_index[dest_index])
-                                 .column->is_null_at(i) && 
-                                 _src_block.get_by_position(_dest_slot_to_src_slot_index[dest_index])
-                                 .column->get_data_at(i).size != 0)) {
+                                  .column->is_null_at(i) && 
+                         _src_block.get_by_position(_dest_slot_to_src_slot_index[dest_index])
+                                         .column->get_data_at(i)
+                                         .size != 0)) {
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block.dump_one_line(i, _num_of_columns_from_file);
