@@ -43,9 +43,11 @@ public:
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                           int* result_column_id, DataTypePtr result_type,
                           const std::vector<VExpr*>& children) override {
-        ///* array_xxx(arg1) *///
+        // array_xxx(arg1), this function is just used as a shell
+        // real computation is in child expr, code is in vec/function/array/function_array_mapped.h
         if (children.size() != 1) {
-            return Status::InternalError("in lambda array mapped function, the num of parameters should be one.");
+            return Status::InternalError(
+                    "in lambda array mapped function, the num of parameters should be one.");
         }
         //1. child[0]->execute(src_block)
         int column_id = -1;
