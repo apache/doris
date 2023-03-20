@@ -62,9 +62,9 @@ public class RefreshCatalogStmt extends DdlStmt {
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
-            ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
+                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                analyzer.getQualifiedUser(), catalogName);
+                    analyzer.getQualifiedUser(), catalogName);
         }
         String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
         // Default is to invalid cache.

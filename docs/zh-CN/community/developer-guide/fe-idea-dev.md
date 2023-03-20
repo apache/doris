@@ -37,7 +37,7 @@ JDK1.8+, IntelliJ IDEA
 3. 如果仅进行fe开发而没有编译过thirdparty，则需要安装thrift，并将thrift 复制或者连接到 `thirdparty/installed/bin` 目录下
 
         安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
-        
+    
         Windows: 
            1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
            2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
@@ -67,7 +67,8 @@ JDK1.8+, IntelliJ IDEA
            7.`make install`
         安装完成后查看版本：thrift --version  
         注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
-    
+       
+
 4. 如果是Mac 或者 Linux 环境 可以通过 如下命令自动生成代码：
 
     ```
@@ -79,7 +80,7 @@ JDK1.8+, IntelliJ IDEA
 
     ```
     cd fe && mvn clean install -DskipTests
-    
+
     ```
 
 或者通过图形界面运行 maven 命令生成

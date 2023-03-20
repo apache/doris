@@ -27,7 +27,6 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -56,8 +55,6 @@ import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
@@ -143,7 +140,7 @@ public class PaloFe {
             // So we set the default HTTP client to UrlConnectionHttpClient.
             // TODO: remove this after we remove ApacheHttpClient
             System.setProperty("software.amazon.awssdk.http.service.impl",
-                "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
+                    "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
 
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
@@ -176,12 +173,6 @@ public class PaloFe {
                 qeService.start();
             }
 
-            ScheduledThreadPoolExecutor refreshTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-                "refresh-timer-pool", true);
-            Integer refreshTime = 20;
-            CatalogMgr catalogMgr = new CatalogMgr(refreshTime);
-            refreshTimer.scheduleAtFixedRate(catalogMgr, 0, refreshTime, TimeUnit.SECONDS);
-
             ThreadPoolManager.registerAllThreadPoolMetric();
 
             while (true) {
@@ -194,19 +185,19 @@ public class PaloFe {
 
     private static void checkAllPorts() throws IOException {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
-            "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
+                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
-            "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
+                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
-            "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
+                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.query_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
-            "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
+                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }
@@ -357,7 +348,7 @@ public class PaloFe {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
                 System.out.println("image does not exist: " + imageFile.getAbsolutePath()
-                    + " . Please put an absolute path instead");
+                        + " . Please put an absolute path instead");
                 System.exit(-1);
             } else {
                 System.out.println("Start to load image: ");

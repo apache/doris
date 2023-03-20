@@ -141,7 +141,6 @@ import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.management.NotificationFilter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -156,7 +155,7 @@ public class ProxyMetaStoreClient implements IMetaStoreClient {
 
     private final ProxyMode proxyMode;
 
-    // Dlf oClient
+    // Dlf Client
     private IMetaStoreClient dlfSessionMetaStoreClient;
 
     // Hive Client

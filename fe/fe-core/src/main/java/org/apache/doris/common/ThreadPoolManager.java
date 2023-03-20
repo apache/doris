@@ -155,7 +155,6 @@ public class ThreadPoolManager {
         if (needRegisterMetric) {
             nameToThreadPoolMap.put(poolName, scheduledThreadPoolExecutor);
         }
-
         return scheduledThreadPoolExecutor;
     }
 

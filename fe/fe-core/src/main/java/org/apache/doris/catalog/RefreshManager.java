@@ -19,30 +19,47 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.DdlExecutor;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-
-
-
 import java.util.Map;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 // Manager for refresh database and table action
-public class RefreshManager {
+public class RefreshManager implements Runnable {
     private static final Logger LOG = LogManager.getLogger(RefreshManager.class);
 
+    private static final ScheduledThreadPoolExecutor REFRESH_Timer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+            "refresh-timer-pool", true);
+    // Unit:SECONDS
+    private static final int REFRESH_TIME = 20;
+    // key is the name of a catalog, value is an array of length 2, used to store
+    // the original refresh time and the current remaining time of the catalog
+    private static Map<String, Integer[]> refreshMap = Maps.newConcurrentMap();
 
+    public RefreshManager() {
+        REFRESH_Timer.scheduleAtFixedRate(this::run, 0, REFRESH_TIME, TimeUnit.SECONDS);
+    }
+
+    public Map<String, Integer[]> getRefreshMap() {
+        return refreshMap;
+    }
 
     public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
         String catalogName = stmt.getCtl();
@@ -152,5 +169,29 @@ public class RefreshManager {
         env.createTable(createTableStmt);
     }
 
+    @Override
+    public void run() {
+        for (Map.Entry<String, Integer[]> entry : refreshMap.entrySet()) {
+            String catalogName = entry.getKey();
+            Integer[] timeGroup = entry.getValue();
+            Integer original = timeGroup[0];
+            Integer current = timeGroup[1];
 
+            if (current - REFRESH_TIME > 0) {
+                timeGroup[1] = current - REFRESH_TIME;
+                refreshMap.put(catalogName, timeGroup);
+            } else {
+                RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
+                try {
+                    DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                // reset
+                timeGroup[1] = original;
+                refreshMap.put(catalogName, timeGroup);
+            }
+
+        }
+    }
 }
