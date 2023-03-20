@@ -17,13 +17,14 @@
 
 #pragma once
 
+#include <gtest/gtest_prod.h>
+
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <gtest/gtest_prod.h>
 
 #include "common/status.h"
 #include "gen_cpp/DorisExternalService_types.h"
