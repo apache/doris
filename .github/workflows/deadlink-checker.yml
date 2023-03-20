@@ -34,6 +34,12 @@ jobs:
       - uses: actions/checkout@v3
       - run: sudo npm install -g markdown-link-check@3.10.0
       - run: |
-          for file in $(find . -name "*.md"); do
-            markdown-link-check -c .github/.dlc.json -q "$file"
-          done
+               for file in $(find . -name "*.md"); do
+               echo "Checking $file"
+             if  [[ $file == *"/test/resources"* ]] || [[ $file ==  *"/target"* ]];
+               then
+                 echo " skip $file"
+               else
+                 markdown-link-check -c .github/.dlc.json -q "$file"
+             fi
+             done
