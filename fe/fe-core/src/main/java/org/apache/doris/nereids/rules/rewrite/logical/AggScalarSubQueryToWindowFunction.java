@@ -76,13 +76,13 @@ import java.util.stream.Collectors;
  * to:
  * SELECT SUM(l_extendedprice) / 7.0 as avg_yearly
  *  FROM (SELECT l_extendedprice, l_quantity,
- *    avg(l_quantity)over(partition by p_partkey)
+ *    0.2 * avg(l_quantity)over(partition by p_partkey)
  *    AS avg_l_quantity
  *    FROM lineitem, part
  *    WHERE p_partkey = l_partkey and
  *    p_brand = 'Brand#23' and
  *    p_container = 'MED BOX') t
- * WHERE l_quantity < 0.2 * avg_l_quantity;
+ * WHERE l_quantity < avg_l_quantity;
  */
 
 public class AggScalarSubQueryToWindowFunction implements RewriteRuleFactory {
