@@ -295,7 +295,7 @@ class RegressionTest {
                 }
             }
 
-            log.info('Start run suites that do not contain the load file in the directory and run  all load scripts asynchronous')
+            log.info('Start run all scripts asynchronous')
             runScripts(config, recorder, directoryFilter, {fileName -> fileName in loadSources}, {fileName -> fileName in otherQuerySources},{ fileName -> fileName in queryDependLoadSources})
             log.info("---------------------------------------------------------")
         }else {
