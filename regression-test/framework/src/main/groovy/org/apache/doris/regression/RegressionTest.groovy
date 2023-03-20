@@ -100,39 +100,39 @@ class RegressionTest {
                 .namingPattern("query-script-thread-%d")
                 .priority(Thread.MAX_PRIORITY)
                 .build();
-        queryScriptExecutors = Executors.newCachedThreadPool(queryScriptFactory)
+        queryScriptExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*1.5 as int, queryScriptFactory)
 
         BasicThreadFactory loadScriptFactory = new BasicThreadFactory.Builder()
                 .namingPattern("load-script-thread-%d")
                 .priority(Thread.MAX_PRIORITY)
                 .build();
-        loadScriptExecutors = Executors.newFixedThreadPool(6, loadScriptFactory)
+        loadScriptExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*0.4 as int, loadScriptFactory)
 
 
         BasicThreadFactory loadSuiteFactory = new BasicThreadFactory.Builder()
                 .namingPattern("load-suite-action-thread-%d")
                 .priority(Thread.MAX_PRIORITY)
                 .build();
-        loadSuiteExecutors = Executors.newFixedThreadPool(6, loadSuiteFactory)
+        loadSuiteExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*0.4 as int, loadSuiteFactory)
 
         BasicThreadFactory querySuiteFactory = new BasicThreadFactory.Builder()
                 .namingPattern("query-suite-action-thread-%d")
                 .priority(Thread.MAX_PRIORITY)
                 .build();
-        querySuiteExecutors = Executors.newCachedThreadPool(querySuiteFactory)
+        querySuiteExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*1.5 as int, querySuiteFactory)
 
 
         BasicThreadFactory queryActionFactory = new BasicThreadFactory.Builder()
-                .namingPattern("action-thread-%d")
+                .namingPattern("query-action-thread-%d")
                 .priority(Thread.MAX_PRIORITY)
                 .build();
-        queryActionExecutors = Executors.newCachedThreadPool(queryActionFactory)
+        queryActionExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*1.5 as int, queryActionFactory)
 
         BasicThreadFactory loadActionFactory = new BasicThreadFactory.Builder()
-                .namingPattern("action-thread-%d")
+                .namingPattern("load-action-thread-%d")
                 .priority(Thread.MAX_PRIORITY)
                 .build();
-        loadActionExecutors = Executors.newFixedThreadPool(6,loadActionFactory)
+        loadActionExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*0.4 as int,loadActionFactory)
 
         loadPlugins(config)
     }
