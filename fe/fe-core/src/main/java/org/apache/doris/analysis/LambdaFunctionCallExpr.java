@@ -34,7 +34,8 @@ import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
-            String.CASE_INSENSITIVE_ORDER).add("array_map", "array_min", "array_max").build();
+            String.CASE_INSENSITIVE_ORDER).add("array_map", "array_min", "array_max", "array_avg",
+            "array_sum", "array_product").build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 
@@ -98,7 +99,10 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
         } else if (fnName.getFunction().equalsIgnoreCase("array_max")
-                || fnName.getFunction().equalsIgnoreCase("array_min")) {
+                || fnName.getFunction().equalsIgnoreCase("array_min")
+                || fnName.getFunction().equalsIgnoreCase("array_sum")
+                || fnName.getFunction().equalsIgnoreCase("array_avg")
+                || fnName.getFunction().equalsIgnoreCase("array_product")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 1) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least one param");
             }
@@ -145,5 +149,27 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
+    }
+
+    private String mappedParamsToSql() {
+        if (children.size() != 1) {
+            LOG.warn("mapped params count error");
+            return super.toSqlImpl();
+        }
+        return children.get(0).toSql();
+    }
+
+    @Override
+    public String toSqlImpl() {
+        FunctionName fnName = getFnName();
+        if (fnName.getFunction().equalsIgnoreCase("array_max")
+                || fnName.getFunction().equalsIgnoreCase("array_min")
+                || fnName.getFunction().equalsIgnoreCase("array_sum")
+                || fnName.getFunction().equalsIgnoreCase("array_avg")
+                || fnName.getFunction().equalsIgnoreCase("array_product")) {
+            return mappedParamsToSql();
+        } else {
+            return super.toSqlImpl();
+        }
     }
 }

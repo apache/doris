@@ -63,8 +63,23 @@ struct NameArrayMax {
     static constexpr auto name = "array_max";
 };
 
+struct NameArraySum {
+    static constexpr auto name = "array_sum";
+};
+
+struct NameArrayAverage {
+    static constexpr auto name = "array_avg";
+};
+
+struct NameArrayProduct {
+    static constexpr auto name = "array_product";
+};
+
 void register_function_array_mapped(doris::vectorized::LambdaFunctionFactory& factory) {
     factory.register_function<ArrayMappedFunction<NameArrayMin>>();
     factory.register_function<ArrayMappedFunction<NameArrayMax>>();
+    factory.register_function<ArrayMappedFunction<NameArraySum>>();
+    factory.register_function<ArrayMappedFunction<NameArrayAverage>>();
+    factory.register_function<ArrayMappedFunction<NameArrayProduct>>();
 }
 } // namespace doris::vectorized
