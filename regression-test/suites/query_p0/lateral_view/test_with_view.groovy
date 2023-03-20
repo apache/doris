@@ -54,7 +54,7 @@ suite("lateral_view_with_inline_view") {
             where
                 hour <= e1
         ) tt
-    group by
-        1;
+    group by 1
+    order by 1;
     """
 }
