@@ -86,7 +86,7 @@ public class SelectStmt extends QueryStmt {
 
     protected SelectList selectList;
     private final ArrayList<String> colLabels; // lower case column labels
-    protected final FromClause fromClause;
+    protected FromClause fromClause;
     protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
 
@@ -121,6 +121,8 @@ public class SelectStmt extends QueryStmt {
     // SQL string of this SelectStmt before inline-view expression substitution.
     // Set in analyze().
     protected String sqlString;
+
+    boolean isReAnalyze = false;
 
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
@@ -248,11 +250,14 @@ public class SelectStmt extends QueryStmt {
         if (whereClause != null) {
             whereClause = originalWhereClause;
         }
+
         for (TableRef tableRef : getTableRefs()) {
             if (tableRef instanceof InlineViewRef) {
                 ((InlineViewRef) tableRef).getViewStmt().resetSelectList();
             }
         }
+
+        isReAnalyze = true;
     }
 
     @Override
@@ -465,9 +470,9 @@ public class SelectStmt extends QueryStmt {
                 }
                 try {
                     Expr expr = tableRef.getOnClause();
-                    if (CreateMaterializedViewStmt.isMVColumn(expr.toSqlWithoutTbl())) {
-                        tableRef.setOnClause(expr.trySubstitute(mvSMap, analyzer, false));
-                    }
+                    Expr originalExpr = expr.clone().substituteImpl(mvSMap, null, analyzer);
+                    originalExpr.reset();
+                    tableRef.setOnClause(originalExpr);
                 } catch (Exception e) {
                     LOG.warn("", e);
                 }
@@ -2033,6 +2038,9 @@ public class SelectStmt extends QueryStmt {
      */
     private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
             throws AnalysisException {
+        if (isReAnalyze) {
+            return null;
+        }
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
                 throw new AnalysisException("Only support select subquery in case-when clause.");
