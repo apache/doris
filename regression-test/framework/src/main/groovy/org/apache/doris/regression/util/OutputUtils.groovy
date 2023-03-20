@@ -141,6 +141,7 @@ class OutputUtils {
 
                     def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {
+                        res += "\nExpectRow: ${expectRaw}, RealRow: ${realRaw}";
                         return res
                     }
                 }
