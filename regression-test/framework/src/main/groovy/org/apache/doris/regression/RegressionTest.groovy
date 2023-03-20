@@ -51,6 +51,9 @@ class RegressionTest {
     static ExecutorService queryScriptExecutors
     static ExecutorService loadScriptExecutors
 
+    static ExecutorService queryP2ScriptExecutors
+    static ExecutorService loadP2ScriptExecutors
+
     static ExecutorService loadSuiteExecutors
     static ExecutorService querySuiteExecutors
 
@@ -83,6 +86,12 @@ class RegressionTest {
         queryScriptExecutors.shutdown()
         loadScriptExecutors.shutdown()
 
+
+        queryP2ScriptExecutors.shutdown()
+        loadP2ScriptExecutors.shutdown()
+//        queryP2ScriptExecutors.
+
+
         log.info("Test finished")
         if (!success) {
             System.exit(1)
@@ -107,6 +116,18 @@ class RegressionTest {
                 .priority(Thread.MAX_PRIORITY)
                 .build();
         loadScriptExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*0.4 as int, loadScriptFactory)
+
+        BasicThreadFactory queryP2ScriptFactory = new BasicThreadFactory.Builder()
+                .namingPattern("p2-query-script-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
+        queryP2ScriptExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*0.2 as int, queryP2ScriptFactory)
+
+        BasicThreadFactory loadP2ScriptFactory = new BasicThreadFactory.Builder()
+                .namingPattern("p2-load-script-thread-%d")
+                .priority(Thread.MAX_PRIORITY)
+                .build();
+        loadP2ScriptExecutors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*0.4 as int, loadP2ScriptFactory)
 
 
         BasicThreadFactory loadSuiteFactory = new BasicThreadFactory.Builder()
@@ -213,6 +234,7 @@ class RegressionTest {
         List<Future> queryDependLoadFutures = Lists.newArrayList()
 
         otherQueryScriptSources.eachWithIndex { source, i ->
+
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = queryScriptExecutors.submit {
                 runScript(config, source, recorder)
