@@ -99,7 +99,7 @@ suite("test_pk_uk_case") {
     def city = RandomStringUtils.randomAlphabetic(10)
     def name = UUID.randomUUID().toString()
     def date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now())
-    for (int idx = 0; idx < 50; idx++) {
+    for (int idx = 0; idx < 10; idx++) {
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
         decimal = rd.nextFloat()

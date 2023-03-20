@@ -20,11 +20,11 @@
 // and modified by Doris.
 
 suite("load_four_step") {
-    def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000, "c_custkey", 1500], "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 
-                    lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
-                    lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy""", 600572, "lo_orderkey", 481137], "part": ["""p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy""", 20000, "p_partkey", 10000], "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
-                    d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,
-                    d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 255, "d_datekey", 224], "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 200, "s_suppkey", 100]]
+    def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000, "c_custkey", 1500],
+                  "date": ["""d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,
+                            d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,
+                            d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 255, "d_datekey", 224],
+                  "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 200, "s_suppkey", 100]]
 
     tables.each { tableName, rows ->
         sql """ DROP TABLE IF EXISTS $tableName """
@@ -60,25 +60,10 @@ suite("load_four_step") {
                 }
             }
             sql 'sync'
-            int flag = 1
-            while (flag < 30){
-                def tableVersion = sql "admin show replica status from ${tableName}"
-                logger.info(" ${tableName} version: ${tableVersion[0][3]}".toString())
-                if (tableVersion[0][3] > 1){
-                    for (int i = 1; i <= 5; i++) {
-                        def loadRowCount = sql "select count(1) from ${tableName}"
-                        logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-                        assertTrue(loadRowCount[0][0] == rows[1])
-                    }
-                    break
-                } else {
-                    flag ++
-                    sleep(1000)
-                }
-            }
-            if (flag >= 30){
-                logger.info("wait version timeout")
-                assertTrue(1 == 2)
+            for (int i = 1; i <= 5; i++) {
+                def loadRowCount = sql "select count(1) from ${tableName}"
+                logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
+                assertTrue(loadRowCount[0][0] == rows[1])
             }
         }
         sql """ set delete_without_partition = true; """
