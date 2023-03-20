@@ -17,7 +17,7 @@
 
 suite("test_array_map_function_not_null") {
 
-    def tableName = "array_test2_not_null_not_null"
+    def tableName = "array_test2_not_null"
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
             CREATE TABLE IF NOT EXISTS `${tableName}` (
