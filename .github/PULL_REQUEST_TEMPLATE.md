@@ -15,7 +15,7 @@ Describe your changes.
 * [ ] Is this PR support rollback (If NO, please explain WHY)
 
 
-* 📈 Remove this line WHEN AND ONLY WHEN you're improving the performance, follow the checklist 👇 *
+📈 Remove this line WHEN AND ONLY WHEN you're improving the performance, follow the checklist 👇
 ### Improve the performance of <class or module or ...>
 - [ ] Add a benchmark for the improvement, refer to [docs](../docs/en/community/developer-guide/java-microbench-test.md)
 - [ ] The benchmark result.
