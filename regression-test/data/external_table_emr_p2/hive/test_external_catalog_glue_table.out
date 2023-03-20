@@ -78,11 +78,11 @@ f14889
 001704a395d
 
 -- !q10 --
-00	false
-00	false
-00	true
-000e642c1c7444ec8329a	false
-001704a395d	true
+66.6566	false
+66.8626	true
+66.9046	true
+67.0202	true
+67.7351	false
 
 -- !q11 --
 54078	8184
