@@ -101,6 +101,19 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("test_range_parts", "(part + id = 1) and (part = 4)", 1);
     }
 
+    @Test
+    public void pruneMultiColumnListPartition() throws Exception {
+        createTable("create table test_multi_list_parts(id int, part1 int not null, part2 varchar(32) not null) "
+                + "partition by list(part1, part2) ("
+                + "  partition p1 (('1', 'd'), ('3', 'a')),"
+                + "  partition p2 (('4', 'c'), ('6', 'f'))"
+                + ") "
+                + "distributed by hash(id) "
+                + "properties ('replication_num'='1')");
+
+        test("test_multi_list_parts", "part1 = 1 and part2 < 'd'", 0);
+    }
+
     private void test(String table, String filter, int expectScanPartitionNum) {
         PlanChecker.from(connectContext)
                 .analyze("select * from " + table + " where " + filter)
