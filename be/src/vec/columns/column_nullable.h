@@ -350,6 +350,13 @@ public:
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
+    Int64 get_int(size_t n) const override {
+        if (is_null_at(n)) {
+            return 0;
+        }
+        return get_nested_column().get_int(n);
+    }
+
 private:
     // the two functions will not update `_need_update_has_null`
     ColumnUInt8& _get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }

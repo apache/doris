@@ -30,14 +30,12 @@ class VExplodeTableFunction : public TableFunction {
 public:
     VExplodeTableFunction();
 
-    virtual ~VExplodeTableFunction() = default;
+    ~VExplodeTableFunction() override = default;
 
-    virtual Status process_init(vectorized::Block* block) override;
-    virtual Status process_row(size_t row_idx) override;
-    virtual Status process_close() override;
-    virtual Status reset() override;
-    virtual Status get_value(void** output) override;
-    virtual Status get_value_length(int64_t* length) override;
+    Status process_init(Block* block) override;
+    Status process_row(size_t row_idx) override;
+    Status process_close() override;
+    void get_value(MutableColumnPtr& column) override;
 
 private:
     ColumnPtr _array_column;
