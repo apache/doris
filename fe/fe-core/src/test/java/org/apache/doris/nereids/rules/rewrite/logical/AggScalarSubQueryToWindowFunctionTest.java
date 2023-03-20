@@ -18,36 +18,18 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
-import org.apache.doris.nereids.jobs.batch.ApplyToJoin;
-import org.apache.doris.nereids.jobs.batch.CorrelateApplyToUnCorrelateApply;
-import org.apache.doris.nereids.rules.RuleFactory;
-import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.Collection;
-import java.util.stream.Collectors;
-
 public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implements MemoPatternMatchSupported {
     @Test
     public void testRewriteSubQueryToWindowFunction() {
-        String sql = "SELECT SUM(l_extendedprice) / 7.0 AS avg_yearly\n"
-                + "    FROM lineitem, part\n"
-                + "    WHERE p_partkey = l_partkey AND\n"
-                + "    p_brand = 'Brand#23' AND\n"
-                + "    p_container = 'MED BOX' AND\n"
-                + "    l_quantity<(SELECT 0.2*avg(l_quantity)\n"
-                + "    FROM lineitem\n"
-                + "    WHERE l_partkey = p_partkey);";
-        Plan plan = PlanChecker.from(createCascadesContext(sql))
-                .analyze(sql)
-                .applyTopDown(new CorrelateApplyToUnCorrelateApply())
-                .applyTopDown(new ApplyToJoin())
-                .applyTopDown(new PushFilterInsideJoin())
-                .applyTopDown(new FindHashConditionForJoin())
+        Plan plan = PlanChecker.from(createCascadesContext(TPCHUtils.Q2))
+                .analyze(TPCHUtils.Q2)
                 .applyTopDown(new AggScalarSubQueryToWindowFunction())
                 .getPlan();
 
