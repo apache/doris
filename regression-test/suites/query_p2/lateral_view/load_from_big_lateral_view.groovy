@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("query_p1") {
+suite("load_from_big_lateral_view") {
     def dbName = "regression_load_from_big_lateral_view"
     sql "DROP DATABASE IF EXISTS ${dbName}"
     sql "CREATE DATABASE ${dbName}"
