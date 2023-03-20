@@ -191,9 +191,14 @@ CREATE CATALOG hive PROPERTIES (
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |
 
+## 使用Ranger进行权限校验
+
 <version since="dev">
 
-## 使用Ranger进行权限校验
+Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。
+
+目前doris支持ranger的库、表、列权限，不支持加密、行权限等。
+
 </version>
 
 ### 环境配置
@@ -202,69 +207,70 @@ CREATE CATALOG hive PROPERTIES (
 1. 创建 Catalog 时增加：
 
 ```sql
-"access_controller.properties.ranger.service.name" = "<the ranger servive name your hms using>",
+"access_controller.properties.ranger.service.name" = "hive",
 "access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
 ```
 2. 配置所有 FE 环境：
     
-   a. 将 HMS conf 目录下的三个 Ranger 配置文件Copy到 <doris_home>/conf 目录下。
+   1. 将 HMS conf 目录下的配置文件ranger-hive-audit.xml,ranger-hive-security.xml,ranger-policymgr-ssl.xml复制到 <doris_home>/conf 目录下。
 
-   b. 修改 ranger-<ranger_service_name>-security.xml 的属性,参考配置如下：
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
-<configuration>
-    #缓存权限数据的目录，需要可写
-    <property>
-        <name>ranger.plugin.hive.policy.cache.dir</name>
-        <value>/mnt/datadisk0/zhangdong/rangerdata</value>
-    </property>
-    #定时拉取权限数据的时间间隔
-    <property>
-        <name>ranger.plugin.hive.policy.pollIntervalMs</name>
-        <value>30000</value>
-    </property>
+   2. 修改 ranger-hive-security.xml 的属性,参考配置如下：
 
-    <property>
-        <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
-        <value>60000</value>
-    </property>
+    ```sql
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+        #The directory for caching permission data, needs to be writable
+        <property>
+            <name>ranger.plugin.hive.policy.cache.dir</name>
+            <value>/mnt/datadisk0/zhangdong/rangerdata</value>
+        </property>
+        #The time interval for periodically pulling permission data
+        <property>
+            <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+            <value>30000</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
+            <value>60000</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
+            <value>60000</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
+            <value></value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.rest.url</name>
+            <value>http://172.21.0.32:6080</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.policy.source.impl</name>
+            <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+        </property>
+    
+        <property>
+            <name>ranger.plugin.hive.service.name</name>
+            <value>hive</value>
+        </property>
+    
+        <property>
+            <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
+            <value>true</value>
+        </property>
+    
+    </configuration>
+    ```
+   3. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties。
 
-    <property>
-        <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
-        <value>60000</value>
-    </property>
-
-    <property>
-        <name>ranger.plugin.hive.policy.rest.ssl.config.file</name>
-        <value></value>
-    </property>
-
-    <property>
-        <name>ranger.plugin.hive.policy.rest.url</name>
-        <value>http://172.21.0.32:6080</value>
-    </property>
-
-    <property>
-        <name>ranger.plugin.hive.policy.source.impl</name>
-        <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
-    </property>
-
-    <property>
-        <name>ranger.plugin.hive.service.name</name>
-        <value>hive</value>
-    </property>
-
-    <property>
-        <name>xasecure.hive.update.xapolicies.on.grant.revoke</name>
-        <value>true</value>
-    </property>
-
-</configuration>
-```
-   c. 为获取到 Ranger 鉴权本身的日志，可在 <doris_home>/conf 目录下添加配置文件 log4j.properties
-
-   d. 重启 FE
+   4. 重启 FE。
 
 ### 最佳实践
 
