@@ -98,7 +98,7 @@ public:
 
     PlanFragmentExecutor* executor() { return &_executor; }
 
-    const DateTimeValue& start_time() const { return _start_time; }
+    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -120,7 +120,7 @@ public:
         _group = info.group;
     }
 
-    bool is_timeout(const DateTimeValue& now) const {
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
         if (_timeout_second <= 0) {
             return false;
         }
@@ -148,7 +148,7 @@ private:
     TNetworkAddress _coord_addr;
 
     PlanFragmentExecutor _executor;
-    DateTimeValue _start_time;
+    vectorized::VecDateTimeValue _start_time;
 
     std::mutex _status_lock;
     Status _exec_status;
@@ -185,7 +185,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _timeout_second(-1),
           _fragments_ctx(std::move(fragments_ctx)),
           _report_status_cb_impl(report_status_cb_impl) {
-    _start_time = DateTimeValue::local_time();
+    _start_time = vectorized::VecDateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
 
@@ -1063,7 +1063,7 @@ void FragmentMgr::cancel_worker() {
     do {
         std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> to_cancel_queries;
-        DateTimeValue now = DateTimeValue::local_time();
+        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& it : _fragment_map) {
@@ -1095,7 +1095,7 @@ void FragmentMgr::debug(std::stringstream& ss) {
 
     ss << "FragmentMgr have " << _fragment_map.size() << " jobs.\n";
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
-    DateTimeValue now = DateTimeValue::local_time();
+    vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
     for (auto& it : _fragment_map) {
         ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
            << now.second_diff(it.second->start_time()) << "\n";

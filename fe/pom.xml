@@ -207,7 +207,6 @@ under the License.
         <kubernetes-model.version>5.12.2</kubernetes-model.version>
         <logging-interceptor.version>4.7.2</logging-interceptor.version>
         <okhttp.version>4.7.2</okhttp.version>
-        <okhttp-ws.version>3.4.2</okhttp-ws.version>
         <okio.version>2.6.0</okio.version>
         <snakeyaml.version>1.15</snakeyaml.version>
         <validation-api.version>1.1.0.Final</validation-api.version>
@@ -628,12 +627,6 @@ under the License.
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
                 <version>${okhttp.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp-ws -->
-            <dependency>
-                <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp-ws</artifactId>
-                <version>${okhttp-ws.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
             <dependency>
