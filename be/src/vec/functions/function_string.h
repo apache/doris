@@ -1762,6 +1762,7 @@ private:
         }
     }
 
+    //TODO: need to be rewrited in a more efficient way. compare BMH/KMP/...
     size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
         size_t old_size = pos;
         size_t str_size = str_ref.size;

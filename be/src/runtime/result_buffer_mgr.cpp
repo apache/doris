@@ -22,7 +22,6 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
-#include "runtime/raw_value.h"
 #include "util/doris_metrics.h"
 
 namespace doris {

@@ -50,7 +50,9 @@ public class FeServer {
                 (proxy, method, args) -> {
                     long begin = System.currentTimeMillis();
                     String name = method.getName();
-                    MetricRepo.THRIFT_COUNTER_RPC_ALL.getOrAdd(name).increase(1L);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.THRIFT_COUNTER_RPC_ALL.getOrAdd(name).increase(1L);
+                    }
                     feServiceLogger.debug("receive request for {}", name);
                     Object r = null;
                     try {
@@ -61,8 +63,11 @@ public class FeServer {
                         throw t;
                     } finally {
                         feServiceLogger.debug("finish process request for {}", name);
-                        long end = System.currentTimeMillis();
-                        MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name).increase(end - begin);
+                        if (MetricRepo.isInit) {
+                            long end = System.currentTimeMillis();
+                            MetricRepo.THRIFT_COUNTER_RPC_LATENCY.getOrAdd(name)
+                                    .increase(end - begin);
+                        }
                     }
                     return r;
                 });
