@@ -87,7 +87,7 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
 
         DataSet data_set = {{{&bitmap1, &bitmap2, &empty_bitmap}, (int64_t)0},
                             {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)1}, //33
-                            {{&bitmap1, &bitmap2, Null()}, Null()},
+                            {{&bitmap1, &bitmap2, Null()}, (int64_t)0},
                             {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)1}}; //33
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
@@ -151,7 +151,7 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
         DataSet data_set = {
                 {{&bitmap1, &bitmap2, &empty_bitmap}, (int64_t)5}, //0,1,33,1024,2019
                 {{&bitmap1, &bitmap2, &bitmap3}, (int64_t)6}, //0,1,5,1024,2019,18446744073709551615
-                {{&bitmap1, &empty_bitmap, Null()}, Null()},
+                {{&bitmap1, &empty_bitmap, Null()}, (int64_t)0},
                 {{&bitmap1, &bitmap3, &bitmap3}, (int64_t)3}}; //1,1024,2019
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
@@ -167,7 +167,7 @@ TEST(function_bitmap_test, function_bitmap_and_not_count) {
     BitmapValue empty_bitmap;
 
     DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3}, //1,2,3
-                        {{&bitmap2, Null()}, Null()},
+                        {{&bitmap2, Null()}, (int64_t)0},
                         {{&bitmap2, &bitmap3}, (int64_t)3},  //0,3,4
                         {{&bitmap1, &bitmap2}, (int64_t)2}}; //1,2
 

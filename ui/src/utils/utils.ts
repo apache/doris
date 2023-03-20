@@ -84,4 +84,12 @@ function getBasePath() {
     return res;
 }
 
-export {isSuccess, getDbName, getTimeNow, getBasePath};
+function replaceToTxt(str: string) {
+  var regexpNbsp = /&nbsp;/g;
+  var reBr = /<\/br>/g;
+  const strNoNbsp = str.replace(regexpNbsp, " ");
+  const strNoBr = strNoNbsp.replace(reBr, "\r\n");
+  return strNoBr;
+}
+
+export {isSuccess, getDbName, getTimeNow, getBasePath, replaceToTxt};

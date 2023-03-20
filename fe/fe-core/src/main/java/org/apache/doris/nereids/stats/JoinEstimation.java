@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
@@ -70,6 +71,11 @@ public class JoinEstimation {
                 .build();
         List<Expression> joinConditions = join.getHashJoinConjuncts();
         Statistics innerJoinStats = estimateInnerJoin(crossJoinStats, joinConditions);
+        if (!join.getOtherJoinConjuncts().isEmpty()) {
+            FilterEstimation filterEstimation = new FilterEstimation();
+            innerJoinStats = filterEstimation.estimate(
+                    ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+        }
         innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
         innerJoinStats.setPenalty(0);
         double rowCount;

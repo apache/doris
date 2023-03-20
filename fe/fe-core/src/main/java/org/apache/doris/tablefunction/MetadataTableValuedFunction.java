@@ -17,27 +17,17 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.external.MetadataScanNode;
+import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataType;
 
 public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf {
+    public abstract TMetadataType getMetadataType();
 
-    public enum MetaType { ICEBERG }
-
-    private final MetaType metaType;
-
-    public MetadataTableValuedFunction(MetaType metaType) {
-        this.metaType = metaType;
-    }
-
-    public MetaType getMetaType() {
-        return metaType;
-    }
-
-    public abstract TableName getMetadataTableName();
+    public abstract TMetaScanRange getMetaScanRange();
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {

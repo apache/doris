@@ -58,10 +58,10 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  IOContext* io_ctx);
+                  IOContext* io_ctx, RuntimeState* state);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  IOContext* io_ctx);
+                  IOContext* io_ctx, RuntimeState* state);
 
     ~ParquetReader() override;
     // for test
@@ -73,7 +73,12 @@ public:
             const std::vector<std::string>& all_column_names,
             const std::vector<std::string>& missing_column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx, bool filter_groups = true);
+            VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const std::unordered_map<std::string, int>* colname_to_slot_id,
+            const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts,
+            bool filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -204,5 +209,11 @@ private:
     ParquetProfile _parquet_profile;
     bool _closed = false;
     IOContext* _io_ctx;
+    RuntimeState* _state;
+    const TupleDescriptor* _tuple_descriptor;
+    const RowDescriptor* _row_descriptor;
+    const std::unordered_map<std::string, int>* _colname_to_slot_id;
+    const std::vector<VExprContext*>* _not_single_slot_filter_conjuncts;
+    const std::unordered_map<int, std::vector<VExprContext*>>* _slot_id_to_filter_conjuncts;
 };
 } // namespace doris::vectorized
