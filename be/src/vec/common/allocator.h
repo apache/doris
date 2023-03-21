@@ -53,8 +53,8 @@
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.
 #define DISABLE_MREMAP 1
 #endif
-#include "common/allocator_fwd.h"
 #include "common/exception.h"
+#include "vec/common/allocator_fwd.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
