@@ -1481,6 +1481,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), filter);
             }
         }
+        inputFragment.getPlanRoot().setCardinalityAfterFilter((long) filter.getStats().getRowCount());
         return inputFragment;
     }
 
