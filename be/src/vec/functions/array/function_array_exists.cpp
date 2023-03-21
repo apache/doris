@@ -58,12 +58,12 @@ public:
         const auto& nested_nullable_column = assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
         const auto nested_column = nested_nullable_column.get_nested_column_ptr();
         const size_t nested_column_size = nested_column->size();
-        const auto& result_null_map = nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
+        MutableColumnPtr result_null_map = nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
 
         // 2. compute result
-        const auto& result_column = ColumnUInt8::create(nested_column_size, 0);
-        auto& result_column_data = result_column->get_data();
-        const auto& result_offset_column = first_off_data.clone_resized(first_off_data.size());
+        MutableColumnPtr result_column = ColumnUInt8::create(nested_column_size, 0);
+        auto& result_column_data = assert_cast<ColumnUInt8&>(*result_column).get_data();
+        MutableColumnPtr result_offset_column = first_off_data.clone_resized(first_off_data.size());
         const auto& nested_column_data = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
 
         for (size_t row = 0; row < nested_column_size; ++row) {
@@ -72,11 +72,9 @@ public:
             }
         }
 
-        const auto result_nullalble_column = ColumnNullable::create(result_column->assume_mutable(),
-                                                               result_null_map->assume_mutable());
-        const auto column_array = ColumnArray::create(result_nullalble_column->assume_mutable(),
-                                                      result_offset_column->assume_mutable());
-        block.replace_by_position(result, column_array->assume_mutable());
+        ColumnPtr result_nullalble_column = ColumnNullable::create(std::move(result_column), std::move(result_null_map));
+        ColumnPtr column_array = ColumnArray::create(result_nullalble_column, std::move(result_offset_column));
+        block.replace_by_position(result, column_array);
         return Status::OK();
     }
 };
