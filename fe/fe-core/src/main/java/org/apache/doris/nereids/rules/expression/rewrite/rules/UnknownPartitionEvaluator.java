@@ -17,20 +17,39 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.List;
 import java.util.Map;
 
-/** EvaluatePartitionContext */
-public class EvaluatePartitionContext {
-    public final Expression result;
-    public final Map<Slot, ColumnRange> columnRanges;
+/** UnknownPartitionEvaluator */
+public class UnknownPartitionEvaluator implements OnePartitionEvaluator {
+    private final long partitionId;
+    private final PartitionItem partitionItem;
 
-    public EvaluatePartitionContext(Expression result, Map<Slot, ColumnRange> columnRanges) {
-        this.result = result;
-        this.columnRanges = ImmutableMap.copyOf(columnRanges);
+    public UnknownPartitionEvaluator(long partitionId, PartitionItem partitionItem) {
+        this.partitionId = partitionId;
+        this.partitionItem = partitionItem;
+    }
+
+    @Override
+    public long getPartitionId() {
+        return partitionId;
+    }
+
+    @Override
+    public List<Map<Slot, PartitionSlotInput>> getOnePartitionInputs() {
+        return ImmutableList.of(ImmutableMap.of());
+    }
+
+    @Override
+    public Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
+        // do not prune
+        return expression;
     }
 }

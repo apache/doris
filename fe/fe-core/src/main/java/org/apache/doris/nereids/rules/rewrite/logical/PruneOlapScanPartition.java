@@ -22,8 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.PartitionPredicateEvaluator;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TryEliminateUninterestedPredicates;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -36,8 +35,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.PartitionLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.PartitionLiteral.PartitionWithLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -46,7 +43,6 @@ import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ScanNode.ColumnRanges;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -84,15 +80,10 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     .map(column -> scanOutput.get(column.getName().toLowerCase()))
                     .collect(Collectors.toList());
 
-            Expression partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
-                    filter.getPredicate(), ImmutableSet.copyOf(partitionSlots), ctx.cascadesContext);
-            List<PartitionWithLiteral> partitionWithLiterals =
-                    PartitionLiteral.toPartitionLiterals(partitionInfo, partitionSlots);
+            List<Long> prunedPartitions = PartitionPruner.prune(
+                    partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext);
 
-            List<Long> prunedPartitionIds = PartitionPredicateEvaluator.evaluate(
-                    partitionSlots, partitionWithLiterals, partitionPredicate, ctx.cascadesContext);
-
-            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitionIds);
+            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitions);
             return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }

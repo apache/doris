@@ -30,10 +30,15 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
 
     @Override
     public Expression visit(Expression expr, C context) {
+        return rewrite(this, expr, context);
+    }
+
+    /** rewrite */
+    public static final <C> Expression rewrite(ExpressionVisitor<Expression, C> rewriter, Expression expr, C context) {
         List<Expression> newChildren = new ArrayList<>();
         boolean hasNewChildren = false;
         for (Expression child : expr.children()) {
-            Expression newChild = child.accept(this, context);
+            Expression newChild = child.accept(rewriter, context);
             if (newChild != child) {
                 hasNewChildren = true;
             }

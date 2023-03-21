@@ -28,6 +28,8 @@ import java.util.Map;
 
 /** the evaluator of the partition which represent one partition */
 public interface OnePartitionEvaluator {
+    long getPartitionId();
+
     /**
      * return a slot to expression mapping to replace the input.
      * for example, list partition [('1', 'a'), ('10', 'd')) with 2 column part_col1 and part_col2
@@ -36,7 +38,7 @@ public interface OnePartitionEvaluator {
      * expression which not equals to BooleanLiteral.FALSE, we will scan the partition and skip
      * subsequent mapping to evaluate.
      */
-    List<Map<Slot, EvaluatePartitionContext>> getOnePartitionInputs();
+    List<Map<Slot, PartitionSlotInput>> getOnePartitionInputs();
 
     /**
      * process children context and return current expression's context.
@@ -45,12 +47,11 @@ public interface OnePartitionEvaluator {
      * the constraint: `part_col2 >= 'a'`, further more, if both exist `part_col2 < 'a'`,
      * we will return a context which result expression is BooleanLiteral.FALSE
      */
-    EvaluatePartitionContext processContext(Expression originResult,
-            List<EvaluatePartitionContext> children, Map<Slot, EvaluatePartitionContext> currentInputs);
+    Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs);
 
     /** fillSlotRangesToInputs */
-    static Map<Slot, EvaluatePartitionContext> fillSlotRangesToInputs(
-            Map<Slot, EvaluatePartitionContext> inputs) {
+    static Map<Slot, PartitionSlotInput> fillSlotRangesToInputs(
+            Map<Slot, PartitionSlotInput> inputs) {
 
         Map<Slot, ColumnRange> allColumnRanges = inputs.entrySet()
                 .stream()
@@ -59,7 +60,7 @@ public interface OnePartitionEvaluator {
 
         return inputs.keySet()
                 .stream()
-                .map(slot -> Pair.of(slot, new EvaluatePartitionContext(inputs.get(slot).result, allColumnRanges)))
+                .map(slot -> Pair.of(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges)))
                 .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
     }
 }
