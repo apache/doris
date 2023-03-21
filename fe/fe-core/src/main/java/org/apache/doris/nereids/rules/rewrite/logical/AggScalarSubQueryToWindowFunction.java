@@ -155,19 +155,22 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
     private Plan trans(LogicalFilter<LogicalProject<LogicalApply<Plan, LogicalAggregate<Plan>>>> node) {
         LogicalApply<Plan, LogicalAggregate<Plan>> apply = node.child().child();
 
-        WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(), functions.get(0));
-
-        Alias aggOut = ((Alias) apply.right().getOutputExpressions().get(0))
-                .withChildren(ImmutableList.of(windowFunction));
-
         Expression windowFilterConjunct = apply.getSubCorrespondingConject().get();
+        NamedExpression aggOut = apply.right().getOutputExpressions().get(0);
 
+        int flag = 0;
         if (windowFilterConjunct.child(0) instanceof Alias
                 && ((Alias) windowFilterConjunct.child(0)).getExprId().equals(aggOut.getExprId())) {
-            windowFilterConjunct.withChildren(windowFunction, windowFilterConjunct.child(1));
-        } else {
-            windowFilterConjunct.withChildren(windowFilterConjunct.child(0), windowFunction);
+            flag = 1;
         }
+        WindowExpression windowFunction = createWindowFunction(apply.getCorrelationSlot(),
+                functions.get(0).withChildren(ImmutableList.of(windowFilterConjunct.child(flag))));
+        List<Expression> children = Lists.newArrayList(null, null);
+        children.set(flag, windowFilterConjunct.child(flag));
+        children.set(flag ^ 1, windowFunction);
+        windowFilterConjunct.withChildren(children);
+        aggOut = ((NamedExpression) aggOut.withChildren(windowFunction));
+
         LogicalFilter newFilter = ((LogicalFilter) node.withChildren(apply.left()));
         LogicalWindow newWindow = new LogicalWindow<>(ImmutableList.of(aggOut), newFilter);
         LogicalFilter windowFilter = new LogicalFilter<>(ImmutableSet.of(windowFilterConjunct), newWindow);
