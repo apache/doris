@@ -111,4 +111,3 @@ mysql [test]>select *, array_exists(c_array1) from array_test2 order by id;
 ### keywords
 
 ARRAY,ARRAY_EXISTS
-
