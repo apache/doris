@@ -55,10 +55,12 @@ public:
         const auto& first_off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                 first_col_array.get_offsets_column());
 
-        const auto& nested_nullable_column = assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
+        const auto& nested_nullable_column =
+                assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
         const auto nested_column = nested_nullable_column.get_nested_column_ptr();
         const size_t nested_column_size = nested_column->size();
-        const auto& result_null_map = nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
+        const auto& result_null_map =
+                nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
 
         // 2. compute result
         const auto& result_column = ColumnUInt8::create(nested_column_size, 0);
@@ -72,8 +74,8 @@ public:
             }
         }
 
-        const auto result_nullalble_column = ColumnNullable::create(result_column->assume_mutable(),
-                                                               result_null_map->assume_mutable());
+        const auto result_nullalble_column = ColumnNullable::create(
+                result_column->assume_mutable(), result_null_map->assume_mutable());
         const auto column_array = ColumnArray::create(result_nullalble_column->assume_mutable(),
                                                       result_offset_column->assume_mutable());
         block.replace_by_position(result, column_array->assume_mutable());
