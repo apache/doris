@@ -278,11 +278,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         if (dataType.isTinyIntType()) {
             return new TinyIntLiteral(Byte.valueOf(stringValue).byteValue());
         } else if (dataType.isSmallIntType()) {
-            return new SmallIntLiteral(Short.valueOf(stringValue).byteValue());
+            return new SmallIntLiteral(Short.valueOf(stringValue).shortValue());
         } else if (dataType.isIntegerType()) {
-            return new IntegerLiteral(Integer.valueOf(stringValue).byteValue());
+            return new IntegerLiteral(Integer.valueOf(stringValue).intValue());
         } else if (dataType.isBigIntType()) {
-            return new BigIntLiteral(Long.valueOf(stringValue).byteValue());
+            return new BigIntLiteral(Long.valueOf(stringValue).longValue());
         } else if (dataType.isLargeIntType()) {
             return new LargeIntLiteral(new BigInteger(stringValue));
         } else if (dataType.isStringType()) {

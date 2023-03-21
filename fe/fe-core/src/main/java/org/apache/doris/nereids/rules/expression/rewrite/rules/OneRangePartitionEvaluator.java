@@ -28,30 +28,35 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.OneRangePartition
 import org.apache.doris.nereids.rules.expression.rewrite.rules.OneRangePartitionEvaluator.EvaluateRangeResult;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.PartitionRangeExpander.PartitionSlotType;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 
+import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -71,6 +76,7 @@ public class OneRangePartitionEvaluator
     private List<Literal> lowers;
     private List<Literal> uppers;
     private List<List<Expression>> inputs;
+    private Map<Slot, Boolean> partitionSlotContainsNull;
 
     /** OneRangePartitionEvaluator */
     public OneRangePartitionEvaluator(long partitionId, List<Slot> partitionSlots,
@@ -87,6 +93,29 @@ public class OneRangePartitionEvaluator
 
         PartitionRangeExpander expander = new PartitionRangeExpander();
         this.partitionSlotTypes = expander.computePartitionSlotTypes(lowers, uppers);
+
+        this.partitionSlotContainsNull = IntStream.range(0, partitionSlots.size())
+            .mapToObj(index -> {
+                Slot slot = partitionSlots.get(index);
+                if (!slot.nullable()) {
+                    return Pair.of(slot, false);
+                }
+                PartitionSlotType partitionSlotType = partitionSlotTypes.get(index);
+                boolean maybeNull = false;
+                switch (partitionSlotType) {
+                    case CONST:
+                    case RANGE:
+                        maybeNull = range.lowerEndpoint().getKeys().get(index).isMinValue();
+                        break;
+                    case OTHER:
+                        maybeNull = true;
+                        break;
+                    default:
+                        throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                }
+                return Pair.of(slot, maybeNull);
+            }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+
         List<List<Expression>> expandInputs = expander.tryExpandRange(
                 partitionSlots, lowers, uppers, partitionSlotTypes);
         // after expand range, we will get 2 dimension list like list:
@@ -102,37 +131,62 @@ public class OneRangePartitionEvaluator
 
     @Override
     public List<Map<Slot, PartitionSlotInput>> getOnePartitionInputs() {
-        return inputs.stream()
-                .map(input -> OnePartitionEvaluator.fillSlotRangesToInputs(IntStream.range(0, partitionSlots.size())
-                        .mapToObj(index -> {
-                            Slot partitionSlot = partitionSlots.get(index);
-                            // partitionSlot will be replaced to this expression
-                            Expression expression = input.get(index);
-                            ColumnRange slotRange = null;
-                            PartitionSlotType partitionSlotType = partitionSlotTypes.get(index);
-                            if (expression instanceof Literal) {
-                                // const or expanded range
-                                slotRange = ColumnRange.singleton((Literal) expression);
+        List<Map<Slot, PartitionSlotInput>> onePartitionInputs = Lists.newArrayList();
+        for (List<Expression> input : inputs) {
+            boolean previousIsLowerBoundLiteral = true;
+            boolean previousIsUpperBoundLiteral = true;
+            List<Pair<Slot, PartitionSlotInput>> slotToInputs = Lists.newArrayList();
+            for (int i = 0; i < partitionSlots.size(); ++i) {
+                Slot partitionSlot = partitionSlots.get(i);
+                // partitionSlot will be replaced to this expression
+                Expression expression = input.get(i);
+                ColumnRange slotRange = null;
+                PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
+                if (expression instanceof Literal) {
+                    // const or expanded range
+                    slotRange = ColumnRange.singleton((Literal) expression);
+                    if (!expression.equals(lowers.get(i))) {
+                        previousIsLowerBoundLiteral = false;
+                    }
+                    if (!expression.equals(uppers.get(i))) {
+                        previousIsUpperBoundLiteral = false;
+                    }
+                } else {
+                    // un expanded range
+                    switch (partitionSlotType) {
+                        case RANGE:
+                            boolean isLastPartitionColumn = i + 1 == partitionSlots.size();
+                            BoundType rightBoundType = isLastPartitionColumn
+                                    ? BoundType.OPEN : BoundType.CLOSED;
+                            slotRange = ColumnRange.range(
+                                    lowers.get(i), BoundType.CLOSED, uppers.get(i), rightBoundType);
+                            break;
+                        case OTHER:
+                            if (previousIsLowerBoundLiteral) {
+                                slotRange = ColumnRange.atLeast(lowers.get(i));
+                            } else if (previousIsUpperBoundLiteral) {
+                                slotRange = ColumnRange.lessThen(uppers.get(i));
                             } else {
-                                // un expanded range
-                                switch (partitionSlotType) {
-                                    case RANGE:
-                                        boolean isLastPartitionColumn = index + 1 == partitionSlots.size();
-                                        slotRange = ColumnRange.range(lowers.get(index), BoundType.CLOSED,
-                                                uppers.get(index), isLastPartitionColumn ? BoundType.OPEN : BoundType.CLOSED);
-                                        break;
-                                    case OTHER:
-                                        // unknown range at the beginning
-                                        slotRange = ColumnRange.all();
-                                        break;
-                                    default:
-                                        throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
-                                }
+                                // unknown range
+                                slotRange = ColumnRange.all();
                             }
-                            ImmutableMap<Slot, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
-                            return Pair.of(partitionSlot, new PartitionSlotInput(expression, slotToRange));
-                        }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value))
-                )).collect(ImmutableList.toImmutableList());
+                            break;
+                        default:
+                            throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                    }
+                    previousIsLowerBoundLiteral = false;
+                    previousIsUpperBoundLiteral = false;
+                }
+                ImmutableMap<Slot, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
+                slotToInputs.add(Pair.of(partitionSlot, new PartitionSlotInput(expression, slotToRange)));
+            }
+
+            Map<Slot, PartitionSlotInput> slotPartitionSlotInputMap = OnePartitionEvaluator.fillSlotRangesToInputs(
+                    slotToInputs.stream()
+                            .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value)));
+            onePartitionInputs.add(slotPartitionSlotInputMap);
+        }
+        return onePartitionInputs;
     }
 
     @Override
@@ -194,32 +248,140 @@ public class OneRangePartitionEvaluator
 
     @Override
     public EvaluateRangeResult visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, EvaluateRangeInput context) {
-        return super.visitGreaterThanEqual(greaterThanEqual, context);
+        EvaluateRangeResult result = evaluateChildrenThenThis(greaterThanEqual, context);
+        if (!(result.result instanceof GreaterThanEqual)) {
+            return result;
+        }
+        greaterThanEqual = (GreaterThanEqual) result.result;
+        if (greaterThanEqual.left() instanceof Slot && greaterThanEqual.right() instanceof Literal) {
+            Slot slot = (Slot) greaterThanEqual.left();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
+                ColumnRange atLeastRange = ColumnRange.atLeast((Literal) greaterThanEqual.right());
+                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+            }
+        } else if (greaterThanEqual.left() instanceof Literal && greaterThanEqual.right() instanceof Slot) {
+            Slot slot = (Slot) greaterThanEqual.right();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
+                ColumnRange atMostRange = ColumnRange.atMost((Literal) greaterThanEqual.left());
+                result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+            }
+        }
+        return result;
     }
 
     @Override
     public EvaluateRangeResult visitLessThan(LessThan lessThan, EvaluateRangeInput context) {
-        return super.visitLessThan(lessThan, context);
+        EvaluateRangeResult result = evaluateChildrenThenThis(lessThan, context);
+        if (!(result.result instanceof LessThan)) {
+            return result;
+        }
+        lessThan = (LessThan) result.result;
+        if (lessThan.left() instanceof Slot && lessThan.right() instanceof Literal) {
+            Slot slot = (Slot) lessThan.left();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
+                ColumnRange greaterThenRange = ColumnRange.lessThen((Literal) lessThan.right());
+                result = intersectSlotRange(result, leftColumnRanges, slot, greaterThenRange);
+            }
+        } else if (lessThan.left() instanceof Literal && lessThan.right() instanceof Slot) {
+            Slot slot = (Slot) lessThan.right();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
+                ColumnRange lessThenRange = ColumnRange.greaterThan((Literal) lessThan.left());
+                result = intersectSlotRange(result, rightColumnRanges, slot, lessThenRange);
+            }
+        }
+        return result;
     }
 
     @Override
     public EvaluateRangeResult visitLessThanEqual(LessThanEqual lessThanEqual, EvaluateRangeInput context) {
-        return super.visitLessThanEqual(lessThanEqual, context);
+        EvaluateRangeResult result = evaluateChildrenThenThis(lessThanEqual, context);
+        if (!(result.result instanceof LessThanEqual)) {
+            return result;
+        }
+        lessThanEqual = (LessThanEqual) result.result;
+        if (lessThanEqual.left() instanceof Slot && lessThanEqual.right() instanceof Literal) {
+            Slot slot = (Slot) lessThanEqual.left();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
+                ColumnRange atLeastRange = ColumnRange.atMost((Literal) lessThanEqual.right());
+                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+            }
+        } else if (lessThanEqual.left() instanceof Literal && lessThanEqual.right() instanceof Slot) {
+            Slot slot = (Slot) lessThanEqual.right();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
+                ColumnRange atMostRange = ColumnRange.atLeast((Literal) lessThanEqual.left());
+                result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+            }
+        }
+        return result;
     }
 
     @Override
     public EvaluateRangeResult visitEqualTo(EqualTo equalTo, EvaluateRangeInput context) {
-        return super.visitEqualTo(equalTo, context);
-    }
-
-    @Override
-    public EvaluateRangeResult visitBetween(Between between, EvaluateRangeInput context) {
-        return super.visitBetween(between, context);
+        EvaluateRangeResult result = evaluateChildrenThenThis(equalTo, context);
+        if (!(result.result instanceof EqualTo)) {
+            return result;
+        }
+        equalTo = (EqualTo) result.result;
+        if (equalTo.left() instanceof Slot && equalTo.right() instanceof Literal) {
+            Slot slot = (Slot) equalTo.left();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
+                ColumnRange atLeastRange = ColumnRange.singleton((Literal) equalTo.right());
+                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+            }
+        } else if (equalTo.left() instanceof Literal && equalTo.right() instanceof Slot) {
+            Slot slot = (Slot) equalTo.right();
+            if (context.defaultColumnRanges.containsKey(slot)) {
+                Map<Slot, ColumnRange> rightColumnRanges = result.childrenResult.get(1).columnRanges;
+                ColumnRange atMostRange = ColumnRange.singleton((Literal) equalTo.left());
+                result = intersectSlotRange(result, rightColumnRanges, slot, atMostRange);
+            }
+        }
+        return result;
     }
 
     @Override
     public EvaluateRangeResult visitInPredicate(InPredicate inPredicate, EvaluateRangeInput context) {
-        return super.visitInPredicate(inPredicate, context);
+        EvaluateRangeResult result = evaluateChildrenThenThis(inPredicate, context);
+        if (!(result.result instanceof InPredicate)) {
+            return result;
+        }
+        inPredicate = (InPredicate) result.result;
+        if (inPredicate.getCompareExpr() instanceof Slot
+                && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
+            Slot slot = (Slot) inPredicate.getCompareExpr();
+            ColumnRange unionLiteralRange = inPredicate.getOptions()
+                    .stream()
+                    .map(Literal.class::cast)
+                    .map(ColumnRange::singleton)
+                    .reduce(ColumnRange.empty(), ColumnRange::union);
+            Map<Slot, ColumnRange> slotRanges = result.childrenResult.get(0).columnRanges;
+            result = intersectSlotRange(result, slotRanges, slot, unionLiteralRange);
+        }
+        return result;
+    }
+
+    @Override
+    public EvaluateRangeResult visitIsNull(IsNull isNull, EvaluateRangeInput context) {
+        EvaluateRangeResult result = evaluateChildrenThenThis(isNull, context);
+        if (!(result.result instanceof IsNull)) {
+            return result;
+        }
+
+        Expression child = isNull.child();
+        if (!(child instanceof Slot) || !context.defaultColumnRanges.containsKey((Slot) child)) {
+            return result;
+        }
+
+        boolean containsNull = partitionSlotContainsNull.get((Slot) child);
+        return new EvaluateRangeResult(containsNull ? BooleanLiteral.TRUE : BooleanLiteral.FALSE,
+                result.columnRanges, result.childrenResult);
     }
 
     @Override
@@ -279,7 +441,7 @@ public class OneRangePartitionEvaluator
         }
 
         // evaluate this
-        expr = FoldConstantRuleOnFE.INSTANCE.visit(expr, expressionRewriteContext);
+        expr = expr.accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
         return new EvaluateRangeResult(expr, context.defaultColumnRanges, childrenResults);
     }
 
@@ -297,10 +459,7 @@ public class OneRangePartitionEvaluator
         ColumnRange columnRange = columnRanges.get(slot);
         ColumnRange intersect = columnRange.intersect(otherRange);
 
-        Map<Slot, ColumnRange> newColumnRanges = ImmutableMap.<Slot, ColumnRange>builder()
-                .putAll(columnRanges)
-                .put(slot, intersect)
-                .build();
+        Map<Slot, ColumnRange> newColumnRanges = replaceSlotRange(columnRanges, slot, intersect);
 
         if (intersect.isEmptyRange()) {
             return new EvaluateRangeResult(BooleanLiteral.FALSE, newColumnRanges, originResult.childrenResult);
@@ -325,14 +484,14 @@ public class OneRangePartitionEvaluator
                 case RANGE:
                     ColumnRange columnRange = context.columnRanges.get(slot);
                     if (!columnRange.isSingleton()
-                            || !columnRange.getLowerBound().equals(ColumnBound.singleton(partitionBound.get(i)))) {
+                            || !columnRange.getLowerBound().getValue().equals(partitionBound.get(i))) {
                         return context;
                     }
                     continue;
                 case OTHER:
                     columnRange = context.columnRanges.get(slot);
                     if (columnRange.isSingleton()
-                            && columnRange.getLowerBound().equals(ColumnBound.singleton(partitionBound.get(i)))) {
+                            && columnRange.getLowerBound().getValue().equals(partitionBound.get(i))) {
                         continue;
                     }
 
@@ -354,10 +513,7 @@ public class OneRangePartitionEvaluator
             ColumnRange origin = context.columnRanges.get(qualifiedSlot);
             ColumnRange newRange = origin.intersect(qualifiedRange);
 
-            Map<Slot, ColumnRange> newRanges = ImmutableMap.<Slot, ColumnRange>builder()
-                    .putAll(context.columnRanges)
-                    .put(qualifiedSlot, newRange)
-                    .build();
+            Map<Slot, ColumnRange> newRanges = replaceSlotRange(context.columnRanges, qualifiedSlot, newRange);
 
             if (newRange.isEmptyRange()) {
                 return new EvaluateRangeResult(BooleanLiteral.FALSE, newRanges, context.childrenResult);
@@ -366,6 +522,12 @@ public class OneRangePartitionEvaluator
             }
         }
         return context;
+    }
+
+    private Map<Slot, ColumnRange> replaceSlotRange(Map<Slot, ColumnRange> originRange, Slot slot, ColumnRange range) {
+        LinkedHashMap<Slot, ColumnRange> newRanges = Maps.newLinkedHashMap(originRange);
+        newRanges.put(slot, range);
+        return ImmutableMap.copyOf(newRanges);
     }
 
     private EvaluateRangeResult mergeRanges(
@@ -392,6 +554,40 @@ public class OneRangePartitionEvaluator
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
+    public EvaluateRangeResult visitDate(Date date, EvaluateRangeInput context) {
+        EvaluateRangeResult result = super.visitDate(date, context);
+        if (!(result.result instanceof Date)) {
+            return result;
+        }
+
+        date = (Date) result.result;
+        if (!(date.child() instanceof Slot) || !context.slotToInput.containsKey((Slot) date.child())) {
+            return result;
+        }
+        DataType childType = date.child().getDataType();
+        if (!childType.isDateTimeType() && !childType.isDateTimeV2Type()) {
+            return result;
+        }
+        ColumnRange dateTimeRange = result.childrenResult.get(0).columnRanges.get((Slot) date.child());
+        if (dateTimeRange.isEmptyRange()) {
+            return result;
+        }
+
+        Range<ColumnBound> span = dateTimeRange.span();
+        Literal lower = span.lowerEndpoint().getValue();
+        Literal upper = span.upperEndpoint().getValue();
+
+        Expression lowerDate = new Date(lower).accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
+        Expression upperDate = new Date(upper).accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
+
+        if (lowerDate instanceof Literal && upperDate instanceof Literal && lowerDate.equals(upperDate)) {
+            return new EvaluateRangeResult(lowerDate, result.columnRanges, result.childrenResult);
+        }
+
+        return result;
+    }
+
     /** EvaluateRangeInput */
     public static class EvaluateRangeInput {
         private Map<Slot, ColumnRange> defaultColumnRanges;
@@ -415,14 +611,6 @@ public class OneRangePartitionEvaluator
             this.result = result;
             this.columnRanges = columnRanges;
             this.childrenResult = childrenResult;
-        }
-    }
-
-    private static class EvaluateChildContext {
-        private Map<Slot, ColumnRange> columnRanges;
-
-        public EvaluateChildContext(Map<Slot, ColumnRange> columnRanges) {
-            this.columnRanges = columnRanges;
         }
     }
 }

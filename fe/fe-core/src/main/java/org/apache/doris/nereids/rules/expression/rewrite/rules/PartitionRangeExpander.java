@@ -95,8 +95,11 @@ public class PartitionRangeExpander {
                     // some types can not expend, like varchar type
                     Literal upper = uppers.get(i);
                     try {
+                        boolean isLastColumn = i + 1 == partitionSlots.size();
                         if (canExpandRange(slot, lower, upper, expandedCount)) {
-                            expandedList.addAll(ImmutableList.copyOf(enumerableIterator(slot, lower, upper)));
+                            expandedList.addAll(ImmutableList.copyOf(
+                                    enumerableIterator(slot, lower, upper, isLastColumn))
+                            );
                         } else {
                             expandedList.add(slot);
                         }
@@ -145,7 +148,7 @@ public class PartitionRangeExpander {
             Literal lower = lowers.get(i);
             Literal upper = uppers.get(i);
 
-            PartitionSlotType type = lower.toLegacyLiteral().equals(upper)
+            PartitionSlotType type = lower.toLegacyLiteral().equals(upper.toLegacyLiteral())
                     ? PartitionSlotType.CONST
                     : PartitionSlotType.RANGE;
             types.add(type);
@@ -171,36 +174,36 @@ public class PartitionRangeExpander {
     }
 
     private final Iterator<? extends Expression> enumerableIterator(
-            Slot slot, Literal startInclusive, Literal endExclusive) throws ParseException {
+            Slot slot, Literal startInclusive, Literal endLiteral, boolean endExclusive) throws ParseException {
         DataType dataType = slot.getDataType();
         if (dataType.isIntegerLikeType()) {
             BigInteger start = new BigInteger(startInclusive.getStringValue());
-            BigInteger end = new BigInteger(endExclusive.getStringValue());
+            BigInteger end = new BigInteger(endLiteral.getStringValue());
             if (dataType.isTinyIntType()) {
                 return new IntegerLikeRangePartitionValueIterator<>(
-                        start, end, value -> new TinyIntLiteral(value.byteValue()));
+                        start, end, endExclusive, value -> new TinyIntLiteral(value.byteValue()));
             } else if (dataType.isSmallIntType()) {
                 return new IntegerLikeRangePartitionValueIterator<>(
-                        start, end, value -> new SmallIntLiteral(value.shortValue()));
+                        start, end, endExclusive, value -> new SmallIntLiteral(value.shortValue()));
             } else if (dataType.isIntegerType()) {
                 return new IntegerLikeRangePartitionValueIterator<>(
-                        start, end, value -> new IntegerLiteral(value.intValue()));
+                        start, end, endExclusive, value -> new IntegerLiteral(value.intValue()));
             } else if (dataType.isBigIntType()) {
                 return new IntegerLikeRangePartitionValueIterator<>(
-                        start, end, value -> new BigIntLiteral(value.longValue()));
+                        start, end, endExclusive, value -> new BigIntLiteral(value.longValue()));
             } else if (dataType.isLargeIntType()) {
                 return new IntegerLikeRangePartitionValueIterator<>(
-                        start, end, LargeIntLiteral::new);
+                        start, end, endExclusive, LargeIntLiteral::new);
             }
         } else if (dataType.isDateType()) {
-            Date start = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            Date end = DateUtils.parseDate(endExclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            return new DateLikeRangePartitionValueIterator<>(start, end,
+            Date startDate = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
+            Date endDate = DateUtils.parseDate(endLiteral.toString(), DateLiteral.JAVA_DATE_FORMAT);
+            return new DateLikeRangePartitionValueIterator<>(startDate, endDate, endExclusive,
                     date -> new DateLiteral(DateFormatUtils.format(date, DateLiteral.JAVA_DATE_FORMAT)));
         } else if (dataType.isDateV2Type()) {
-            Date start = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            Date end = DateUtils.parseDate(endExclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
-            return new DateLikeRangePartitionValueIterator<>(start, end,
+            Date startDate = DateUtils.parseDate(startInclusive.toString(), DateLiteral.JAVA_DATE_FORMAT);
+            Date endDate = DateUtils.parseDate(endLiteral.toString(), DateLiteral.JAVA_DATE_FORMAT);
+            return new DateLikeRangePartitionValueIterator<>(startDate, endDate, endExclusive,
                     date -> new DateV2Literal(DateFormatUtils.format(date, DateLiteral.JAVA_DATE_FORMAT)));
         }
         // unsupported type
@@ -210,9 +213,9 @@ public class PartitionRangeExpander {
     private class IntegerLikeRangePartitionValueIterator<L extends IntegerLikeLiteral>
             extends RangePartitionValueIterator<BigInteger, L> {
 
-        public IntegerLikeRangePartitionValueIterator(
-                BigInteger startInclusive, BigInteger endExclusive, Function<BigInteger, L> toLiteral) {
-            super(startInclusive, endExclusive, toLiteral);
+        public IntegerLikeRangePartitionValueIterator(BigInteger startInclusive, BigInteger end,
+                boolean endExclusive, Function<BigInteger, L> toLiteral) {
+            super(startInclusive, end, endExclusive, toLiteral);
         }
 
         @Override
@@ -225,8 +228,8 @@ public class PartitionRangeExpander {
             extends RangePartitionValueIterator<Date, L> {
 
         public DateLikeRangePartitionValueIterator(
-                Date startInclusive, Date endExclusive, Function<Date, L> toLiteral) {
-            super(startInclusive, endExclusive, toLiteral);
+                Date startInclusive, Date finish, boolean endExclusive, Function<Date, L> toLiteral) {
+            super(startInclusive, finish, endExclusive, toLiteral);
         }
 
         @Override
@@ -238,13 +241,15 @@ public class PartitionRangeExpander {
     private abstract class RangePartitionValueIterator<C extends Comparable, L extends Literal>
             implements Iterator<L> {
         private final C startInclusive;
-        private final C endExclusive;
+        private final C end;
+        private final boolean endExclusive;
         private C current;
 
         private final Function<C, L> toLiteral;
 
-        public RangePartitionValueIterator(C startInclusive, C endExclusive, Function<C, L> toLiteral) {
+        public RangePartitionValueIterator(C startInclusive, C end, boolean endExclusive, Function<C, L> toLiteral) {
             this.startInclusive = startInclusive;
+            this.end = end;
             this.endExclusive = endExclusive;
             this.current = this.startInclusive;
             this.toLiteral = toLiteral;
@@ -252,7 +257,11 @@ public class PartitionRangeExpander {
 
         @Override
         public boolean hasNext() {
-            return current.compareTo(endExclusive) < 0;
+            if (endExclusive) {
+                return current.compareTo(end) < 0;
+            } else {
+                return current.compareTo(end) <= 0;
+            }
         }
 
         @Override

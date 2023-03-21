@@ -54,7 +54,9 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
             CascadesContext cascadesContext) {
         // before eliminate uninterested predicate, we must push down `Not` under CompoundPredicate
         expression = expression.accept(new SimplifyNotExprRule(), null);
-        return expression.accept(new TryEliminateUninterestedPredicates(interestedSlots, cascadesContext), new Context());
+        TryEliminateUninterestedPredicates rewriter = new TryEliminateUninterestedPredicates(
+                interestedSlots, cascadesContext);
+        return expression.accept(rewriter, new Context());
     }
 
     @Override

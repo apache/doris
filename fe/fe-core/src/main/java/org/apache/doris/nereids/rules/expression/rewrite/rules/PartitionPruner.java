@@ -38,7 +38,7 @@ public class PartitionPruner {
     private List<OnePartitionEvaluator> partitions;
     private Expression partitionPredicate;
 
-    public PartitionPruner(List<OnePartitionEvaluator> partitions, Expression partitionPredicate) {
+    private PartitionPruner(List<OnePartitionEvaluator> partitions, Expression partitionPredicate) {
         this.partitions = Objects.requireNonNull(partitions, "partitions cannot be null");
         this.partitionPredicate = Objects.requireNonNull(partitionPredicate, "partitionPredicate cannot be null");
     }
@@ -57,6 +57,7 @@ public class PartitionPruner {
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
 
         Map<Long, PartitionItem> idToPartitions = partitionInfo.getIdToItem(false);
+
         List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
                 .stream()
                 .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext))
