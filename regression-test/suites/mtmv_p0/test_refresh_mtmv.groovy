@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_mtmv") {
-    def tableName = "t_test_create_mtmv_user"
-    def tableNamePv = "t_test_create_mtmv_user_pv"
-    def mvName = "multi_mv_test_create_mtmv"
+suite("test_refresh_mtmv") {
+    def tableName = "t_test_refresh_mtmv_user"
+    def tableNamePv = "t_test_refresh_mtmv_user_pv"
+    def mvName = "multi_mv_test_refresh_mtmv"
     sql """
         ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
@@ -68,6 +68,7 @@ suite("test_create_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
 
+   // waiting the task to be finished.
     def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
     def index = show_task_meta.indexOf(['State', 'CHAR'])
     def query = "SHOW MTMV TASK ON ${mvName}"
@@ -84,6 +85,23 @@ suite("test_create_mtmv") {
 
     assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
+
+    // test REFRESH make sure only define one mv and already run a task.
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} COMPLETE
+    """
+    state = "PENDING"
+    do {
+        show_task_result = sql "${query}"
+        if (!show_task_result.isEmpty()) {
+            state = show_task_result.last().get(index)
+        }
+        println "The state of ${query} is ${state}"
+        Thread.sleep(1000);
+    } while (state.equals('PENDING') || state.equals('RUNNING'))
+
+    assertEquals 'SUCCESS', state, show_task_result.last().toString()
+    assertEquals 2, show_task_result.size(), show_task_result.toString()
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}

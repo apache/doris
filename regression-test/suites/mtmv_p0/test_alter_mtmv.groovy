@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_mtmv") {
-    def tableName = "t_test_create_mtmv_user"
-    def tableNamePv = "t_test_create_mtmv_user_pv"
-    def mvName = "multi_mv_test_create_mtmv"
+suite("test_alter_mtmv") {
+    def tableName = "t_test_alter_mtmv_user"
+    def tableNamePv = "t_test_alter_mtmv_pv"
+    def mvName = "multi_mv_test_alter_mtmv"
     sql """
         ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
@@ -68,6 +68,7 @@ suite("test_create_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
 
+    // waiting the task to be finished.
     def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
     def index = show_task_meta.indexOf(['State', 'CHAR'])
     def query = "SHOW MTMV TASK ON ${mvName}"
@@ -82,8 +83,17 @@ suite("test_create_mtmv") {
         Thread.sleep(1000);
     } while (state.equals('PENDING') || state.equals('RUNNING'))
 
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
-    order_qt_select "SELECT * FROM ${mvName}"
+    // test alter mtmv
+    sql """
+        alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE start with "2022-11-03 00:00:00" next 2 DAY
+    """
+    show_job_meta = sql_meta "SHOW MTMV JOB ON ${mvName}"
+    def scheduleIndex = show_job_meta.indexOf(['Schedule', 'CHAR'])
+
+    show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
+    assertEquals 1, show_job_result.size(), show_job_result.toString()
+
+    assertEquals 'START 2022-11-03T00:00 EVERY(2 DAYS)', show_job_result.last().get(scheduleIndex).toString(), show_job_result.last().toString()
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}

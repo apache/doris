@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_mtmv") {
-    def tableName = "t_test_create_mtmv_user"
-    def tableNamePv = "t_test_create_mtmv_user_pv"
-    def mvName = "multi_mv_test_create_mtmv"
+suite("test_create_both_mtmv") {
+    def tableName = "t_test_create_both_mtmv_user"
+    def tableNamePv = "t_test_create_both_mtmv_user_pv"
+    def mvName = "multi_mv_test_create_both_mtmv"
     sql """
         ADMIN SET FRONTEND CONFIG("enable_mtmv_scheduler_framework"="true");
         """
@@ -58,16 +58,18 @@ suite("test_create_mtmv") {
 
     sql """drop materialized view if exists ${mvName}""" 
 
+    // test only one job created when build IMMEDIATE and start time is before now.
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH COMPLETE
+        start with "2022-11-03 00:00:00" next 1 DAY
         KEY(username)   
         DISTRIBUTED BY HASH (username)  buckets 1
         PROPERTIES ('replication_num' = '1') 
         AS 
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-
+    // wait task to be finished to avoid task leak in suite.
     def show_task_meta = sql_meta "SHOW MTMV TASK ON ${mvName}"
     def index = show_task_meta.indexOf(['State', 'CHAR'])
     def query = "SHOW MTMV TASK ON ${mvName}"
@@ -82,8 +84,8 @@ suite("test_create_mtmv") {
         Thread.sleep(1000);
     } while (state.equals('PENDING') || state.equals('RUNNING'))
 
-    assertEquals 'SUCCESS', state, show_task_result.last().toString()
-    order_qt_select "SELECT * FROM ${mvName}"
+    def show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
+    assertEquals 1, show_job_result.size(), show_job_result.toString()
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
