@@ -260,7 +260,14 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool eos = false;
     RuntimeState* state = ctx->state();
     DCHECK(nullptr != state);
-    if (!scanner->is_open()) {
+    if (!scanner->is_init()) {
+        status = scanner->init();
+        if (!status.ok()) {
+            ctx->set_status_on_error(status);
+            eos = true;
+        }
+    }
+    if (!eos && !scanner->is_open()) {
         status = scanner->open(state);
         if (!status.ok()) {
             ctx->set_status_on_error(status);

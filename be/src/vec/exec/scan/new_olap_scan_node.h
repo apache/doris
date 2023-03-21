@@ -65,6 +65,7 @@ private:
 private:
     TOlapScanNode _olap_scan_node;
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
     std::vector<TCondition> _olap_filters;
     // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,
