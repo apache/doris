@@ -89,7 +89,8 @@ public class AnalysisManager {
         String db = analyzeStmt.getDBName();
         TableName tbl = analyzeStmt.getTblName();
         StatisticsUtil.convertTableNameToObjects(tbl);
-        List<String> colNames = analyzeStmt.getOptColumnNames();
+        List<String> colNames = analyzeStmt.getColumnNames();
+        List<String> partitionNames = analyzeStmt.getPartitionNames();
         Map<Long, AnalysisTaskInfo> analysisTaskInfos = new HashMap<>();
         long jobId = Env.getCurrentEnv().getNextId();
         if (colNames != null) {
@@ -98,7 +99,8 @@ public class AnalysisManager {
                 AnalysisType analType = analyzeStmt.isHistogram ? AnalysisType.HISTOGRAM : AnalysisType.COLUMN;
                 AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(jobId)
                         .setTaskId(taskId).setCatalogName(catalogName).setDbName(db)
-                        .setTblName(tbl.getTbl()).setColName(colName).setJobType(JobType.MANUAL)
+                        .setTblName(tbl.getTbl()).setColName(colName)
+                        .setPartitionNames(partitionNames).setJobType(JobType.MANUAL)
                         .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(analType)
                         .setState(AnalysisState.PENDING)
                         .setScheduleType(ScheduleType.ONCE).build();
@@ -110,7 +112,7 @@ public class AnalysisManager {
                 analysisTaskInfos.put(taskId, analysisTaskInfo);
             }
         }
-        if (analyzeStmt.wholeTbl && analyzeStmt.getTable().getType().equals(TableType.OLAP)) {
+        if (analyzeStmt.isWholeTbl && analyzeStmt.getTable().getType().equals(TableType.OLAP)) {
             OlapTable olapTable = (OlapTable) analyzeStmt.getTable();
             try {
                 olapTable.readLock();
@@ -122,7 +124,8 @@ public class AnalysisManager {
                     AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(
                                     jobId).setTaskId(taskId)
                             .setCatalogName(catalogName).setDbName(db)
-                            .setTblName(tbl.getTbl()).setIndexId(meta.getIndexId()).setJobType(JobType.MANUAL)
+                            .setTblName(tbl.getTbl()).setPartitionNames(partitionNames)
+                            .setIndexId(meta.getIndexId()).setJobType(JobType.MANUAL)
                             .setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(AnalysisType.INDEX)
                             .setScheduleType(ScheduleType.ONCE).build();
                     try {

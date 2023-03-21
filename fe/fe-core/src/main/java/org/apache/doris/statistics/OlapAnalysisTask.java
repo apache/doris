@@ -31,7 +31,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Each task analyze one column.
@@ -42,6 +41,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "FROM `${dbName}`.`${tblName}` "
             + "PARTITION ${partName}";
 
+    // TODO Currently, NDV is computed for the full table; in fact,
+    //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}`) t2\n";
@@ -71,7 +72,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = tbl.getPartitionNames();
+            List<String> partNames = info.partitionNames;
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {

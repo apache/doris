@@ -22,6 +22,8 @@ import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.statistics.AnalysisTaskInfo.ScheduleType;
 
+import java.util.List;
+
 public class AnalysisTaskInfoBuilder {
     private long jobId;
     private long taskId;
@@ -29,6 +31,7 @@ public class AnalysisTaskInfoBuilder {
     private String dbName;
     private String tblName;
     private String colName;
+    private List<String> partitionNames;
     private Long indexId;
     private JobType jobType;
     private AnalysisMethod analysisMethod;
@@ -65,6 +68,11 @@ public class AnalysisTaskInfoBuilder {
 
     public AnalysisTaskInfoBuilder setColName(String colName) {
         this.colName = colName;
+        return this;
+    }
+
+    public AnalysisTaskInfoBuilder setPartitionNames(List<String> partitionNames) {
+        this.partitionNames = partitionNames;
         return this;
     }
 
@@ -109,7 +117,7 @@ public class AnalysisTaskInfoBuilder {
     }
 
     public AnalysisTaskInfo build() {
-        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colName, indexId, jobType,
-                analysisMethod, analysisType, message, lastExecTimeInMs, state, scheduleType);
+        return new AnalysisTaskInfo(jobId, taskId, catalogName, dbName, tblName, colName, partitionNames,
+                indexId, jobType, analysisMethod, analysisType, message, lastExecTimeInMs, state, scheduleType);
     }
 }
