@@ -329,24 +329,24 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 ### Clickhouse
 
-| ClickHouse Type                                | Doris Type               | Comment                                                                                                                              |
-|------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Bool                                           | BOOLEAN                  |                                                                                                                                      |
-| String                                         | STRING                   |                                                                                                                                      |
-| Date/Date32                                    | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                                           |
-| DateTime/DateTime64                            | DATETIMEV2               | JDBC CATLOG uses DateTimev2 type default when connecting DORIS                                                                       |
-| Float32                                        | FLOAT                    |                                                                                                                                      |
-| Float64                                        | DOUBLE                   |                                                                                                                                      |
-| Int8                                           | TINYINT                  |                                                                                                                                      |
-| Int16/UInt8                                    | SMALLINT                 | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT.                                                      |
-| Int32/UInt16                                   | INT                      | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT.                                                          |
-| Int64/Uint32                                   | BIGINT                   | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT.                                                       |
-| Int128/UInt64                                  | LARGEINT                 | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT.                                                     |
-| Int256/UInt128/UInt256                         | STRING                   | Doris does not support data types of such orders of magnitude so these will be mapped to STRING.                                     |
-| DECIMAL                                        | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration.                  |
-| Enum/IPv4/IPv6/UUID                            | STRING                   | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
-| <version since="dev" type="inline"> Array(T)   | Array<T>                 | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported </version>                  |
-| Other                                          | UNSUPPORTED              |                                                                                                                                      |
+| ClickHouse Type        | Doris Type               | Comment                                                                                                                             |
+|------------------------|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| Bool                   | BOOLEAN                  |                                                                                                                                     |
+| String                 | STRING                   |                                                                                                                                     |
+| Date/Date32            | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting DORIS                                                                          |
+| DateTime/DateTime64    | DATETIMEV2               | JDBC CATLOG uses DateTimev2 type default when connecting DORIS                                                                      |
+| Float32                | FLOAT                    |                                                                                                                                     |
+| Float64                | DOUBLE                   |                                                                                                                                     |
+| Int8                   | TINYINT                  |                                                                                                                                     |
+| Int16/UInt8            | SMALLINT                 | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT.                                                     |
+| Int32/UInt16           | INT                      | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT.                                                         |
+| Int64/Uint32           | BIGINT                   | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT.                                                      |
+| Int128/UInt64          | LARGEINT                 | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT.                                                    |
+| Int256/UInt128/UInt256 | STRING                   | Doris does not support data types of such orders of magnitude so these will be mapped to STRING.                                    |
+| DECIMAL                | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration.                 |
+| Enum/IPv4/IPv6/UUID    | STRING                   | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
+| Array(T)               | Array<T>                 | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported                 |
+| Other                  | UNSUPPORTED              |                                                                                                                                     |
 
 ### Doris
 
