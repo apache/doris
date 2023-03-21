@@ -38,6 +38,8 @@ public:
 
     void clone(ColumnPredicate** to) const override {
         *to = new ComparisonPredicateBase(_column_id, _value, _opposite);
+        (*to)->predicate_params()->value = _predicate_params->value;
+        (*to)->predicate_params()->marked_by_runtime_filter = _predicate_params->marked_by_runtime_filter;
     }
 
     bool need_to_clone() const override { return true; }
